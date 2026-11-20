@@ -11,6 +11,9 @@
   POST /api/new        用户点了"新对话"
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
+  POST /api/memory/read、delete                 查看、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
+  POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
+  POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
@@ -45,17 +48,18 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import i18n
+from .. import i18n, memories
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
 from ..config import APP_NAME, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
+from ..memories import MemoryFileError
 from ..permissions import MODES
 from ..pricing import estimate, price_of
 from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
-from ..safe import clean, to_json
+from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tools.shell import SECRET_ENV_VARS
@@ -78,8 +82,8 @@ def reveal_in_file_manager(path: Path) -> None:
     """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
-    路径只能是程序自己算出来的（见 WebApp.reveal_conversation，浏览器只能给会话编号，给不了路径）；
-    命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
+    路径只能是程序自己算出来的（见 WebApp.reveal_conversation 和 reveal_memories：浏览器只能给会话编号，
+    或者什么都不给，给不了路径）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
     if sys.platform == "darwin":
         command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
@@ -116,6 +120,7 @@ class WebApp:
         self._publishing = threading.Lock()
         self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
         self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
+        self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         self.publish_state()
@@ -132,6 +137,7 @@ class WebApp:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
         cost, unpriced = estimate(agent.usage_by_model, settings.prices)
+        self._memories_shown = memories.list_files(config.memory_dir)
         self.ui.publish(
             "state",
             provider=settings.provider,
@@ -159,6 +165,9 @@ class WebApp:
                 {"id": item["id"], "title": item["title"], "due": item["due"]}
                 for item in self.app.todos.items("pending")
             ],
+            # 记忆文件夹里有哪些文件（只有名字、大小和修改时间，内容要看时另外读）。每次发状态都重新看一遍文件夹，
+            # 所以模型在这一轮里记下或删掉的，下一次刷新状态时页面上就跟着变了，页面不用自己去轮询
+            memories=self._memories_shown,
             usage={
                 "requests": usage.requests,
                 "input": usage.input_tokens,
@@ -363,6 +372,50 @@ class WebApp:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
 
+    # ---- 记忆 --------------------------------------------------------------
+
+    def delete_memory(self, relative: str) -> str:
+        """删掉一条记忆。成功返回空字符串，否则返回原因。"""
+        # 对话进行中不让删。模型可能正在改这条记忆：先 view 读出来，再 str_replace 改其中一段。
+        # 这时删掉它，模型的下一步会莫名其妙地失败；或者它紧接着用 create 把刚读到的内容又写回去，
+        # 你以为删掉了，其实它又回来了。和删除会话一样，等这一轮结束再删。查看和打开文件夹只是读，不受限制。
+        if not self._turn.acquire(blocking=False):
+            return t(self.BUSY)
+        try:
+            try:
+                memories.delete(self.app.config.memory_dir, relative)
+            except MemoryFileError as exc:
+                return str(exc)
+            self.publish_state()  # 列表跟着状态走：删完马上发一次
+        finally:
+            self._turn.release()
+        return ""
+
+    def refresh_memories(self) -> None:
+        """页面刚连上、或者回到前台时问一声：记忆文件夹在这期间有没有变。
+
+        模型改的，下一次发状态时自然就带上了；可你自己在访达里删的、改的，程序不会知道，页面上的列表就旧了，
+        点开一条才发现"不存在"。所以页面在这两个时刻来问。变了就发一次新的状态，列表照常跟着状态走；
+        没变就什么都不发，免得每切换一次窗口，日志里就多一张状态快照。
+        """
+        if memories.list_files(self.app.config.memory_dir) != self._memories_shown:
+            self.publish_state()
+
+    def reveal_memories(self) -> tuple[str, str]:
+        """在文件管理器里打开记忆文件夹。返回（失败原因，打开的路径）。
+
+        和 reveal_conversation 一样：路径是程序自己定的（配置里的记忆文件夹），浏览器什么都指定不了；
+        只是打开来看看，所以不拿对话的锁。文件夹还不存在的话（被你删了，或者换了数据目录）先建一个空的，
+        不然点了没反应，也不知道该去哪儿找。
+        """
+        folder = self.app.config.memory_dir
+        try:
+            private_dir(folder)  # 和数据目录里别的文件夹一样，只有你自己的账号能进
+            reveal_in_file_manager(folder)
+        except OSError as exc:
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=folder), ""
+        return "", str(folder)
+
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
@@ -554,6 +607,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._finish(web.rename_conversation(conversation_id, title.strip()))
             else:
                 self._send_json(400, {"error": t("参数不正确")})
+        elif path.startswith("/api/memory/"):
+            action, relative = path.removeprefix("/api/memory/"), body.get("path")
+            if action == "refresh":
+                web.refresh_memories()
+                self._send_json(200, {"ok": True})
+            elif action == "reveal":
+                error, shown = web.reveal_memories()  # 请求里带什么都不看：打开哪个文件夹由服务器定
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "path": shown})
+            elif action not in ("read", "delete") or not isinstance(relative, str):
+                self._send_json(400, {"error": t("参数不正确")})
+            elif action == "delete":
+                self._finish(web.delete_memory(relative))
+            else:
+                # 只是读，对话进行中也可以看。模型正在改的话，看到的是改之前或之后的样子，不会是半截：
+                # 记忆工具改文件时先写好一个临时文件，再一步换上去
+                try:
+                    self._send_json(200, {"ok": True, **memories.read(web.app.config.memory_dir, relative)})
+                except MemoryFileError as exc:
+                    self._send_json(409, {"error": str(exc)})
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
