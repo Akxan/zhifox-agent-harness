@@ -22,6 +22,11 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
+  POST /api/task/run、stop                      立即运行一次、停下正在排队或者正在运行的那一次
+  POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
+  POST /api/task/dismiss                        关掉一条（或者全部）已经弹出的提醒
+  POST /api/task/preview                        还没保存的时间表接下来会在哪三个时刻运行
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -63,7 +68,9 @@ from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
 from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
+from ..tasks import TaskError, TaskRefused
 from ..tools.shell import SECRET_ENV_VARS
+from .scheduler import Scheduler
 from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
@@ -122,8 +129,12 @@ class WebApp:
         self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
         self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
+        # 定时任务：到时间了自己跑一轮（和你的对话轮流用 self._turn），或者弹出一条提醒。见 scheduler.py
+        self.tasks = Scheduler(self, self._turn)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
+        if app.tasks.problem:
+            ui.hint(app.tasks.problem, level="error")  # 任务文件读不出来：说一声，原来的文件留在哪儿
         self.publish_state()
 
     def publish_state(self) -> None:
@@ -140,6 +151,7 @@ class WebApp:
         cost, unpriced = estimate(agent.usage_by_model, settings.prices)
         price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
+        tasks, reminders = self.tasks.snapshot()
         self.ui.publish(
             "state",
             provider=settings.provider,
@@ -185,6 +197,10 @@ class WebApp:
             tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
             approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
+            # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
+            # 以及已经弹出、你还没关掉的提醒
+            tasks=tasks,
+            reminders=reminders,
         )
 
     def _models(self, provider_id: str) -> list[str]:
@@ -202,7 +218,7 @@ class WebApp:
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label)
         if not self._turn.acquire(blocking=False):
-            return t("上一轮对话还没有结束")
+            return self._busy(t("上一轮对话还没有结束"))
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
         # 这样服务器还能继续响应浏览器的其他请求，比如"允许"和"停止"。
         threading.Thread(target=self._run_turn, args=(text, attachments or []), daemon=True).start()
@@ -265,8 +281,17 @@ class WebApp:
         for text in self.app.take_warnings():
             self.ui.hint(text, level="error")
 
+    def _busy(self, otherwise: str | None = None) -> str:
+        """对话的锁被占着时，告诉用户为什么。被定时任务占着的话，说是哪个任务、怎么停下它。"""
+        title = self.tasks.holder()
+        if title is not None:
+            return t("定时任务“{title}”正在运行。可以等它跑完，或者在“任务”里停下它。", title=title)
+        return otherwise or t(self.BUSY)
+
     def stop(self) -> None:
-        if self._turn.locked():
+        # 锁被定时任务拿着时，这个"停止"不是冲它来的：停任务走 /api/task/stop。
+        # 不然点一下对话的"停止"，会把任务正在运行的命令杀掉
+        if self._turn.locked() and self.tasks.holder() is None:
             self.ui.request_stop()
 
     def wait_idle(self, timeout: float) -> bool:
@@ -279,7 +304,7 @@ class WebApp:
     def new_conversation(self) -> str:
         """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。"""
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             blocked = self._before_leaving("new")
             if blocked:
@@ -297,7 +322,7 @@ class WebApp:
     def open_conversation(self, conversation_id: str) -> str:
         """打开一段保存过的会话。成功返回空字符串，否则返回原因。"""
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             if conversation_id == self.app.conversation.id:
                 return ""  # 已经开着了
@@ -327,7 +352,7 @@ class WebApp:
         # 改名要读出会话文件、改掉标题、再写回去。如果这时正好有一轮对话结束、也在写同一个文件，
         # 两边会互相覆盖。所以和打开、删除一样，对话进行中不让改。
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             try:
                 self.app.rename_conversation(conversation_id, title)
@@ -340,7 +365,7 @@ class WebApp:
 
     def delete_conversation(self, conversation_id: str) -> str:
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             try:
                 was_current = self.app.delete_conversation(conversation_id)
@@ -383,7 +408,7 @@ class WebApp:
         # 这时删掉它，模型的下一步会莫名其妙地失败；或者它紧接着用 create 把刚读到的内容又写回去，
         # 你以为删掉了，其实它又回来了。和删除会话一样，等这一轮结束再删。查看和打开文件夹只是读，不受限制。
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             try:
                 memories.delete(self.app.config.memory_dir, relative)
@@ -400,7 +425,7 @@ class WebApp:
         和删除一样，对话进行中不让改：模型可能正读着它、马上要改其中一段，这时把内容换掉，它的下一步会对不上。
         """
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY), "", False
+            return self._busy(), "", False
         try:
             try:
                 saved = memories.save(self.app.config.memory_dir, relative, name, text, modified, force)
@@ -460,7 +485,7 @@ class WebApp:
         if not has_key(PROVIDERS[provider_id]):
             return t("还没有设置 {provider} 的 API 密钥", provider=PROVIDERS[provider_id].label)
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
@@ -490,7 +515,7 @@ class WebApp:
         原因放在"提醒"里告诉用户。
         """
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY), ""
+            return self._busy(), ""
         warning = ""
         try:
             self.app.set_api_key(provider_id, key)
@@ -728,8 +753,52 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 web.set_price(model, price)
                 self._send_json(200, {"ok": True})
+        elif path.startswith("/api/task/"):
+            self._route_task(web, path.removeprefix("/api/task/"), body)
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _route_task(self, web: WebApp, action: str, body: dict) -> None:
+        """定时任务的几个操作。参数不对回答 400，现在做不了（任务不存在、已经在运行……）回答 409。"""
+        tasks, task_id = web.tasks, body.get("id")
+        if action not in ("save", "preview", "dismiss", "delete", "toggle", "run", "stop", "confirm"):
+            self._send_json(404, {"error": "not found"})
+            return
+        # 除了新建（save 不带编号）、看时间表（preview）和关提醒（dismiss），都要指明是哪个任务
+        needs_id = action not in ("save", "preview", "dismiss")
+        valid = {
+            "save": task_id is None or isinstance(task_id, str),
+            "dismiss": body.get("all") is True or isinstance(body.get("reminder_id"), str),
+            "toggle": isinstance(body.get("enabled"), bool),
+            "confirm": _valid_answer(body),
+        }.get(action, True)
+        if not valid or (needs_id and not isinstance(task_id, str)):
+            self._send_json(400, {"error": t("参数不正确")})
+            return
+        reply: dict = {"ok": True}
+        try:
+            if action == "save":
+                reply["id"] = tasks.save(task_id, body)
+            elif action == "preview":
+                reply["next"] = tasks.preview(body.get("schedule"))
+            elif action == "dismiss":
+                tasks.dismiss(None if body.get("all") is True else body["reminder_id"])
+            elif action == "delete":
+                tasks.delete(task_id)
+            elif action == "toggle":
+                tasks.toggle(task_id, body["enabled"])
+            elif action == "run":
+                tasks.run_now(task_id)
+            elif action == "stop":
+                tasks.stop(task_id)
+            else:
+                tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
+        except TaskRefused as exc:
+            self._send_json(409, {"error": i18n.message_of(exc)})
+        except TaskError as exc:
+            self._send_json(400, {"error": i18n.message_of(exc)})
+        else:
+            self._send_json(200, reply)
 
     def _finish(self, error: str, warning: str = "") -> None:
         """按"空字符串表示成功"的约定回复浏览器。"""
@@ -872,6 +941,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def _valid_answer(body: dict) -> bool:
+    """答复定时任务的确认：confirm_id 是整数，allow 是真假，feedback（可以不给）是一段文字。"""
+    confirm_id, feedback = body.get("confirm_id"), body.get("feedback", "")
+    return isinstance(confirm_id, int) and not isinstance(confirm_id, bool) and isinstance(body.get("allow"), bool) and isinstance(feedback, str)
+
+
 def _valid_price(price: object) -> bool:
     """价格要么是 None（删除自己填的价格），要么是一组不小于 0 的数字。"""
     if price is None:
@@ -914,7 +989,8 @@ def claim_data_dir(data_dir: Path) -> IO | None:
 
 
 def shut_down(server: Server, app: App) -> None:
-    """退出前的收尾：让正在进行的一轮停下来、存好盘，再关掉服务器。"""
+    """退出前的收尾：让正在进行的一轮（或者正在运行的定时任务）停下来、存好盘，再关掉服务器。"""
+    server.web.tasks.close()
     server.web.stop()
     app.shell.kill_running()
     # stop() 只是通知这一轮尽快收尾，收尾（包括存盘）是在另一个线程里做的。不等它的话，程序一退出那个线程就没了：
@@ -952,6 +1028,8 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     if not has_key(provider):
         print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
     print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
+    # 定时任务只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的，补跑一次
+    server.web.tasks.start()
     if open_browser:
         webbrowser.open(url)
 

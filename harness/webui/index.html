@@ -617,6 +617,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 .task-bar { position: relative; height: 3px; overflow: hidden; background: var(--hover); border-radius: 2px; }
 .task-bar i { position: absolute; inset: 0; width: 40%; border-radius: 2px; background: linear-gradient(90deg, var(--a1), var(--a3)); animation: task-slide 1.6s cubic-bezier(.4, 0, .2, 1) infinite; }
 .task.waiting .task-bar i { width: 100%; animation: none; background: var(--warn); opacity: .5; }
+.task.queued .task-bar i { width: 100%; animation: none; background: var(--line-3); }
 @keyframes task-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 :root[data-motion="reduce"] .task-bar i { width: 100%; transform: none; opacity: .45; animation: none; }
 .task-activity { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
@@ -2845,7 +2846,8 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] ? t(KINDS[hit.kind]) : ''));
       paint(line, hit.text, hit.marks);
     } else {
-      open.appendChild(el('span', 'conv-meta', item.model + ' · ' + timeLabel(item.updated_at)));
+      // 定时任务跑出来的会话标一下，免得以为是自己聊的
+      open.appendChild(el('span', 'conv-meta', (item.task ? t('定时任务') + ' · ' : '') + item.model + ' · ' + timeLabel(item.updated_at)));
     }
     open.addEventListener('click', () => {
       const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
@@ -3554,7 +3556,9 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   let taskTimer = 0, taskTicks = 0;
 
   const pad2 = (number) => String(number).padStart(2, '0');
-  const RUN_STATUS = { running: k('正在运行'), waiting: k('等你确认'), done: k('完成'), failed: k('失败'), stopped: k('已停止'), missed: k('错过了') };
+  const RUN_STATUS = { running: k('正在运行'), waiting: k('等你确认'), queued: k('排队中'), done: k('完成'), failed: k('失败'), stopped: k('已停止'), missed: k('错过了') };
+  // 助手程序说 waiting 有两种：排在你这一轮（或别的任务）后面，和停下来等你确认。看有没有待确认的操作来分
+  const runStatus = (task, run) => (run.status === 'waiting' && !(task.running && task.running.confirm) ? 'queued' : run.status);
 
   // "09:00" 按界面语言写：英文是 9:00 AM，中文和西班牙语是 09:00
   function clockText(hhmm) {
@@ -3626,6 +3630,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     const doing = running.activity || {};
     if (running.confirm) return t('等你确认：{what}', { what: [running.confirm.tool, running.confirm.summary].filter(Boolean).join(' · ') });
     if (doing.kind === 'tool') return doing.summary ? t('正在调用 {tool}：{summary}', { tool: doing.tool, summary: doing.summary }) : t('正在调用 {tool}', { tool: doing.tool });
+    if (doing.kind === 'waiting') return doing.summary || t('排队中');  // 助手程序写好了在等什么（"等你这一轮对话结束"）
     if (doing.kind === 'thinking') return t('正在思考……');
     if (doing.kind === 'writing') return t('正在写回复……');
     return t('正在准备……');
@@ -3705,7 +3710,8 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 
   function taskRow(task) {
     const running = task.running;
-    const row = el('li', 'task ' + (task.kind === 'agent' ? 'agent' : 'reminder') + (task.enabled ? '' : ' off') + (running ? ' running' : '') + (running && running.confirm ? ' waiting' : ''));
+    const queued = running && !running.confirm && running.activity && running.activity.kind === 'waiting';
+    const row = el('li', 'task ' + (task.kind === 'agent' ? 'agent' : 'reminder') + (task.enabled ? '' : ' off') + (running ? ' running' : '') + (running && running.confirm ? ' waiting' : '') + (queued ? ' queued' : ''));
     row.dataset.id = task.id;
 
     if (removingTask === task.id) {  // 删除前先在原地确认，和会话、记忆一样
@@ -3767,9 +3773,11 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 
   function lastRunLine(task, run) {
     const line = el('span', 'task-last');
-    line.appendChild(el('span', 'chip ' + run.status, t(RUN_STATUS[run.status] || run.status)));
+    const status = runStatus(task, run);
+    line.appendChild(el('span', 'chip ' + status, t(RUN_STATUS[status] || status)));
     const bits = [momentText(run.started_at)];
-    if (run.catch_up) bits.push(t('补跑'));
+    if (run.catch_up) bits.push(run.missed > 1 ? t('补跑（错过了 {n} 次）', { n: run.missed }) : t('补跑'));
+    if (run.manual) bits.push(t('手动运行'));
     if (task.kind === 'agent' && typeof run.cost === 'number') bits.push(costText(run.cost));
     line.appendChild(el('span', null, bits.join(' · ')));
     return line;
@@ -3949,8 +3957,10 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     alert.hidden = !running;
     if (!running) return;
     alert.classList.toggle('waiting', Boolean(waiting));
+    const queued = !waiting && running.running.activity && running.running.activity.kind === 'waiting';
     $('task-alert-text').textContent = waiting ? t('定时任务“{title}”在等你确认', { title: waiting.title })
-      : t('定时任务“{title}”正在运行 · 第 {n} 步', { title: running.title, n: running.running.step });
+      : queued ? t('定时任务“{title}”在排队：{what}', { title: running.title, what: activityText(running.running) })
+        : t('定时任务“{title}”正在运行 · 第 {n} 步', { title: running.title, n: running.running.step });
     alert.dataset.id = running.id;
   }
 
@@ -4025,9 +4035,11 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   function runItem(task, run) {
     const item = el('li', 'run');
     const row = item.appendChild(el('div', 'row'));
-    row.appendChild(el('span', 'chip ' + run.status, t(RUN_STATUS[run.status] || run.status)));
+    const status = runStatus(task, run);
+    row.appendChild(el('span', 'chip ' + status, t(RUN_STATUS[status] || status)));
     row.appendChild(el('span', null, momentText(run.started_at)));
-    if (run.catch_up) row.appendChild(el('span', 'chip', t('补跑')));
+    if (run.catch_up) row.appendChild(el('span', 'chip', run.missed > 1 ? t('补跑（错过了 {n} 次）', { n: run.missed }) : t('补跑')));
+    if (run.manual) row.appendChild(el('span', 'chip', t('手动运行')));
     if (run.finished_at && run.finished_at > run.started_at) row.appendChild(el('span', null, t('用时 {time}', { time: durationText(run.finished_at - run.started_at) })));
     if (run.steps) row.appendChild(el('span', null, t('{n} 步', { n: run.steps })));
     if (task.kind === 'agent' && typeof run.cost === 'number') row.appendChild(el('span', null, costText(run.cost)));

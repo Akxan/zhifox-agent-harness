@@ -30,7 +30,8 @@
 ZhiFox is an AI agent harness built from scratch in Python, with no agent framework: a local-first personal assistant
 that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
 tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
-commands and search the web, with a permission prompt before anything that changes your computer. It is also a teaching
+commands, search the web and run scheduled or recurring tasks, with a permission prompt before anything that changes
+your computer. It is also a teaching
 project: every part of this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
@@ -47,6 +48,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   share one OpenAI Chat Completions adapter.
 - 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
   shell commands, and web search (Claude only).
+- ⏰ **Scheduled and recurring tasks.** Free reminders, or instructions the assistant runs on its own at a set time:
+  once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs take turns with
+  your conversation, pause for your approval even in Allow everything mode, catch up once after ZhiFox was closed, and
+  record what each one cost.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
@@ -112,7 +117,7 @@ flowchart TB
     subgraph parts ["Harness parts"]
         prompt["System prompt<br/>prompt.py"]
         perms{{"Permissions<br/>permissions.py"}}
-        tools["Tools · tools/<br/>to-dos · memory · files · shell · web search"]
+        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · web search"]
         store[("Conversations + search index<br/>conversations.py · search.py")]
     end
 
@@ -181,6 +186,7 @@ Each part of the harness has its own file or directory:
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
+| Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that takes turns with you and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -392,13 +398,36 @@ styles and scripts look only there. That is what lets your Full choice override 
 refresh from starting an animation and then cutting it off. Light and dark themes work the same way
 (`<html data-theme>`).
 
+### Scheduled tasks: running when nobody is watching
+
+A task is a saved instruction plus a schedule ([harness/tasks.py](harness/tasks.py)). Running one reuses the same loop,
+with three things handled differently ([harness/webui/scheduler.py](harness/webui/scheduler.py)):
+
+1. **When.** A scheduler thread sleeps until the next task is due, at most 30 seconds at a time so that a changed clock
+   or a computer waking from sleep is noticed soon, and is woken early whenever a task changes. The next time is worked
+   out on the calendar in local time rather than by adding 24 hours, which is what keeps "every day at 9:00" at 9:00 on
+   the wall clock across daylight saving. Each task's next time is saved in `data/tasks.json`; finding it in the past on
+   the next start is how ZhiFox knows a run was missed.
+2. **Taking turns.** The loop and its tools assume one turn at a time: one shell whose running command Stop can end,
+   one set of files and to-dos. So a task run takes the same lock as your own turns, and waits for yours to finish.
+   Reminders call no model and don't need it.
+3. **Nobody watching.** The run gets its own `Agent` with a new adapter and an empty history
+   (`App.unattended_agent`), and its own event log (a second `WebUI` whose events aren't pushed to the page), so it
+   can't write into the conversation you're looking at. Its permissions are a copy that always asks
+   (`Permissions.unattended`). When it reaches a step that needs approval, the loop waits in `confirm` exactly as it
+   does in a conversation, and the waiting approval goes into the page state so you can answer it from the task.
+
+Progress reaches the page in the same `state` event as everything else: at most four times a second while text streams
+in, and immediately when a run starts, pauses for approval or ends. A stopped run still gives every tool call its
+result (the same `finally` in `Agent._run_tools`), so its saved conversation can be continued like any other.
+
 ### Three kinds of tools
 
 The difference is who writes the spec and who runs the tool:
 
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
-| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), running commands ([shell.py](harness/tools/shell.py)) |
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)) |
 | Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
@@ -411,6 +440,8 @@ that runs is the same. Tools of the third kind live on Anthropic's servers, so o
 | Action | Handling |
 |---|---|
 | To-dos, memory | Runs directly (only touches the assistant's own files in `data/`) |
+| Adding or deleting a reminder | Runs directly (at the set time it only shows a reminder: no model call, no cost) |
+| Adding or deleting a task the assistant runs on its own | Asks you first, and shows the schedule and the instruction (it will spend money later, with nobody watching) |
 | Reading files in the working directory | Runs directly |
 | Reading files outside the working directory | Asks you first |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
@@ -436,6 +467,10 @@ below the input box; in the terminal, use `/auto`:
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
 every time, so you can't turn it on and forget about it.
+
+Scheduled tasks are the exception. When one runs on its own, every step marked "Asks you first" pauses the run until you
+answer, whichever option you chose: loosening the prompts means "I'm here, go ahead", which isn't true at 3 a.m. (see
+[Scheduled and recurring tasks](#scheduled-and-recurring-tasks)).
 
 Two hard limits apply regardless of any prompt: the assistant can't read or write `.env` (which holds your API keys),
 and the commands it runs can't see those keys either.
@@ -546,6 +581,50 @@ The address shown in the terminal contains a `token`, a password for this run th
 the address to anyone, and don't post screenshots that show the address bar: whoever has it can use the page to make the
 assistant run commands on your computer. The server only accepts connections from your own machine.
 
+### Scheduled and recurring tasks
+
+Tell the assistant "remind me to drink water every morning at 9" or "every weekday at 9, look at my to-dos and write a
+plan for the day", or add a task by hand in the web UI. There are two kinds:
+
+| Kind | What happens at the set time | Cost |
+|---|---|---|
+| **Reminder** | A reminder appears in the page with the task's title and text. No model is called | Free |
+| **Agent** | The assistant carries out the task's instruction on its own, as if you had sent it as a message, calling the model and using its tools | Every run costs API credits, like a normal turn |
+
+Schedules use your computer's local time: once at a date and time, every day, on chosen days of the week, on a day of
+the month (the 31st means the last day in shorter months), or every N minutes (5 minutes to 7 days, counted from when the
+task was created or last ran). Daylight saving is handled on the calendar: "every day at 9:00" stays at 9:00 on the wall
+clock, a time skipped when the clocks spring forward runs right after the jump, and a time repeated when they fall back
+runs only once. Before you save a task, the form shows the next three times it will run.
+
+How agent tasks behave:
+
+- **They take turns with you.** Tasks use the same tools as your conversation (the same shell, files and to-dos), so a
+  task never runs during your own turn. One that comes due while you're chatting waits until your turn ends. While a
+  task runs, sending a message, switching models or opening a conversation is refused with a note naming the task and
+  how to stop it. Reminders don't wait for anything.
+- **They leave your conversation alone.** Each run starts with an empty history, uses the provider and model selected
+  in Settings at that moment, and is saved as a normal conversation named after the task and the time (for example
+  "Daily plan · 2026-11-21 09:00"). It appears in the sidebar marked as coming from a task, and you can open it, replay
+  it, search it and keep chatting in it.
+- **They pause for your approval.** Anything that would ask you in a conversation (running a command, writing a file…)
+  pauses the run until you answer, **even if you chose Allow everything**. The waiting approval is shown with the task,
+  where you can allow or deny it. Until you answer, the task keeps its turn, so answer it (or stop it) to get back to
+  chatting.
+- **You can watch and stop them.** While a task runs you can see what it is doing (thinking, writing, which tool), how
+  many model calls it has made, its cost so far and the tool calls so far. **Stop** works like the Stop button in a
+  conversation and also ends a running command; a run still waiting for its turn is simply dropped.
+- **Missed runs are caught up once.** If ZhiFox wasn't running at the scheduled time (or the computer was asleep), the
+  task runs once the next time ZhiFox notices, however many times it was missed. The run is marked as a catch-up with
+  the number of missed times, and the assistant is told when it should have run.
+- **Every run is recorded.** Each task keeps its last 20 runs: start and end time, status, number of model calls,
+  estimated cost, the beginning of the final answer, and the error if it failed. There is no spending cap.
+
+**Tasks run only while the web UI (`uv run harness --web`) is running.** The terminal UI doesn't run them; you can
+still ask the assistant there to add or delete tasks, and they run the next time the web UI is open. **Run now** runs a
+task once without changing its schedule. When the assistant adds or deletes an agent task for you, it asks you first,
+because that task will spend money later on its own; reminders don't ask.
+
 ### Terminal UI
 
 ```bash
@@ -582,6 +661,9 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 
 Press Ctrl-C while the model is replying to interrupt it.
 
+The terminal UI doesn't run scheduled tasks. You can ask the assistant to add or delete them here too; they run while
+the web UI is open.
+
 ### Using it in another folder
 
 The assistant's working directory is the directory you start it from. To have it work somewhere else, `cd` there first,
@@ -601,6 +683,7 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `data/conversations/` | Every web UI conversation, one JSON file each |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/todos.json` | To-dos |
+| `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
@@ -649,6 +732,9 @@ What the program does to keep cost under control:
   most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
   PowerPoint file costs what its text costs. Like the rest of the
   history, attachments are resent on every turn, and caching is what keeps that cheap.
+- **Scheduled tasks.** Each run of an agent task costs about as much as sending its instruction as a message, and it
+  runs whether or not you're there. There is no spending cap: a task every 5 minutes is 288 runs a day. The estimated
+  cost of every run is recorded with the task. Reminders are free.
 - You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
 Built-in prices, checked against the official pricing pages on 2026-11-20 (USD per million tokens):
@@ -732,7 +818,10 @@ OpenAI's formats. That lets the real SDKs run the whole loop, and the tests chec
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
 where the test code plays the browser. Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py).
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py). Scheduled
+tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
+storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
+server with a fake clock, so no test waits for 9 a.m.).
 
 The page itself (the styles and scripts in `index.html`) has no automated tests. After every change it is checked by hand
 in a real browser against the fake servers.
@@ -761,6 +850,9 @@ page.
   so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
   searchable until it has been saved.
 - One conversation at a time: while one is replying, you can't switch to another, rename one or delete one.
+- Scheduled tasks run only while the web UI is running, one at a time, taking turns with your own conversation. A task
+  that pauses for your approval keeps its turn until you answer or stop it. Reminders appear only in the page; there are
+  no system notifications.
 - Both interfaces show plain text only and don't render Markdown (the system prompt also tells the model not to use
   Markdown).
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
@@ -812,8 +904,16 @@ OpenAI format can be added with one entry in `PROVIDERS`.
 
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
-every launch, and steps that ran without asking are marked as allowed automatically. In every mode the assistant can't touch
-`.env`, and the commands it runs can't see your API keys. See [Permissions](#permissions).
+every launch, and steps that ran without asking are marked as allowed automatically. Scheduled tasks always ask, whatever
+the mode. In every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
+[Permissions](#permissions).
+
+### Can it do things on a schedule?
+
+Yes, while the web UI is running. Ask for "remind me at 3 p.m. to call the bank" (a free reminder) or "every Monday at
+9, summarize my open to-dos" (the assistant does it, and each run costs API credits). Runs wait for your turn to end,
+pause for your approval before commands and file writes, and are caught up once if ZhiFox was closed. See
+[Scheduled and recurring tasks](#scheduled-and-recurring-tasks).
 
 ### What does it cost to run?
 

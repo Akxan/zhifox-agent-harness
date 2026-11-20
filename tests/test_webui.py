@@ -713,7 +713,8 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     state = latest_state(s.browser)
     assert (state["provider"], state["model"]) == ("deepseek", "deepseek-flash")
     assert [tool["name"] for tool in state["tools"]] == [
-        "todo_add", "todo_list", "todo_update", "todo_delete", "memory", "str_replace_based_edit_tool", "run_command",
+        "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory",
+        "str_replace_based_edit_tool", "run_command",
     ]  # 没有联网搜索
     # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
     assert state["unpriced"] == []

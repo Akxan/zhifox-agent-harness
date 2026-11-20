@@ -95,6 +95,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/conversations.py` | 会话的保存和读取 |
 | `harness/search.py` | 会话的全文搜索：内存里的索引，三档匹配（原样、相近的词、隔字） |
 | `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
+| `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"一栏背后的部分：列出、查看、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
@@ -124,6 +125,15 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **"问不问用户"只能放宽，不能绕开。** `Permissions.review` 决定哪些操作需要确认，`auto_allows` 只决定
   当前模式下这一次可不可以不问；没有问就执行的，要调用界面的 `auto_allowed()` 留下记录。
   `.env` 在任何模式下都碰不了；读 `data/` 在任何模式下都要问（"全部自动允许"除外）。
+- **定时任务和对话轮流用 `WebApp._turn`。** 任务运行时拿着这把锁；新加的、会改动助手状态的操作也要拿它，
+  拿不到时用 `self._busy()` 回答（会说出是哪个任务在跑）。提醒不调用模型，不拿锁。对话的"停止"不能停任务，
+  停任务走 `/api/task/stop`。
+- **没人看着的运行永远要问。** 任务用 `Permissions.unattended()`，不受"要不要每次都问"的模式影响。
+- **任务运行不碰当前对话。** 用 `App.unattended_agent`（新的适配层、空的历史）和单独的 `RunUI`，事件不进页面的日志；
+  跑完存成普通会话（`Conversation.task` 记着任务编号），照样经过 `ConversationStore.save`。
+- **调度器的锁规矩：** 拿着 `Scheduler._lock` 时不调用 RunUI 的方法、不发状态、不写任务文件。
+- **任务的时间按本地时间、按日历算**（`tasks.next_after`），不要"加 24 小时"。测试用假的钟加 `tick()`，不真的等。
+  定时任务只在网页界面运行，终端界面不运行。
 - **会话的索引要和文件保持一致。** `ConversationStore` 里保存、改名、删除都要经过 `_remember` 或
   `_index.remove`，否则搜索结果会和磁盘上的内容对不上。发给页面的标记位置按 UTF-16 计数。
 - 改和 Claude API 有关的代码之前，先读一遍 `claude-api` 这个 skill，不要凭记忆写参数。

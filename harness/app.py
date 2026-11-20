@@ -33,6 +33,7 @@ from .providers import (
     make_client,
 )
 from .settings import Settings, save_api_key
+from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
 from .tools.shell import Shell
@@ -45,6 +46,7 @@ class App:
     settings: Settings
     agent: Agent
     todos: TodoStore
+    tasks: TaskStore  # 定时任务（只在网页界面开着的时候运行，见 webui/scheduler.py）
     tools: ToolRegistry
     shell: Shell
     system_prompt: str
@@ -95,6 +97,19 @@ class App:
             self.settings.choose(provider_id, model)
         except OSError as exc:
             self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
+
+    def unattended_agent(self, ui: Any) -> Agent:
+        """给定时任务的一次运行准备一个助手。
+
+        和对话用的那个共用工具（包括同一个 shell、同一份待办）：定时任务和你的对话是排着队一个一个来的
+        （见 webui/scheduler.py），不会同时用到它们。不共用的有三样：
+          - 适配层是新建的，历史是空的：任务从头开始，不带着你正在聊的内容，也不往你的对话里写东西；
+          - 用的是此刻设置里选中的那一家、那个模型；
+          - 权限是"永远要问"的那一份（见 Permissions.unattended）：没人看着的时候不自动放行。
+        """
+        backend = self._backend_for(self.settings.provider, self.settings.model)
+        permissions = self.agent.permissions.unattended()
+        return Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
 
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""
@@ -210,13 +225,14 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
 
     files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
     todos = TodoStore(config.todo_file)
+    tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)
-    tools = build_registry(config, files, todos, shell)
+    tools = build_registry(config, files, todos, shell, tasks)
     system_prompt = build_system_prompt(config)
 
     provider = PROVIDERS[settings.provider]
     backend = make_backend(provider, settings.model, config, tools, system_prompt, client_factory(provider))
-    permissions = Permissions(files, private=[config.data_dir])
+    permissions = Permissions(files, private=[config.data_dir], tasks=tasks)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     store = ConversationStore(config.conversations_dir)
     return App(
@@ -224,6 +240,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         settings=settings,
         agent=agent,
         todos=todos,
+        tasks=tasks,
         tools=tools,
         shell=shell,
         system_prompt=system_prompt,

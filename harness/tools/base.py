@@ -37,7 +37,8 @@ class Tool:
         return self.spec["name"]
 
 
-_JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool}
+# 参数的类型。对象和数组只检查最外面这一层，里面的内容由工具自己检查（比如定时任务的时间表，见 tasks.py）
+_JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "object": dict, "array": list}
 
 
 def check_input(schema: dict, tool_input: object) -> dict:
