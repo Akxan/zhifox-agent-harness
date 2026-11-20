@@ -47,7 +47,7 @@ class Config:
     max_tokens: int  # 单次回复的上限（思考也算在里面）
     max_steps: int  # 一轮对话里最多调用模型多少次，防止死循环
     workspace: Path  # 工作目录：助手可以直接读取这里面的文件
-    data_dir: Path  # 助手自己的数据：记忆、待办、文件备份、设置
+    data_dir: Path  # 助手自己的数据：记忆、待办、定时任务、文件备份、设置
     env_file: Path  # 保存各家 API key 的文件
     web: bool  # 是否启用联网搜索（只有 Claude 有）
     max_searches: int = 5  # 用户每发一条消息，最多联网搜索几次；0 表示不限制
@@ -57,6 +57,10 @@ class Config:
     @property
     def todo_file(self) -> Path:
         return self.data_dir / "todos.json"
+
+    @property
+    def tasks_file(self) -> Path:
+        return self.data_dir / "tasks.json"
 
     @property
     def backup_dir(self) -> Path:

@@ -2,7 +2,7 @@
 
 每段会话是 data/conversations/ 下的一个 JSON 文件，里面有三样东西：
 
-  基本信息   标题、用的是哪家的哪个模型、创建和更新时间
+  基本信息   标题、用的是哪家的哪个模型、创建和更新时间（定时任务运行出来的，还记着是哪个任务）
   messages   发给模型的对话历史。格式因厂商而异，这里原样保存，读回来就能接着聊
   events     界面上显示过的内容，用来把页面重新画出来
 
@@ -50,16 +50,20 @@ class Conversation:
     messages: list = field(default_factory=list)
     events: list = field(default_factory=list)
     saved: bool = False  # 有没有写到磁盘上（新会话在第一轮对话完成之前只在内存里）
+    task: str = ""  # 由哪个定时任务运行出来的（任务的编号）；你自己开的会话是空字符串
 
     def summary(self) -> dict:
         """会话列表里要显示的那几项，不含正文。"""
-        return {
+        summary = {
             "id": self.id,
             "title": self.title or t("新对话"),
             "provider": self.provider,
             "model": self.model,
             "updated_at": self.updated_at,
         }
+        if self.task:
+            summary["task"] = self.task  # 页面据此给它标上"定时任务"
+        return summary
 
 
 def make_title(text: str) -> str:
@@ -144,6 +148,8 @@ class ConversationStore:
             "events": conversation.events,
             "version": FORMAT_VERSION,
         }
+        if conversation.task:
+            data["task"] = conversation.task
         # 会话是私人的内容：目录和文件都只有自己的账号能读（和保存密钥的 .env 一样）
         private_dir(self.directory)
         # write_file 先写临时文件再替换，程序中途崩溃不会留下半个文件；
@@ -221,6 +227,7 @@ class ConversationStore:
                 messages=data["messages"],
                 events=data.get("events", []),
                 saved=True,
+                task=data.get("task") if isinstance(data.get("task"), str) else "",
             )
         except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:
             # RecursionError：嵌套了上千层的 JSON。不接住的话，一个这样的文件就能让整个程序启动不了
