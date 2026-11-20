@@ -47,6 +47,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   share one OpenAI Chat Completions adapter.
 - 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
   shell commands, and web search (Claude only).
+- 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
+  or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
+  description until a task calls for it, and the scripts a skill brings still need your approval to run.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
@@ -112,7 +115,7 @@ flowchart TB
     subgraph parts ["Harness parts"]
         prompt["System prompt<br/>prompt.py"]
         perms{{"Permissions<br/>permissions.py"}}
-        tools["Tools · tools/<br/>to-dos · memory · files · shell · web search"]
+        tools["Tools · tools/<br/>to-dos · memory · files · shell · skills · web search"]
         store[("Conversations + search index<br/>conversations.py · search.py")]
     end
 
@@ -181,6 +184,7 @@ Each part of the harness has its own file or directory:
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
+| Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -398,7 +402,7 @@ The difference is who writes the spec and who runs the tool:
 
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
-| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), running commands ([shell.py](harness/tools/shell.py)) |
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)) |
 | Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
@@ -406,11 +410,82 @@ Claude learned the specs of the second kind during training, so for Claude a one
 providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them; the code
 that runs is the same. Tools of the third kind live on Anthropic's servers, so other providers' models can't use them.
 
+### Skills
+
+A model knows a little about everything but nothing about how *you* want a particular kind of task done. Repeating the
+same instructions every time is tedious, and putting all of them in the system prompt makes every request carry every
+instruction. A **skill** solves this. It is a folder whose `SKILL.md` holds the steps for one kind of task, optionally
+with scripts, reference docs and templates next to it. The format is the open [Agent Skills
+standard](https://agentskills.io/specification), which Claude, Claude Code and a growing number of other tools use, so a
+skill written for any of them installs here unchanged:
+
+```
+weekly-report/
+├── SKILL.md          ---
+│                     name: weekly-report          lowercase letters, digits and hyphens; same as the folder
+│                     description: Write the       what it does and when to use it (≤ 1024 characters)
+│                       weekly report. Use when…
+│                     ---
+│                     (the instructions, in Markdown)
+├── scripts/          optional: code the model can run
+└── references/       optional: documents it reads only when needed
+```
+
+**Progressive disclosure.** A skill is loaded in three stages, each only when needed. (1) Every enabled skill's name and
+description are always in front of the model, about 100 tokens each, so you can install dozens. (2) When a request
+matches a description, the model calls the `skill` tool to read the full `SKILL.md`. (3) Other files are read, and
+scripts run, only when the instructions call for them.
+
+**Where the list goes, and why not the system prompt.** Within one conversation the system prompt and the tool specs
+must stay byte-for-byte the same (prompt caching depends on it, and Claude's earlier thinking is bound to it), but you
+can install or disable a skill at any moment. So the list travels in the user message, like the current time does: the
+first message of a conversation carries a `<skills>` block with the skills available then, and before each later
+message the current list is compared with the last one the model saw. If they differ, the new list is attached to that
+message. "The last one the model saw" is found by reading the conversation history itself, so reopening an old
+conversation or rolling back a failed turn needs no extra bookkeeping. The one exception is Claude's automatic
+compaction: whatever came before the compaction is no longer sent to the model, so a list there doesn't count. Claude
+Code does the same thing, passing the list of skills as an attachment in the messages rather than in its system prompt.
+See [harness/skills/catalog.py](harness/skills/catalog.py).
+
+**Reading and running.** The `skill` tool is read-only. It reads only enabled skills, and checks every path one level at
+a time, so it can't leave that skill's folder or follow a symlink out of it. That's why reading a skill doesn't ask you,
+just like the memory tool. Scripts are run by the model with `run_command`, which asks every time like any other
+command. A skill can't loosen that: Claude Code treats `allowed-tools` as "use these without asking", but ZhiFox only
+displays the field. `${CLAUDE_SKILL_DIR}` in a skill is replaced with the skill's real folder, so Claude Code skills that
+use it keep working. A skill marked `disable-model-invocation: true` is left out of the list (it's meant to be used only
+when you ask for it by name), and the model can still read it when you do.
+
+**Installing.** Only you can install, change or delete a skill, from the web UI; the model can't. ZhiFox keeps its own
+folder, `data/skills/`, and never reads Claude Code's folders on its own: **Import from Claude Code** looks in
+`~/.claude/skills/` and the project's `.claude/skills/` only when you click it, and copies the ones you tick, so later
+changes on either side don't affect the other. Everything that comes from outside is shown to you before anything is
+written (its name, description, files and source) and treated as hostile:
+
+- Links must be https, and redirects are followed only to https. Downloads time out and stop at 20 MB. A GitHub folder
+  link (`…/tree/main/skills/pdf`) downloads that branch's archive from `codeload.github.com` in one request, without
+  using the GitHub API's hourly quota, and takes the folder out of it. A link to a `SKILL.md` installs the folder it's
+  in.
+- Archives are refused if any entry is an absolute path, contains `..`, is a symlink, a device or a pipe, or is
+  encrypted. There are limits on the number of files (1,000) and the total unpacked size (50 MB), and on names that
+  differ only in case (they would overwrite each other on macOS). Files are first written to a hidden folder, which is
+  renamed into place at the end, so a failed install never leaves half a skill.
+- A name that clashes with an installed skill asks you to rename (the `name` in `SKILL.md` is rewritten to match the
+  new folder) or replace.
+
+**The frontmatter parser.** `SKILL.md` starts with a few lines of YAML. Instead of adding a YAML library,
+[harness/skills/frontmatter.py](harness/skills/frontmatter.py) reads the small subset the standard uses (plain, quoted
+and multi-line values, a one-level `metadata` map, lists) and rejects everything else with a line number: anchors and
+aliases (which can blow up exponentially), tags (which some libraries use to construct arbitrary objects), and a `: ` in
+an unquoted value (real YAML parsers reject it too, and Claude Code then loads the skill with no fields at all). Values
+stay text, so `version: 1.0` is `"1.0"`, not a number. Fields outside the standard, such as Claude Code's `argument-hint`
+or `hooks`, are kept in the file untouched.
+
 ### Permissions
 
 | Action | Handling |
 |---|---|
 | To-dos, memory | Runs directly (only touches the assistant's own files in `data/`) |
+| Reading an enabled skill | Runs directly (read-only, and it can't leave that skill's folder). A skill's scripts run through `run_command`, so they ask |
 | Reading files in the working directory | Runs directly |
 | Reading files outside the working directory | Asks you first |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
@@ -508,6 +583,23 @@ This starts a small server on your computer and opens the chat page in your brow
   itself up to date: a memory the assistant writes appears while the turn is still running, and changes you make in
   Finder appear as soon as you switch back to the page. Deleting waits until the assistant has finished its turn,
   because it may be in the middle of editing that very memory.
+- **Extensions → Skill** (the puzzle-piece button at the top right). Your installed skills, each with its description,
+  number of files and where it came from. Each row has a switch to enable or disable the skill, and on hover (or Tab) the
+  same three buttons as a conversation row: **Show in Finder** (that skill's folder), the **pencil** (edit `SKILL.md`;
+  the frontmatter is checked when you save, a changed `name` renames the folder too, and unsaved changes are guarded the
+  same way as memory edits) and the **trash can** (delete, after confirming in place). Click a row to open it: the
+  description and details, any problems that keep it from being used, and every file in the folder, each viewable as
+  plain text. Above the list:
+  - **New** writes a skill from a form (name, description, instructions) and checks the name as you type.
+  - **Add from URL** takes a GitHub folder or repository link, a link to a `SKILL.md`, or a link to a `.zip` / `.skill`
+    file. When a repository holds several skills, you pick which ones to install.
+  - **Upload** takes a `.zip` or `.skill` file, a single `SKILL.md`, or a whole folder; you can also drag them onto the
+    page.
+  - **Import from Claude Code** lists the skills in `~/.claude/skills/` and the project's `.claude/skills/`; tick the
+    ones to copy.
+  Everything is shown to you before it's installed, with a reminder that the assistant follows a skill's instructions,
+  so you should install only from sources you trust. Changes take effect from your next message. Like memory edits,
+  changing, deleting or installing a skill waits until the current turn ends.
 - **Appearance and motion** (the sun/moon button at the top right). A small panel with two rows:
   - **Appearance:** Light by default. You can switch to Dark, or to Match system.
   - **Motion:** follows your system setting by default (on macOS, System Settings → Accessibility → Display → Reduce
@@ -597,6 +689,8 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only |
 | `data/conversations/` | Every web UI conversation, one JSON file each |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
+| `data/skills/` | Installed skills, one folder each. You can manage them under **Extensions → Skill** or by hand |
+| `data/skills.json` | Which skills are disabled and where each one came from |
 | `data/todos.json` | To-dos |
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
@@ -611,11 +705,12 @@ Conversation content is sent to the API of the provider you chose, so the model 
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
 deletes its file too.
 
-To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button and the two
-folder buttons in the memory panel are the only ones on the page that make your computer launch another program (the
-file manager), so the server is extra careful with them: the page can only tell the server *which conversation*, *which
-memory* (a name from the list, checked as described below) or, for the memory folder, nothing at all; the server works
-out the path itself, and the page has no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
+To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button, the two
+folder buttons in the memory panel and the two in the Skill tab are the only ones on the page that make your computer
+launch another program (the file manager), so the server is extra careful with them: the page can only tell the server
+*which conversation*, *which memory* (a name from the list, checked as described below), *which skill* (a single
+folder name that must exist inside `data/skills/`) or, for the memory and skill folders, nothing at all; the server
+works out the path itself, and the page has no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
 the file.
 
 Reading, editing and deleting a memory from the info panel are guarded the same way. The page sends back the name it was shown
@@ -720,14 +815,17 @@ OpenAI's formats. That lets the real SDKs run the whole loop, and the tests chec
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
 where the test code plays the browser. Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py).
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py). Skills
+(the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model without
+changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
 
 The page itself (the styles and scripts in `index.html`) has no automated tests. After every change it is checked by hand
 in a real browser against the fake servers.
 
 To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
 the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
-doesn't touch your keys or `data/`.
+doesn't touch your keys or `data/`. It comes with a few made-up skills, and its **Import from Claude Code** looks at a
+fake `~/.claude/skills` inside that temporary directory.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
@@ -754,6 +852,10 @@ page.
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
   #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
+- Skills: `allowed-tools` doesn't pre-approve anything (see [Skills](#skills)). Claude Code's argument placeholders
+  (`$ARGUMENTS`, `$0`), `!` command blocks, `context: fork`, `hooks` and other Claude Code-only fields are kept in the
+  file but ignored. Installing from a URL works only for public https links up to 20 MB, so for a private GitHub
+  repository, download it and use Upload.
 - **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
   still thinking and has produced nothing, it won't stop immediately.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history

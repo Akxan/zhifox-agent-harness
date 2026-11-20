@@ -60,6 +60,9 @@ class Agent:
         self.usage = Usage()  # 本次运行的累计用量
         self.usage_by_model: dict[str, Usage] = {}  # 按模型分开记，因为各个模型价格不同
         self.on_usage: Callable[[], None] | None = None  # 每调用完一次模型就通知一下（界面用它刷新用量）
+        # 每条用户消息前面还要附上的说明。每一个都拿到到目前为止的对话历史，返回要附的文字（不用附就返回空的）。
+        # 比如"可用的 Skill 变了"（见 skills/catalog.py）：这类会变的信息和时间一样，不能写进系统提示词
+        self.notes: list[Callable[[list], str]] = []
 
     @property
     def messages(self) -> list:
@@ -80,7 +83,8 @@ class Agent:
         start = self.backend.mark()
         # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。
         # 只发了附件、没写字的时候，没有"用户的话"这一段（API 不接受空的文字块）
-        parts = [self._context_note()] + ([user_text] if user_text.strip() else [])
+        notes = [text for text in (note(self.messages) for note in self.notes) if text]
+        parts = [self._context_note(), *notes] + ([user_text] if user_text.strip() else [])
         # 附件和文字是同一条消息：出错撤回时一起撤回，不会只剩下半条
         self.backend.add_user(parts, attachments or ())
         try:

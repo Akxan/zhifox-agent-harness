@@ -12,6 +12,9 @@
   - 页面每次刷新都重新从磁盘读，改完 index.html 刷新一下就能看到，不用重启。
   - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
+  - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
+    "从 Claude Code 导入"看的是临时目录里一个假的 ~/.claude/skills，不是你电脑上真正的那个。
+    "从网址添加"会真的去下载（只是下载公开的文件，不花钱）。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用；之后是几条凑数的回复。发什么消息都行，回复只看顺序。
@@ -53,6 +56,7 @@ from fake_openai import FakeOpenAI, call, chat
 import harness.webui.server as server_module
 from harness.app import build_app
 from harness.config import Config
+from harness.skills import claude_code
 from harness.webui.ui import WebUI
 
 
@@ -172,6 +176,37 @@ if not (root / "data").exists():
     ):
         (memory_dir / name).parent.mkdir(parents=True, exist_ok=True)
         (memory_dir / name).write_text(body, encoding="utf-8")
+# 几个编造的 Skill：合格的、带脚本和参考资料的、停用的、frontmatter 写坏了的（列表里会标出"需要修改"）
+SKILLS = {
+    "weekly-report/SKILL.md": "---\nname: weekly-report\ndescription: 整理每周的工作周报。用户说“写周报”“总结这周做了什么”时使用。\n---\n\n# 周报\n\n1. 先问清楚这周的重点项目\n2. 按“完成、进行中、下周计划”三部分写\n3. 每一条写成一句话，带上日期\n",
+    "pdf-tools/SKILL.md": "---\nname: pdf-tools\ndescription: Extract text and tables from PDF files and fill PDF forms. Use when the user mentions PDFs, forms, or document extraction.\nlicense: MIT\ncompatibility: Requires python3 and pdfplumber\nmetadata:\n  author: example-org\n  version: \"1.2\"\n---\n\n# PDF tools\n\nRun `${CLAUDE_SKILL_DIR}/scripts/extract.py <file>` to get the text.\nFor forms, read references/FORMS.md first.\n",
+    "pdf-tools/scripts/extract.py": "import sys\n\nimport pdfplumber\n\nwith pdfplumber.open(sys.argv[1]) as pdf:\n    for page in pdf.pages:\n        print(page.extract_text())\n",
+    "pdf-tools/references/FORMS.md": "# Filling forms\n\n1. List the fields\n2. Fill them one by one\n",
+    "meeting-notes/SKILL.md": "---\nname: meeting-notes\ndescription: 把会议记录整理成“结论、待办、下次讨论”三部分。用户贴来一段会议记录时使用。\n---\n\n按三部分整理，待办写成“谁 · 做什么 · 什么时候”。\n",
+    "old-notes/SKILL.md": "---\nname: old-notes\ndescription: Use when: the user asks about old notes\n---\n\nThis description needs quotes.\n",
+}
+skills_dir = root / "data" / "skills"
+if not skills_dir.exists() and not (root / "data" / "skills.json").exists():  # 用 --data 接着用上次的目录时不再补
+    for name, body in SKILLS.items():
+        (skills_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (skills_dir / name).write_text(body, encoding="utf-8")
+    (root / "data" / "skills.json").write_text(json.dumps({
+        "disabled": ["meeting-notes"],
+        "sources": {
+            "weekly-report": {"kind": "new", "at": 1795200000},
+            "pdf-tools": {"kind": "url", "url": "https://github.com/example-org/skills/tree/main/pdf-tools", "label": "github.com/example-org/skills/pdf-tools", "at": 1795200000},
+        },
+    }), encoding="utf-8")
+# 假的 Claude Code：两个 Skill，其中一个和上面的重名，导入时能看到"改名还是替换"
+claude_home = root / "claude-home" / ".claude" / "skills"
+for name, body in {
+    "pdf-tools/SKILL.md": "---\nname: pdf-tools\ndescription: Claude Code 里的另一个 PDF 工具。\n---\n\n用 qpdf 合并 PDF。\n",
+    "commit-message/SKILL.md": "---\nname: commit-message\ndescription: Write clear git commit messages. Use when the user asks for a commit message.\nargument-hint: [scope]\n---\n\nSummarize the change in one line, then explain why.\n",
+}.items():
+    (claude_home / name).parent.mkdir(parents=True, exist_ok=True)
+    (claude_home / name).write_text(body, encoding="utf-8")
+claude_code.places = lambda workspace: [("~/.claude/skills", claude_home), (".claude/skills", workspace / ".claude" / "skills")]
+
 config = Config(
     effort="medium",
     max_tokens=64000,

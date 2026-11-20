@@ -33,6 +33,8 @@ from .providers import (
     make_client,
 )
 from .settings import Settings, save_api_key
+from .skills import SkillStore
+from .skills.catalog import notifier
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
 from .tools.shell import Shell
@@ -51,6 +53,7 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    skills: SkillStore  # 装好的 Skill（data/skills/）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
 
     @property
@@ -211,13 +214,16 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
     todos = TodoStore(config.todo_file)
     shell = Shell(config.workspace)
-    tools = build_registry(config, files, todos, shell)
+    skills = SkillStore(config.data_dir)
+    tools = build_registry(config, files, todos, shell, skills)
     system_prompt = build_system_prompt(config)
 
     provider = PROVIDERS[settings.provider]
     backend = make_backend(provider, settings.model, config, tools, system_prompt, client_factory(provider))
     permissions = Permissions(files, private=[config.data_dir])
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
+    # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）
+    agent.notes.append(notifier(skills))
     store = ConversationStore(config.conversations_dir)
     return App(
         config=config,
@@ -230,6 +236,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
+        skills=skills,
     )
 
 

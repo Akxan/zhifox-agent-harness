@@ -15,6 +15,7 @@
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
+  POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / Claude Code 安装（见 skills_api.py）
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
@@ -64,6 +65,7 @@ from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tools.shell import SECRET_ENV_VARS
+from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
@@ -83,8 +85,9 @@ def reveal_in_file_manager(path: Path) -> None:
     """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
-    路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories 和 show_memory：浏览器只能给
-    会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹），或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
+    路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory 和 skills_api.py 的 reveal：
+    浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、一个 Skill 的名字（只能是 Skill
+    文件夹里的一个子文件夹），或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
     if sys.platform == "darwin":
         command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
@@ -122,6 +125,8 @@ class WebApp:
         self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
         self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
+        # Skill 一页的接口。"在文件管理器里显示"每次都按名字现找这个函数（测试会把它换掉）
+        self.skills = SkillsAPI(self, lambda path: reveal_in_file_manager(path))
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         self.publish_state()
@@ -169,6 +174,8 @@ class WebApp:
             # 记忆文件夹里有哪些文件（只有名字、大小和修改时间，内容要看时另外读）。每次发状态都重新看一遍文件夹，
             # 所以模型在这一轮里记下或删掉的，下一次刷新状态时页面上就跟着变了，页面不用自己去轮询
             memories=self._memories_shown,
+            # 装好的 Skill（名字、说明、启用没有、有没有问题）。和记忆一样每次都重新看一遍文件夹
+            skills=self.skills.summaries(),
             usage={
                 "requests": usage.requests,
                 "input": usage.input_tokens,
@@ -569,9 +576,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._allowed(self.headers.get("X-Harness-Token", "")):
             return
-        # 只有发消息可以带附件，所以只有它的请求体上限放宽了
-        message = urlsplit(self.path).path == "/api/message"
-        body = self._read_json(MAX_MESSAGE_BODY_BYTES if message else MAX_BODY_BYTES)
+        # 只有发消息（带附件）和上传 Skill（压缩包、文件夹）的请求体上限放宽了
+        path = urlsplit(self.path).path
+        limit = {"/api/message": MAX_MESSAGE_BODY_BYTES, "/api/skill/upload": MAX_UPLOAD_BODY_BYTES}.get(path, MAX_BODY_BYTES)
+        body = self._read_json(limit)
         if body is None:
             return
         try:
@@ -678,6 +686,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, **memories.read(web.app.config.memory_dir, relative)})
                 except MemoryFileError as exc:
                     self._send_json(409, {"error": str(exc)})
+        elif path.startswith("/api/skill/"):
+            status, payload = web.skills.route(path.removeprefix("/api/skill/"), body)
+            self._send_json(status, payload)
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
@@ -820,7 +831,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if not 0 <= length <= limit:
-            if limit > MAX_BODY_BYTES:
+            if limit == MAX_UPLOAD_BODY_BYTES:
+                self._discard(length, limit + MAX_DISCARD_BYTES)
+                self._send_json(413, {"error": t("上传的内容太大了：一次最多约 20 MB。")})
+            elif limit > MAX_BODY_BYTES:
                 # 发消息的请求：上限本来就大，多读掉的量也跟着放宽，不然页面还是只能看到"连接断开"
                 self._discard(length, limit + MAX_DISCARD_BYTES)
                 self._send_json(413, {"error": t("请求太大：一条消息连同附件最多发送约 64MB 的内容")})

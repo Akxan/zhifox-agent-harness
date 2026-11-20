@@ -35,6 +35,7 @@
 因为这个项目讲的就是 harness 是怎么回事。
 
 助手能做四件事：管理待办、跨会话记住事情、读写文件和执行命令、联网搜索（联网搜索只有 Claude 能用）。
+还可以装 Skill，教它按你的方法做某一类事（格式是开放的 [Agent Skills](https://agentskills.io) 标准，见下面的"Skill 是怎么工作的"）。
 网页界面里的每段会话都会自动保存在你自己的电脑上，随时可以从左侧的列表里打开接着聊，
 也可以按标题和内容搜索。
 
@@ -114,6 +115,18 @@ uv run harness --web
   最下面的"在访达中打开记忆文件夹"（Linux 上是"打开记忆文件夹"）会在文件管理器里打开整个文件夹。
   列表自己会跟着变：助手在这一轮里记下的，这一轮还没结束就会出现；你在访达里改的、删的，切回这个页面时就会更新。
   助手工作时不能删，要等这一轮结束：它可能正在改的就是这一条。
+- 扩展 → Skill（右上角的拼图按钮）：装好的 Skill，每一个写着说明、有几个文件、从哪儿来的。
+  每一行有一个开关，可以启用或停用；鼠标移上去（或者用 Tab 移到它上面），右边出现和会话行一样的三个按钮：
+  "在访达中显示"（这个 Skill 的文件夹）、铅笔（编辑 SKILL.md，保存时检查 frontmatter；改了 name，文件夹也跟着改名；
+  有没保存的修改会先提醒，和编辑记忆一样）、垃圾桶（删除，先在原地确认一次）。
+  点一行打开它：说明和各项信息、让它用不了的问题，以及文件夹里的每一个文件，都能点开当纯文本看。列表上面是四个入口：
+  - 新建：按表单写一个（名字、说明、做法），名字边打边检查。
+  - 从网址添加：GitHub 上的文件夹或整个仓库的链接、一个 `SKILL.md` 的链接，或者 `.zip` / `.skill` 文件的链接。
+    一个仓库里有好几个 Skill 时，由你挑装哪几个。
+  - 上传：`.zip` 或 `.skill` 文件、一个 `SKILL.md`，或者整个文件夹；也可以直接拖进来。
+  - 从 Claude Code 导入：列出 `~/.claude/skills/` 和项目里 `.claude/skills/` 下的 Skill，勾上要复制过来的。
+  装之前都会先给你看一眼，并提醒你：Skill 里的说明会被助手照着做，只装你信任的来源。
+  改动从下一条消息起生效。和编辑记忆一样，改、删、装 Skill 都要等这一轮对话结束。
 - 外观和动效（右上角的太阳/月亮按钮）：点开是一个小面板，上下两排。
   - 外观：默认是浅色，可以换成深色，或者跟随系统的深浅色。
   - 动效：默认跟随系统设置（macOS 是"系统设置 → 辅助功能 → 显示 → 减弱动态效果"，Windows 是
@@ -204,6 +217,7 @@ uv run --project "/这个项目的完整路径" harness
 | 附件 | [harness/attachments.py](harness/attachments.py)、[harness/documents.py](harness/documents.py) | 模型只收几种文件。每个附件发出去之前都检查一遍，Word、Excel、PowerPoint 先变成文字 |
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
 | 记忆一栏 | [harness/memories.py](harness/memories.py) | 你看不到助手记住了什么。网页界面把记忆文件列出来、可以打开看、改、删，浏览器送来的路径出不了记忆文件夹 |
+| Skill | [harness/skills/](harness/skills/)、[harness/tools/skill.py](harness/tools/skill.py) | 模型不知道你希望某一类事怎么做。Skill 是一个写着做法（可能还带着脚本）的文件夹，事情对得上时模型才去读它 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
 | 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
@@ -229,7 +243,7 @@ flowchart TB
     subgraph parts ["harness 的其他部分"]
         prompt["系统提示词<br/>prompt.py"]
         perms{{"权限<br/>permissions.py"}}
-        tools["工具 · tools/<br/>待办 · 记忆 · 文件 · 命令 · 联网搜索"]
+        tools["工具 · tools/<br/>待办 · 记忆 · 文件 · 命令 · Skill · 联网搜索"]
         store[("会话存档 + 搜索索引<br/>conversations.py · search.py")]
     end
 
@@ -458,7 +472,7 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 
 | 类别 | 说明书 | 执行 | 这个项目里的例子 |
 |---|---|---|---|
-| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、执行命令（[shell.py](harness/tools/shell.py)） |
+| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、执行命令（[shell.py](harness/tools/shell.py)）、读 Skill（[skill.py](harness/tools/skill.py)） |
 | Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)）、记忆（[memory.py](harness/tools/memory.py)） |
 | 服务器工具 | Anthropic | Anthropic 的服务器 | 联网搜索（[web.py](harness/tools/web.py)） |
 
@@ -466,11 +480,67 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 所以 `files.py` 和 `memory.py` 里另有一份手写的说明书（`PORTABLE`）给它们用，执行的代码是同一份。
 第三类工具在 Anthropic 的服务器上，别家的模型用不了。
 
+### Skill 是怎么工作的
+
+模型什么都懂一点，但不知道你希望某一类事怎么做。每次都把要求重新说一遍很累，全写进系统提示词又会让每一次请求
+都背着所有的要求。Skill 就是为这个准备的：一个文件夹，里面的 `SKILL.md` 写着做这一类事的步骤，旁边可以带着
+脚本、参考资料和模板。格式是开放的 [Agent Skills 标准](https://agentskills.io/specification)，Claude、Claude Code
+和越来越多别家的工具都用它，所以在那边写好的 Skill 可以原样装进来：
+
+```
+weekly-report/
+├── SKILL.md          ---
+│                     name: weekly-report          小写字母、数字和连字符，和文件夹同名
+│                     description: 整理每周的      做什么、什么时候用（最多 1024 个字符）
+│                       工作周报。用户说……时使用
+│                     ---
+│                     （下面是做法，用 Markdown 写）
+├── scripts/          可选：模型可以运行的脚本
+└── references/       可选：需要时才读的参考资料
+```
+
+分三层、用到才拿（progressive disclosure）：一、每个启用着的 Skill 的名字和说明一直在模型眼前，每个约 100 个 token，
+所以装几十个也不会让对话变贵；二、请求和某个说明对得上时，模型用 `skill` 工具读出完整的 `SKILL.md`；
+三、别的文件和脚本，只有说明里要求、确实需要时才读、才运行。
+
+这份列表放在哪里，为什么不放系统提示词：一段对话里，系统提示词和工具说明书必须一字不差（缓存靠它；Claude 之前的
+思考内容也和它绑在一起），可你随时可能装上、停用一个 Skill。所以列表放在用户消息里，和当前时间一样：
+一段对话的第一条消息带着一个 `<skills>` 块，写着当时有哪些 Skill；之后每条消息发出之前，和模型最近一次看到的那份比一比，
+变了就把新的一份附在这条消息前面。"模型最近一次看到的那份"直接从对话历史里找，不另外记，所以打开旧会话、
+某一轮出错被撤回，都不用额外处理。唯一的例外是 Claude 的自动压缩：压缩之前的内容不再发给模型，那里面的列表也就不算看到过。
+Claude Code 也是这样做的：它把 Skill 列表作为附加信息放进消息里，而不是写死在系统提示词里。
+见 [harness/skills/catalog.py](harness/skills/catalog.py)。
+
+读和运行：`skill` 工具只能读，只能读启用着的 Skill，路径一层一层地检查，出不了那个 Skill 的文件夹，也不跟着链接走，
+所以读 Skill 不用问你，和记忆工具一样。Skill 里的脚本由模型用 `run_command` 运行，和别的命令一样每次都问。
+Skill 不能替你放开这一关：Claude Code 把 `allowed-tools` 当作"用这些工具不用再问"，智狐只把它显示出来。
+Skill 里的 `${CLAUDE_SKILL_DIR}` 会换成这个 Skill 真实的文件夹，所以用到它的 Claude Code Skill 照样能用。
+标了 `disable-model-invocation: true` 的 Skill 不列给模型（作者的意思是"只在用户点名时用"），你点名要用它时，模型照样读得到。
+
+安装：装、改、删 Skill 只能由你在网页上做，模型做不了。智狐有自己的文件夹 `data/skills/`，不会自己去读 Claude Code 的：
+"从 Claude Code 导入"只有在你点了之后，才去看 `~/.claude/skills/` 和项目里的 `.claude/skills/`，你勾选了的才复制过来，
+之后两边各改各的，互不影响。从外面来的东西，写进去之前都先给你看（名字、说明、文件、来源），并且一律当作不可信的：
+
+- 网址只认 https，跳转也只跟到 https；下载有超时，最多 20 MB。GitHub 上的文件夹链接（`…/tree/main/skills/pdf`）
+  会从 `codeload.github.com` 下载那个分支的压缩包（一个请求，不占 GitHub API 每小时的额度），再从里面取出那个文件夹；
+  `SKILL.md` 的链接装的是它所在的整个文件夹。
+- 压缩包里只要有一项是绝对路径、带 `..`、是符号链接、设备文件或管道，或者是加密的，就整个不装；文件个数（1000 个）、
+  解开之后的总大小（50 MB）都有上限，只差大小写的同名文件（在 macOS 上会互相覆盖）也不装。文件先写进一个隐藏的文件夹，
+  最后一步改名换上去，装到一半出错不会留下半个 Skill。
+- 和已有的 Skill 同名时，问你改名（`SKILL.md` 里的 `name` 跟着改成新文件夹的名字）还是替换。
+
+frontmatter 的解析：`SKILL.md` 开头有几行 YAML。没有为此加一个 YAML 库，[harness/skills/frontmatter.py](harness/skills/frontmatter.py)
+只认标准用到的那一小部分（普通的、带引号的、多行的值，一层的 `metadata` 表，列表），别的写法都明确报错并给出行号：
+锚点和别名（可以拿来做指数膨胀）、标签（有的库会照着它构造任意对象），以及没加引号的值里出现"冒号加空格"
+（正规的 YAML 解析器同样会报错，Claude Code 遇到这种文件会当作什么字段都没写）。值一律当作文字，`version: 1.0`
+读出来就是 `"1.0"`，不是数字。标准之外的字段（比如 Claude Code 的 `argument-hint`、`hooks`）原样留在文件里。
+
 ### 权限规则
 
 | 操作 | 处理 |
 |---|---|
 | 待办、记忆 | 直接执行（只动 `data/` 里助手自己的文件） |
+| 读取启用着的 Skill | 直接执行（只能读，出不了那个 Skill 的文件夹）。Skill 里的脚本要用 `run_command` 运行，照样先问你 |
 | 读取工作目录里的文件 | 直接执行 |
 | 读取工作目录之外的文件 | 先问你 |
 | 读取 `data/` 里的文件（保存的会话、设置） | 先问你，即使 `data/` 就在工作目录里 |
@@ -504,6 +574,8 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 | `.env` | 各家的 API 密钥。通过网页界面保存时，会把它设成只有你的账号能读 |
 | `data/conversations/` | 网页界面里的每段会话，一段一个 JSON 文件 |
 | `data/memories/` | 助手的长期记忆和笔记。可以在网页的信息栏里查看、修改和删除，也可以手动编辑 |
+| `data/skills/` | 装好的 Skill，一个一个文件夹。可以在"扩展 → Skill"里管理，也可以手动改 |
+| `data/skills.json` | 哪些 Skill 停用了、每一个是从哪儿装来的 |
 | `data/todos.json` | 待办事项 |
 | `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言。不含密钥 |
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
@@ -516,9 +588,10 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 对话内容会发送给你所选厂商的 API 处理，同时保存在你自己电脑上的 `data/conversations/` 里，
 不会上传到别处。在会话栏里删除一段会话，对应的文件也会被删掉。
 
-想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。它和记忆一栏里的两个文件夹按钮，
-是页面上仅有的会让电脑启动别的程序（文件管理器）的按钮，所以服务器对它们格外小心：页面只能告诉服务器
-"哪一段会话""哪一条记忆"（列表里给它的名字，按下面说的办法检查），或者打开记忆文件夹时什么都不用说；
+想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。它和记忆一栏里的两个文件夹按钮、
+Skill 一页里的两个文件夹按钮，是页面上仅有的会让电脑启动别的程序（文件管理器）的按钮，所以服务器对它们格外小心：
+页面只能告诉服务器"哪一段会话""哪一条记忆"（列表里给它的名字，按下面说的办法检查）、"哪一个 Skill"
+（只能是一段名字，而且必须是 `data/skills/` 里真实存在的一个文件夹），或者打开记忆、Skill 的文件夹时什么都不用说；
 路径由服务器自己算，页面没有办法让它打开别的路径。
 Linux 上没有通用的"选中某个文件"的办法，打开的是文件所在的文件夹。
 
@@ -611,11 +684,13 @@ uv run pytest
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
 会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)。
+Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 
 页面本身（`index.html` 里的样式和脚本）没有自动化测试，每次改动后是在真实的浏览器里对着假服务器手动操作检查的。
 
 想不花钱地到处点点、看看界面，可以运行 `uv run python tests/demo_web.py`：它启动的是真实的服务器和页面，
 后面接的是本地的假模型，回复都是预设的，数据写在临时目录里，不碰你的密钥和 `data/`。
+里面预先装了几个编造的 Skill，"从 Claude Code 导入"看的也是临时目录里一个假的 `~/.claude/skills`。
 
 每次推送到 GitHub、每个 pull request，都会在 Ubuntu 和 macOS 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
 （[.github/workflows/tests.yml](.github/workflows/tests.yml)），结果就是页面顶上的 Tests 徽章。
@@ -636,6 +711,9 @@ uv run pytest
 - 两种界面都只显示纯文本，不渲染 Markdown（系统提示词里也让模型不要用 Markdown）。
 - 换成英文或西班牙语之后，工具返回的提示（比如"没有编号为 9 的待办"）和终端 `/tools` 里工具的说明仍然是中文：
   这些是写给模型看的。换语言之前保存的会话里，程序发出的提示也还是当时的语言。
+- Skill：`allowed-tools` 不会让任何操作免于确认（见上面"Skill 是怎么工作的"）。Claude Code 的参数占位符
+  （`$ARGUMENTS`、`$0`）、`!` 命令块、`context: fork`、`hooks` 等只有 Claude Code 用的字段，原样留在文件里但不起作用。
+  从网址安装只支持公开的 https 链接，最多 20 MB；私有的 GitHub 仓库请先下载下来再上传。
 - 网页界面的"停止"在模型下一次有输出时生效：模型还在思考、没有任何输出的那几秒里，按了不会立刻停。
 - Claude 的"拒绝后自动换模型重试"、"自动压缩历史"和"接着聊旧会话时丢掉对不上的思考内容"用的是 API 的
   beta 功能，其中第三个每个 Claude 请求都会带上。如果每个请求都报 400，可以在

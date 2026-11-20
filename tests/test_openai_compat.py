@@ -37,7 +37,7 @@ def test_plain_answer_sends_expected_request(start):
     # 工具用各家通用的"函数"格式声明；联网搜索是 Anthropic 服务器上的功能，这里没有
     assert all(tool["type"] == "function" for tool in request["tools"])
     names = [tool["function"]["name"] for tool in request["tools"]]
-    assert names == ["todo_add", "todo_list", "todo_update", "todo_delete", "memory", FILE_TOOL, "run_command"]
+    assert names == ["todo_add", "todo_list", "todo_update", "todo_delete", "memory", FILE_TOOL, "run_command", "skill"]
     memory = request["tools"][4]["function"]
     assert "rename" in memory["parameters"]["properties"]["command"]["enum"] and "/memories" in memory["description"]
     assert "additionalProperties" not in json.dumps(request["tools"])
