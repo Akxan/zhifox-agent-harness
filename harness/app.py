@@ -37,6 +37,8 @@ from .providers import (
     make_client,
 )
 from .settings import Settings, save_api_key
+from .skills import SkillStore
+from .skills.catalog import notifier
 from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
@@ -59,6 +61,7 @@ class App:
     conversation: Conversation  # 当前正在进行的这一段
     media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
     ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
+    skills: SkillStore  # 装好的 Skill（data/skills/）
     mcp: McpManager  # 接入的 MCP 服务器（见 mcp/）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
@@ -147,6 +150,8 @@ class App:
         agent.use_tools(ToolRegistry([*self.tools, *self.mcp.snapshot().tools]))
         # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
+        # 任务也能用 Skill：它的历史是空的，所以第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
+        agent.notes.append(notifier(self.skills))
         return agent
 
     def take_warnings(self) -> list[str]:
@@ -329,7 +334,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     todos = TodoStore(config.todo_file)
     tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)
-    tools = build_registry(config, files, todos, shell, tasks)
+    skills = SkillStore(config.data_dir)
+    tools = build_registry(config, files, todos, shell, tasks, skills)
     system_prompt = build_system_prompt(config)
 
     provider = PROVIDERS[settings.provider]
@@ -338,6 +344,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     mcp = McpManager(McpConfig(config.mcp_file))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
+    # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）
+    agent.notes.append(notifier(skills))
     # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
     ledger = Ledger(config.ledger_file)
     agent.on_call = ledger.recorder(lambda: settings.prices)
@@ -357,6 +365,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         conversation=store.new(settings.provider, settings.model),
         media=MediaStore(config.media_dir),
         ledger=ledger,
+        skills=skills,
         mcp=mcp,
     )
     agent.on_start = app.fresh_tools

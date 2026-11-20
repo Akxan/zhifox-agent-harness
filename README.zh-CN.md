@@ -40,6 +40,7 @@
 记忆、待办、定时任务、系统提示词都可以在网页里直接查看和修改，每一样也都能在访达里找到对应的文件。
 费用随时看得到：每调用一次模型就更新估算，Claude 和 DeepSeek 的价格是内置的（对照两家官方核对过，
 包括 DeepSeek 闲时的半价），各家的长对话都会自动压缩。
+还可以装 Skill，教它按你的方法做某一类事（格式是开放的 [Agent Skills](https://agentskills.io) 标准，见下面的"Skill 是怎么工作的"）。
 还可以通过 MCP 接上别人写好的工具（本地的程序或者网址），每次调用之前默认先问你。
 网页界面里的每段会话都会自动保存在你自己的电脑上，随时可以从左侧的列表里打开接着聊，
 也可以按标题和内容搜索。
@@ -151,6 +152,18 @@ uv run harness --web
   最下面的"在访达中打开记忆文件夹"（Linux 上是"打开记忆文件夹"）会在文件管理器里打开整个文件夹。
   列表自己会跟着变：助手在这一轮里记下的，这一轮还没结束就会出现；你在访达里改的、删的，切回这个页面时就会更新。
   助手工作时不能删，要等这一轮结束：它可能正在改的就是这一条。
+- 扩展 → Skill（右上角的拼图按钮）：装好的 Skill，每一个写着说明、有几个文件、从哪儿来的。
+  每一行有一个开关，可以启用或停用；鼠标移上去（或者用 Tab 移到它上面），右边出现和会话行一样的三个按钮：
+  "在访达中显示"（这个 Skill 的文件夹）、铅笔（编辑 SKILL.md，保存时检查 frontmatter；改了 name，文件夹也跟着改名；
+  有没保存的修改会先提醒，和编辑记忆一样）、垃圾桶（删除，先在原地确认一次）。
+  点一行打开它：说明和各项信息、让它用不了的问题，以及文件夹里的每一个文件，都能点开当纯文本看。列表上面是四个入口：
+  - 新建：按表单写一个（名字、说明、做法），名字边打边检查。
+  - 从网址添加：GitHub 上的文件夹或整个仓库的链接、一个 `SKILL.md` 的链接，或者 `.zip` / `.skill` 文件的链接。
+    一个仓库里有好几个 Skill 时，由你挑装哪几个。
+  - 上传：`.zip` 或 `.skill` 文件、一个 `SKILL.md`，或者整个文件夹；也可以直接拖进来。
+  - 从 Claude Code 导入：列出 `~/.claude/skills/` 和项目里 `.claude/skills/` 下的 Skill，勾上要复制过来的。
+  装之前都会先给你看一眼，并提醒你：Skill 里的说明会被助手照着做，只装你信任的来源。
+  改动从下一条消息起生效。和编辑记忆一样，改、删、装 Skill 都要等这一轮对话结束。
 - 扩展 → MCP（右上角的拼图按钮）：智狐接入的 MCP 服务器，每一个写着状态（连接中、已连接、失败及原因和服务器最后说的一句、
   已停用）、有几个工具，还有一个启用开关。鼠标移上去（或者用 Tab 移到它上面），会出现"重启"和与会话行一样的三个按钮：
   "在访达中显示"（`data/mcp.json`）、编辑、删除（在原地确认一次）。点开一个服务器，能看到它是怎么连的、说的是哪一代协议、
@@ -293,6 +306,7 @@ uv run --project "/这个项目的完整路径" harness
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
 | MCP | [harness/mcp/](harness/mcp/) | 别人写好的工具在另外的程序里。手写的 MCP 客户端启动或连上它们，列出工具，替模型调用，并让一段对话里的工具保持不变（见下面的"MCP：别人写好的工具"） |
 | 记忆一栏 | [harness/memories.py](harness/memories.py) | 你看不到助手记住了什么。网页界面把记忆文件列出来、可以打开看、改、删，浏览器送来的路径出不了记忆文件夹 |
+| Skill | [harness/skills/](harness/skills/)、[harness/tools/skill.py](harness/tools/skill.py) | 模型不知道你希望某一类事怎么做。Skill 是一个写着做法（可能还带着脚本）的文件夹，事情对得上时模型才去读它 |
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你轮流用工具并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
@@ -322,7 +336,7 @@ flowchart TB
     subgraph parts ["harness 的其他部分"]
         prompt["系统提示词<br/>prompt.py"]
         perms{{"权限<br/>permissions.py"}}
-        tools["工具 · tools/<br/>待办 · 定时任务 · 记忆 · 文件 · 命令 · 联网搜索"]
+        tools["工具 · tools/<br/>待办 · 定时任务 · 记忆 · 文件 · 命令 · Skill · 联网搜索"]
         store[("会话存档 + 搜索索引<br/>conversations.py · search.py")]
     end
 
@@ -636,7 +650,7 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 
 | 类别 | 说明书 | 执行 | 这个项目里的例子 |
 |---|---|---|---|
-| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、定时任务（[tasks.py](harness/tools/tasks.py)）、执行命令（[shell.py](harness/tools/shell.py)） |
+| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、定时任务（[tasks.py](harness/tools/tasks.py)）、执行命令（[shell.py](harness/tools/shell.py)）、读 Skill（[skill.py](harness/tools/skill.py)） |
 | Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)）、记忆（[memory.py](harness/tools/memory.py)） |
 | 服务器工具 | Anthropic | Anthropic 的服务器 | 联网搜索（[web.py](harness/tools/web.py)） |
 
@@ -702,12 +716,69 @@ Claude 不接受最外层的 `anyOf`，Gemini 不认识 `$ref` 和 `$schema`，�
 HTTP 上挂断那个请求（对老一代的服务器也会发那条通知）。一次调用超过 5 分钟也会这样取消
 （可以在 `data/mcp.json` 里按服务器用 `"timeout": 秒数` 改）。本地服务器崩溃了会自动重启，10 分钟内最多 3 次。
 服务器通知"工具列表变了"（`notifications/tools/list_changed`）时，智狐在后台重新取一遍。
+### Skill 是怎么工作的
+
+模型什么都懂一点，但不知道你希望某一类事怎么做。每次都把要求重新说一遍很累，全写进系统提示词又会让每一次请求
+都背着所有的要求。Skill 就是为这个准备的：一个文件夹，里面的 `SKILL.md` 写着做这一类事的步骤，旁边可以带着
+脚本、参考资料和模板。格式是开放的 [Agent Skills 标准](https://agentskills.io/specification)，Claude、Claude Code
+和越来越多别家的工具都用它，所以在那边写好的 Skill 可以原样装进来：
+
+```
+weekly-report/
+├── SKILL.md          ---
+│                     name: weekly-report          小写字母、数字和连字符，和文件夹同名
+│                     description: 整理每周的      做什么、什么时候用（最多 1024 个字符）
+│                       工作周报。用户说……时使用
+│                     ---
+│                     （下面是做法，用 Markdown 写）
+├── scripts/          可选：模型可以运行的脚本
+└── references/       可选：需要时才读的参考资料
+```
+
+分三层、用到才拿（progressive disclosure）：一、每个启用着的 Skill 的名字和说明一直在模型眼前，每个约 100 个 token，
+所以装几十个也不会让对话变贵；二、请求和某个说明对得上时，模型用 `skill` 工具读出完整的 `SKILL.md`；
+三、别的文件和脚本，只有说明里要求、确实需要时才读、才运行。
+
+这份列表放在哪里，为什么不放系统提示词：一段对话里，系统提示词和工具说明书必须一字不差（缓存靠它；Claude 之前的
+思考内容也和它绑在一起），可你随时可能装上、停用一个 Skill。所以列表放在用户消息里，和当前时间一样：
+一段对话的第一条消息带着一个 `<skills>` 块，写着当时有哪些 Skill；之后每条消息发出之前，和模型最近一次看到的那份比一比，
+变了就把新的一份附在这条消息前面。"模型最近一次看到的那份"直接从对话历史里找，不另外记，所以打开旧会话、
+某一轮出错被撤回，都不用额外处理。唯一的例外是 Claude 的自动压缩：压缩之前的内容不再发给模型，那里面的列表也就不算看到过。
+Claude Code 也是这样做的：它把 Skill 列表作为附加信息放进消息里，而不是写死在系统提示词里。
+"怎么用 Skill"也写在这个块和 `skill` 工具的说明里，而不是系统提示词里：系统提示词你可以在设置里改，
+改过的提示词不该一声不响地让 Skill 失效。定时任务每次运行的第一条消息里也带着这份列表。
+见 [harness/skills/catalog.py](harness/skills/catalog.py)。
+
+读和运行：`skill` 工具只能读，只能读启用着的 Skill，路径一层一层地检查，出不了那个 Skill 的文件夹，也不跟着链接走，
+所以读 Skill 不用问你，和记忆工具一样。Skill 里的脚本由模型用 `run_command` 运行，和别的命令一样每次都问。
+Skill 不能替你放开这一关：Claude Code 把 `allowed-tools` 当作"用这些工具不用再问"，智狐只把它显示出来。
+Skill 里的 `${CLAUDE_SKILL_DIR}` 会换成这个 Skill 真实的文件夹，所以用到它的 Claude Code Skill 照样能用。
+标了 `disable-model-invocation: true` 的 Skill 不列给模型（作者的意思是"只在用户点名时用"），你点名要用它时，模型照样读得到。
+
+安装：装、改、删 Skill 只能由你在网页上做，模型做不了。智狐有自己的文件夹 `data/skills/`，不会自己去读 Claude Code 的：
+"从 Claude Code 导入"只有在你点了之后，才去看 `~/.claude/skills/` 和项目里的 `.claude/skills/`，你勾选了的才复制过来，
+之后两边各改各的，互不影响。从外面来的东西，写进去之前都先给你看（名字、说明、文件、来源），并且一律当作不可信的：
+
+- 网址只认 https，跳转也只跟到 https；下载有超时，最多 20 MB。GitHub 上的文件夹链接（`…/tree/main/skills/pdf`）
+  会从 `codeload.github.com` 下载那个分支的压缩包（一个请求，不占 GitHub API 每小时的额度），再从里面取出那个文件夹；
+  `SKILL.md` 的链接装的是它所在的整个文件夹。
+- 压缩包里只要有一项是绝对路径、带 `..`、是符号链接、设备文件或管道，或者是加密的，就整个不装；文件个数（1000 个）、
+  解开之后的总大小（50 MB）都有上限，只差大小写的同名文件（在 macOS 上会互相覆盖）也不装。文件先写进一个隐藏的文件夹，
+  最后一步改名换上去，装到一半出错不会留下半个 Skill。
+- 和已有的 Skill 同名时，问你改名（`SKILL.md` 里的 `name` 跟着改成新文件夹的名字）还是替换。
+
+frontmatter 的解析：`SKILL.md` 开头有几行 YAML。没有为此加一个 YAML 库，[harness/skills/frontmatter.py](harness/skills/frontmatter.py)
+只认标准用到的那一小部分（普通的、带引号的、多行的值，一层的 `metadata` 表，列表），别的写法都明确报错并给出行号：
+锚点和别名（可以拿来做指数膨胀）、标签（有的库会照着它构造任意对象），以及没加引号的值里出现"冒号加空格"
+（正规的 YAML 解析器同样会报错，Claude Code 遇到这种文件会当作什么字段都没写）。值一律当作文字，`version: 1.0`
+读出来就是 `"1.0"`，不是数字。标准之外的字段（比如 Claude Code 的 `argument-hint`、`hooks`）原样留在文件里。
 
 ### 权限规则
 
 | 操作 | 处理 |
 |---|---|
 | 待办、记忆 | 直接执行（只动 `data/` 里助手自己的文件） |
+| 读取启用着的 Skill | 直接执行（只能读，出不了那个 Skill 的文件夹）。Skill 里的脚本要用 `run_command` 运行，照样先问你 |
 | 添加、删除提醒 | 直接执行（到时间只弹出一条提醒：不调用模型，不花钱） |
 | 添加、删除让助手自己去做的定时任务 | 先问你，并显示时间表和指令（它以后会在没人看着的时候自己花钱） |
 | 读取工作目录里的文件 | 直接执行 |
@@ -753,6 +824,8 @@ MCP 的工具是别人写的程序，它做什么智狐看不到，它说自己"
 | `data/conversations/` | 网页界面里的每段会话，一段一个 JSON 文件 |
 | `data/media/` | 发过的每个附件的原件，文件名是内容的 SHA-256，同一个文件发十次只存一份。删除会话时（以及每次启动时），没有会话再用的原件会被删掉 |
 | `data/memories/` | 助手的长期记忆和笔记。可以在网页的信息栏里查看、修改和删除，也可以手动编辑 |
+| `data/skills/` | 装好的 Skill，一个一个文件夹。可以在"扩展 → Skill"里管理，也可以手动改 |
+| `data/skills.json` | 哪些 Skill 停用了、每一个是从哪儿装来的 |
 | `data/todos.json` | 待办事项 |
 | `data/tasks.json` | 定时任务，每个任务最近 20 次运行的记录，以及还没关掉的提醒。读不出来时原文件改名为 `tasks.broken.json` 留着，从空的任务列表开始 |
 | `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算。不含密钥 |
@@ -769,10 +842,12 @@ MCP 的工具是别人写的程序，它做什么智狐看不到，它说自己"
 不会上传到别处。接了 MCP 服务器的话，你允许的每一次 MCP 工具调用，参数会发给那个服务器。
 在会话栏里删除一段会话，对应的文件也会被删掉。
 
-想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。它、记忆一栏里的文件夹按钮，
-和多媒体里每一项的"在访达中显示"，是页面上仅有的会让电脑启动别的程序（文件管理器）的按钮，所以服务器对它们格外小心：
-页面只能告诉服务器"哪一段会话""哪一条记忆"（列表里给它的名字，按下面说的办法检查）、"哪一个附件"
-（"会话/第几条消息/第几个"这样的编号，在索引里查过；文件名由内容的 SHA-256 定），或者打开记忆文件夹时什么都不用说；
+想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。这些"在访达中显示"按钮（会话、记忆、定时任务、待办、
+提示词、MCP 服务器、Skill、多媒体里每一项上的，以及记忆和 Skill 的文件夹按钮），是页面上仅有的会让电脑启动别的程序
+（文件管理器）的按钮，所以服务器对它们格外小心：页面只能告诉服务器"哪一段会话""哪一条记忆"（列表里给它的名字，
+按下面说的办法检查）、"哪一个 Skill"（只能是一段名字，而且必须是 `data/skills/` 里真实存在的一个文件夹）、
+"哪一个附件"（"会话/第几条消息/第几个"这样的编号，在索引里查过；文件名由内容的 SHA-256 定）、
+助手自己的哪一个数据文件（`tasks`、`todos` 或 `prompt`），或者打开记忆、Skill 的文件夹和 `data/mcp.json` 时什么都不用说；
 路径由服务器自己算，页面没有办法让它打开别的路径。下载附件也是这样：页面只给编号，文件以下载的方式回来
 （`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`），写着 HTML 的文本文件也只当成文字。
 Linux 上没有通用的"选中某个文件"的办法，打开的是文件所在的文件夹。
@@ -918,6 +993,7 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 [tests/fake_mcp.py](tests/fake_mcp.py)：一个两代协议都会说、stdio 和 HTTP 都能用的假 MCP 服务器。
 多媒体库的测试在 [tests/test_media.py](tests/test_media.py)（原件的存储和去重；从 Claude 和 OpenAI 两种格式的旧历史里找回附件；
 筛选和翻页；拼不出路径的编号；只在没有会话再用时才删原件）和 `tests/test_webui.py` 里多媒体的那一节（接口和响应头）。
+Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 
 Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.test.mjs)，用 Node 自带的测试工具跑
 （`node --test tests/markdown.test.mjs`，什么都不用装）；电脑上有 Node 时，`uv run pytest` 也会顺带跑它。
@@ -928,6 +1004,7 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 
 想不花钱地到处点点、看看界面，可以运行 `uv run python tests/demo_web.py`：它启动的是真实的服务器和页面，
 后面接的是本地的假模型，回复都是预设的，数据写在临时目录里，不碰你的密钥和 `data/`。
+里面预先装了几个编造的 Skill，"从 Claude Code 导入"看的也是临时目录里一个假的 `~/.claude/skills`。
 它还预先接好了几个假的 MCP 服务器（其中一个启动不了、一个停用了）；"从 Claude 导入"读的是临时目录里编造的 Claude 配置，
 不是你电脑上的。
 全新的演示目录里预先放了一段"有多媒体库之前"的旧会话，"多媒体"里一打开就有东西可看，包括只剩文字的 Word 文件。
@@ -958,6 +1035,9 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
   提醒只显示在页面上，不会弹出系统通知。
 - 换成英文或西班牙语之后，工具返回的提示（比如"没有编号为 9 的待办"）和终端 `/tools` 里工具的说明仍然是中文：
   这些是写给模型看的。换语言之前保存的会话里，程序发出的提示也还是当时的语言。
+- Skill：`allowed-tools` 不会让任何操作免于确认（见上面"Skill 是怎么工作的"）。Claude Code 的参数占位符
+  （`$ARGUMENTS`、`$0`）、`!` 命令块、`context: fork`、`hooks` 等只有 Claude Code 用的字段，原样留在文件里但不起作用。
+  从网址安装只支持公开的 https 链接，最多 20 MB；私有的 GitHub 仓库请先下载下来再上传。
 - MCP 只支持工具，不支持 MCP 的资源（resources）和提示词（prompts）。远程服务器的 OAuth 登录还不支持；
   接受令牌的服务器加一个 `Authorization: Bearer …` 请求头就能用。已经废弃的 HTTP+SSE 连接方式不支持。
   调用到一半要向你提问的工具（elicitation）会失败并说明原因；也不让服务器借用智狐的模型（sampling）。

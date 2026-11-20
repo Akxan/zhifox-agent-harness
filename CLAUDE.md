@@ -120,6 +120,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/webui/markdown.js` | 回复里的 Markdown → 页面元素；逐字输出时只重画最后一两块 |
 | `harness/mcp/` | MCP 客户端：jsonrpc、stdio、http、client（两代协议）、bridge、manager（快照）、config、importers |
 | `harness/media.py` | 多媒体库：附件原件按内容存在 `data/media/`；哪段会话、哪条消息里有哪些附件；旧会话从对话历史里找回附件 |
+| `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -176,6 +177,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **调度器的锁规矩：** 拿着 `Scheduler._lock` 时不调用 RunUI 的方法、不发状态、不写任务文件。
 - **任务的时间按本地时间、按日历算**（`tasks.next_after`），不要"加 24 小时"。测试用假的钟加 `tick()`，不真的等。
   定时任务只在网页界面运行，终端界面不运行。
+- **Skill 的列表放在用户消息里交给模型**（`skills/catalog.py`），从不放进系统提示词：一段对话的第一条消息带一个
+  `<skills>` 块，之后列表变了，才在下一条消息上再附一份，所以系统提示词和工具说明书一个字都不变。怎么用 Skill
+  写在这个块和 `skill` 工具的说明里，用户改了提示词也去不掉。Skill 永远不放宽确认（`allowed-tools` 只是显示）；
+  模型不能安装、修改或删除 Skill；Claude Code 的文件夹只有用户点"导入"时才读，而且是复制过来。
 - **花费账本只在末尾追加。** `ledger.py` 每次模型调用写一行；超过 `LEDGER_DETAIL_DAYS` 天的明细会被合并重写
   （有意的例外，金额不变，读不懂的行原样保留）。新的调用方要记账，就给它的 agent 接 `ledger.recorder(..., source="…")`
   （定时任务用 source="task"），不要另算价格。

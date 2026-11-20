@@ -64,6 +64,7 @@ def test_plain_answer_sends_expected_request(start):
         "memory",
         FILE_TOOL,
         "run_command",
+        "skill",
         "web_search",
         "web_fetch",
     ]

@@ -722,7 +722,7 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     assert (state["provider"], state["model"]) == ("deepseek", "deepseek-flash")
     assert [tool["name"] for tool in state["tools"]] == [
         "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory",
-        "str_replace_based_edit_tool", "run_command",
+        "str_replace_based_edit_tool", "run_command", "skill",
     ]  # 没有联网搜索
     # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
     assert state["unpriced"] == []
@@ -2998,6 +2998,345 @@ def test_the_startup_sweep_keeps_what_a_damaged_conversation_mentions(serve):
     assert latest_state(restarted.browser)["media"]["count"] == 0
 
 
+# ---- Skill ----------------------------------------------------------------
+# 扩展里的 Skill 一页背后的接口（harness/webui/skills_api.py）。Skill 本身的格式、文件夹、压缩包的检查
+# 在 test_skills.py 里测；这里测的是网页这一层：状态里有没有、参数不对时怎么回答、对话进行中能做什么。
+
+import io as _io  # 这一节自己用的几样，放在这一节开头，免得和上面的导入搅在一起
+import zipfile as _zipfile
+
+from harness.skills import download as skill_download
+from harness.webui.skills_api import MAX_UPLOAD_BODY_BYTES
+
+SKILL_DESCRIPTION = "Fill PDF forms. Use when the user mentions PDFs."
+BUSY_WORDS = "等当前这一轮对话结束"
+
+
+def skill_text(name: str = "pdf-tools", description: str = SKILL_DESCRIPTION, body: str = "# PDF\n\nStep 1.\n") -> str:
+    return f"---\nname: {name}\ndescription: {description}\n---\n{body}"
+
+
+def skill_zip(*entries: tuple[str, str]) -> bytes:
+    buffer = _io.BytesIO()
+    with _zipfile.ZipFile(buffer, "w") as archive:
+        for name, data in entries:
+            archive.writestr(name, data)
+    return buffer.getvalue()
+
+
+def skill_change(s, action: str, data: dict) -> tuple[dict, dict]:
+    """做一个会改动 Skill 的操作，返回（回答，之后的状态）。列表跟着状态走，所以每次改完都会发一次新的状态。"""
+    last_id = s.ui.events_after(0, timeout=0)[-1]["id"]
+    status, body = s.browser.post(f"/api/skill/{action}", data)
+    assert status == 200 and body["ok"] is True, (action, body)
+    while True:
+        state = s.browser.wait_for("state")
+        if state["id"] > last_id:
+            return body, state
+
+
+def test_skills_are_in_the_state_and_can_be_created_read_and_changed(serve):
+    s = serve()
+    assert latest_state(s.browser)["skills"] == []
+
+    body, state = skill_change(s, "create", {"name": "pdf-tools", "description": SKILL_DESCRIPTION, "body": "# PDF\n"})
+    assert body == {"ok": True, "name": "pdf-tools"}
+    (listed,) = state["skills"]
+    assert (listed["name"], listed["description"], listed["enabled"], listed["problems"]) == ("pdf-tools", SKILL_DESCRIPTION, True, [])
+    assert listed["source"]["kind"] == "new" and listed["files"] == 1
+    folder = s.app.skills.root / "pdf-tools"
+    write(folder / "scripts" / "fill.py", "print('fill')\n")
+
+    status, opened = s.browser.post("/api/skill/read", {"name": "pdf-tools"})
+    assert status == 200 and opened["text"] == (folder / "SKILL.md").read_text(encoding="utf-8")
+    assert [item["path"] for item in opened["list"]] == ["SKILL.md", "scripts/fill.py"] and opened["path"] == str(folder)
+    status, shown = s.browser.post("/api/skill/file", {"name": "pdf-tools", "path": "scripts/fill.py"})
+    assert status == 200 and shown["text"] == "print('fill')\n" and shown["binary"] is False
+
+    # 改 SKILL.md：期间被别处改过的，先说冲突；确认之后覆盖
+    edited = opened["text"].replace("# PDF", "# PDF v2")
+    os.utime(folder / "SKILL.md", (opened["modified"] + 5, opened["modified"] + 5))
+    status, body = s.browser.post("/api/skill/save", {"name": "pdf-tools", "text": edited, "modified": opened["modified"]})
+    assert status == 409 and body["conflict"] is True
+    body, _ = skill_change(s, "save", {"name": "pdf-tools", "text": edited, "modified": opened["modified"], "force": True})
+    assert body == {"ok": True, "name": "pdf-tools"} and "# PDF v2" in (folder / "SKILL.md").read_text(encoding="utf-8")
+    # 不合规范的不保存，每一条问题都说出来
+    status, body = s.browser.post("/api/skill/save", {"name": "pdf-tools", "text": "---\nname: pdf-tools\n---\n", "modified": None, "force": True})
+    assert status == 409 and body["problems"] and "description" in str(body["problems"][0])
+    # frontmatter 里的 name 改了，文件夹跟着改名
+    current = s.browser.post("/api/skill/read", {"name": "pdf-tools"})[1]
+    renamed = current["text"].replace("name: pdf-tools", "name: pdf-kit")
+    body, state = skill_change(s, "save", {"name": "pdf-tools", "text": renamed, "modified": current["modified"]})
+    assert body["name"] == "pdf-kit" and [item["name"] for item in state["skills"]] == ["pdf-kit"]
+
+    _, state = skill_change(s, "enable", {"name": "pdf-kit", "enabled": False})
+    assert state["skills"][0]["enabled"] is False
+    assert json.loads((s.config.data_dir / "skills.json").read_text(encoding="utf-8"))["disabled"] == ["pdf-kit"]
+    _, state = skill_change(s, "enable", {"name": "pdf-kit", "enabled": True})
+    assert state["skills"][0]["enabled"] is True
+
+    _, state = skill_change(s, "delete", {"name": "pdf-kit"})
+    assert state["skills"] == [] and not (s.app.skills.root / "pdf-kit").exists()
+    status, body = s.browser.post("/api/skill/delete", {"name": "pdf-kit"})
+    assert status == 409 and GONE in body["error"]
+
+
+def test_skill_requests_with_bad_parameters(serve):
+    s = serve()
+    s.app.skills.create("pdf-tools", SKILL_DESCRIPTION, "")
+    env = write(s.config.workspace / ".env", "ANTHROPIC_API_KEY=sk-secret")
+    for data in (
+        {"name": "pdf-tools", "text": 5, "modified": 1.0},
+        {"name": "pdf-tools", "text": "x", "modified": "yesterday"},
+        {"name": "pdf-tools", "text": "x", "modified": True},
+        {"name": "pdf-tools", "text": "x", "modified": 1.0, "force": "yes"},
+    ):
+        assert s.browser.post("/api/skill/save", data) == (400, {"error": "参数不正确"}), data
+    assert s.browser.post("/api/skill/enable", {"name": "pdf-tools", "enabled": "no"}) == (400, {"error": "参数不正确"})
+    for url in ("", "   ", 5, None, "x" * 3000):
+        assert s.browser.post("/api/skill/fetch", {"url": url})[0] == 400, url
+    assert s.browser.post("/api/skill/explode", {})[0] == 404
+
+    status, body = s.browser.post("/api/skill/create", {"name": "Bad Name", "description": SKILL_DESCRIPTION})
+    assert status == 409 and body["problems"]
+    assert s.browser.post("/api/skill/create", {"name": None, "description": "x"}) == (400, {"error": "参数不正确"})
+    status, body = s.browser.post("/api/skill/create", {"name": "pdf-tools", "description": SKILL_DESCRIPTION})
+    assert status == 409 and "pdf-tools" in body["error"]  # 已经有了
+
+    # 名字和路径都是从页面来的，不能拿来走出 Skill 文件夹
+    for name in ("../data", "../../work", "/etc", ".", "..", "", "pdf-tools/../..", "a\x00b", 5, None):
+        for action in ("read", "delete", "enable"):
+            status, _ = s.browser.post(f"/api/skill/{action}", {"name": name, "enabled": True})
+            assert status == 409, (action, name)
+    for path in ("../../../work/.env", str(env), "../SKILL.md", "/etc/passwd", ".hidden", 5):
+        status, body = s.browser.post("/api/skill/file", {"name": "pdf-tools", "path": path})
+        assert status == 409 and "sk-secret" not in json.dumps(body), path
+    assert env.read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=sk-secret"
+    assert [skill.name for skill in s.app.skills.list()] == ["pdf-tools"]
+
+    # 和别的接口一样：没带口令、或者是别的网站发起的请求，一律拒绝
+    host, token = s.browser.host, s.browser.token
+    assert request(host, "POST", "/api/skill/read", {"name": "pdf-tools"})[0] == 403
+    evil = {"X-Harness-Token": token, "Origin": "http://evil.example"}
+    assert request(host, "POST", "/api/skill/delete", {"name": "pdf-tools"}, evil)[0] == 403
+    assert (s.app.skills.root / "pdf-tools").exists()
+
+
+def test_revealing_skill_folders(serve):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    root = s.app.skills.root
+    # 不给名字：整个 Skill 文件夹（还不存在的话先建一个空的）
+    assert s.browser.post("/api/skill/reveal", {}) == (200, {"ok": True, "path": str(root)})
+    assert root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
+    s.app.skills.create("pdf-tools", SKILL_DESCRIPTION, "")
+    assert s.browser.post("/api/skill/reveal", {"name": "pdf-tools"}) == (200, {"ok": True, "path": str(root / "pdf-tools")})
+    # 路径由服务器算：页面给的名字只能是 Skill 文件夹里真实存在的一个子文件夹
+    for name in ("../", "../data", "/etc", "missing"):
+        assert s.browser.post("/api/skill/reveal", {"name": name})[0] == 409, name
+    assert s.revealed == [root, root / "pdf-tools"]
+    # 只是看一眼，对话进行中也能点
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    assert s.browser.post("/api/skill/reveal", {"name": "pdf-tools"})[0] == 200
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+
+def test_revealing_a_skill_when_the_file_manager_fails(serve, monkeypatch):
+    s = serve()
+    s.app.skills.create("pdf-tools", SKILL_DESCRIPTION, "")
+
+    def broken(path):
+        raise OSError("没有文件管理器")
+
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    status, body = s.browser.post("/api/skill/reveal", {"name": "pdf-tools"})
+    assert status == 409 and "没有文件管理器" in body["error"]
+
+
+def test_skill_changes_wait_for_the_turn_but_looking_does_not(serve, monkeypatch):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    s.app.skills.create("pdf-tools", SKILL_DESCRIPTION, "")
+    monkeypatch.setattr(skill_download, "fetch", lambda url: (skill_text("from-web").encode(), url))
+    status, preview = s.browser.post("/api/skill/fetch", {"url": "https://example.com/SKILL.md"})
+    assert status == 200
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")  # 这一轮卡在确认上
+
+    # 模型可能正读着某个 Skill、照着做到一半：这时不让改
+    opened = s.browser.post("/api/skill/read", {"name": "pdf-tools"})[1]
+    for action, data in (
+        ("create", {"name": "new-one", "description": SKILL_DESCRIPTION}),
+        ("save", {"name": "pdf-tools", "text": opened["text"], "modified": opened["modified"]}),
+        ("delete", {"name": "pdf-tools"}),
+        ("enable", {"name": "pdf-tools", "enabled": False}),
+        ("install", {"stage": preview["stage"], "picks": [{"key": "", "name": "from-web"}]}),
+    ):
+        status, body = s.browser.post(f"/api/skill/{action}", data)
+        assert status == 409 and BUSY_WORDS in body["error"], action
+    assert [skill.name for skill in s.app.skills.list()] == ["pdf-tools"] and s.app.skills.list()[0].enabled
+
+    # 只是看、下载预览：可以
+    assert s.browser.post("/api/skill/read", {"name": "pdf-tools"})[0] == 200
+    assert s.browser.post("/api/skill/file", {"name": "pdf-tools", "path": "SKILL.md"})[0] == 200
+    assert s.browser.post("/api/skill/fetch", {"url": "https://example.com/SKILL.md"})[0] == 200
+    upload = {"kind": "file", "label": "SKILL.md", "data": b64(skill_text("up").encode())}
+    assert s.browser.post("/api/skill/upload", upload)[0] == 200
+    assert s.browser.post("/api/skill/claude", {})[0] == 200
+    assert s.browser.post("/api/skill/refresh", {})[0] == 200
+
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+    body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": [{"key": "", "name": "from-web"}]})
+    assert body["results"] == [{"key": "", "name": "from-web", "ok": True, "error": ""}]
+    assert [item["name"] for item in state["skills"]] == ["from-web", "pdf-tools"]
+
+
+def test_uploading_skills(serve):
+    s = serve()
+    # 一个 SKILL.md
+    single = skill_text("single").encode()
+    status, preview = s.browser.post("/api/skill/upload", {"kind": "file", "label": "SKILL.md", "data": b64(single)})
+    assert status == 200 and preview["source"] == {"kind": "upload", "label": "SKILL.md"}
+    (candidate,) = preview["candidates"]
+    assert (candidate["name"], candidate["description"], candidate["problems"], candidate["exists"]) == ("single", SKILL_DESCRIPTION, [], False)
+    assert candidate["files"] == [{"path": "SKILL.md", "size": len(single)}]
+    body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": [{"key": "", "name": "single"}]})
+    assert body["results"][0]["ok"] and state["skills"][0]["source"]["label"] == "SKILL.md"
+
+    # 一个压缩包（.skill 也是 zip）。比别的请求 1MB 的上限大也收：压缩包常常不止 1MB
+    archive = skill_zip(("zipped/SKILL.md", skill_text("zipped")), ("zipped/assets/big.bin", "x" * 1_500_000), ("other/SKILL.md", skill_text("other")))
+    status, preview = s.browser.post("/api/skill/upload", {"kind": "file", "label": "zipped.skill", "data": b64(archive)})
+    assert status == 200 and [item["key"] for item in preview["candidates"]] == ["other", "zipped"]
+    body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": [{"key": "zipped", "name": "zipped"}]})
+    assert body["results"][0]["ok"] and (s.app.skills.root / "zipped" / "assets" / "big.bin").stat().st_size == 1_500_000
+    assert {item["name"]: item["source"]["label"] for item in state["skills"]}["zipped"] == "zipped.skill/zipped"
+
+    # 一个文件夹（<input webkitdirectory> 选出来的一组文件，路径前面带着文件夹的名字）
+    files = [
+        {"path": "folder-skill/SKILL.md", "data": b64(skill_text("folder-skill").encode())},
+        {"path": "folder-skill/scripts/a.py", "data": b64(b"print()")},
+    ]
+    status, preview = s.browser.post("/api/skill/upload", {"kind": "folder", "label": "folder-skill", "files": files})
+    assert status == 200 and preview["candidates"][0]["count"] == 2
+    body, _ = skill_change(s, "install", {"stage": preview["stage"], "picks": [{"key": "folder-skill", "name": "folder-skill"}]})
+    assert body["results"][0]["ok"] and (s.app.skills.root / "folder-skill" / "scripts" / "a.py").exists()
+
+    # 不认识的东西：说清楚为什么
+    for data in (
+        {"kind": "file", "data": b64(b"just some text")},
+        {"kind": "file", "data": b64(skill_zip(("README.md", "no skill here")))},
+        {"kind": "file", "data": "not base64!"},
+        {"kind": "folder", "files": [{"path": "../evil/SKILL.md", "data": b64(b"x")}]},
+        {"kind": "file", "data": b64(skill_zip(("a/SKILL.md", "x"), ("../escape", "x")))},
+    ):
+        status, body = s.browser.post("/api/skill/upload", data)
+        assert status == 409 and body["error"], data
+    # 请求本身不对（页面不会这样发）：400
+    for data in ({"kind": "magic"}, {}, {"kind": "file"}, {"kind": "folder", "files": "x"}):
+        assert s.browser.post("/api/skill/upload", data)[0] == 400, data
+    assert sorted(skill.name for skill in s.app.skills.list()) == ["folder-skill", "single", "zipped"]
+    assert not (s.config.data_dir / "evil").exists() and not (s.config.data_dir / "escape").exists()
+
+
+def test_uploads_have_their_own_size_limit(serve):
+    s = serve()
+    connection = http.client.HTTPConnection(s.browser.host, timeout=30)
+    headers = {"X-Harness-Token": s.browser.token, "Origin": f"http://{s.browser.host}", "Content-Type": "application/json"}
+    connection.request("POST", "/api/skill/upload", body=b" " * (MAX_UPLOAD_BODY_BYTES + 1), headers=headers)
+    response = connection.getresponse()
+    assert response.status == 413 and "20 MB" in json.loads(response.read())["error"]
+    connection.close()
+
+
+def test_installing_skills_from_a_url(serve, monkeypatch):
+    s = serve(reply(text("好的。")))
+    sha = "e4bb5d960d87126ff3b3a8af1a104b7db67560ba"
+    buffer = _io.BytesIO()
+    with _zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("skills-main/skills/pdf/SKILL.md", skill_text("pdf"))
+        archive.writestr("skills-main/skills/pdf/scripts/fill.py", "print()")
+        archive.writestr("skills-main/skills/docx/SKILL.md", skill_text("docx", "Word documents."))
+        archive.comment = sha.encode()
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if url != "https://codeload.github.com/acme/skills/zip/main":
+            raise skill_download.NotFound("这个网址找不到（404）")
+        return buffer.getvalue(), url
+
+    monkeypatch.setattr(skill_download, "fetch", fetch)
+    s.app.skills.create("pdf", "我自己的那个", "")
+    url = "https://github.com/acme/skills/tree/main/skills"
+    status, preview = s.browser.post("/api/skill/fetch", {"url": url})
+    assert status == 200 and calls == ["https://codeload.github.com/acme/skills/zip/main"]
+    assert preview["source"] == {"kind": "url", "url": url, "label": "github.com/acme/skills/skills", "commit": sha}
+    found = {item["key"]: item for item in preview["candidates"]}
+    assert sorted(found) == ["docx", "pdf"] and found["pdf"]["exists"] is True and found["docx"]["exists"] is False
+    assert [item["path"] for item in found["pdf"]["files"]] == ["SKILL.md", "scripts/fill.py"]
+
+    # 一个直接装；同名的那个改个名字再装
+    picks = [{"key": "docx", "name": "docx"}, {"key": "pdf", "name": "pdf-from-acme"}]
+    body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": picks})
+    assert [result["ok"] for result in body["results"]] == [True, True]
+    sources = {item["name"]: item["source"] for item in state["skills"]}
+    assert sources["docx"]["label"] == "github.com/acme/skills/skills/docx" and sources["docx"]["commit"] == sha
+    assert sources["pdf"]["kind"] == "new"  # 原来那个没动
+    assert "name: pdf-from-acme" in (s.app.skills.root / "pdf-from-acme" / "SKILL.md").read_text(encoding="utf-8")
+    # 装好了的预览用完就没了
+    status, body = s.browser.post("/api/skill/install", {"stage": preview["stage"], "picks": [{"key": "docx", "name": "docx-2"}]})
+    assert status == 409 and body["error"]
+
+    # 下载不了的、不是 https 的：说明原因
+    for bad in ("http://github.com/acme/skills", "https://github.com/acme/missing", "https://github.com/acme/skills/blob/main/README.md"):
+        status, body = s.browser.post("/api/skill/fetch", {"url": bad})
+        assert status == 409 and body["error"], bad
+
+    # 装好的 Skill 下一条消息就告诉模型
+    say(s, "你好")
+    skills_block = s.api.requests[0]["messages"][0]["content"][1]["text"]
+    assert skills_block.startswith("<skills>") and "<name>docx</name>" in skills_block and "<name>pdf-from-acme</name>" in skills_block
+
+
+def test_importing_from_claude_code(serve):
+    s = serve()
+    status, preview = s.browser.post("/api/skill/claude", {})
+    assert status == 200 and preview["candidates"] == [] and preview["stage"] == ""
+    assert preview["places"] == ["~/.claude/skills", ".claude/skills"]
+
+    home = Path.home() / ".claude" / "skills"
+    write(home / "alpha" / "SKILL.md", skill_text("alpha"))
+    write(home / "alpha" / "scripts" / "run.sh", "echo")
+    write(s.config.workspace / ".claude" / "skills" / "beta" / "SKILL.md", skill_text("beta"))
+    status, preview = s.browser.post("/api/skill/claude", {})
+    assert status == 200
+    found = {item["key"]: item for item in preview["candidates"]}
+    assert sorted(found) == [".claude/skills/beta", "~/.claude/skills/alpha"]
+    assert found["~/.claude/skills/alpha"]["group"] == "~/.claude/skills" and found["~/.claude/skills/alpha"]["count"] == 2
+    picks = [{"key": "~/.claude/skills/alpha", "name": "alpha"}]
+    body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": picks})
+    assert body["results"][0]["ok"]
+    (installed,) = state["skills"]
+    assert installed["name"] == "alpha" and installed["source"]["kind"] == "claude-code" and installed["files"] == 2
+    assert (home / "alpha" / "SKILL.md").exists()  # 是复制，不是挪走
+
+
+def test_refreshing_notices_skills_changed_on_disk(serve):
+    s = serve()
+    s.browser.post("/api/skill/refresh", {})
+    time.sleep(0.2)
+    before = s.ui.events_after(0, timeout=0)[-1]["id"]
+    assert s.browser.post("/api/skill/refresh", {}) == (200, {"ok": True})
+    time.sleep(0.2)
+    assert s.ui.events_after(0, timeout=0)[-1]["id"] == before  # 没变：什么都不发
+    write(s.app.skills.root / "dropped-in" / "SKILL.md", skill_text("dropped-in"))  # 在访达里拷进来一个
+    assert s.browser.post("/api/skill/refresh", {}) == (200, {"ok": True})
+    deadline = time.monotonic() + 5
+    while not latest_state(s.browser)["skills"]:
+        assert time.monotonic() < deadline, "没有收到新的状态"
+        time.sleep(0.02)
+    assert [item["name"] for item in latest_state(s.browser)["skills"]] == ["dropped-in"]
 # ---- 提示词 -----------------------------------------------------------------
 
 

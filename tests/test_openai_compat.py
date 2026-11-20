@@ -39,7 +39,7 @@ def test_plain_answer_sends_expected_request(start):
     names = [tool["function"]["name"] for tool in request["tools"]]
     assert names == [
         "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory", FILE_TOOL,
-        "run_command",
+        "run_command", "skill",
     ]
     memory = request["tools"][7]["function"]
     assert "rename" in memory["parameters"]["properties"]["command"]["enum"] and "/memories" in memory["description"]
