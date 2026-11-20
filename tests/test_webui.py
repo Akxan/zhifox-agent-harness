@@ -622,7 +622,7 @@ def test_a_wrong_key_is_saved_but_reported(serve):
     s = serve()
     status, body = s.browser.post("/api/key", {"provider": "deepseek", "key": "bad-key-123"})
 
-    assert status == 200 and "同步模型列表失败" in body["warning"] and "API key 无效" in body["warning"]
+    assert status == 200 and "同步模型列表失败" in body["warning"] and "API 密钥无效" in body["warning"]
     s.browser.wait_for("state")
     s.browser.wait_for("state")
     assert provider_state(s.browser, "deepseek")["has_key"] is True
@@ -668,7 +668,7 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     s.browser.wait_for("turn_end")
 
     status, body = s.browser.post("/api/model", {"provider": "deepseek", "model": "deepseek-flash"})
-    assert status == 409 and "还没有设置 DeepSeek 的 API key" in body["error"]  # 没有 key 不能换过去
+    assert status == 409 and "还没有设置 DeepSeek 的 API 密钥" in body["error"]  # 没有 key 不能换过去
 
     s.browser.post("/api/key", {"provider": "deepseek", "key": "sk-test-12345678"})
     assert s.browser.post("/api/model", {"provider": "deepseek", "model": "deepseek-flash"})[0] == 200
@@ -722,7 +722,7 @@ def test_messages_need_a_key_first(serve, monkeypatch):
     s = serve(reply(text("不应该被调用")))
     status, body = s.browser.post("/api/message", {"text": "你好"})
 
-    assert status == 409 and "还没有设置 Claude (Anthropic) 的 API key" in body["error"]
+    assert status == 409 and "还没有设置 Claude (Anthropic) 的 API 密钥" in body["error"]
     assert s.api.requests == [] and s.app.agent.messages == []
 
 
@@ -1784,7 +1784,7 @@ def test_switching_the_language_keeps_the_page_and_is_remembered(serve, make_con
     assert latest_state(s.browser)["language"] == "zh"
     data = page_language(s)
     assert data["language"] == "zh" and set(data["tables"]) == {"en", "es"}
-    assert data["tables"]["en"]["新对话"] == "New chat"
+    assert data["tables"]["en"]["新对话"] == "New conversation"
 
     say(s, "第一句")
     resets = len(s.browser.of_type("reset"))

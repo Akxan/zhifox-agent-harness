@@ -15,7 +15,7 @@
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
-  POST /api/key        用户填写或删除了一家的 API key
+  POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
 
@@ -87,7 +87,7 @@ def reveal_in_file_manager(path: Path) -> None:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        # 有的系统上文件管理器会作为我们的子进程启动、一直开着。不让它带着各家的 API key
+        # 有的系统上文件管理器会作为我们的子进程启动、一直开着。不让它带着各家的 API 密钥
         # （从它里面打开的终端都能看到环境变量），也不让它因为我们退出而被一起关掉
         env={name: value for name, value in os.environ.items() if name not in SECRET_ENV_VARS},
         start_new_session=True,
@@ -181,7 +181,7 @@ class WebApp:
         """开始一轮对话。成功返回空字符串，否则返回不能开始的原因。"""
         provider = self.app.provider
         if not has_key(provider):
-            return t("还没有设置 {provider} 的 API key，请先点右上角的“设置”填写。", provider=provider.label)
+            return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label)
         if not self._turn.acquire(blocking=False):
             return t("上一轮对话还没有结束")
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
@@ -295,7 +295,7 @@ class WebApp:
                 self.ui.hint(
                     t(
                         "这段会话的历史约有 {tokens} 个 token。接着聊的第一条消息需要把它重新发给模型，会按这个量计费。",
-                        tokens=f"{conversation.context_tokens:,}",
+                        tokens=i18n.number(conversation.context_tokens),
                     )
                 )
             self._show_warnings()
@@ -364,7 +364,7 @@ class WebApp:
 
     def select_model(self, provider_id: str, model: str) -> str:
         if not has_key(PROVIDERS[provider_id]):
-            return t("还没有设置 {provider} 的 API key", provider=PROVIDERS[provider_id].label)
+            return t("还没有设置 {provider} 的 API 密钥", provider=PROVIDERS[provider_id].label)
         if not self._turn.acquire(blocking=False):
             return t(self.BUSY)
         try:
@@ -390,7 +390,7 @@ class WebApp:
         return ""
 
     def set_api_key(self, provider_id: str, key: str) -> tuple[str, str]:
-        """保存或删除一家的 API key。返回（失败原因，提醒）。
+        """保存或删除一家的 API 密钥。返回（失败原因，提醒）。
 
         保存成功后顺便同步一次模型列表；如果同步失败（比如 key 不对），key 仍然保存了，
         原因放在"提醒"里告诉用户。
@@ -564,7 +564,7 @@ class Handler(BaseHTTPRequestHandler):
             if provider not in PROVIDERS or not isinstance(key, str):
                 self._send_json(400, {"error": t("参数不正确")})
             elif key.strip() and not valid_api_key(key.strip()):
-                self._send_json(400, {"error": t("这不像是一个 API key：里面不能有空格、换行或中文")})
+                self._send_json(400, {"error": t("这不像是一个 API 密钥：里面不能有空格、换行或中文")})
             else:
                 error, warning = web.set_api_key(provider, key.strip())
                 self._finish(error, warning=warning)
@@ -797,7 +797,7 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     provider = app.provider
     print(t("模型：{model}    工作目录：{workspace}", model=f"{provider.label} · {app.settings.model}", workspace=config.workspace))
     if not has_key(provider):
-        print(t("还没有设置 {provider} 的 API key：打开页面后，点右上角的“设置”填写。", provider=provider.label))
+        print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
     print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
     if open_browser:
         webbrowser.open(url)

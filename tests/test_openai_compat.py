@@ -144,7 +144,7 @@ def test_truncated_and_filtered_replies(start):
 
 def test_errors_are_explained(start):
     h = start(key="bad-key")
-    with pytest.raises(ProviderError, match="DeepSeek 的 API key 无效"):
+    with pytest.raises(ProviderError, match="DeepSeek 的 API 密钥无效"):
         h.agent.run_turn("你好")
     assert [message["role"] for message in h.agent.messages] == ["system"]  # 用户消息被撤回
 
@@ -182,7 +182,7 @@ def test_model_list_is_filtered(make_config):
         assert list_models(PROVIDERS["openai"], client) == ["gpt-6-luna", "gpt-6.2-astra"]
 
         bad = openai.OpenAI(api_key="bad-key", base_url=api.base_url, max_retries=0)
-        with pytest.raises(ProviderError, match="API key 无效"):
+        with pytest.raises(ProviderError, match="API 密钥无效"):
             list_models(PROVIDERS["deepseek"], bad)
     finally:
         api.stop()

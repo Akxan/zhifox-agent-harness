@@ -166,6 +166,14 @@ def test_t_translates_fills_in_values_and_falls_back_to_chinese(monkeypatch):
     assert i18n.t("找到 {n} 段会话", n="{evil}") == "找到 {evil} 段会话"
 
 
+def test_numbers_follow_the_interface_language(monkeypatch):
+    # 西班牙语里逗号是小数点："123,456" 会被读成一百二十三点几
+    for language, expected in (("zh", "123,456"), ("en", "123,456"), ("es", "123\u00a0456")):
+        monkeypatch.setattr(i18n, "current", language)
+        assert i18n.number(123456) == expected
+    assert i18n.number(999) == "999"
+
+
 def test_page_payload_is_safe_to_embed():
     payload = i18n.page_payload("es")
     data = json.loads(payload)

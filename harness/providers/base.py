@@ -12,12 +12,33 @@ agent 循环（agent.py）不关心这些差别，它只要求每一家都能做
 
 from __future__ import annotations
 
+import html
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+ERROR_CHARS = 300  # 厂商返回的出错说明最多显示这么多字
 
 
 class ProviderError(Exception):
     """调用模型失败。错误信息是可以直接显示给用户看的说明。"""
+
+
+def brief(message: object) -> str:
+    """把厂商返回的出错说明整理成一小段能读的话。
+
+    正常情况下它就是一句话。但请求经过代理或网关时，出错返回的常常是一整个 HTML 网页（"502 Bad Gateway"之类），
+    原样显示会在页面上铺满几屏标签。所以：是网页的话，只留下正文里的文字（去掉 <head>、脚本和样式），
+    正文是空的才用标题；再把空白压成一个，太长的截断。
+    """
+    text = str(message)
+    if re.search(r"<\s*(!doctype|html|head|body)\b", text, re.IGNORECASE):
+        title = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+        body = re.sub(r"(?is)<(head|script|style)\b.*?</\1\s*>", " ", text)
+        body = re.sub(r"<[^>]*>", " ", body)
+        text = html.unescape(body if body.strip() else title.group(1) if title else "")
+    text = " ".join(text.split())
+    return text if len(text) <= ERROR_CHARS else text[: ERROR_CHARS - 1] + "…"
 
 
 @dataclass

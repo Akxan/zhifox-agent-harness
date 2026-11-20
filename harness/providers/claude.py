@@ -26,7 +26,7 @@ from ..display import describe_call
 from ..i18n import t
 from ..safe import clean, has_bad_number, tame
 from ..tools import ToolRegistry
-from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage
+from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage, brief
 
 
 class AnthropicBackend:
@@ -256,17 +256,17 @@ def _usage(response: Any) -> Usage:
 def _explain(exc: anthropic.APIError, model: str) -> str:
     """把 API 的错误翻译成看得懂的提示。"""
     if isinstance(exc, anthropic.AuthenticationError):
-        return t("Claude 的 API key 无效，请在设置里重新填写。")
+        return t("Claude 的 API 密钥无效，请在设置里重新填写。")
     if isinstance(exc, anthropic.PermissionDeniedError):
-        return t("这个 API key 没有权限执行该请求：{error}", error=exc.message)
+        return t("这个 API 密钥没有权限执行该请求：{error}", error=brief(exc.message))
     if isinstance(exc, anthropic.NotFoundError):
         return t("找不到模型 {model}，请换一个模型。", model=model)
     if isinstance(exc, anthropic.RateLimitError):
         return t("请求太频繁，或者超出了账号的用量限制。请稍后再试。")
     if isinstance(exc, anthropic.BadRequestError):
-        return t("请求被 API 拒绝：{error}", error=exc.message)
+        return t("请求被 API 拒绝：{error}", error=brief(exc.message))
     if isinstance(exc, anthropic.APIStatusError):
-        return t("API 出错（状态码 {status}）：{error}", status=exc.status_code, error=exc.message)
+        return t("API 出错（状态码 {status}）：{error}", status=exc.status_code, error=brief(exc.message))
     if isinstance(exc, anthropic.APIConnectionError):
         return t("连接不上 Anthropic 的服务器，请检查网络。")
     return t("调用 Claude 失败：{error}", error=exc)

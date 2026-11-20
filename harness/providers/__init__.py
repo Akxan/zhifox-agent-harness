@@ -74,7 +74,7 @@ ClientFactory = Callable[[Provider], Any]
 
 
 def has_key(provider: Provider) -> bool:
-    """这一家的 API key 有没有设置。"""
+    """这一家的 API 密钥 有没有设置。"""
     if os.environ.get(provider.key_env):
         return True
     if provider.kind == "anthropic":
@@ -102,7 +102,7 @@ def list_models(provider: Provider, client: Any) -> list[str]:
         ids = [model.id.removeprefix("models/") for model in client.models.list()]
     except (anthropic.APIError, openai.APIError) as exc:
         if isinstance(exc, (anthropic.AuthenticationError, openai.AuthenticationError)):
-            raise ProviderError(t("{provider} 的 API key 无效。", provider=provider.label)) from exc
+            raise ProviderError(t("{provider} 的 API 密钥无效。", provider=provider.label)) from exc
         if isinstance(exc, (anthropic.APIConnectionError, openai.APIConnectionError)):
             raise ProviderError(t("连接不上 {provider} 的服务器，请检查网络。", provider=provider.label)) from exc
         raise ProviderError(t("获取 {provider} 的模型列表失败：{error}", provider=provider.label, error=exc)) from exc

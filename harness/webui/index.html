@@ -43,6 +43,7 @@
   --on-ink: #ffffff;
   --line: rgba(22, 23, 27, .09);
   --line-2: rgba(22, 23, 27, .17);
+  --line-3: rgba(22, 23, 27, .42);  /* 输入框的边：要和底色拉开 3:1 以上的对比，才看得出"这里能填" */
   --hover: rgba(22, 23, 27, .05);
   --select: rgba(90, 69, 224, .22);
   /* 强调色是一道"极光"渐变，只用在少数几个地方：标志、发送按钮、输入框的光环、当前会话 */
@@ -92,6 +93,7 @@
   --on-ink: #121318;
   --line: rgba(255, 255, 255, .075);
   --line-2: rgba(255, 255, 255, .15);
+  --line-3: rgba(255, 255, 255, .38);
   --hover: rgba(255, 255, 255, .055);
   --select: rgba(169, 155, 255, .32);
   --a1: #6e8bff;
@@ -144,13 +146,13 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .icon-button:disabled { opacity: .4; }
 .icon-button.small { width: 26px; height: 26px; border-radius: 7px; }
 .icon-button.small .icon { width: 14px; height: 14px; }
-.button { height: 34px; flex: none; padding: 0 16px; font-size: 13.5px; font-weight: 500; white-space: nowrap; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; transition: transform .15s var(--ease); }
+.button { height: 36px; flex: none; padding: 0 16px; font-size: 13.5px; font-weight: 500; white-space: nowrap; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; transition: transform .15s var(--ease); }
 .button:hover:not(:disabled) { border-color: var(--ink-3); }
 .button:active:not(:disabled) { transform: scale(.96); }
 .button:disabled { opacity: .45; }
 .button.primary { color: var(--on-ink); background: var(--ink); border-color: transparent; }
 .button.danger { color: #fff; background: var(--danger); border-color: transparent; }
-.field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; outline: 0; }
+.field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-3); border-radius: 10px; outline: 0; }
 .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field::placeholder { color: var(--ink-3); opacity: 1; }
 
@@ -184,7 +186,7 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .new-chat:disabled { opacity: .5; }
 .search { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; margin: 0 6px 4px; padding: 0 8px 0 12px; color: var(--ink-3); border: 1px solid transparent; border-radius: 10px; }
 .search:hover { background: var(--hover); }
-.search:focus-within { color: var(--ink); background: var(--surface); border-color: var(--line-2); }
+.search:focus-within { color: var(--ink); background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }  /* 输入框自己不画焦点框，由外面这一圈来画 */
 .search input { flex: 1; min-width: 0; height: 100%; padding: 0; font-size: 13.5px; background: none; border: 0; outline: 0; }
 .search input::placeholder { color: var(--ink-3); }
 .search input::-webkit-search-cancel-button { display: none; }
@@ -412,8 +414,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .send.stop .i-send { opacity: 0; transform: scale(.3) rotate(90deg); }
 .send.stop .i-stop { opacity: 1; transform: none; }
 .foot { display: flex; align-items: center; gap: 12px; padding: 8px 10px 0; font-size: 12px; color: var(--ink-3); }
-.foot .keys { margin-right: auto; }
-#foot-cost { margin-left: auto; padding: 0; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
+.foot .keys { min-width: 0; margin-right: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }  /* 放不下就省略，不折行 */
+#foot-cost { flex: none; margin-left: auto; padding: 0; white-space: nowrap; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
 #foot-cost:hover { color: var(--ink); }
 /* "要不要先问你"的开关。放开得越多，颜色越醒目，一眼能看出现在是哪一档 */
 .approval { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; transition: transform .15s var(--ease); }
@@ -434,6 +436,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .side-open .side { display: flex; }
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 12px 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .side section { padding: 14px 12px; }
+.side-head { display: none; justify-content: flex-end; padding: 0 0 6px; }
 .side h2 { display: flex; justify-content: space-between; margin: 0 0 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
 .side h2 .sub { font-weight: 400; letter-spacing: 0; }
 .side ul { margin: 0; padding: 0; list-style: none; }
@@ -526,27 +529,35 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .tile:active { transform: scale(.96); }
 .tile[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .tile[aria-pressed="true"] .icon { color: var(--accent); }
-.flyout-note { min-height: 2lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留两行的高度，换选项时面板不跳；pretty：末行不只剩一两个字 */
+.flyout-note { min-height: 3lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留三行的高度（西班牙语最长要三行），换选项时面板不跳；pretty：末行不只剩一两个字 */
 
 /* ---- 浮在最上面的提示 ---------------------------------------------------- */
 .banner, .toast { position: fixed; z-index: 50; left: 16px; right: 16px; width: fit-content; margin: 0 auto; padding: 9px 16px; font-size: 13px; box-shadow: var(--shadow-2); }
-.banner { top: 14px; max-width: 640px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: drop .4s var(--ease); }
+.banner { top: 62px; max-width: 640px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: drop .4s var(--ease); }
 .toast { top: 66px; max-width: 520px; color: var(--on-ink); background: var(--ink); border-radius: 12px; opacity: 0; transform: translateY(-10px); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
 .toast.show { opacity: 1; transform: none; }
+.banner:not([hidden]) + .toast { top: 112px; }  /* 横幅挂着的时候，提示往下让一让 */
+/* 只给读屏软件看的文字：在页面上不占地方，也看不见 */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* ---- 窄屏：两边的栏变成盖在上面的抽屉 -------------------------------------- */
 @media (max-width: 1180px) {
   .side { position: absolute; z-index: 30; top: 8px; right: 8px; bottom: 8px; width: min(300px, calc(100vw - 16px)); padding: 8px 4px 0 8px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
   .side-open .scrim { display: block; }
+  .side-head { display: flex; }
+  .provider-name { display: none; }  /* 模型按钮上只写模型名，厂商名省掉 */
 }
 @media (max-height: 700px) {
   .hero-mark { display: none; }
 }
-@media (max-width: 760px) {
+@media (max-width: 960px) {
   .nav { position: absolute; z-index: 30; top: 8px; left: 8px; bottom: 8px; width: min(288px, calc(100vw - 16px)); padding: 0 2px 4px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
   body:not(.nav-closed) .scrim { display: block; }
+}
+@media (max-width: 760px) {
   .column, .hero, .composer, .starters { padding-left: 14px; padding-right: 14px; }
   .foot .keys { display: none; }
+  #model-label { display: none; }  /* 窄屏上模型按钮只留圆点和图标，把地方让给标题；完整的说明在它的 title 里 */
 }
 
 /* ---- 动画 ---------------------------------------------------------------- */
@@ -654,6 +665,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
 <div id="banner" class="banner" role="alert" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="announce" class="sr-only" aria-live="polite"></div>
 
 <div class="app">
   <aside id="nav" class="nav" aria-label="会话" data-i18n-aria-label>
@@ -762,6 +774,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   </main>
 
   <aside id="side" class="side" aria-label="用量、待办和工具" data-i18n-aria-label>
+    <div class="side-head"><button id="side-close" class="icon-button" type="button" title="收起信息栏" aria-label="收起信息栏" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div class="side-scroll">
       <section class="cost-card">
         <h2><span data-i18n>估算费用</span><span class="sub" data-i18n>本次运行</span></h2>
@@ -1150,9 +1163,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       });
       const reply = await response.json().catch(() => ({}));
       if (response.ok) banner.hidden = true;  // 请求通了，说明助手程序还在，之前"连接不上"的提示可以收起来
+      // 403：页面手里的口令已经失效，几乎都是因为助手程序重启过（每次启动都换一个口令）。告诉用户该做什么，
+      // 而不是只给一个状态码
+      const expired = response.status === 403 && !reply.error;
+      if (expired) showBanner(k('连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。'));
       return {
         ok: response.ok,
-        error: response.ok ? '' : reply.error || t('请求失败（{status}）', { status: response.status }),
+        error: response.ok ? '' : expired ? t('链接无效或已经过期。请使用终端里显示的完整地址重新打开。')
+          : reply.error || t('请求失败（{status}）', { status: response.status }),
         warning: reply.warning || '',
         data: reply,
       };
@@ -1167,6 +1185,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const result = await call(path, data);
     if (!result.ok) toast(result.error);
     return result.ok;
+  }
+
+  // 给读屏软件的播报（页面上看不见）：一段回复写完了、助手要你确认了。只播实时发生的，重放旧内容时不播。
+  // 先清空、下一帧再写，同样的话连说两次也会再读一遍
+  function announce(text) {
+    if (!isLive() || !text) return;
+    const box = $('announce');
+    box.textContent = '';
+    requestAnimationFrame(() => { box.textContent = text.length > 1200 ? text.slice(0, 1199) + '…' : text; });
   }
 
   function refreshStatus() {
@@ -1360,7 +1387,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (!block) return;
     setStreaming(false);
     if (block.kind === 'text') {
-      if (block.text.trim()) linkify(block.holder, block.text);
+      if (block.text.trim()) { linkify(block.holder, block.text); announce(block.text.trim()); }
       else block.box.remove();  // 模型有时只输出几个换行，不值得占一块地方
     }
     block = null;
@@ -1371,7 +1398,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function finishTool(kind, text) {
     const { card, status, outcome } = toolCard;
     status.className = 'status ' + kind + (isLive() ? ' pop' : '');
-    status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'));
+    status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'),
+                           tel('span', 'sr-only', kind === 'ok' ? k('成功') : kind === 'failed' ? k('失败') : k('没有执行完')));
     card.classList.toggle('failed', kind === 'failed');
     // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开。"没有执行完"是页面自己的话，要能跟着换语言
     if (kind === 'stopped' && text) retext(outcome, text); else outcome.textContent = kind === 'ok' ? '' : text;
@@ -1395,7 +1423,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const current = event.providers.find((provider) => provider.id === event.provider);
       $('workspace').textContent = event.workspace;
       // 还没有密钥时，右上角这个按钮直接写明要做什么（服务器的提示里说的"右上角的设置"就是它）
-      $('model-label').textContent = current.has_key ? current.label + ' · ' + event.model : t('设置 API 密钥');
+      if (current.has_key) $('model-label').replaceChildren(el('span', 'provider-name', current.label + ' · '), document.createTextNode(event.model));
+    else $('model-label').textContent = t('设置 API 密钥');
       $('model').classList.toggle('no-key', !current.has_key);
       $('title').textContent = event.title || t('新对话');
       document.title = (event.title ? event.title + ' · ' : '') + t('智狐');
@@ -1446,6 +1475,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const card = el('details', 'call');
       const summary = card.appendChild(el('summary'));
       const status = summary.appendChild(el('span', 'status pending'));
+      status.appendChild(tel('span', 'sr-only', k('正在执行')));
       // 摘要的开头是工具名，后面是参数。分开放，名字用粗体
       const name = typeof event.name === 'string' && event.summary.startsWith(event.name) ? event.name : '';
       summary.appendChild(el('span', 'tool-name', name || event.summary));
@@ -1498,9 +1528,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       }
 
       const answer = async (allowed) => {
+        const hadFocus = card.contains(document.activeElement);
         allow.disabled = deny.disabled = true;
         const sent = await post('/api/confirm', { id: event.id, allow: allowed, feedback: allowed ? '' : reason.value });
         if (!sent) allow.disabled = deny.disabled = false;
+        else if (hadFocus) input.focus({ preventScroll: true });
       };
       allow.addEventListener('click', () => answer(true));
       deny.addEventListener('click', () => answer(false));
@@ -1510,6 +1542,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
       if (isLive()) card.classList.add('alert');
       add(card);
+      announce(t('需要你确认') + '：' + what.textContent);
       confirms.set(event.id, { card, actions, heading });
       refreshStatus();
     },
@@ -1539,9 +1572,18 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     input.style.height = Math.min(wanted, INPUT_LIMIT) + 'px';
     input.style.overflowY = wanted > INPUT_LIMIT ? 'auto' : 'hidden';
   }
+  if ('ResizeObserver' in window) {
+    let inputWidth = 0;
+    new ResizeObserver(() => {
+      if (input.clientWidth === inputWidth) return;  // 只管宽度变化；高度是 resizeInput 自己改的
+      inputWidth = input.clientWidth;
+      resizeInput();
+    }).observe(input);
+  }
 
   async function sendMessage() {
     const text = input.value.trim();
+    if (busy && text) { toast(t(BUSY_HINT)); return; }
     if (!text || busy || sending) return;
     sending = true;
     const sent = await post('/api/message', { text });
@@ -1593,14 +1635,27 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // ---- 两边的栏：展开和收起 ------------------------------------------------
 
-  const overlayNav = matchMedia('(max-width: 760px)');    // 窄屏上，会话栏是盖在对话上面的抽屉
+  const overlayNav = matchMedia('(max-width: 960px)');    // 窄屏上，会话栏是盖在对话上面的抽屉（和样式里的 960px 一致）
   const overlaySide = matchMedia('(max-width: 1180px)');  // 信息栏也一样
+
+  // 窄屏上两边的栏是盖在对话上的抽屉。抽屉开着时，被遮住的部分设成 inert：点不到，Tab 也走不进去，
+  // 读屏软件也不读。不然用键盘的人按 Tab 会跑到抽屉后面看不见的地方去
+  function updateInert() {
+    const navOver = overlayNav.matches && !body.classList.contains('nav-closed');
+    const sideOver = overlaySide.matches && body.classList.contains('side-open');
+    main.inert = navOver || sideOver;
+    side.inert = navOver;
+    nav.inert = sideOver && !navOver;
+  }
 
   function setNav(open, keep) {
     const was = !body.classList.contains('nav-closed');
     const change = () => {
       body.classList.toggle('nav-closed', !open);
       $('nav-open').hidden = $('new-compact').hidden = open;
+      $('nav-open').setAttribute('aria-expanded', String(open));
+      $('nav-close').setAttribute('aria-expanded', String(open));
+      updateInert();
     };
     if (was === open) change(); else relayout(change);
     if (open) {
@@ -1615,15 +1670,27 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const change = () => {
       body.classList.toggle('side-open', open);
       $('side-toggle').setAttribute('aria-pressed', String(open));
+      updateInert();
     };
     if (was === open) change(); else relayout(change);
     if (open && !was) play(side, [{ opacity: 0, transform: 'translateX(18px)' }, { opacity: 1, transform: 'none' }], 360);
     if (keep) remember('harness.side', open ? 'open' : 'closed');
   }
 
-  $('nav-close').addEventListener('click', () => setNav(false, true));
-  $('nav-open').addEventListener('click', () => setNav(true, true));
-  $('side-toggle').addEventListener('click', () => setSide(!body.classList.contains('side-open'), true));
+  // 抽屉收起来以后，焦点回到打开它的按钮上（焦点本来在抽屉里、或者已经掉到页面上的时候）
+  function refocus(button, drawer) {
+    const active = document.activeElement;
+    if (!active || active === body || drawer.contains(active)) button.focus({ preventScroll: true });
+  }
+  $('nav-close').addEventListener('click', () => { setNav(false, true); if (overlayNav.matches) refocus($('nav-open'), nav); });
+  // 用键盘打开的（click.detail 为 0）：焦点直接放进抽屉；用鼠标点的不动焦点，免得手机上弹出键盘
+  $('nav-open').addEventListener('click', (click) => { setNav(true, true); if (click.detail === 0) $('nav-close').focus(); });
+  $('side-toggle').addEventListener('click', (click) => {
+    const open = !body.classList.contains('side-open');
+    setSide(open, true);
+    if (open && overlaySide.matches && click.detail === 0) $('side-close').focus();
+  });
+  $('side-close').addEventListener('click', () => { setSide(false, false); refocus($('side-toggle'), side); });
   $('foot-cost').addEventListener('click', () => setSide(!body.classList.contains('side-open'), true));
   $('scrim').addEventListener('click', () => {
     if (overlayNav.matches) setNav(false, false);
@@ -1731,10 +1798,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   document.addEventListener('pointerdown', (press) => {
     if (appearanceOpen() && !inside(appearance, press) && !inside(themeButton, press)) closeAppearance(false);
   });
-  // 用 Tab 离开了面板，也收起来
-  appearance.addEventListener('focusout', (leave) => {
-    const next = leave.relatedTarget;
-    if (next && !appearance.contains(next) && next !== themeButton) closeAppearance(false);
+  // 焦点去了面板和外观按钮之外（用 Tab 离开、或者打开了别的对话框），也收起来
+  document.addEventListener('focusin', (focus) => {
+    if (appearanceOpen() && !appearance.contains(focus.target) && focus.target !== themeButton) closeAppearance(false);
   });
   window.addEventListener('resize', () => { if (appearanceOpen()) placeAppearance(); });
   // 交叉淡化期间点到页面头上的那一下：按位置找出本来点的是哪个按钮，替它点一下，连点两下才不会丢掉一下
@@ -1776,7 +1842,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function timeLabel(seconds) {
     const date = new Date(seconds * 1000), now = new Date();
     const pad = (number) => String(number).padStart(2, '0');
-    if (startOfDay(date) === startOfDay(now)) return pad(date.getHours()) + ':' + pad(date.getMinutes());
+    if (startOfDay(date) === startOfDay(now)) {  // 今天的只写时间。英文习惯 12 小时制（7:16 PM），中文和西班牙语用 24 小时制
+      return language === 'en' ? date.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : pad(date.getHours()) + ':' + pad(date.getMinutes());
+    }
     // 日期交给浏览器按界面语言去写：中文是"11月20日"，英文是"Nov 20"，西班牙语是"20 nov"
     if (date.getFullYear() === now.getFullYear()) return date.toLocaleDateString(LOCALES[language], { month: 'short', day: 'numeric' });
     return date.toLocaleDateString(LOCALES[language], { year: 'numeric', month: 'numeric', day: 'numeric' });
@@ -1939,6 +2007,13 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         renderConversations();
       });
       no.addEventListener('click', () => { deleting = null; renderConversations(); });
+      box.addEventListener('keydown', (key) => {
+        if (key.key !== 'Escape') return;
+        key.preventDefault();  // 这一下 Esc 只用来取消删除，不再去收起窄屏上的会话栏
+        deleting = null;
+        renderConversations();
+        search.focus();
+      });
       return row;
     }
 
@@ -2049,7 +2124,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       mixBars[index].style.transform = 'scaleX(' + (total ? running / total : 0) + ')';
     });
 
-    const cost = '$' + event.cost.toFixed(4);
+    // 金额按界面语言的习惯写（西班牙语是"0,0034 $"），小数点后固定 4 位
+    const cost = new Intl.NumberFormat(LOCALES[language], { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(event.cost);
     if ($('cost').textContent !== cost) {
       $('cost').textContent = cost;
       if (isLive()) play($('cost'), [{ opacity: .4, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 320);
@@ -2062,6 +2138,16 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   let knownTodos = null, todosDrawn = '', toolsDrawn = '';
 
+  // 待办的截止日期存的是 2026-11-27 这样的写法，显示时按界面语言写成"11月27日""Nov 27""27 nov"。
+  // 模型偶尔写的不是这种格式（比如"周五"），就照原样显示
+  function dueText(due) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due);
+    if (!match) return due;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    const sameYear = date.getFullYear() === new Date().getFullYear();
+    return date.toLocaleDateString(LOCALES[language], sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   function renderTodos(todos) {
     const print = JSON.stringify([todos, language]);
     if (print === todosDrawn) return;
@@ -2072,7 +2158,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const row = el('li', 'todo' + (fresh.includes(item.id) ? ' enter' : ''));  // 刚加上的那一条浮现出来
       row.appendChild(el('span', 'todo-mark'));
       row.appendChild(el('span', 'todo-text', item.title));
-      if (item.due) row.appendChild(el('span', 'due', item.due));
+      if (item.due) row.appendChild(el('span', 'due', dueText(item.due))).title = item.due;
       return row;
     });
     $('todos').replaceChildren(...(items.length ? items : [el('li', 'none', t('没有未完成的待办'))]));
@@ -2263,6 +2349,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         field.value = '';  // 密钥一交出去就从输入框里清掉，不在页面上多留
         say(t('正在保存并同步模型列表……'));
         const result = await call('/api/key', { provider: provider.id, key });
+        if (!result.ok && field.isConnected && !field.value) field.value = key;  // 没存成：放回去，改一改就能再试
         say(result.ok ? result.warning || t('{provider} 的密钥已保存，模型列表已同步。', { provider: provider.label }) : result.error,
             result.ok && !result.warning ? 'good' : 'bad');
       });
@@ -2371,8 +2458,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       search.focus();
       search.select();
     } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open) {
-      if (overlayNav.matches && !body.classList.contains('nav-closed')) setNav(false, false);
-      if (overlaySide.matches && body.classList.contains('side-open')) setSide(false, false);
+      if (overlayNav.matches && !body.classList.contains('nav-closed')) { setNav(false, false); refocus($('nav-open'), nav); }
+      if (overlaySide.matches && body.classList.contains('side-open')) { setSide(false, false); refocus($('side-toggle'), side); }
     }
   });
 
@@ -2410,7 +2497,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (unsettled && !replaying) settle();
   }
 
+  let lostTimer = 0;
   source.onopen = () => {
+    clearTimeout(lostTimer);
+    lostTimer = 0;
     banner.hidden = true;
     synced = false;
     clearTimeout(syncTimer);
@@ -2438,6 +2528,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       ? k('连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。')
       : k('连接中断，正在重连……'));
     body.classList.add('ready');  // 连不上也要让页面亮相，否则只看得到一条提示
+    if (!gone && busy && !lostTimer) {
+      lostTimer = setTimeout(() => {
+        lostTimer = 0;
+        if (source.readyState === EventSource.OPEN || !busy) return;
+        endBlock();
+        busy = stopping = false;
+        refreshStatus();
+      }, 3000);
+    }
     if (gone && busy) {  // 助手程序不在了，"正在工作"就不该一直转下去
       endBlock();
       busy = stopping = false;

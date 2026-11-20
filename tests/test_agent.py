@@ -351,10 +351,26 @@ def test_step_limit_stops_the_loop(start):
 
 
 def test_api_error_withdraws_the_user_message(start):
-    h = start()  # 没有预设回复：假 API 会返回 500
-    with pytest.raises(ProviderError, match="500"):
+    h = start()  # 没有预设回复：假 API 会返回 500，内容是一整个 HTML 出错网页
+    with pytest.raises(ProviderError, match="500") as raised:
         h.agent.run_turn("你好")
     assert h.agent.messages == []
+    # 网页不能原样显示给用户（会铺满几屏标签）：只留下能读的那几句
+    message = str(raised.value)
+    assert "<" not in message and "no scripted reply left" in message and len(message) < 400
+
+
+def test_vendor_error_text_is_made_readable():
+    from harness.providers.base import ERROR_CHARS, brief
+
+    page = "<!DOCTYPE HTML>\n<html><head><title>502</title><style>h1{}</style></head><body><h1>502 Bad Gateway</h1>nginx</body></html>"
+    assert brief(page) == "502 Bad Gateway nginx"  # 只留正文的文字，<head> 里的标题和样式不要
+    assert brief("<html><head><title>Service Unavailable</title></head><body></body></html>") == "Service Unavailable"  # 正文是空的才用标题
+    assert brief("<html><body><p>Error code: 500</p>\n<p>Message: boom &amp; more.</p></body></html>") == "Error code: 500 Message: boom & more."
+    assert brief("invalid  x-api-key\n") == "invalid x-api-key"  # 普通的一句话只整理空白
+    assert brief("a <b> c") == "a <b> c"  # 不是网页的，尖括号原样保留
+    long = brief("x" * 5000)
+    assert len(long) == ERROR_CHARS and long.endswith("…")
 
 
 def test_search_limit_can_be_changed_or_removed(start):

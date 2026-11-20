@@ -73,6 +73,12 @@ def k(text: str) -> str:
     return text
 
 
+def number(value: int) -> str:
+    """按当前界面语言写一个整数。中文和英文是 123,456；西班牙语里逗号是小数点，千位之间用空格：123 456。"""
+    text = f"{value:,}"
+    return text.replace(",", "\u00a0") if current == "es" else text  # 不换行的空格：数字不会在中间断开
+
+
 def message_of(exc: BaseException) -> str:
     """异常带着的那句话。用 t() 写的会原样取回（还记着原文和填进去的值），别的转成普通文字。"""
     if len(exc.args) == 1 and isinstance(exc.args[0], Message):

@@ -428,11 +428,11 @@ below the input box; in the terminal, use `/auto`:
 | Option | Terminal command | Effect |
 |---|---|---|
 | Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
-| Auto-approve file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, and reading `data/` still ask |
-| Auto-approve everything | `/auto all` | Nothing asks |
+| Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, and reading `data/` still ask |
+| Allow everything | `/auto all` | Nothing asks |
 
-This only changes whether ZhiFox asks. Steps that ran without asking are marked **Auto-approved** on their tool card in
-the web UI, and noted as "(auto-approved)" in the terminal. The choice isn't saved: every launch starts again at Ask
+This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
+the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
 every time, so you can't turn it on and forget about it.
 
 Two hard limits apply regardless of any prompt: the assistant can't read or write `.env` (which holds your API keys),
@@ -601,7 +601,7 @@ What the program does to keep cost under control:
   a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
   30,000 tokens shows a notice about this.
 - **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
-- You can click **Stop** at any time, or start a **New chat** to clear the history.
+- You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
 Built-in prices cover only these Claude models (public prices at the time of writing, in USD per million tokens):
 
@@ -753,7 +753,7 @@ OpenAI format can be added with one entry in `PROVIDERS`.
 
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
-every launch, and steps that ran without asking are marked as auto-approved. In every mode the assistant can't touch
+every launch, and steps that ran without asking are marked as allowed automatically. In every mode the assistant can't touch
 `.env`, and the commands it runs can't see your API keys. See [Permissions](#permissions).
 
 ### What does it cost to run?

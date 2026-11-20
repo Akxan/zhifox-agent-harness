@@ -179,7 +179,7 @@ class App:
         return items
 
     def set_api_key(self, provider_id: str, key: str) -> None:
-        """保存（或删除）一家的 API key，并让它立即生效。"""
+        """保存（或删除）一家的 API 密钥，并让它立即生效。"""
         provider = PROVIDERS[provider_id]
         save_api_key(self.config.env_file, provider.key_env, key)
         if provider_id == self.agent.backend.provider:
@@ -189,7 +189,7 @@ class App:
         """向一家的服务器询问有哪些模型，并把列表记下来。"""
         provider = PROVIDERS[provider_id]
         if not has_key(provider):
-            raise ProviderError(t("还没有设置 {provider} 的 API key。", provider=provider.label))
+            raise ProviderError(t("还没有设置 {provider} 的 API 密钥。", provider=provider.label))
         models = list_models(provider, self.client_factory(provider))
         self.settings.set_models(provider_id, models)
         return models

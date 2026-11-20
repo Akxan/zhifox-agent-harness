@@ -20,7 +20,7 @@ from ..config import Config
 from ..i18n import t
 from ..safe import clean, clean_text, loads_strict
 from ..tools import ToolRegistry
-from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage
+from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage, brief
 
 
 class OpenAICompatBackend:
@@ -181,17 +181,17 @@ def _usage(raw: Any) -> Usage:
 def _explain(exc: openai.APIError, label: str, model: str) -> str:
     """把 API 的错误翻译成看得懂的提示。"""
     if isinstance(exc, openai.AuthenticationError):
-        return t("{provider} 的 API key 无效，请在设置里重新填写。", provider=label)
+        return t("{provider} 的 API 密钥无效，请在设置里重新填写。", provider=label)
     if isinstance(exc, openai.PermissionDeniedError):
-        return t("这个 API key 没有权限执行该请求：{error}", error=exc.message)
+        return t("这个 API 密钥没有权限执行该请求：{error}", error=brief(exc.message))
     if isinstance(exc, openai.NotFoundError):
         return t("{provider} 找不到模型 {model}，或者这个模型不支持当前的接口。请换一个模型。", provider=label, model=model)
     if isinstance(exc, openai.RateLimitError):
         return t("{provider} 提示请求太频繁，或者账号余额、额度不足。", provider=label)
     if isinstance(exc, openai.BadRequestError):
-        return t("请求被 {provider} 拒绝：{error}", provider=label, error=exc.message)
+        return t("请求被 {provider} 拒绝：{error}", provider=label, error=brief(exc.message))
     if isinstance(exc, openai.APIStatusError):
-        return t("{provider} 的 API 出错（状态码 {status}）：{error}", provider=label, status=exc.status_code, error=exc.message)
+        return t("{provider} 的 API 出错（状态码 {status}）：{error}", provider=label, status=exc.status_code, error=brief(exc.message))
     if isinstance(exc, openai.APIConnectionError):
         return t("连接不上 {provider} 的服务器，请检查网络。", provider=label)
     return t("调用 {provider} 失败：{error}", provider=label, error=exc)

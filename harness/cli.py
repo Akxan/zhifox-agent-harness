@@ -17,13 +17,13 @@ from .tools.todo import format_todos
 from .ui import TerminalUI
 
 SETUP_HELP = k("""\
-还没有设置 {label} 的 API key，助手需要它才能调用模型。有两种办法：
+还没有设置 {label} 的 API 密钥，助手需要它才能调用模型。有两种办法：
 
   1. 运行 uv run harness --web ，在网页界面右上角的"设置"里填写（最省事）。
   2. 打开 {env_file} ，加上一行：
          {key_env}=你的key
 
-API key 在 {key_page} 申请。API 按用量计费，和聊天产品的订阅是分开的。
+API 密钥在 {key_page} 申请。API 按用量计费，和聊天产品的订阅是分开的。
 """)
 
 HELP = k("""\
