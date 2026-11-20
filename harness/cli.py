@@ -114,6 +114,11 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
                 note=note,
             )
         )
+        # 账本里的数（见 ledger.py）：不随重启清零，网页界面里花的、定时任务花的也都在里面
+        spend = app.spending()
+        ui.plain(t("今天 ${today}，本月 ${month}", today=f"{spend['today']:.4f}", month=f"{spend['month']:.4f}"))
+        if spend["budget"]:
+            ui.plain(t("每月预算 ${budget}", budget=f"{spend['budget']:.2f}") + (t("（已超出）") if spend["over"] else ""))
     elif command == "/mcp":
         servers = app.mcp.status(started=False)
         if not servers:

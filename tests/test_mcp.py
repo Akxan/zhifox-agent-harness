@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import RecordingUI
 from fake_api import reply, text, tool_use
 from fake_mcp import PNG, FakeMcpHttp
 from fake_openai import call as openai_call
@@ -24,7 +25,7 @@ from fake_openai import chat
 import harness.mcp.client as mcp_client
 import harness.mcp.manager as mcp_manager
 from harness.cli import handle_command
-from harness.mcp import ConfigError, McpConfig, McpManager, importers
+from harness.mcp import ConfigError, McpConfig, McpManager, Snapshot, importers
 from harness.mcp.bridge import claude_schema, exposed_name, portable_schema, render
 from harness.mcp.client import McpClient
 from harness.mcp.config import (
@@ -519,7 +520,7 @@ def test_two_servers_with_the_same_tool_names_both_get_in(manager):
     m = manager({"one": stdio(), "two": stdio()})
     names = [tool.name for tool in m.snapshot().tools]
     assert "mcp__one__echo" in names and "mcp__two__echo" in names
-    assert m.snapshot().tools[0].spec["description"].startswith("（这个工具来自 MCP 服务器“one”")
+    assert m.snapshot().tools[0].spec["description"].startswith("（第三方工具，来自 MCP 服务器“one”")
 
 
 def test_schemas_are_made_acceptable_for_each_provider():
@@ -698,6 +699,36 @@ def test_a_denied_mcp_call_never_reaches_the_server(start, make_config, tmp_path
     h.agent.run_turn("让它说 hi")
     assert h.ui.results[-1][1] is True and "用户拒绝" in h.ui.results[-1][0]
     assert not any(message.get("method") == "tools/call" for message in records(log))
+
+
+def test_a_scheduled_task_run_gets_its_own_snapshot_and_always_asks(start, make_config):
+    """定时任务自己运行时也带上 MCP 的工具（开始那一刻的快照），但即使设成了"不用问"也照样要问：没人看着。
+
+    它手里的快照可以和你正在看的这段对话的不一样（这里那段对话的快照是空的），权限照样认得出哪些是 MCP 的工具：
+    认的是工具本身，不是对话的快照。认不出来的话，这次调用就会不问就执行。
+    """
+    write_app_config(make_config, {"fake": stdio()})
+    h = start(reply(tool_use("toolu_1", "mcp__fake__echo", {"text": "task"}), stop_reason="tool_use"), reply(text("做完了")))
+    m = h.app.mcp
+    settle(m)
+    m.set_approval("fake", "echo", "auto")
+    m.active = Snapshot()  # 你正在看的那段对话还没开始：它的快照里一个 MCP 工具都没有
+    ui = RecordingUI()
+    agent = h.app.unattended_agent(ui)
+    assert agent.tools.get("mcp__fake__echo") is not None
+    agent.run_turn("定时任务的指令")
+
+    assert "mcp__fake__echo" in tool_names_sent(h.api.requests[0])
+    assert len(ui.confirmations) == 1 and "fake" in ui.confirmations[0] and ui.auto_allowed_count == 0
+    assert ui.results[-1] == ("task", False)
+    assert h.app.mcp.active.tools == []  # 没有动你那段对话的快照
+
+
+def test_an_unrecognized_mcp_name_still_asks():
+    # 名字是 mcp__ 开头、却不知道是哪个服务器的：宁可多问一次，也不能不问
+    permissions = Permissions(editor=None, mcp=None)  # type: ignore[arg-type]
+    assert "mcp__ghost__run" in permissions.review("mcp__ghost__run", {"x": 1})
+    assert permissions.auto_allows("mcp__ghost__run", {"x": 1}) is False
 
 
 def test_server_default_and_per_tool_overrides(manager, make_config):
@@ -955,7 +986,7 @@ def test_terminal_commands_show_mcp_servers_and_tools(start, make_config, capsys
     assert "fake  [已连接]  8 个工具" in out and "typo  [连接失败]" in out and "definitely-not-a-command-xyz" in out
     assert handle_command("/tools", h.app, ui) is True
     out = capsys.readouterr().out
-    assert "mcp__fake__echo" in out and "（这个工具来自 MCP 服务器“fake”" in out
+    assert "mcp__fake__echo" in out and "（第三方工具，来自 MCP 服务器“fake”" in out
 
 
 def test_terminal_mcp_command_without_servers(start, capsys):

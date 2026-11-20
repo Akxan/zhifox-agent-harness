@@ -108,6 +108,7 @@ class Step:
     # tools   模型要调用工具（见 tool_calls）
     # paused  服务器端的工具（联网搜索）还没做完，原样再请求一次让它接着做
     # refused 模型或安全系统拒绝了这个请求
+    # compacted 这一步没有回答，而是把较早的对话压缩成了摘要（见 compaction.py）；循环记下用量，再请求一次
     status: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     truncated: bool = False  # 回复达到长度上限被截断了
@@ -137,7 +138,7 @@ class Backend(Protocol):
     def reset(self) -> None: ...  # 清空对话
     def export(self) -> list: ...  # 把对话历史交出来保存（只含能写成 JSON 的普通数据）
     def restore(self, messages: list) -> None: ...  # 换上一份以前保存的对话历史
-    def mark(self) -> int: ...  # 记下历史现在的位置
+    def mark(self) -> int: ...  # 记下历史现在的位置（中途压缩过历史，这个位置也仍然有效）
     def rollback(self, mark: int) -> None: ...  # 把历史退回到某个位置（只会从末尾去掉内容）
     # 追加一条用户消息。parts 是几段文字（时间说明、用户的话），attachments 是随消息发来的附件。
     # 附件怎么放进消息由各家自己决定；这一家收不了的附件（比如看不了图片）抛出 ProviderError，什么都不追加

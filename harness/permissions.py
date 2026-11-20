@@ -8,6 +8,8 @@
 
   操作                              处理
   待办、记忆                        直接执行（只动 data/ 里助手自己的文件）
+  添加、删除只是提醒的定时任务      直接执行（到时间只弹一条提醒，不花钱）
+  添加、删除让助手去做的定时任务    先问用户（以后每次运行都花钱，还会在没人看着的时候自己调用工具）
   读取工作目录里的文件              直接执行
   读取工作目录之外的文件            先问用户
   读取助手自己的数据目录里的文件    先问用户（即使它在工作目录里面。见 Permissions 的说明）
@@ -22,6 +24,10 @@
 MCP 的工具是别人写的程序，它能做什么我们看不到（它说自己"只读"也没法验证），所以默认每次都问。
 你在"扩展 → MCP"里把某个工具设成"不用问"，它就和"全部自动允许"一样直接执行，在任何模式下都算数，
 对话里照样标着"自动允许"。这是你对一个具体工具做的决定，记在 data/mcp.json 里，重启后还在。
+
+定时任务自己运行的时候（没人看着）不能放宽：表上要问的，一律停下来等用户批准，用户选了"全部自动允许"也一样
+（见 unattended）。用户选择放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。
+设成"不用问"的 MCP 工具也按这条来：没人看着的时候照样要问。
 """
 
 from __future__ import annotations
@@ -32,7 +38,11 @@ from pathlib import Path
 from typing import Any
 
 from .i18n import k, t
+from .mcp.bridge import PREFIX as MCP_PREFIX
+from .mcp.bridge import McpTool
+from .tasks import TaskError, TaskStore, check_task, describe
 from .tools import files, shell
+from .tools import tasks as task_tools
 from .tools.base import ToolError
 from .tools.files import FileEditor
 
@@ -45,7 +55,7 @@ MODES = {
 
 
 class Permissions:
-    def __init__(self, editor: FileEditor, private: Iterable[Path] = (), mcp: Any = None):
+    def __init__(self, editor: FileEditor, private: Iterable[Path] = (), tasks: TaskStore | None = None, mcp: Any = None):
         """private 是助手自己的数据目录（保存下来的会话、设置、待办、记忆）。
 
         在项目目录里运行时，这个目录就在工作目录里面。如果把它当成普通的工作目录文件、读取时不用问，
@@ -55,18 +65,32 @@ class Permissions:
         """
         self.editor = editor
         self.private = [path.resolve() for path in private]
-        self.mcp = mcp  # MCP 服务器的管理者（mcp/manager.py）：认得出哪些工具是 MCP 的，记着哪些设成了"不用问"
+        self.tasks = tasks  # 删除定时任务时要看一眼它是哪一种（只是提醒的不用问）
+        self.mcp = mcp  # MCP 服务器的管理者（mcp/manager.py）：记着哪些工具设成了"不用问"
         # 现在是哪种模式。每次启动都从"每次都问"开始，不记进设置文件：
         # 放开之后忘了关，比每次多点一下要危险得多。
         self.mode = "ask"
+        self.always_ask = False  # 为真时不管什么模式都要问（定时任务自己运行时用的那一份，见 unattended）
 
-    def auto_allows(self, tool_name: str, tool_input: object) -> bool:
-        """一次需要确认的操作，在现在的模式下是不是可以不问就做。"""
+    def unattended(self) -> Permissions:
+        """给定时任务自己运行时用的一份：规则和这一份完全相同，但永远是"每次都问"。
+
+        是另外一个对象，所以用户在页面上换模式（改的是对话用的那一份）碰不到它。
+        """
+        copy = Permissions(self.editor, self.private, self.tasks, self.mcp)
+        copy.always_ask = True
+        return copy
+
+    def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
+        """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
+        if self.always_ask:
+            return False
         if self.mode == "all":
             return True
-        found = self.mcp.resolve(tool_name) if self.mcp is not None else None
+        found = self._mcp_of(tool_name, tool)
         if found is not None:
-            return self.mcp.trusted(*found)  # 你单独放开了这个 MCP 工具（见文件开头的说明）
+            # 你单独放开了这个 MCP 工具（见文件开头的说明）。认不出是哪个服务器的，一律问
+            return found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
         if self.mode == "edits":
             return self._edits_workspace_file(tool_name, tool_input)
         return False
@@ -86,24 +110,61 @@ class Permissions:
     def _is_private(self, path: Path) -> bool:
         return any(path == folder or path.is_relative_to(folder) for folder in self.private)
 
-    def review(self, tool_name: str, tool_input: object) -> str | None:
-        """审查一次工具调用。
+    def _mcp_of(self, tool_name: str, tool: object) -> tuple[str | None, str] | None:
+        """这次调用的是不是 MCP 的工具：是的话返回（服务器，服务器那边的工具名），不是返回 None。
+
+        认的是工具本身（每个助手手里有自己的那一套快照，定时任务的和对话的可能不一样）。名字是 mcp__ 开头、
+        却认不出来的，也当作 MCP 的工具，服务器写 None：宁可多问一次，也不能因为认不出就不问。
+        """
+        if isinstance(tool, McpTool):
+            return tool.server, tool.remote
+        if not tool_name.startswith(MCP_PREFIX):
+            return None
+        found = self.mcp.resolve(tool_name) if self.mcp is not None else None
+        return found if found is not None else (None, tool_name)
+
+    def review(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
+        """审查一次工具调用。tool 是这次要用的那个工具（agent.py 会给；不给的话只按名字判断）。
 
         返回 None     —— 可以直接执行。
         返回一段文字  —— 必须先问用户。这段文字会显示给用户，说明助手想做什么。
         """
         if not isinstance(tool_input, dict):
             return None  # 参数本身不合法，工具会直接报错，什么都不会执行（MCP 的工具也是：还没联系服务器就退回去了）
-        found = self.mcp.resolve(tool_name) if self.mcp is not None else None
+        found = self._mcp_of(tool_name, tool)
         if found is not None:
             # 参数整段给你看：MCP 的工具会把它们发给另一个程序（可能在网上），你要知道发出去的是什么
             shown = json.dumps(tool_input, ensure_ascii=False, indent=2, default=str)
-            return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0], tool=found[1], args=_preview(shown, 40))
+            return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0] or "?", tool=found[1], args=_preview(shown, 40))
         if tool_name == shell.TOOL_NAME:
             return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:
             return self._review_file(tool_input)
+        if tool_name == task_tools.ADD:
+            return self._review_task_add(tool_input)
+        if tool_name == task_tools.DELETE:
+            return self._review_task_delete(tool_input)
         return None
+
+    def _review_task_add(self, tool_input: dict) -> str | None:
+        try:
+            task = check_task({**tool_input, "enabled": True})
+        except TaskError:
+            return None  # 参数不对，工具会直接报错，什么都不会添加
+        if task["kind"] != "agent":
+            return None  # 只是提醒：不花钱，也不会自己做任何事
+        return t(
+            "添加定时任务“{title}”（{when}）：到时间后，助手会在没人看着的时候自己运行下面这条指令，每次运行都要花 API 费用。\n\n{prompt}",
+            title=task["title"],
+            when=describe(task["schedule"]),
+            prompt=_preview(task["prompt"]),
+        )
+
+    def _review_task_delete(self, tool_input: dict) -> str | None:
+        task = self.tasks.get(tool_input.get("id")) if self.tasks is not None else None
+        if task is None or task["kind"] != "agent":
+            return None  # 不存在（工具会报错）或者只是提醒：不用问
+        return t("删除定时任务“{title}”（{when}），以后它不会再自动运行。", title=task["title"], when=describe(task["schedule"]))
 
     def _review_file(self, tool_input: dict) -> str | None:
         command = tool_input.get("command")

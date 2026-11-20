@@ -1,29 +1,79 @@
 """估算费用：把 token 数换算成钱。
 
-这里算出来的只是估算。真正的账单以各家控制台为准：价格会调整，有的厂商还分高峰和低谷时段。
+这里算出来的只是估算。真正的账单以各家控制台为准：价格会调整，有的厂商还分高峰和闲时。
 
-内置的只有 Claude 几个模型的价格。其他模型的价格可以在网页界面的设置里自己填，
-没有价格的模型只显示 token 数，不计入估算。
+内置了 Claude 和 DeepSeek 几个模型的价格（2026-11-20 对照两家官方的定价页核对过）。其他模型的价格
+可以在网页界面的设置里自己填，没有价格的模型只显示 token 数，不计入估算。
+
+DeepSeek 分时段计价：北京时间工作日 9:00–12:00、14:00–18:00 是高峰，其余时间（包括周末）是闲时，
+闲时价是高峰的一半。所以不能等一段对话结束后按总用量算一次，而是每调用一次模型就看当时是高峰还是闲时，
+闲时的用量单独记一份（见 usage_key），算钱时各按各的价。
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from .providers.base import Usage
 
-# 单位：美元 / 每百万 token。2026 年 11 月的公开价格。
-BUILTIN_PRICES: dict[str, dict[str, float]] = {
+# 单位：美元 / 每百万 token。
+#   input        没命中缓存的输入
+#   cache_read   命中缓存的输入
+#   cache_write  写入缓存（只有 Claude 收：这里用的是 5 分钟的缓存，按输入价的 1.25 倍）
+#   output       输出（思考的内容也算输出）
+#   offpeak      闲时价（只有 DeepSeek 有）：闲时的用量按这几项算，没写的项和上面一样
+BUILTIN_PRICES: dict[str, dict] = {
+    # https://platform.claude.com/docs/en/about-claude/pricing
     "claude-opus-5-5": {"input": 4.0, "cache_read": 0.20, "cache_write": 5.0, "output": 20.0},
     "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.10, "cache_write": 2.5, "output": 10.0},
     "claude-fable-5-2": {"input": 8.0, "cache_read": 0.20, "cache_write": 10.0, "output": 40.0},
+    # https://api-docs.deepseek.com/quick_start/pricing 。上面是高峰价，offpeak 是闲时价。
+    # DeepSeek 不收写入缓存的钱：没命中缓存的输入就按普通输入算
+    "deepseek-flash": {"input": 0.30, "cache_read": 0.006, "output": 1.20, "offpeak": {"input": 0.15, "cache_read": 0.003, "output": 0.60}},
+    "deepseek-v4-pro": {"input": 1.32, "cache_read": 0.044, "output": 3.96, "offpeak": {"input": 0.66, "cache_read": 0.022, "output": 1.98}},
 }
 
-# Anthropic 的联网搜索：每 1,000 次 10 美元
+# 换了名字的模型：官方说旧名字照样能用，按新名字的价格算
+ALIASES = {"deepseek-v4-flash": "deepseek-flash"}
+
+# Anthropic 的联网搜索：每 1,000 次 10 美元（搜到的内容另按输入 token 算）
 SEARCH_PRICE = 0.01
 
+OFFPEAK = "@offpeak"  # 闲时的用量记在"模型名@offpeak"下面
 
-def price_of(model: str, custom: dict[str, dict]) -> dict[str, float] | None:
-    """一个模型的价格：用户自己填的优先，其次是内置的；都没有就返回 None。"""
-    price = custom.get(model) or BUILTIN_PRICES.get(model)
+
+def is_offpeak(moment: datetime) -> bool:
+    """这一刻是不是 DeepSeek 的闲时。
+
+    官方按协调世界时（UTC）写：周一到周五的 01:00–04:00 和 06:00–10:00 是高峰（北京时间 9:00–12:00、
+    14:00–18:00），其余时间都是闲时，周末也是。官方另说中国法定节假日也算闲时；节假日每年由国务院另行公布，
+    这里没有收录，所以落在工作日的节假日会按高峰价估算（估高一点，不会估低）。
+    """
+    utc = moment.astimezone(UTC)  # 不带时区的时间按本地时间理解
+    if utc.weekday() >= 5:
+        return True
+    return not (1 <= utc.hour < 4 or 6 <= utc.hour < 10)
+
+
+def usage_key(model: str, moment: datetime) -> str:
+    """记用量时用的名字：价格分时段的模型，闲时的用量记在"模型名@offpeak"下面，算钱时按闲时价。"""
+    price = BUILTIN_PRICES.get(ALIASES.get(model, model))
+    if price and "offpeak" in price and is_offpeak(moment):
+        return model + OFFPEAK
+    return model
+
+
+def price_of(model: str, custom: dict[str, dict], offpeak: bool = False) -> dict[str, float] | None:
+    """一个模型的价格：用户自己填的优先（全天都按它算），其次是内置的；都没有就返回 None。
+
+    offpeak：要闲时的价格。没有闲时价的模型，闲时和平时一样。
+    """
+    if custom.get(model):
+        price = custom[model]
+    else:
+        price = BUILTIN_PRICES.get(ALIASES.get(model, model))
+        if price and offpeak and "offpeak" in price:
+            price = {**price, **price["offpeak"]}
     if not price or "input" not in price or "output" not in price:
         return None
     return {
@@ -38,11 +88,14 @@ def price_of(model: str, custom: dict[str, dict]) -> dict[str, float] | None:
 def estimate(usage_by_model: dict[str, Usage], custom: dict[str, dict]) -> tuple[float, list[str]]:
     """估算总费用。返回（美元，因为没有价格而没算进去的模型）。"""
     total = 0.0
-    unpriced = []
-    for model, usage in usage_by_model.items():
-        price = price_of(model, custom)
+    unpriced: list[str] = []
+    for key, usage in usage_by_model.items():
+        offpeak = key.endswith(OFFPEAK)
+        model = key.removesuffix(OFFPEAK)
+        price = price_of(model, custom, offpeak)
         if price is None:
-            unpriced.append(model)
+            if model not in unpriced:
+                unpriced.append(model)
             continue
         total += (
             usage.input_tokens * price["input"]

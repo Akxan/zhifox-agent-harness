@@ -25,6 +25,7 @@ from .attachments import Attachment
 from .config import Config
 from .i18n import t
 from .permissions import Permissions
+from .pricing import usage_key
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
@@ -61,6 +62,9 @@ class Agent:
         self.usage = Usage()  # 本次运行的累计用量
         self.usage_by_model: dict[str, Usage] = {}  # 按模型分开记，因为各个模型价格不同
         self.on_usage: Callable[[], None] | None = None  # 每调用完一次模型就通知一下（界面用它刷新用量）
+        # 每调用完一次模型，把"哪一家、哪个模型、用了多少、什么时候"交出去（记账用，见 ledger.py 和 app.py）。
+        # 循环自己不管钱怎么算、记在哪儿，只负责在每次调用之后说一声
+        self.on_call: Callable[[str, str, Usage, datetime], None] | None = None
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
@@ -117,8 +121,10 @@ class Agent:
                     self.ui.info(t("模型拒绝了这个请求，这一轮对话已撤销。可以换个说法再试。"))
                 return
 
-            if step.status == "paused":
-                continue  # 服务器端的工具（联网搜索）还没做完，原样再请求一次让它接着做
+            if step.status in ("paused", "compacted"):
+                # paused：服务器端的工具（联网搜索）还没做完，原样再请求一次让它接着做。
+                # compacted：适配层刚把较早的对话压缩成了摘要（那次调用的用量上面已经记下），现在才发真正的请求
+                continue
 
             if not step.tool_calls:
                 if step.truncated:
@@ -131,8 +137,12 @@ class Agent:
         self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
 
     def _record(self, usage: Usage) -> None:
+        now = self.clock()  # 只看一次钟：本次运行的估算和账本按同一个时刻算价格
         self.usage.add(usage)
-        self.usage_by_model.setdefault(self.backend.model, Usage()).add(usage)
+        # 按模型分开记。价格分时段的模型（DeepSeek），闲时的用量另记一份，算钱时按闲时价（见 pricing.usage_key）
+        self.usage_by_model.setdefault(usage_key(self.backend.model, now), Usage()).add(usage)
+        if self.on_call is not None:  # 先记账再通知界面：界面刷新时，"今天""本月"已经包括这一次了
+            self.on_call(self.backend.provider, self.backend.model, usage, now)
         if self.on_usage is not None:
             self.on_usage()
 
@@ -176,9 +186,9 @@ class Agent:
             return f"没有可以在本地执行的工具 {call.name}。", True, ()
 
         # 先过权限这一关
-        question = self.permissions.review(call.name, call.input)
+        question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
         if question is not None:
-            if self.permissions.auto_allows(call.name, call.input):
+            if self.permissions.auto_allows(call.name, call.input, tool):
                 self.ui.auto_allowed()  # 没有问用户就放行了：告诉界面一声，记录里要看得出来
             else:
                 allowed, feedback = self.ui.confirm(question)

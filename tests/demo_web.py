@@ -16,6 +16,9 @@
     一个 HTTP 的（在这个进程里跑）、一个启动不了的、一个停用的。"扩展 → MCP"里都能看到、能点。
     "从 Claude 导入"读的是临时目录里编造的 Claude Desktop / Claude Code 配置，不会读你电脑上真正的那些
     （这个脚本把 HOME 换成了临时目录）。
+  - 定时任务照常运行（调度线程和正式程序里一样）。全新的数据目录里预先放了几个编造的任务：
+    一条已经弹出、还没关掉的提醒，一个跑过两次的"每日安排"，一个关掉了的每周任务，一个每 45 分钟的提醒。
+    "立即运行"会用掉下面预设回复里的下一条。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用；之后是几条凑数的回复。发什么消息都行，回复只看顺序。
@@ -58,6 +61,7 @@ from fake_openai import FakeOpenAI, call, chat
 import harness.webui.server as server_module
 from harness.app import build_app
 from harness.config import Config
+from harness.tasks import new_run
 from harness.webui.ui import WebUI
 
 
@@ -249,8 +253,23 @@ server_module.Handler._send_page = send_fresh_page
 server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里本来会在文件管理器里显示 {path}）", flush=True)
 
 ui = WebUI()
+fresh = not (root / "data" / "tasks.json").exists()
 app = build_app(config, ui, client_factory=client_factory)
+if fresh:
+    # 编造几个任务，"任务"那一栏才有东西可看：有运行记录的、关掉了的、还没关掉的提醒
+    now = time.time()
+    water = app.tasks.add({"title": "喝水", "kind": "reminder", "prompt": "起来喝杯水，顺便看看窗外", "schedule": {"type": "daily", "time": "09:00"}})
+    app.tasks.remind(water["id"], now - 600, new_run(now - 600, "done"))
+    plan = app.tasks.add({"title": "每日安排", "kind": "agent", "prompt": "看看我的待办，写一份今天的安排", "schedule": {"type": "weekly", "days": [1, 2, 3, 4, 5], "time": "09:00"}})
+    for days_ago, extra in ((2, {"catch_up": True, "missed": 2}), (1, {})):
+        started = now - days_ago * 86400
+        run = new_run(started, "done", **extra)
+        run.update(finished_at=started + 41, cost=0.0123, steps=3, summary="今天有一条待办：周五交报告。上午先写提纲，下午把数据补齐。")
+        app.tasks.add_run(plan["id"], run)
+    app.tasks.add({"title": "整理下载文件夹", "kind": "agent", "prompt": "把下载文件夹里超过 30 天的文件列出来，按类型分好，先别删", "schedule": {"type": "weekly", "days": [5], "time": "18:00"}, "enabled": False})
+    app.tasks.add({"title": "站起来活动一下", "kind": "reminder", "prompt": "", "schedule": {"type": "interval", "minutes": 45}})
 server, url = server_module.create_server(app, ui, port=options.port)
+server.web.tasks.start()  # 和正式程序一样，定时任务只在网页界面开着的时候运行
 print(f"演示已启动，所有回复都是预设的，不花钱。在浏览器里打开：\n\n    {url}\n\n数据在 {root}。按 Ctrl-C 退出。", flush=True)
 try:
     server.serve_forever()

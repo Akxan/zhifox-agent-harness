@@ -6,7 +6,8 @@
   - 系统提示词是历史里的第一条消息（role 为 system），不是单独的参数。
   - 工具调用不是"内容块"，而是助手消息上的 tool_calls 字段；参数是一段 JSON 文本，要自己解析。
   - 每个工具结果是单独的一条消息（role 为 tool），而不是合在一条消息里。
-  - 没有服务器端的联网搜索，没有自动压缩历史，缓存是各家自动做的、不用我们管。
+  - 没有服务器端的联网搜索；缓存是各家自动做的、不用我们管。
+  - API 不会替我们压缩历史。对话太长时，由智狐自己请模型把较早的部分写成摘要（见 compaction.py）。
   - 用户消息带图片时，内容是一个列表，图片写成 data: 地址；这套格式里没有各家通用的 PDF 写法。
 """
 
@@ -18,11 +19,13 @@ from typing import Any
 
 import openai
 
+from .. import i18n
 from ..attachments import Attachment, unsupported, wrap_text
 from ..config import Config
 from ..i18n import t
 from ..safe import clean, clean_text, loads_strict
 from ..tools import ToolRegistry
+from . import compaction
 from .base import (
     ProviderError,
     Step,
@@ -57,7 +60,7 @@ class OpenAICompatBackend:
         self.vision, self.pdf = vision, pdf  # 这一家能不能收图片、PDF（见 providers/__init__.py 的 PROVIDERS）
         self.use_tools(tools)
         self._system = {"role": "system", "content": system_prompt}
-        self._messages: list[dict] = [self._system]
+        self._start_history([])
 
     def use_tools(self, tools: ToolRegistry) -> None:
         """换一套工具。和 Claude 一样，只在一段对话开始之前换（见 agent.py 的 on_start）。"""
@@ -71,22 +74,39 @@ class OpenAICompatBackend:
     def messages(self) -> list[dict]:
         return self._messages
 
+    def _start_history(self, messages: list) -> None:
+        """换上一份历史（新对话、打开旧会话），和压缩有关的几项记录也从头开始。"""
+        self._messages: list[dict] = [self._system, *messages]
+        # 压缩会把前面的一段换成两条摘要消息，历史因此变短。为了让压缩之前记下的位置（mark）在压缩之后
+        # 仍然指向同一条消息，把压缩掉了多少条记在这里，mark 和 rollback 换算时用
+        self._dropped = 0
+        # 上一次请求时这段对话占了多大的上下文，决定下一次请求之前要不要压缩（见 compaction.is_due）。
+        # 0 表示还不知道：新对话、刚打开的旧会话、刚压缩完，都要等下一次请求的用量回来
+        self._context_tokens = 0
+        # 这一轮里压缩已经失败过：同样的原因多半还会失败，这一轮不再试，等用户发下一条消息
+        self._compaction_failed = False
+
     def reset(self) -> None:
-        self._messages = [self._system]
+        self._start_history([])
 
     def export(self) -> list:
         return self._messages[1:]  # 系统提示词不用存，每次启动都会重新生成
 
     def restore(self, messages: list) -> None:
-        self._messages = [self._system, *messages]
+        self._start_history(messages)
 
     def mark(self) -> int:
-        return len(self._messages)
+        # 位置按"从对话开始数的第几条"算，被压缩掉的也算在内。这样循环在一轮开头记下的位置，
+        # 即使这一轮中间压缩过，仍然指向同一条消息
+        return self._dropped + len(self._messages)
 
     def rollback(self, mark: int) -> None:
-        del self._messages[max(mark, 1) :]  # 第一条是系统提示词，永远保留
+        # 第一条是系统提示词，永远保留。退回的位置不会落进被压缩掉的那一段：循环只会退回到这一轮的开头，
+        # 而正在进行的这一轮，压缩时总是原样留着（见 compaction.find_cut）
+        del self._messages[max(mark - self._dropped, 1) :]
 
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
+        self._compaction_failed = False  # 新的一轮：上一轮没压缩成的话，这一轮可以再试
         text = "\n\n".join(parts)
         if not attachments:
             self._messages.append({"role": "user", "content": text})  # 只有文字时用最简单的写法：一段文字
@@ -133,20 +153,32 @@ class OpenAICompatBackend:
 
     # ---- 调用模型 ---------------------------------------------------------
 
-    def step(self, ui: StreamUI) -> Step:
+    def _request(self, messages: list[dict]) -> dict[str, Any]:
+        """一次流式请求的参数。写摘要的请求也用它：两者只有历史的末尾不同，开头一样才能命中缓存。"""
         request: dict[str, Any] = {
             "model": self.model,
-            "messages": self._messages,
+            "messages": messages,
             "stream": True,
             "stream_options": {"include_usage": True},  # 让最后一块数据带上 token 用量
         }
         if self.tool_specs:
             request["tools"] = self.tool_specs
+        return request
+
+    def step(self, ui: StreamUI) -> Step:
+        cut = self._compaction_cut()
+        if cut is not None:
+            usage = self._compact(ui, cut)
+            if usage is not None:
+                # 写摘要本身也调用了一次模型。把它当作单独的一步交回给循环：循环照常记下它的用量（算进费用），
+                # 再调用一次 step，那一次才是真正的请求。不和真正的请求合成一步，是因为那一次万一失败，
+                # 写摘要已经花掉的钱也要记上
+                return Step(status="compacted", usage=usage)
 
         text, reasoning, finish, raw_usage = "", "", None, None
         calls: dict[int, dict] = {}  # 工具调用是一小段一小段到达的，按序号拼起来
         try:
-            with self.client.chat.completions.create(**request) as stream:
+            with self.client.chat.completions.create(**self._request(self._messages)) as stream:
                 for chunk in stream:
                     if chunk.usage is not None:
                         raw_usage = chunk.usage
@@ -174,6 +206,7 @@ class OpenAICompatBackend:
             ui.end_stream()
 
         step = Step(status="done", usage=_usage(raw_usage), truncated=finish == "length")
+        self._context_tokens = step.usage.context_tokens  # 下一次请求之前，看它决定要不要先压缩
         if finish == "content_filter":
             step.status = "refused"
             step.note = "content_filter"
@@ -204,6 +237,77 @@ class OpenAICompatBackend:
         if step.tool_calls:
             step.status = "tools"
         return step
+
+    # ---- 压缩历史（为什么、怎么做、边界在哪，见 compaction.py 开头的说明）--------
+
+    def _compaction_cut(self) -> int | None:
+        """现在该不该先压缩：该的话返回切口的位置（见 compaction.find_cut），不该返回 None。"""
+        if self._compaction_failed or not compaction.is_due(self._context_tokens, self.model):
+            return None
+        return compaction.find_cut(self._messages)
+
+    def _compact(self, ui: StreamUI, cut: int) -> Usage | None:
+        """把切口之前的对话换成摘要。返回写摘要那次请求的用量；没做成时返回 None，对话照原样继续。
+
+        这是"历史只在末尾追加"的有意破例：较早的那一段被一次性换掉，之后又回到只追加。
+        """
+        # 写摘要要等一会儿（几秒到几十秒），先说一声，不然用户只看到界面停住了。
+        # 用户这时已经点了"停止"的话，网页界面的 notice 会当场抛出中断，这次请求就不发了
+        ui.notice("info", t("对话已经很长，正在请模型把较早的内容写成摘要……"))
+        try:
+            summary, usage, summary_tokens = self._summarize(compaction.summary_request(self._messages, cut))
+        except Exception as exc:  # noqa: BLE001 —— 故意接住所有异常：摘要是为了省钱、防止超长，没写成不该让这一轮跟着失败
+            self._compaction_failed = True
+            reason = i18n.message_of(exc) if isinstance(exc, ProviderError) else f"{type(exc).__name__}: {exc}"
+            ui.notice(
+                "error",
+                t(
+                    "没能把较早的对话压缩成摘要（{error}）。这一轮照常继续，下一轮再试；对话太长、请求被拒绝的话，可以开一段新对话。",
+                    error=reason,
+                ),
+            )
+            return None
+
+        before = len(self._messages)
+        self._messages = compaction.compacted(self._messages, cut, summary)
+        self._dropped += before - len(self._messages)
+        self._context_tokens = 0  # 现在有多大，要等下一次请求的用量回来才知道
+        # 之后每一轮少发多少：写摘要那次请求的输入，大致就是被换掉的那一段（另外还有系统提示词、工具说明书和
+        # 一句指令，所以这个数略微偏大）；换进来的是摘要本身。是个约数
+        saved = usage.input_tokens + usage.cache_read_tokens - summary_tokens
+        # 这里用 info 而不是 notice：网页界面的 notice 会先看用户有没有点"停止"，点了就当场抛出中断，
+        # 这一步的用量就记不上了。摘要已经写好、钱已经花了，先把这一步交回给循环，"停止"留到下一次请求时生效
+        if saved > 0:
+            ui.info(t("较早的对话已经压缩成摘要，之后每一轮发给模型的内容少了约 {n} 个 token。", n=i18n.number(saved)))
+        else:
+            ui.info(t("较早的对话已经压缩成摘要。"))
+        return usage
+
+    def _summarize(self, messages: list[dict]) -> tuple[str, Usage, int]:
+        """请模型写摘要。返回（摘要，这次请求的用量，摘要本身占了多少 token）。
+
+        和平时的请求走同一个接口、带同样的工具说明书（开头一样才能命中缓存），只是输出不显示在界面上。
+        模型要是只调用了工具、没写出文字，就算没写成：这些工具调用不会被执行。
+        """
+        text, raw_usage = "", None
+        try:
+            with self.client.chat.completions.create(**self._request(messages)) as stream:
+                for chunk in stream:
+                    if chunk.usage is not None:
+                        raw_usage = chunk.usage
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        text += clean_text(chunk.choices[0].delta.content)  # 摘要要放进历史，同样先洗一遍
+        except openai.APIError as exc:
+            raise ProviderError(_explain(exc, self.label, self.model)) from exc
+        if not text.strip():
+            raise ProviderError(t("模型没有写出摘要。"))
+        usage = _usage(raw_usage)
+        # 这次请求的大小不是这段对话的大小，不能拿来更新"对话占了多少上下文"：填 0，循环记用量时就不会动它
+        usage.context_tokens = 0
+        # 思考的内容（有的模型有）也算在输出里，但不会留在历史里，所以"摘要本身多大"要把它减掉
+        details = getattr(raw_usage, "completion_tokens_details", None)
+        reasoning = getattr(details, "reasoning_tokens", None) or 0
+        return text, usage, max(0, usage.output_tokens - reasoning)
 
 
 def _merge_tool_call(calls: dict[int, dict], piece: Any) -> None:
