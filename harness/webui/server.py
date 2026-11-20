@@ -14,6 +14,8 @@
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
+  POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词），页面只说是哪一个
+  POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
   POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
@@ -72,6 +74,7 @@ from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
+from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
 from .scheduler import Scheduler
 from .ui import WebUI, latest_state_only
@@ -487,6 +490,41 @@ class WebApp:
             self._turn.release()
         return "", applied
 
+    # ---- 数据文件、待办 ------------------------------------------------------
+
+    def reveal_data(self, what: str) -> tuple[str, str]:
+        """在文件管理器里显示一个数据文件。返回（失败原因，显示的路径）。
+
+        和 reveal_conversation 一样：页面只能说是哪一个（下面这几个名字之一），路径是程序自己定的。
+        文件还不存在（还没建过任务、提示词用的是内置的），就打开它将来所在的文件夹，并说一声
+        """
+        config = self.app.config
+        target = {"tasks": config.tasks_file, "todos": config.todo_file, "prompt": config.prompt_file}[what]
+        shown = target if target.exists() else target.parent
+        try:
+            private_dir(config.data_dir)
+            reveal_in_file_manager(shown)
+        except OSError as exc:
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
+        return "", str(shown)
+
+    def change_todo(self, todo_id: int, changes: dict | None) -> str:
+        """改（changes 为 None 时删掉）一条待办。成功返回空字符串，否则返回原因。
+
+        不拿对话的锁：待办的文件自己有锁（见 TodoStore），模型下一次看待办时看到的就是改过的
+        """
+        try:
+            if changes is None:
+                self.app.todos.delete(todo_id)
+            else:
+                self.app.todos.update(todo_id, **changes)
+        except ToolError:  # 写给模型看的说明（"先用 todo_list 查看"），这里换成给人看的
+            return t("这条待办已经不在了，可能刚被助手改过或删掉了。")
+        except OSError as exc:
+            return t("没能保存待办：{error}", error=exc.strerror or exc)
+        self.publish_state()
+        return ""
+
     def refresh_memories(self) -> None:
         """页面刚连上、或者回到前台时问一声：记忆文件夹在这期间有没有变。
 
@@ -762,6 +800,38 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 config = web.app.config
                 self._send_json(200, {"ok": True, "preview": prompts.render(text, config, config.web and web.app.provider.web)})
+        elif path == "/api/reveal":
+            what = body.get("what")
+            if what not in ("tasks", "todos", "prompt"):
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                error, shown = web.reveal_data(what)
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "path": shown})
+        elif path in ("/api/todo/update", "/api/todo/delete"):
+            todo_id = body.get("id")
+            changes: dict | None = None
+            bad = not isinstance(todo_id, int) or isinstance(todo_id, bool)
+            if path.endswith("update") and not bad:
+                changes = {}
+                if "title" in body:
+                    title = body["title"]
+                    bad = bad or not isinstance(title, str) or not 0 < len(title.strip()) <= 200
+                    changes["title"] = title.strip() if isinstance(title, str) else ""
+                if "due" in body:
+                    due = body["due"]
+                    bad = bad or not (due is None or due == "" or (isinstance(due, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", due)))
+                    changes["due"] = due or None
+                if "done" in body:
+                    bad = bad or not isinstance(body["done"], bool)
+                    changes["done"] = body["done"]
+                bad = bad or not changes
+            if bad:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                self._finish(web.change_todo(todo_id, changes))
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:

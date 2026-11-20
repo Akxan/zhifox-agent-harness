@@ -537,7 +537,9 @@ This starts a small server on your computer and opens the chat page in your brow
   is also the way to pick up a newer built-in version after an upgrade.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
-  updates after every model call.
+  updates after every model call. Click a to-do's circle to complete it; hover over it for the same three buttons as
+  every other row (**Show in Finder** for the to-do file, **edit** its text and due date in place, **delete** after an
+  in-place confirm). Scheduled task rows and the prompt editor have a **Show in Finder** button for their files too.
 - **Memory** (fixed at the top of the sidebar, with a count; it opens a two-pane window: the list on the left, searchable
   by name, and the selected memory on the right; on a narrow screen it shows one side at a time). Every file the
   assistant keeps in its long-term memory (`data/memories/`), with its
