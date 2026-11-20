@@ -33,6 +33,11 @@ def chat(
     }
 
 
+def failure(status: int = 500, message: str = "server error") -> dict:
+    """一次失败的请求：服务器不发流式数据，直接返回这个状态码和出错说明。"""
+    return {"error": {"status": status, "message": message}}
+
+
 def _chunks(scripted: dict) -> list[dict]:
     """把一条写好的回复拆成真实服务器会发出的数据块序列。"""
 
@@ -103,7 +108,12 @@ class FakeOpenAI:
                 if not api.replies:
                     self._json(500, {"error": {"message": "no scripted reply left", "type": "server_error"}})
                     return
-                lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in _chunks(api.replies.pop(0))]
+                scripted = api.replies.pop(0)
+                if "error" in scripted:
+                    problem = scripted["error"]
+                    self._json(problem["status"], {"error": {"message": problem["message"], "type": "server_error"}})
+                    return
+                lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in _chunks(scripted)]
                 payload = "".join([*lines, "data: [DONE]\n\n"]).encode()
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")

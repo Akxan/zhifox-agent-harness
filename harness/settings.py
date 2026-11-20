@@ -2,7 +2,7 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 
 from . import i18n
+from .budget import valid_budget
 from .safe import private_dir, to_json, write_file
 
 
@@ -39,6 +40,11 @@ class Settings:
         self.prices: dict[str, dict] = saved.get("prices") or {}  # 用户自己填的价格，按模型名
         language = saved.get("language")
         self.language: str = language if language in i18n.LANGUAGES else i18n.DEFAULT  # 界面语言：zh / en / es
+        # 每月预算（美元，None 表示不设），和"这个月为多少预算提醒过了"（见 budget.py）
+        budget, alert = saved.get("budget"), saved.get("budget_alert")
+        self.budget: float | None = float(budget) if budget is not None and valid_budget(budget) else None
+        valid_alert = isinstance(alert, dict) and isinstance(alert.get("month"), str) and valid_budget(alert.get("amount"))
+        self.budget_alert: dict | None = alert if valid_alert else None
 
     def save(self) -> None:
         with self._lock:
@@ -74,6 +80,18 @@ class Settings:
                 self.prices[model] = price
             self._write()
 
+    def set_budget(self, amount: float | None) -> None:
+        """记下每月预算；None 表示不设。"""
+        with self._lock:
+            self.budget = amount
+            self._write()
+
+    def set_budget_alert(self, alert: dict) -> None:
+        """记下"这个月为这个预算提醒过了"（{"month": "2026-11", "amount": 50}），重启后不会再提醒一遍。"""
+        with self._lock:
+            self.budget_alert = alert
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -84,6 +102,11 @@ class Settings:
             "prices": self.prices,
             "language": self.language,
         }
+        # 预算只在设了的时候才写：没设预算的人，设置文件和以前一模一样
+        if self.budget is not None:
+            data["budget"] = self.budget
+        if self.budget_alert is not None:
+            data["budget_alert"] = self.budget_alert
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

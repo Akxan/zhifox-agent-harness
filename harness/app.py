@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import i18n
+from . import budget, i18n
 from .agent import Agent
 from .attachments import Attachment, unsupported
 from .config import Config
@@ -20,9 +20,10 @@ from .conversations import (
     make_title,
 )
 from .i18n import t
+from .ledger import Ledger
 from .media import MediaStore
 from .permissions import Permissions
-from .prompt import build_system_prompt
+from .prompt import build_system_prompt, reset_template, save_template
 from .providers import (
     PROVIDERS,
     ClientFactory,
@@ -34,6 +35,7 @@ from .providers import (
     make_client,
 )
 from .settings import Settings, save_api_key
+from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
 from .tools.shell import Shell
@@ -46,14 +48,19 @@ class App:
     settings: Settings
     agent: Agent
     todos: TodoStore
+    tasks: TaskStore  # 定时任务（只在网页界面开着的时候运行，见 webui/scheduler.py）
     tools: ToolRegistry
     shell: Shell
-    system_prompt: str
+    system_prompt: str  # 新的一段对话要用的系统提示词（用户可以改，见 prompt.py 和 set_prompt）
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
     media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
+    ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
+    # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
+    # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
+    prompt_in_use: str = ""
 
     @property
     def provider(self) -> Provider:
@@ -78,15 +85,35 @@ class App:
         else:
             backend = self._backend_for(provider_id, model)  # 会失败的先做
             self.agent.backend = backend
+            self.prompt_in_use = self.system_prompt
             self.conversation = self.store.new(provider_id, model)
             self.agent.usage.context_tokens = 0
         self._remember_choice(provider_id, model)
         return same_provider
 
+    def set_prompt(self, text: str | None) -> bool:
+        """保存用户改的提示词（None 表示恢复内置的）。失败时抛出 PromptError 或 OSError。
+
+        返回 True 表示当前这段也用上了新的：它还一句都没聊，换掉适配层不会丢任何东西。
+        已经聊起来的这一段继续用原来的那版（一段对话里提示词不能变，见 prompt.py 开头），从下一段开始用新的。
+        """
+        if text is None:
+            reset_template(self.config)
+        else:
+            save_template(self.config, text)
+        self.system_prompt = build_system_prompt(self.config)
+        if self.agent.backend.export():
+            return False
+        backend = self.agent.backend
+        self.agent.backend = self._backend_for(backend.provider, backend.model)
+        self.prompt_in_use = self.system_prompt
+        return True
+
     def _backend_for(self, provider_id: str, model: str) -> Any:
         """建一个连着指定模型的新适配层（历史是空的）。"""
         provider = PROVIDERS[provider_id]
-        return make_backend(provider, model, self.config, self.tools, self.system_prompt, self.client_factory(provider))
+        prompt = build_system_prompt(self.config, web=self.config.web and provider.web)  # 能不能联网，要看是哪一家
+        return make_backend(provider, model, self.config, self.tools, prompt, self.client_factory(provider))
 
     def _remember_choice(self, provider_id: str, model: str) -> None:
         """把"现在用的是哪个模型"写进设置文件，下次启动还用它。
@@ -98,6 +125,22 @@ class App:
         except OSError as exc:
             self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
 
+    def unattended_agent(self, ui: Any) -> Agent:
+        """给定时任务的一次运行准备一个助手。
+
+        和对话用的那个共用工具（包括同一个 shell、同一份待办）：定时任务和你的对话是排着队一个一个来的
+        （见 webui/scheduler.py），不会同时用到它们。不共用的有三样：
+          - 适配层是新建的，历史是空的：任务从头开始，不带着你正在聊的内容，也不往你的对话里写东西；
+          - 用的是此刻设置里选中的那一家、那个模型；
+          - 权限是"永远要问"的那一份（见 Permissions.unattended）：没人看着的时候不自动放行。
+        """
+        backend = self._backend_for(self.settings.provider, self.settings.model)
+        permissions = self.agent.permissions.unattended()
+        agent = Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看
+        agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
+        return agent
+
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""
         taken, self.warnings = self.warnings, []
@@ -107,7 +150,13 @@ class App:
 
     def new_conversation(self) -> None:
         """开始一段新会话。之前的会话已经在磁盘上，随时可以再打开。"""
-        self.agent.reset()
+        if self.prompt_in_use != self.system_prompt:
+            # 提示词改过了：新的一段用新的。提示词存在适配层里，所以换一个新建的（历史本来就要清空）
+            backend = self.agent.backend
+            self.agent.backend = self._backend_for(backend.provider, backend.model)
+            self.prompt_in_use = self.system_prompt
+        else:
+            self.agent.reset()
         self.conversation = self.store.new(self.settings.provider, self.settings.model)
         self.agent.usage.context_tokens = 0
 
@@ -122,10 +171,13 @@ class App:
             raise ConversationError(t("这段会话用的模型提供方，这个版本的程序已经不支持了。"))
         # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
         same_provider = conversation.provider == self.agent.backend.provider
-        backend = self.agent.backend if same_provider else self._backend_for(conversation.provider, conversation.model)
+        # 同一家、提示词也没改过，就接着用现在的适配层；否则新建一个（带着现在的提示词）
+        reuse = same_provider and self.prompt_in_use == self.system_prompt
+        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model)
         backend.model = conversation.model
         backend.restore(conversation.messages)
         self.agent.backend = backend
+        self.prompt_in_use = self.system_prompt
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
@@ -194,6 +246,31 @@ class App:
         if provider_id == self.agent.backend.provider:
             self.agent.backend.client = self.client_factory(provider)  # 正在用这一家：换上带新 key 的连接
 
+    def spending(self) -> dict:
+        """今天、本月花了多少，预算是多少、超了没有（见 ledger.py、budget.py）。
+
+        这个月的花费刚越过预算时，顺便记下"已经提醒过了"，所以同一个预算只提醒一次。记不下来（磁盘写不进去）
+        也不要紧，只是下一次还会再提醒。
+        """
+        today = self.agent.clock().date()
+        month = budget.month_of(today)
+        spent = self.ledger.month_total(month)
+        amount = self.settings.budget
+        if budget.should_alert(spent, amount, self.settings.budget_alert, month):
+            try:
+                self.settings.set_budget_alert({"month": month, "amount": amount})
+            except OSError:
+                pass
+        return {
+            "day": today.isoformat(),
+            "today": self.ledger.day_total(today),
+            "month": spent,
+            "budget": amount,
+            "over": bool(amount) and spent >= amount,
+            "alert": budget.marker(self.settings.budget_alert, month),
+            "error": self.ledger.error,
+        }
+
     def sync_models(self, provider_id: str) -> list[str]:
         """向一家的服务器询问有哪些模型，并把列表记下来。"""
         provider = PROVIDERS[provider_id]
@@ -212,27 +289,35 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
 
     files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
     todos = TodoStore(config.todo_file)
+    tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)
-    tools = build_registry(config, files, todos, shell)
+    tools = build_registry(config, files, todos, shell, tasks)
     system_prompt = build_system_prompt(config)
 
     provider = PROVIDERS[settings.provider]
-    backend = make_backend(provider, settings.model, config, tools, system_prompt, client_factory(provider))
-    permissions = Permissions(files, private=[config.data_dir])
+    prompt = build_system_prompt(config, web=config.web and provider.web)
+    backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
+    permissions = Permissions(files, private=[config.data_dir], tasks=tasks)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
+    # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
+    ledger = Ledger(config.ledger_file)
+    agent.on_call = ledger.recorder(lambda: settings.prices)
     store = ConversationStore(config.conversations_dir)
     return App(
         config=config,
         settings=settings,
         agent=agent,
         todos=todos,
+        tasks=tasks,
         tools=tools,
         shell=shell,
         system_prompt=system_prompt,
+        prompt_in_use=system_prompt,
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
         media=MediaStore(config.media_dir),
+        ledger=ledger,
     )
 
 

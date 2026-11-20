@@ -14,7 +14,11 @@
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
+  POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词），页面只说是哪一个
+  POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
+  POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
+  POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
@@ -25,6 +29,15 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
+  POST /api/task/run、stop                      立即运行一次、停下正在排队或者正在运行的那一次
+  POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
+  POST /api/task/dismiss                        关掉一条（或者全部）已经弹出的提醒
+  POST /api/task/preview                        还没保存的时间表接下来会在哪三个时刻运行
+  POST /api/ledger     打开"花费明细"：最近 30 天、每个月、每个模型、每种来源花了多少（见 ledger.py）
+  POST /api/budget     用户填写或清除了每月预算（见 budget.py）
+  POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
+  POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -43,21 +56,26 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
 import zlib
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import i18n, media, memories
+from .. import export, i18n, media, memories
+from .. import prompt as prompts
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
-from ..config import APP_NAME, Config
+from ..budget import valid_budget
+from ..config import APP_NAME, LEDGER_CHART_DAYS, MAX_PROMPT_CHARS, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
 from ..media import Entry, MediaError
@@ -68,7 +86,10 @@ from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
 from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
+from ..tasks import TaskError, TaskRefused
+from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
+from .scheduler import Scheduler
 from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
@@ -129,8 +150,12 @@ class WebApp:
         self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
         self._live: tuple[object, tuple[Entry, ...]] = (None, ())  # 当前会话里的附件，和算它时的依据（见 _live_media）
+        # 定时任务：到时间了自己跑一轮（和你的对话轮流用 self._turn），或者弹出一条提醒。见 scheduler.py
+        self.tasks = Scheduler(self, self._turn)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
+        if app.tasks.problem:
+            ui.hint(app.tasks.problem, level="error")  # 任务文件读不出来：说一声，原来的文件留在哪儿
         self.publish_state()
         # 上次运行时一轮做到一半就退出了（存了原件、会话却没来得及存盘），留下没人用的原件：启动时清一遍。
         # 这时还没有开始接受请求，不会有哪一轮正在存新的原件
@@ -148,7 +173,9 @@ class WebApp:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
         cost, unpriced = estimate(agent.usage_by_model, settings.prices)
+        price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
+        tasks, reminders = self.tasks.snapshot()
         self.ui.publish(
             "state",
             provider=settings.provider,
@@ -171,7 +198,8 @@ class WebApp:
                 }
                 for provider in PROVIDERS.values()
             ],
-            price=price_of(settings.model, settings.prices),
+            price=price,
+            price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
             todos=[
                 {"id": item["id"], "title": item["title"], "due": item["due"]}
                 for item in self.app.todos.items("pending")
@@ -181,6 +209,7 @@ class WebApp:
             memories=self._memories_shown,
             # 多媒体库里一共有多少个附件，和一个"版本"。版本变了，开着的多媒体一栏就重新取一次列表；页面不用轮询
             media=self._media_state(),
+            prompt_custom=prompts.load_template(config) != prompts.DEFAULT_TEMPLATE,  # 提示词改过没有（设置里显示）
             usage={
                 "requests": usage.requests,
                 "input": usage.input_tokens,
@@ -192,9 +221,14 @@ class WebApp:
             },
             cost=round(cost, 4),
             unpriced=unpriced,
+            spend=self.app.spending(),  # 今天、本月花了多少，预算超了没有（这些记在账本里，重启也不会清零）
             tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
             approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
+            # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
+            # 以及已经弹出、你还没关掉的提醒
+            tasks=tasks,
+            reminders=reminders,
         )
 
     def _models(self, provider_id: str) -> list[str]:
@@ -212,7 +246,7 @@ class WebApp:
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label)
         if not self._turn.acquire(blocking=False):
-            return t("上一轮对话还没有结束")
+            return self._busy(t("上一轮对话还没有结束"))
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
         # 这样服务器还能继续响应浏览器的其他请求，比如"允许"和"停止"。
         threading.Thread(target=self._run_turn, args=(text, attachments or []), daemon=True).start()
@@ -276,8 +310,17 @@ class WebApp:
         for text in self.app.take_warnings():
             self.ui.hint(text, level="error")
 
+    def _busy(self, otherwise: str | None = None) -> str:
+        """对话的锁被占着时，告诉用户为什么。被定时任务占着的话，说是哪个任务、怎么停下它。"""
+        title = self.tasks.holder()
+        if title is not None:
+            return t("定时任务“{title}”正在运行。可以等它跑完，或者在“任务”里停下它。", title=title)
+        return otherwise or t(self.BUSY)
+
     def stop(self) -> None:
-        if self._turn.locked():
+        # 锁被定时任务拿着时，这个"停止"不是冲它来的：停任务走 /api/task/stop。
+        # 不然点一下对话的"停止"，会把任务正在运行的命令杀掉
+        if self._turn.locked() and self.tasks.holder() is None:
             self.ui.request_stop()
 
     def wait_idle(self, timeout: float) -> bool:
@@ -290,7 +333,7 @@ class WebApp:
     def new_conversation(self) -> str:
         """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。"""
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             blocked = self._before_leaving("new")
             if blocked:
@@ -308,7 +351,7 @@ class WebApp:
     def open_conversation(self, conversation_id: str) -> str:
         """打开一段保存过的会话。成功返回空字符串，否则返回原因。"""
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             if conversation_id == self.app.conversation.id:
                 return ""  # 已经开着了
@@ -338,7 +381,7 @@ class WebApp:
         # 改名要读出会话文件、改掉标题、再写回去。如果这时正好有一轮对话结束、也在写同一个文件，
         # 两边会互相覆盖。所以和打开、删除一样，对话进行中不让改。
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             try:
                 self.app.rename_conversation(conversation_id, title)
@@ -351,7 +394,7 @@ class WebApp:
 
     def delete_conversation(self, conversation_id: str) -> str:
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             # 这段会话用过的原件。删完以后，别的会话不再用的就从多媒体库里删掉
             used = self.app.store.media().hashes(conversation_id)
@@ -486,7 +529,7 @@ class WebApp:
         # 这时删掉它，模型的下一步会莫名其妙地失败；或者它紧接着用 create 把刚读到的内容又写回去，
         # 你以为删掉了，其实它又回来了。和删除会话一样，等这一轮结束再删。查看和打开文件夹只是读，不受限制。
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             try:
                 memories.delete(self.app.config.memory_dir, relative)
@@ -503,7 +546,7 @@ class WebApp:
         和删除一样，对话进行中不让改：模型可能正读着它、马上要改其中一段，这时把内容换掉，它的下一步会对不上。
         """
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY), "", False
+            return self._busy(), "", False
         try:
             try:
                 saved = memories.save(self.app.config.memory_dir, relative, name, text, modified, force)
@@ -527,6 +570,74 @@ class WebApp:
         except OSError as exc:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
+
+    # ---- 提示词 ------------------------------------------------------------
+
+    def prompt_info(self) -> dict:
+        config = self.app.config
+        template = prompts.load_template(config)
+        web = config.web and self.app.provider.web  # 预览按现在选的这一家来填"能不能联网"
+        return {
+            "text": template,
+            "default": prompts.DEFAULT_TEMPLATE,
+            "custom": template != prompts.DEFAULT_TEMPLATE,
+            "preview": prompts.render(template, config, web),
+            "placeholders": [{"name": name, "value": value} for name, value in prompts.placeholder_values(config, web).items()],
+        }
+
+    def save_prompt(self, text: str | None) -> tuple[str, bool]:
+        """保存（None 表示恢复内置的）提示词。返回（失败原因，当前这段是不是也用上了）。
+
+        和改设置一样拿对话的锁：当前这段还没开始聊的话，要换掉它的适配层，不能和正在进行的一轮撞上。
+        """
+        if not self._turn.acquire(blocking=False):
+            return self._busy(), False
+        try:
+            try:
+                applied = self.app.set_prompt(text)
+            except prompts.PromptError as exc:
+                return str(exc), False
+            except OSError as exc:
+                return t("没能保存提示词：{error}", error=exc.strerror or exc), False
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return "", applied
+
+    # ---- 数据文件、待办 ------------------------------------------------------
+
+    def reveal_data(self, what: str) -> tuple[str, str]:
+        """在文件管理器里显示一个数据文件。返回（失败原因，显示的路径）。
+
+        和 reveal_conversation 一样：页面只能说是哪一个（下面这几个名字之一），路径是程序自己定的。
+        文件还不存在（还没建过任务、提示词用的是内置的），就打开它将来所在的文件夹，并说一声
+        """
+        config = self.app.config
+        target = {"tasks": config.tasks_file, "todos": config.todo_file, "prompt": config.prompt_file}[what]
+        shown = target if target.exists() else target.parent
+        try:
+            private_dir(config.data_dir)
+            reveal_in_file_manager(shown)
+        except OSError as exc:
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
+        return "", str(shown)
+
+    def change_todo(self, todo_id: int, changes: dict | None) -> str:
+        """改（changes 为 None 时删掉）一条待办。成功返回空字符串，否则返回原因。
+
+        不拿对话的锁：待办的文件自己有锁（见 TodoStore），模型下一次看待办时看到的就是改过的
+        """
+        try:
+            if changes is None:
+                self.app.todos.delete(todo_id)
+            else:
+                self.app.todos.update(todo_id, **changes)
+        except ToolError:  # 写给模型看的说明（"先用 todo_list 查看"），这里换成给人看的
+            return t("这条待办已经不在了，可能刚被助手改过或删掉了。")
+        except OSError as exc:
+            return t("没能保存待办：{error}", error=exc.strerror or exc)
+        self.publish_state()
+        return ""
 
     def refresh_memories(self) -> None:
         """页面刚连上、或者回到前台时问一声：记忆文件夹在这期间有没有变。
@@ -563,7 +674,7 @@ class WebApp:
         if not has_key(PROVIDERS[provider_id]):
             return t("还没有设置 {provider} 的 API 密钥", provider=PROVIDERS[provider_id].label)
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY)
+            return self._busy()
         try:
             if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
@@ -593,7 +704,7 @@ class WebApp:
         原因放在"提醒"里告诉用户。
         """
         if not self._turn.acquire(blocking=False):
-            return t(self.BUSY), ""
+            return self._busy(), ""
         warning = ""
         try:
             self.app.set_api_key(provider_id, key)
@@ -620,6 +731,21 @@ class WebApp:
     def set_price(self, model: str, price: dict | None) -> None:
         self.app.settings.set_price(model, price)
         self.publish_state()
+
+    def set_budget(self, amount: float | None) -> None:
+        """记下每月预算（None 表示不设）。只是提醒用，所以不用拿对话的锁，对话进行中也可以改。"""
+        self.app.settings.set_budget(amount)
+        self.publish_state()  # 状态里带着预算，超了没有也在这时重新算一次（见 App.spending）
+
+    def spend_report(self) -> dict:
+        """"花费明细"窗口要的全部数字。只读内存里的汇总，对话进行中也可以看。"""
+        return self.app.ledger.report(self.app.agent.clock().date(), LEDGER_CHART_DAYS)
+
+    def export_info(self) -> dict:
+        """导出之前给页面看的：数据文件夹在哪、要导出的有多大、多少个文件。"""
+        config = self.app.config
+        work = export.plan(config.data_dir, [config.env_file])
+        return {"bytes": work.size, "files": work.count, "path": str(config.data_dir)}
 
     def set_language(self, language: str) -> str:
         """换界面语言。成功返回空字符串，否则返回原因。
@@ -815,6 +941,58 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(409, {"error": error})
             else:
                 self._send_json(200, {"ok": True, "path": shown})
+        elif path == "/api/prompt":
+            self._send_json(200, {"ok": True, **web.prompt_info()})
+        elif path in ("/api/prompt/save", "/api/prompt/reset"):
+            text = body.get("text") if path.endswith("save") else None
+            if path.endswith("save") and not isinstance(text, str):
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                error, applied = web.save_prompt(text)
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "applied": applied})
+        elif path == "/api/prompt/preview":
+            # 还没保存的模板换上占位符是什么样子。只是算一下，不改任何东西
+            text = body.get("text")
+            if not isinstance(text, str) or len(text) > MAX_PROMPT_CHARS:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                config = web.app.config
+                self._send_json(200, {"ok": True, "preview": prompts.render(text, config, config.web and web.app.provider.web)})
+        elif path == "/api/reveal":
+            what = body.get("what")
+            if what not in ("tasks", "todos", "prompt"):
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                error, shown = web.reveal_data(what)
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "path": shown})
+        elif path in ("/api/todo/update", "/api/todo/delete"):
+            todo_id = body.get("id")
+            changes: dict | None = None
+            bad = not isinstance(todo_id, int) or isinstance(todo_id, bool)
+            if path.endswith("update") and not bad:
+                changes = {}
+                if "title" in body:
+                    title = body["title"]
+                    bad = bad or not isinstance(title, str) or not 0 < len(title.strip()) <= 200
+                    changes["title"] = title.strip() if isinstance(title, str) else ""
+                if "due" in body:
+                    due = body["due"]
+                    bad = bad or not (due is None or due == "" or (isinstance(due, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", due)))
+                    changes["due"] = due or None
+                if "done" in body:
+                    bad = bad or not isinstance(body["done"], bool)
+                    changes["done"] = body["done"]
+                bad = bad or not changes
+            if bad:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                self._finish(web.change_todo(todo_id, changes))
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
@@ -856,6 +1034,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.sync_models(provider))
+        elif path == "/api/ledger":
+            self._send_json(200, {"ok": True, "report": web.spend_report()})
+        elif path == "/api/budget":
+            amount = body.get("amount")
+            if "amount" not in body or not valid_budget(amount):  # 不设预算要明说（null），不能是忘了带
+                self._send_json(400, {"error": t("预算要填一个大于 0 的数（美元）")})
+            else:
+                web.set_budget(None if amount is None else float(amount))
+                # 带上存完以后的花费：设的预算比这个月已经花的还少时，页面当场就能说清楚（提示框会被设置面板挡住）
+                self._send_json(200, {"ok": True, "spend": web.app.spending()})
+        elif path == "/api/export/info":
+            self._send_json(200, {"ok": True, **web.export_info()})
+        elif path == "/api/export":
+            self._send_export()
         elif path == "/api/price":
             model, price = body.get("model"), body.get("price")
             if not isinstance(model, str) or not model or not _valid_price(price):
@@ -863,8 +1055,78 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 web.set_price(model, price)
                 self._send_json(200, {"ok": True})
+        elif path.startswith("/api/task/"):
+            self._route_task(web, path.removeprefix("/api/task/"), body)
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _route_task(self, web: WebApp, action: str, body: dict) -> None:
+        """定时任务的几个操作。参数不对回答 400，现在做不了（任务不存在、已经在运行……）回答 409。"""
+        tasks, task_id = web.tasks, body.get("id")
+        if action not in ("save", "preview", "dismiss", "delete", "toggle", "run", "stop", "confirm"):
+            self._send_json(404, {"error": "not found"})
+            return
+        # 除了新建（save 不带编号）、看时间表（preview）和关提醒（dismiss），都要指明是哪个任务
+        needs_id = action not in ("save", "preview", "dismiss")
+        valid = {
+            "save": task_id is None or isinstance(task_id, str),
+            "dismiss": body.get("all") is True or isinstance(body.get("reminder_id"), str),
+            "toggle": isinstance(body.get("enabled"), bool),
+            "confirm": _valid_answer(body),
+        }.get(action, True)
+        if not valid or (needs_id and not isinstance(task_id, str)):
+            self._send_json(400, {"error": t("参数不正确")})
+            return
+        reply: dict = {"ok": True}
+        try:
+            if action == "save":
+                reply["id"] = tasks.save(task_id, body)
+            elif action == "preview":
+                reply["next"] = tasks.preview(body.get("schedule"))
+            elif action == "dismiss":
+                tasks.dismiss(None if body.get("all") is True else body["reminder_id"])
+            elif action == "delete":
+                tasks.delete(task_id)
+            elif action == "toggle":
+                tasks.toggle(task_id, body["enabled"])
+            elif action == "run":
+                tasks.run_now(task_id)
+            elif action == "stop":
+                tasks.stop(task_id)
+            else:
+                tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
+        except TaskRefused as exc:
+            self._send_json(409, {"error": i18n.message_of(exc)})
+        except TaskError as exc:
+            self._send_json(400, {"error": i18n.message_of(exc)})
+        else:
+            self._send_json(200, reply)
+
+    def _send_export(self) -> None:
+        """导出全部数据：把 zip 先写进一个临时文件，再整个发给浏览器（见 export.py）。
+
+        页面用 fetch 拿到它、变成一个 Blob，再交给一个带 download 属性的链接去存盘：这样请求照样带着口令、
+        经过上面的检查，地址里不用露出口令，页面的安全策略也不用为下载放宽什么。
+        临时文件在系统的临时文件夹里，只有自己的账号能读，发完（或者出错）就删掉，不会留在数据文件夹里。
+        """
+        config = self.server.web.app.config
+        moment = datetime.now()
+        with tempfile.TemporaryFile() as archive:
+            export.write_archive(config.data_dir, archive, moment, [config.env_file])
+            size = archive.tell()
+            archive.seek(0)
+            self._responded = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{export.archive_name(moment)}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            try:
+                shutil.copyfileobj(archive, self.wfile)
+            except OSError:
+                pass  # 浏览器那边取消了
 
     def _finish(self, error: str, warning: str = "") -> None:
         """按"空字符串表示成功"的约定回复浏览器。"""
@@ -1017,6 +1279,10 @@ def _media_query(body: dict) -> tuple[str, str, int, int] | None:
     if cursor < 0 or not 0 < limit <= media.MAX_PAGE:
         return None
     return kind, query.strip(), cursor, limit
+def _valid_answer(body: dict) -> bool:
+    """答复定时任务的确认：confirm_id 是整数，allow 是真假，feedback（可以不给）是一段文字。"""
+    confirm_id, feedback = body.get("confirm_id"), body.get("feedback", "")
+    return isinstance(confirm_id, int) and not isinstance(confirm_id, bool) and isinstance(body.get("allow"), bool) and isinstance(feedback, str)
 
 
 def _valid_price(price: object) -> bool:
@@ -1061,7 +1327,8 @@ def claim_data_dir(data_dir: Path) -> IO | None:
 
 
 def shut_down(server: Server, app: App) -> None:
-    """退出前的收尾：让正在进行的一轮停下来、存好盘，再关掉服务器。"""
+    """退出前的收尾：让正在进行的一轮（或者正在运行的定时任务）停下来、存好盘，再关掉服务器。"""
+    server.web.tasks.close()
     server.web.stop()
     app.shell.kill_running()
     # stop() 只是通知这一轮尽快收尾，收尾（包括存盘）是在另一个线程里做的。不等它的话，程序一退出那个线程就没了：
@@ -1099,6 +1366,8 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     if not has_key(provider):
         print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
     print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
+    # 定时任务只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的，补跑一次
+    server.web.tasks.start()
     if open_browser:
         webbrowser.open(url)
 

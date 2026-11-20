@@ -7,17 +7,24 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
+from ..safe import write_file
 from .base import Tool, ToolError, function_tool
 
 
 class TodoStore:
-    """待办事项保存在一个 JSON 文件里。"""
+    """待办事项保存在一个 JSON 文件里。
+
+    改动都是"读出来、改一处、整个写回去"。模型（对话里、定时任务里）和网页上的你可能同时在改，
+    两边各读各写，后写的就把先写的那一处冲掉了。所以改动的那几步拿着同一把锁，一个一个来。
+    """
 
     def __init__(self, path: Path):
         self.path = path
+        self._lock = threading.RLock()
 
     def _load(self) -> dict:
         if not self.path.exists():
@@ -26,9 +33,7 @@ class TodoStore:
 
     def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp.replace(self.path)  # 先写临时文件再替换，中途崩溃也不会留下半个文件
+        write_file(self.path, json.dumps(data, ensure_ascii=False, indent=2))  # 先写临时文件再替换，中途崩溃也不会留下半个文件
 
     def items(self, status: str = "pending") -> list[dict]:
         items = self._load()["items"]
@@ -40,6 +45,10 @@ class TodoStore:
         return sorted(items, key=lambda item: (item["due"] is None, item["due"] or "", item["id"]))
 
     def add(self, title: str, due: str | None = None, note: str | None = None) -> dict:
+        with self._lock:
+            return self._add(title, due, note)
+
+    def _add(self, title: str, due: str | None, note: str | None) -> dict:
         data = self._load()
         item = {
             "id": data["next_id"],
@@ -56,6 +65,10 @@ class TodoStore:
         return item
 
     def update(self, id: int, **changes: object) -> dict:
+        with self._lock:
+            return self._update(id, **changes)
+
+    def _update(self, id: int, **changes: object) -> dict:
         data = self._load()
         item = _find(data, id)
         if "due" in changes:
@@ -67,6 +80,10 @@ class TodoStore:
         return item
 
     def delete(self, id: int) -> dict:
+        with self._lock:
+            return self._delete(id)
+
+    def _delete(self, id: int) -> dict:
         data = self._load()
         item = _find(data, id)
         data["items"].remove(item)
