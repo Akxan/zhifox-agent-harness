@@ -1,441 +1,634 @@
-# 智狐
+<div align="center">
 
-智狐是一个运行在你自己电脑上的个人助手，有终端和网页两种界面，可以使用 Claude、GPT、Gemini、DeepSeek 四家的模型。
-它同时也是一个用来学习的项目：没有用任何 agent 框架，让模型变成"助手"的那层代码（harness）全部是手写的，
-每一部分都能在一个文件里看到。
+<img src="docs/assets/logo.svg" width="96" alt="ZhiFox logo: a small fox">
 
-"智狐"是它给人看的名字。代码里的包名、命令和仓库名仍然叫 harness，因为这个项目讲的就是 harness 是怎么回事。
+# ZhiFox · 智狐
 
-助手能做四件事：管理待办、跨会话记住事情、读写文件和执行命令、联网搜索（联网搜索只有 Claude 能用）。
-网页界面里的每段会话都会自动保存在你自己的电脑上，随时可以从左侧的列表里打开接着聊，
-也可以按标题和内容搜索。
+**A hand-written AI agent harness: your own personal assistant, running on your computer.**
 
-## 快速开始
+[![Tests](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml/badge.svg)](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![No agent framework](https://img.shields.io/badge/agent%20framework-none-f0532e.svg)](#how-it-works)
+[![Models](https://img.shields.io/badge/models-Claude%20%7C%20GPT%20%7C%20Gemini%20%7C%20DeepSeek-6e56cf.svg)](#supported-models)
+[![Interfaces](https://img.shields.io/badge/UI-terminal%20%2B%20web-0ea5e9.svg)](#web-ui)
+[![Languages](https://img.shields.io/badge/i18n-English%20%7C%20%E4%B8%AD%E6%96%87%20%7C%20Espa%C3%B1ol-f59e0b.svg)](#three-interface-languages)
+[![GitHub stars](https://img.shields.io/github/stars/Akxan/zhifox-agent-harness?style=social)](https://github.com/Akxan/zhifox-agent-harness/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/Akxan/zhifox-agent-harness.svg)](https://github.com/Akxan/zhifox-agent-harness/commits/main)
 
-需要 macOS 或 Linux，以及 [uv](https://docs.astral.sh/uv/)。
+**English** | [简体中文](README.zh-CN.md)
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-dark-en.webp">
+    <img alt="The ZhiFox web UI: a conversation in which the assistant adds a to-do through a tool call, followed by an approval card asking whether to run a shell command" src="docs/assets/screenshot-light-en.webp" width="900">
+  </picture>
+</p>
+
+ZhiFox is an AI agent harness built from scratch in Python, with no agent framework: a local-first personal assistant
+that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
+tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
+commands and search the web, with a permission prompt before anything that changes your computer. It is also a teaching
+project: every part of this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
+
+"ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
+`zhifox-agent-harness`, but the Python package and the command are still called `harness`, because the project is about
+what a harness is. Web search is available with Claude only. Every web UI conversation is saved automatically on your
+computer, and you can reopen it from the sidebar or search it by title and content.
+
+## Highlights
+
+- 🦊 **No agent framework.** The loop that turns a model into an agent is one file of about 180 lines,
+  [harness/agent.py](harness/agent.py). Tool dispatch, permissions, provider adapters, storage and search are plain
+  Python on top of the official `anthropic` and `openai` SDKs.
+- 🔌 **Four providers, two adapters.** Claude goes through the native Anthropic Messages API; GPT, Gemini and DeepSeek
+  share one OpenAI Chat Completions adapter.
+- 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
+  shell commands, and web search (Claude only).
+- 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
+  you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
+- 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
+  on 127.0.0.1 only, and the page loads no external resources.
+- 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
+  search library.
+- 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
+  has light and dark themes, and respects reduced-motion settings.
+- 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
+- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, and per-message
+  caps on web search.
+- 🧪 **Tests without API keys.** The test suite drives the real SDKs against local fake servers, so running it is free.
+
+## Quick start
+
+You need macOS or Linux and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync                 # 安装依赖
-uv run harness --web    # 启动网页界面，会自动在浏览器里打开
+uv sync                 # install dependencies
+uv run harness --web    # start the web UI; it opens in your browser
 ```
 
-第一次打开时，页面中间会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
-想用终端界面的话，填好密钥后运行 `uv run harness`。
+The first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that notice (or
+the button at the top right), enter a key for at least one provider, and start chatting. For the terminal UI, run
+`uv run harness` once a key is set.
 
-### 支持的模型
+### Supported models
 
-| 厂商 | 在哪里申请 API 密钥 | `.env` 里的变量名 | 验证情况 |
+| Provider | Where to get an API key | Variable in `.env` | Tested |
 |---|---|---|---|
-| Claude (Anthropic) | [platform.claude.com](https://platform.claude.com) | `ANTHROPIC_API_KEY` | 用真实 API 实测过 |
-| GPT (OpenAI) | [platform.openai.com](https://platform.openai.com) | `OPENAI_API_KEY` | 没有实测 |
-| Gemini (Google) | [aistudio.google.com](https://aistudio.google.com) | `GEMINI_API_KEY` | 没有实测 |
-| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | 没有实测 |
+| Claude (Anthropic) | [platform.claude.com](https://platform.claude.com) | `ANTHROPIC_API_KEY` | Yes, against the real API |
+| GPT (OpenAI) | [platform.openai.com](https://platform.openai.com) | `OPENAI_API_KEY` | Not with a real key |
+| Gemini (Google) | [aistudio.google.com](https://aistudio.google.com) | `GEMINI_API_KEY` | Not with a real key |
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | Key saving and model sync tested with a real key; chat not yet |
 
-后三家是对照各自的官方文档写的，并用本地的假服务器测试过，但没有用真实的密钥跑过。
-第一次使用时如果报错，多半是那一家的接口有文档里没写到的细节。
+The last three were written against each provider's official documentation and tested with local fake servers, but have
+not been used for a chat with a real key yet (DeepSeek's key saving and model sync have been run with a real key). If one of them fails the first time you use it, the likely cause is a detail of that
+provider's API that its documentation doesn't mention.
 
-各家的 API 都按用量计费，和它们聊天产品的订阅是分开的，一般需要先充值。
-密钥可以在网页界面的设置里填，也可以把 `.env.example` 复制成 `.env` 后直接写在里面，两种方式存的是同一个地方。
+Every provider bills API usage by volume, separately from its chat-app subscription, and usually needs prepaid credit.
+You can enter keys in the web UI's Settings, or copy [.env.example](.env.example) to `.env` and write them there. Both
+end up in the same place.
 
-### 网页界面
+## Architecture
+
+A model does one thing: it reads text and writes the next piece of text. It doesn't remember your last conversation,
+and it can't take any action. A **harness** is the code wrapped around the model that makes up for this.
+**Agent = model + harness.**
+
+How the parts connect:
+
+```mermaid
+flowchart TB
+    you(["You"])
+
+    subgraph ui ["Interfaces"]
+        term["Terminal UI<br/>harness/ui.py"]
+        web["Web UI<br/>browser ⇄ local server over SSE<br/>harness/webui/"]
+    end
+
+    agent["Agent loop · harness/agent.py<br/>call the model → run the tools it asks for → repeat"]
+
+    subgraph parts ["Harness parts"]
+        prompt["System prompt<br/>prompt.py"]
+        perms{{"Permissions<br/>permissions.py"}}
+        tools["Tools · tools/<br/>to-dos · memory · files · shell · web search"]
+        store[("Conversations + search index<br/>conversations.py · search.py")]
+    end
+
+    subgraph providers ["Provider adapters · providers/"]
+        claude["claude.py<br/>Anthropic Messages API"]
+        compat["openai_compat.py<br/>OpenAI Chat Completions"]
+    end
+
+    apis(["Claude · GPT · Gemini · DeepSeek"])
+
+    you --> term
+    you --> web
+    term --> agent
+    web --> agent
+    web --> store
+    prompt --> agent
+    agent --> claude
+    agent --> compat
+    claude --> apis
+    compat --> apis
+    agent -->|"tool call"| perms
+    perms -.->|"risky step: asks you first"| you
+    perms --> tools
+```
+
+What happens during one turn, using a to-do request as the example:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant UI as Terminal or web UI
+    participant Agent as Agent loop
+    participant Model as Model API
+    participant Tool as Tool
+    You->>UI: Remind me to hand in the report next Friday
+    UI->>Agent: user message
+    loop until the model answers in plain text
+        Agent->>Model: system prompt + tool specs + full history
+        Model-->>Agent: tool_use todo_add (title, due)
+        opt the step changes your computer, e.g. writing a file or running a command
+            Agent->>You: approval card: Allow / Deny
+            You-->>Agent: Allow
+        end
+        Agent->>Tool: run it
+        Tool-->>Agent: result
+        Note over Agent: append the tool call and its result to the history
+    end
+    Model-->>Agent: Got it: due Friday, November 27.
+    Agent-->>UI: stream the reply
+    UI-->>You: text appears as it arrives
+```
+
+### Which file does what
+
+Each part of the harness has its own file or directory:
+
+| Part | File | The problem it solves |
+|---|---|---|
+| Loop | [harness/agent.py](harness/agent.py) | A model replies once per call. The loop keeps calling it until the task is done |
+| Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
+| Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
+| Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
+| Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
+| Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
+| Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
+| System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
+| Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
+| Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
+| Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
+| Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
+| Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
+
+Suggested reading order: `agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`.
+Read the rest as your interest takes you.
+
+## How it works
+
+### The loop
+
+```
+You say something
+  └─► send [system prompt + tool specs + full conversation history] to the model
+        ├─ the model replies with text           → show it to you; the turn ends
+        └─ the model says "I want to call tool X" → check permissions → run it → append the result
+                                                     to the history → send it all again (loop)
+```
+
+The model decides what happens next, every time; the loop just carries it out. That is the difference between an agent
+and an ordinary program: an ordinary program's steps are fixed in code, while an agent's steps are chosen by the model as
+it goes.
+
+After you tell Claude "Remind me to hand in the report next Friday", the conversation history looks like this
+(abridged). The model doesn't actually "call" anything. It outputs a block in a fixed format saying it wants to call
+`todo_add`; the harness sees that, runs the tool, and puts the result back into the history as a new message:
+
+```json
+[
+  {"role": "user", "content": [
+    {"type": "text", "text": "<context>Current time: 2026-11-20 14:03 Friday</context>"},
+    {"type": "text", "text": "Remind me to hand in the report next Friday"}
+  ]},
+  {"role": "assistant", "content": [
+    {"type": "thinking", "thinking": "Next Friday is November 27…", "signature": "..."},
+    {"type": "tool_use", "id": "toolu_1", "name": "todo_add",
+     "input": {"title": "Hand in the report", "due": "2026-11-27"}}
+  ]},
+  {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "{\"id\": 1, \"title\": \"Hand in the report\", ...}"}
+  ]},
+  {"role": "assistant", "content": [
+    {"type": "text", "text": "Got it: due Friday, November 27."}
+  ]}
+]
+```
+
+The example is translated for this page. Text written for the model stays in Chinese in the code, so the real context
+note reads `<context>当前时间：2026-11-20 14:03 星期五</context>`. The current time travels with each user message rather
+than in the system prompt, because it changes every time, and a changing system prompt would break the cache.
+
+One rule holds throughout: **the history is only ever appended to; nothing earlier is changed.** The reasons are in the
+comment in `AnthropicBackend.__init__` in [harness/providers/claude.py](harness/providers/claude.py). In short, changing
+earlier content invalidates the cache (so requests cost more), and it makes the model's earlier thinking fail the API's
+validation (so requests are rejected).
+
+### One loop, many models
+
+The history above is in Claude's format. Other providers use different formats, but the loop (`agent.py`) doesn't care.
+It only requires each adapter to do the following, as defined in [harness/providers/base.py](harness/providers/base.py):
+
+| Method | What it does |
+|---|---|
+| `add_user` | Append a user message to the history |
+| `step` | Call the model once, display the output as it streams in, append the reply to the history, and tell the loop which tools the model wants to call |
+| `add_tool_results` | Append tool results to the history |
+| `mark` / `rollback` | Remember a position in the history / go back to it (to undo a turn after an error or a refusal) |
+
+There are only two adapters. [claude.py](harness/providers/claude.py) uses Anthropic's native API.
+[openai_compat.py](harness/providers/openai_compat.py) uses the Chat Completions format that OpenAI defined; GPT, Gemini
+and DeepSeek all support it at different server addresses, so one piece of code serves all three. The main differences:
+
+| | Claude | GPT, Gemini, DeepSeek |
+|---|---|---|
+| System prompt | A separate parameter | The first message in the history |
+| Tool calls | A "content block" in the reply | A `tool_calls` field on the assistant message; the arguments are a JSON string |
+| Tool results | All results in one message | One message per result |
+| Web search | Yes, run on Anthropic's servers | No |
+| Very long conversations | Earlier content is automatically condensed into a summary | Not handled |
+| Caching | We mark it in the request | Each provider handles it automatically |
+
+To add another provider that supports the OpenAI format, add one entry to `PROVIDERS` in
+[`harness/providers/__init__.py`](harness/providers/__init__.py).
+
+### How conversations are saved and restored
+
+The model remembers nothing, so "continuing where you left off" is entirely the harness's job: it saves the last
+conversation's history and sends it along with the next request. Each conversation is one JSON file in
+`data/conversations/`, holding two copies of the content:
+
+| Field | Used by | Notes |
+|---|---|---|
+| `messages` | The model | The history sent to the model, stored exactly in that provider's format. Handed back to the adapter (`restore`) when you open the conversation |
+| `events` | The page | What the interface showed. Sent to the browser again when you open the conversation, so the page can redraw it |
+
+There are two copies because they differ. The model's history contains thinking signatures, an ID for every tool call
+and each provider's own message structure. The page has no use for these, but they must go back to the API exactly as
+they were. The page, in turn, shows things the model never sees: approval cards (and whether you clicked Allow or Deny)
+and notices such as "Stopped".
+
+Claude's history must be sent back exactly as it was, or its earlier thinking fails validation. The system prompt
+includes the working directory, so if you start ZhiFox in a different directory and reopen an old conversation, the
+system prompt has changed and that thinking no longer matches. The request includes a parameter telling the API to drop
+mismatched thinking instead of rejecting the request. The old conversation still continues; the model just can't see how
+it reasoned at the time.
+
+### Three interface languages
+
+Every piece of interface text is written in Chinese where it appears and wrapped in `t()`. The Chinese sentence doubles
+as its key in the translation table. The tables live in [harness/locales/](harness/locales/), one JSON file per language,
+shaped like `{"Chinese original": "translation"}`:
+
+```python
+t("已中断。")                                                        # "Stopped." in the English UI
+t("已换成 {provider} · {model}。对话继续。", provider="DeepSeek", model="deepseek-flash")
+# → "Switched to DeepSeek · deepseek-flash. The conversation continues."
+```
+
+A sentence with no translation is shown in the original Chinese, so a missing translation never breaks anything; the
+Chinese just shows through in that one place. [tests/test_i18n.py](tests/test_i18n.py) finds every string passed to
+`t()` in the page and the program, and checks that each has an English and a Spanish translation with no placeholder
+such as `{provider}` missing. Add a sentence without translating it and the test fails, listing the sentences.
+
+The web UI and the program share the same table: when the program serves the page, it embeds the table in it, and the
+page translates its own text. Switching language doesn't reload the page, because every string drawn on the page
+remembers its original. On a switch, the page looks each one up again and replaces it in place. Text the program sends
+to the page (approval card descriptions, notices) works the same way: besides the translated text, it carries the
+original and the values filled into it. So text already on screen switches too, and so does a saved conversation you
+reopen later in another language.
+
+What is not translated: the model's answers (it answers in whatever language you write to it), your own messages,
+conversation titles, and tool output (such as what a command prints). Tool specs and the text tools return to the model
+also stay in Chinese; they are written for the model, which reads them fine. The name "智狐" is the same in all three
+languages.
+
+### Search
+
+Search has two jobs: find things fast, and find them at all. The code is all in
+[harness/search.py](harness/search.py), with no search library.
+
+**Fast.** Search can't reread every conversation file on each keystroke. The web UI already reads every conversation
+file once to list the titles (the first time the list or search is needed), and while doing so it extracts the
+searchable text and keeps it in memory. That is the index. From then on, saving, renaming and deleting a conversation
+updates the index, and searches run purely in memory.
+
+The index holds: titles, your messages, the assistant's replies, its thinking, the one-line summary of each tool call
+(the command that ran, the file path read or written, the web search query), and the first 600 characters of each tool
+result. It leaves out the contents the assistant wrote into files, and error notices and notices such as "Stopped".
+
+**At all.** People often remember only roughly what was said, so matching has three tiers, and stricter matches rank
+higher:
+
+| Tier | Rule | Example |
+|---|---|---|
+| Exact | The keyword appears as typed. Case-insensitive; full-width and half-width characters count as the same | `HARNESS` finds `harness` |
+| Similar word | An English word of 5 or more letters may have a letter or two wrong. Used only when the word doesn't appear exactly anywhere | `hraness` finds `harness` |
+| Characters in order | Every character of the keyword appears in order, with a few others in between. English keywords need at least 4 letters and must stay within one word; Chinese keywords need at least 2 characters | `周五报告` finds "周五下午交报告" |
+
+Separate keywords with spaces. All of them must match, in any order, and they may match in different places. Ranking
+looks at the tier first: conversations where every keyword matched exactly come first, then those that needed a similar
+word, then those that needed characters in order. Within a tier, matches in the title rank above matches in the content,
+and matches in your messages rank above matches in tool output. When relevance is equal, newer conversations come first.
+
+The server computes where to highlight the matches in the results, and there is a trap here. Browser strings count in
+UTF-16, where an emoji takes two units; Python counts it as one. So the server converts the positions before sending
+them, or every highlight after an emoji would be off.
+
+### One loop, two interfaces
+
+The terminal UI and the web UI also drive the same loop. The loop only needs the interface to provide these methods:
+
+| Method | When it's called |
+|---|---|
+| `thinking` / `text` | Each time the model produces a piece of thinking or of its answer |
+| `tool_call` / `tool_result` | A tool starts / finishes |
+| `confirm` | Your approval is needed; the loop waits here for the answer |
+| `info` / `notice` | There is a message for you |
+
+The terminal UI ([harness/ui.py](harness/ui.py)) turns these calls straight into text on screen. The web UI takes one
+more step, because the loop and the browser are not in the same program:
+
+```
+agent loop ──calls──► WebUI ──events──► local server ──pushes──► page in the browser
+                   (webui/ui.py)     (webui/server.py)          (webui/index.html)
+```
+
+`WebUI` records each call as an event in a log, the server pushes the events to the browser as a Server-Sent Events
+(SSE) stream, and the page draws each one. When you click Allow or Stop, the browser sends a request to the server, which
+passes it on to `WebUI`. The page keeps no copy of the conversation; after a refresh the server resends the log and the
+page redraws from it.
+
+Only content that is happening right now animates. New messages fade in, but content replayed after a refresh or when
+opening an old conversation appears directly, rather than playing hundreds of entrance animations one by one. How does
+the page tell the two apart? After resending the existing events, the server sends one extra marker named `synced`, and
+everything after it is live. When you open an old conversation, everything from the "clear the page" event (`reset`) to
+the next "state" event counts as replay.
+
+Everything that moves on the page changes only two properties: position and scale (`transform`) and transparency
+(`opacity`). The browser can hand these to its compositor thread without redoing layout, so animations stay smooth even
+while the script is busy handling the model's streaming text.
+
+When motion should be reduced (your system asks for reduced motion, or you chose Reduced in the appearance panel), all
+animations are off and content simply appears. The page doesn't query the system setting directly. Before the page is
+first painted, it combines the system setting with your choice once and writes the result to `<html data-motion>`; the
+styles and scripts look only there. That is what lets your Full choice override the system setting, and it keeps a
+refresh from starting an animation and then cutting it off. Light and dark themes work the same way
+(`<html data-theme>`).
+
+### Three kinds of tools
+
+The difference is who writes the spec and who runs the tool:
+
+| Kind | Spec written by | Runs on | Examples here |
+|---|---|---|---|
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), running commands ([shell.py](harness/tools/shell.py)) |
+| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)) |
+| Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
+
+Claude learned the specs of the second kind during training, so for Claude a one-line declaration is enough. Other
+providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them; the code
+that runs is the same. Tools of the third kind live on Anthropic's servers, so other providers' models can't use them.
+
+### Permissions
+
+| Action | Handling |
+|---|---|
+| To-dos, memory | Runs directly (only touches the assistant's own files in `data/`) |
+| Reading files in the working directory | Runs directly |
+| Reading files outside the working directory | Asks you first |
+| Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
+| Creating or changing any file | Asks you first, and shows what will be written |
+| Running any shell command | Asks you first, and shows the full command |
+| Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
+
+Reading `data/` always asks because otherwise the model could quietly read every past conversation and send it to the
+provider you're using now, whether because you asked "what files are in this folder?" or because a web page misled it.
+
+When you deny a step, you can type a sentence (for example, "Don't delete it, move it to the Trash instead"), and it is
+passed on to the model.
+
+If you'd rather not approve every step, you can loosen when ZhiFox asks. In the web UI, use the **Ask every time** button
+below the input box; in the terminal, use `/auto`:
+
+| Option | Terminal command | Effect |
+|---|---|---|
+| Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
+| Auto-approve file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, and reading `data/` still ask |
+| Auto-approve everything | `/auto all` | Nothing asks |
+
+This only changes whether ZhiFox asks. Steps that ran without asking are marked **Auto-approved** on their tool card in
+the web UI, and noted as "(auto-approved)" in the terminal. The choice isn't saved: every launch starts again at Ask
+every time, so you can't turn it on and forget about it.
+
+Two hard limits apply regardless of any prompt: the assistant can't read or write `.env` (which holds your API keys),
+and the commands it runs can't see those keys either.
+
+A risk to understand: the approval prompt is the only checkpoint between you and the model. Before approving a command,
+check what it does, especially right after the assistant has read a web page or an unfamiliar file, because that
+content may contain text designed to mislead the model.
+
+## Using ZhiFox
+
+### Web UI
 
 ```bash
 uv run harness --web
 ```
 
-程序会在本机启动一个小型服务器，并在浏览器里打开聊天页面。页面上有：
+This starts a small server on your computer and opens the chat page in your browser. The page has:
 
-- 会话栏（左侧）：所有会话按时间分组列出，点一下就能打开接着聊。鼠标移到一段会话上会出现三个按钮：
-  在访达中显示（直接定位到这段会话在你电脑上的文件）、重命名、删除。
-  每一轮对话结束时自动保存，不需要手动操作。左上角的按钮可以把它收起来；
-  最下面那一行点一下，会打开保存会话的文件夹。
-- 搜索（会话栏顶部，快捷键 ⌘K 或 Ctrl+K）：在所有保存过的会话里找，标题和内容都找，不要求一字不差。
-  多个关键词用空格隔开。结果里会显示命中的那段文字，点开（或按回车打开第一条）后页面直接滚到那个位置。
-- 空白页：还没有内容时，问候语、输入框和几个可以直接点的例子摆在页面中间。
-- 对话区：回复逐字显示；模型的思考过程可以点开查看；每次工具调用是一张卡片，点开能看到参数和结果；
-  鼠标移到助手的回复上会出现"复制"按钮。往上翻看旧内容时，新内容不会把你拽回底部。
-- 确认卡片：助手要写文件或执行命令时出现，带"允许"和"拒绝"两个按钮。拒绝时可以顺便写一句原因。
-- 输入框：Enter 发送，Shift+Enter 换行。助手工作时，发送按钮变成"停止"，可以打断正在进行的回复，
-  正在运行的命令也会一起结束。输入框下面一直显示本次运行的估算费用。
-- 设置（右上角显示当前模型的按钮）：填写或删除各家的 API 密钥、同步每家可用的模型列表、选择和切换模型、
-  填写模型的价格。
-- 信息栏（右上角最右边的按钮展开或收起）：估算费用、四类 token 各占多少、未完成的待办、
-  模型可以使用的工具。每调用一次模型就更新一次。
-- 外观和动效（右上角的太阳/月亮按钮）：点开是一个小面板，上下两排。
-  - 外观：默认是浅色，可以换成深色，或者跟随系统的深浅色。
-  - 动效：默认跟随系统设置（macOS 是"系统设置 → 辅助功能 → 显示 → 减弱动态效果"，Windows 是
-    "设置 → 辅助功能 → 视觉效果 → 动画效果"）。也可以直接在这里选"减少"（不播放滑动、淡入和闪烁，内容直接出现），
-    或者"完整"（即使系统要求减少动画，这个页面也播放全部动画）。
-  点面板外面、按 Esc 或者再点一下按钮就收起来。
-- 语言（右上角的地球按钮）：中文、English、Español。换语言不刷新页面，正在进行的对话、滚动的位置、
-  写了一半的消息都原样留着，界面上的文字在原地换掉。选择会保存下来，终端版也跟着用。
+- **Sidebar (left).** All conversations, grouped by date. Click one to continue it. Hovering over a conversation shows
+  three buttons: **Show in Finder** (**Show in folder** on Linux), which points straight at that conversation's file on
+  your computer, **Rename** and **Delete**. Conversations save automatically at the end of every turn, with nothing to
+  do by hand. The button at the top left hides the sidebar; clicking the bottom row opens the folder where conversations
+  are saved.
+- **Search** (top of the sidebar, ⌘K or Ctrl+K). Searches all saved conversations, titles and content, without needing
+  an exact match. Separate keywords with spaces. Each result shows the passage that matched; open it (or press Enter to
+  open the first) and the page scrolls straight to that spot.
+- **Empty state.** Before there is any content, a greeting, the input box and a few clickable examples sit in the middle
+  of the page.
+- **Conversation.** Replies stream in as they're written. You can expand the model's thinking. Each tool call is a card
+  you can open to see its parameters and result. Hovering over a reply shows a **Copy** button. When you scroll up to
+  read earlier content, new output doesn't pull you back to the bottom.
+- **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
+  buttons. When you deny, you can add a reason.
+- **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
+  **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
+  shown below the input.
+- **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
+  each provider's model list, choose and switch models, and enter model prices.
+- **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
+  kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
+  updates after every model call.
+- **Appearance and motion** (the sun/moon button at the top right). A small panel with two rows:
+  - **Appearance:** Light by default. You can switch to Dark, or to Match system.
+  - **Motion:** follows your system setting by default (on macOS, System Settings → Accessibility → Display → Reduce
+    motion; on Windows, Settings → Accessibility → Visual effects → Animation effects). You can also choose **Reduced**
+    (no sliding, fading or pulsing; content simply appears) or **Full** (every animation plays, even if your system asks
+    for reduced motion).
 
-外观、动效、两边的栏是展开还是收起，这几样选择记在浏览器里，不在 `data/` 里。
+  Click outside the panel, press Esc or click the button again to close it.
+- **Language** (the globe button at the top right): 中文, English, Español. Switching doesn't reload the page: the
+  conversation in progress, your scroll position and a half-written message all stay as they were, and the interface
+  text changes in place. The choice is saved, and the terminal UI uses it too.
 
-换模型的规则：同一家之内换模型，对话可以接着进行；换到另一家会开始新对话，因为各家的对话格式不通用。
-选好的模型会保存下来，下次启动（包括终端版）还是它。
+Appearance, motion, and whether the two side panels are open are remembered by your browser, not stored in `data/`.
 
-刷新页面不会丢失当前对话。关闭页面后程序仍在运行，回到终端按 Ctrl-C 才会退出；
-如果这时助手正在回复，程序会先停下它、把这一轮存好（最多等 5 秒）再退出。
-同一个数据目录同时只能开一个网页版：已经有一个在运行时，再启动会提示你去用已经打开的那个。
-重新启动后看到的是一段新对话，之前的会话都在左侧的列表里。打开一段旧会话时，
-会自动换回它当时用的那家模型，而且这个模型从此就是"选好的模型"：之后新开的对话、下次启动用的都是它，
-直到你在设置里换掉。助手正在回复的时候，不能打开、改名或删除会话，要等这一轮结束或者点"停止"。
-会话的标题最长保留 40 个字。
+**Switching models.** Within the same provider, the conversation continues. Switching to another provider starts a new
+conversation, because providers' conversation formats aren't compatible. The model you choose is saved, and the next
+launch (terminal included) uses it again.
 
-可选参数：`--port 9000` 指定端口（默认 8765，被占用时自动换一个），`--no-browser` 不自动打开浏览器。
+**Lifecycle.** Refreshing the page doesn't lose the current conversation. Closing the page leaves the program running;
+press Ctrl-C in the terminal to quit. If the assistant is in the middle of a reply, ZhiFox stops it and saves the turn
+first (waiting at most 5 seconds), then exits. Only one web UI can run per data directory: if one is already running,
+starting another tells you to use the one that's open.
 
-终端里显示的地址带有一段 `token`，它是这次运行的口令，每次启动都会换。不要把这个地址发给别人，
-也不要把带地址栏的截图发到公开的地方：拿到它的人可以通过这个页面让助手在你的电脑上执行命令。
-服务器只接受本机的连接。
+After a restart you start in a new conversation; earlier ones are in the sidebar. Opening an old conversation switches
+back to the provider and model it used, and from then on that model is your chosen model: new conversations and the next
+launch use it until you change it in Settings. While the assistant is replying, you can't open, rename or delete
+conversations; wait for the turn to finish or click **Stop**. Conversation titles keep at most 40 characters.
 
-### 终端界面
+**Options.** `--port 9000` sets the port. Without it, ZhiFox uses 8765, or lets the system pick a free port if 8765 is
+taken; a port you name explicitly must be free. `--no-browser` skips opening the browser.
+
+The address shown in the terminal contains a `token`, a password for this run that changes on every launch. Don't send
+the address to anyone, and don't post screenshots that show the address bar: whoever has it can use the page to make the
+assistant run commands on your computer. The server only accepts connections from your own machine.
+
+### Terminal UI
 
 ```bash
 uv run harness
 ```
 
-启动后直接打字就可以对话：
+Once it starts, type to chat:
 
 ```
-你> 提醒我下周五交报告
-🔧 todo_add {"title": "交报告", "due": "2026-11-27"}
-   ↳ {"id": 1, "title": "交报告", "due": "2026-11-27", ...}
-记下了：下周五（11 月 27 日）交报告。
+You> Remind me to hand in the report next Friday
+🔧 todo_add {"title": "Hand in the report", "due": "2026-11-27"}
+   ↳ {"id": 1, "title": "Hand in the report", "due": "2026-11-27", ...}
+Got it: due Friday, November 27.
 
-你> 这个目录里有哪些 Python 文件？
+You> Which Python files are in this folder?
 🔧 run_command $ find . -name "*.py"
 
-⚠️  助手想要执行命令：
+⚠️  The assistant wants to run a command:
 
     $ find . -name "*.py"
-允许吗？y 允许；回车拒绝；也可以直接输入你的意见来拒绝 >
+Allow? y to allow, Enter to deny, or type a reason to deny >
 ```
 
-| 命令 | 作用 |
+| Command | What it does |
 |---|---|
-| `/help` | 显示命令列表 |
-| `/new` | 开始一段新对话（记忆和待办不受影响） |
-| `/todos` | 查看未完成的待办 |
-| `/tools` | 查看模型可以使用的工具 |
-| `/usage` | 查看本次运行的 token 用量和估算费用 |
-| `/model` | 查看当前使用的模型（换模型在网页界面的设置里进行） |
-| `/exit` | 退出（也可以按 Ctrl-D） |
+| `/help` | Show the list of commands |
+| `/new` | Start a new conversation (memory and to-dos are kept) |
+| `/todos` | Show open to-dos |
+| `/tools` | Show the tools the model can use |
+| `/usage` | Show this run's token usage and estimated cost |
+| `/model` | Show the model in use (switch models in the web UI's Settings) |
+| `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
+| `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
-模型回复到一半时按 Ctrl-C 可以打断它。
+Press Ctrl-C while the model is replying to interrupt it.
 
-### 在别的目录里使用
+### Using it in another folder
 
-助手的"工作目录"是你启动它时所在的目录。想让它在别的目录里工作，先 `cd` 到那里，再运行：
+The assistant's working directory is the directory you start it from. To have it work somewhere else, `cd` there first,
+then run:
 
 ```bash
-uv run --project "/这个项目的完整路径" harness
+uv run --project "/full/path/to/this/project" harness
 ```
 
-## Harness 是什么
+The keys and data still come from the project's own `.env` and `data/`.
 
-模型只会一件事：读入一段文字，写出下一段文字。它不记得上一次对话，也执行不了任何操作。
+## Data and privacy
 
-**Harness** 就是包在模型外面、弥补这些不足的代码。**Agent = 模型 + harness**。
-这个项目里 harness 的每个组成部分各占一个文件或目录：
-
-| 组成部分 | 文件 | 它解决什么问题 |
-|---|---|---|
-| 循环 | [harness/agent.py](harness/agent.py) | 模型一次只能回复一段。循环反复调用它，直到任务做完 |
-| 工具 | [harness/tools/](harness/tools/) | 模型不能执行操作。工具替它执行，再把结果告诉它 |
-| 模型适配层 | [harness/providers/](harness/providers/) | 各家 API 的格式不一样。适配层把差别包起来，循环不用关心背后是哪一家 |
-| 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
-| 会话存档 | [harness/conversations.py](harness/conversations.py) | 程序关掉后内存里的对话历史就没了。把它存成文件，下次读回来就能接着聊 |
-| 会话搜索 | [harness/search.py](harness/search.py) | 会话多了以后找不到。把每段会话里的文字放进内存，按标题和内容搜，允许不完全一样 |
-| 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
-| 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里 |
-| 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
-| 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
-| 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
-| 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
-| 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
-
-建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`，其余的按兴趣看。
-
-### 循环
-
-```
-你说了一句话
-  └─► 把【系统提示词 + 工具说明书 + 全部对话历史】发给模型
-        ├─ 模型回复文字            → 显示给你，这一轮结束
-        └─ 模型说"我要调用工具 X"  → 检查权限 → 执行 → 把结果追加进历史 → 再发给模型（循环）
-```
-
-"下一步做什么"每次都由模型决定，循环只负责照办。这是 agent 和普通程序的区别：
-普通程序的步骤是写死的，agent 的步骤是模型临场决定的。
-
-你对 Claude 说"提醒我下周五交报告"之后，对话历史会变成下面这样（有删减）。
-模型并没有真的"调用"什么，它只是输出了一段格式固定的内容，说自己想调用 `todo_add`；
-harness 看到后去执行，再把结果作为一条新消息放回历史里：
-
-```json
-[
-  {"role": "user", "content": [
-    {"type": "text", "text": "<context>当前时间：2026-11-20 14:03 星期五</context>"},
-    {"type": "text", "text": "提醒我下周五交报告"}
-  ]},
-  {"role": "assistant", "content": [
-    {"type": "thinking", "thinking": "下周五是 11 月 27 日……", "signature": "..."},
-    {"type": "tool_use", "id": "toolu_1", "name": "todo_add",
-     "input": {"title": "交报告", "due": "2026-11-27"}}
-  ]},
-  {"role": "user", "content": [
-    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "{\"id\": 1, \"title\": \"交报告\", ...}"}
-  ]},
-  {"role": "assistant", "content": [
-    {"type": "text", "text": "记下了：下周五（11 月 27 日）交报告。"}
-  ]}
-]
-```
-
-有一条规矩贯穿始终：**历史只在末尾追加，前面的内容从不修改**。
-原因写在 [harness/providers/claude.py](harness/providers/claude.py) 开头的注释里，简单说就是改了前面会让缓存失效（变贵），
-还会让模型之前的思考内容无法通过 API 的校验（请求被拒绝）。
-
-### 一个循环，多家模型
-
-上面那段历史是 Claude 的格式。别家的格式不一样，但循环（`agent.py`）并不关心，
-它只要求每一家的适配层都能做这几件事（定义在 [harness/providers/base.py](harness/providers/base.py)）：
-
-| 方法 | 作用 |
+| Path | Contents |
 |---|---|
-| `add_user` | 往历史里追加一条用户消息 |
-| `step` | 调用一次模型，边收边显示，把回复追加进历史，并告诉循环模型想调用哪些工具 |
-| `add_tool_results` | 把工具的执行结果追加进历史 |
-| `mark` / `rollback` | 记下历史的位置 / 退回到那个位置（出错或被拒绝时撤销这一轮） |
+| `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only |
+| `data/conversations/` | Every web UI conversation, one JSON file each |
+| `data/memories/` | The assistant's long-term memory and notes. You can edit or delete them by hand |
+| `data/todos.json` | To-dos |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
+| `data/backups/` | The previous version of any file the assistant overwrote completely |
+| `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
-适配层只有两个：[claude.py](harness/providers/claude.py) 用 Anthropic 的原生接口；
-[openai_compat.py](harness/providers/openai_compat.py) 用 OpenAI 定下的 Chat Completions 格式，
-GPT、Gemini、DeepSeek 都支持这套格式，只是服务器地址不同，所以一份代码服务三家。两者的主要差别：
+These are all ordinary files you can open. Both `data/` and `.env` are listed in `.gitignore`, so they never get
+committed to git. The folders and conversation files in `data/` are readable and writable by your account only, so other
+accounts on the same computer can't see them. After you save a key in the web UI, only its last 4 characters are shown;
+the full key is never sent back to the browser.
 
-| | Claude | GPT、Gemini、DeepSeek |
-|---|---|---|
-| 系统提示词 | 单独的参数 | 历史里的第一条消息 |
-| 工具调用 | 回复里的一个"内容块" | 助手消息上的 `tool_calls` 字段，参数是一段 JSON 文本 |
-| 工具结果 | 所有结果合在一条消息里 | 每个结果单独一条消息 |
-| 联网搜索 | 有，在 Anthropic 的服务器上执行 | 没有 |
-| 对话太长时 | 自动把较早的内容压缩成摘要 | 不处理 |
-| 缓存 | 由我们在请求里标记 | 各家自动处理 |
+Conversation content is sent to the API of the provider you chose, so the model can process it, and saved in
+`data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
+deletes its file too.
 
-要接入另一家支持 OpenAI 格式的厂商，在 [harness/providers/\_\_init\_\_.py](harness/providers/__init__.py) 的 `PROVIDERS` 里加一项就够了。
+To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. This is the only button
+on the page that makes your computer launch another program (the file manager), so the server is extra careful with it:
+the page can only tell the server *which conversation*, the server works out where the file is itself, and the page has
+no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens
+the folder containing the file.
 
-### 会话是怎么保存和恢复的
+## Cost
 
-模型自己什么都不记得，"接着上次聊"靠的全是 harness：把上次的对话历史存下来，下次请求时一起发过去。
-每段会话是 `data/conversations/` 里的一个 JSON 文件，里面有两份内容：
+APIs bill by the token (a Chinese character is roughly 1 to 2 tokens). Because every request resends the whole
+conversation history, each step costs more the longer the conversation and the more steps it has taken. A task where
+the assistant researches something on its own can take dozens of steps and cost much more than ordinary chat.
 
-| 内容 | 给谁用 | 说明 |
-|---|---|---|
-| `messages` | 模型 | 发给模型的对话历史，按那一家的格式原样保存。打开会话时交还给适配层（`restore`） |
-| `events` | 页面 | 界面上显示过的内容。打开会话时重新发给浏览器，页面照着画出来 |
+What the program does to keep cost under control:
 
-存两份是因为它们不一样：模型看到的历史里有思考内容的签名、每个工具调用的编号、厂商各自的消息结构，
-这些页面用不上，但发回给 API 时一个字都不能差；页面上显示的确认卡片（你点了允许还是拒绝）、
-"已中断"这样的提示文字，又是模型看不到的。
+- **Estimated cost.** The web UI's info panel and the terminal's `/usage` convert usage into US dollars. It's only an
+  estimate; each provider's bill is what counts, and bills usually lag.
+- **Search caps.** For each message you send, Claude can search the web at most 5 times and fetch at most 5 pages; past
+  that, it answers with what it has. The API enforces this cap. Each web search costs $0.01 on top of tokens.
+- **Caching.** Parts that are sent again and again cost far less once they hit the cache (for Claude, about a twentieth
+  of the normal input price). The cache lasts only a few minutes, so when you come back to a long old conversation after
+  a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
+  30,000 tokens shows a notice about this.
+- **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
+- You can click **Stop** at any time, or start a **New chat** to clear the history.
 
-Claude 的历史必须和当初一字不差地发回去，否则它之前的思考内容通不过校验。如果你换了工作目录再打开旧会话，
-系统提示词已经变了，那些思考内容就对不上了。程序在请求里带了一个参数，让 API 遇到这种情况时丢掉对不上的思考内容，
-而不是拒绝请求，所以旧会话仍然能接着聊，只是模型看不到自己当时是怎么想的。
+Built-in prices cover only these Claude models (public prices at the time of writing, in USD per million tokens):
 
-### 界面是怎么做成三种语言的
-
-界面上的每一句话都用中文写在它出现的地方，外面包一层 `t()`，这句中文同时就是翻译表里的"键"。
-翻译表在 [harness/locales/](harness/locales/) 下，一种语言一个 JSON 文件，内容是 `{"中文原文": "译文"}`：
-
-```python
-t("已中断。")                                                        # 英文界面下是 "Stopped."
-t("已换成 {provider} · {model}。对话继续。", provider="DeepSeek", model="deepseek-flash")
-```
-
-查不到译文的照原样显示中文，所以漏翻一句不会出错，只会在那一处露出中文。
-[tests/test_i18n.py](tests/test_i18n.py) 会把页面和程序里所有交给 `t()` 的话找出来，检查每一句都有英文和西班牙语的译文、
-`{provider}` 这类要填的空一个不少。新加了一句话却没有翻译，测试就会失败，并列出是哪几句。
-
-网页和程序用的是同一份表：助手程序发出页面时把表塞进页面里，页面自己的话由页面翻译。
-换语言时页面不刷新，因为每一句画在页面上的话都记着自己的原文，换语言时照着原文重新查一遍、就地换掉。
-程序发给页面的话（确认卡片上的说明、各种提示）也一样：除了译好的文字，还带着原文和填进去的值，
-所以已经显示出来的这些话也能跟着换，保存下来的会话以后换了语言再打开也是。
-
-哪些不翻译：模型的回答（它用什么语言回答，取决于你用什么语言和它说话）、你说的话、会话的标题、
-工具的输出（比如命令打印出来的内容）。工具的说明书和工具返回给模型的话也保持中文，那些是写给模型看的，它都读得懂。
-品牌名"智狐"在三种语言里都不变。
-
-### 会话搜索是怎么做的
-
-搜索要解决两个问题：找得快，找得到。代码都在 [harness/search.py](harness/search.py) 里，没有用任何搜索库。
-
-找得快：不能每敲一个字就把所有会话文件重新读一遍。程序启动时本来就要把每个会话文件读一遍来列出标题，
-这时顺便把里面值得搜的文字抽出来放在内存里，这就是"索引"。之后会话保存、改名、删除时索引跟着更新，
-搜索只在内存里进行。
-
-收进索引的有：标题、你说的话、助手的回复、思考过程、每次工具调用的那一行摘要（运行的命令、读写的文件路径、
-联网搜索的关键词）、每个工具结果开头的 2000 个字符。没有收的：助手写进文件的具体内容、出错和"已中断"这类提示。
-
-找得到：人记得的往往只是个大概，所以匹配分三档，越严格的排得越靠前：
-
-| 档 | 规则 | 例子 |
-|---|---|---|
-| 原样包含 | 关键词原样出现。不分大小写，全角半角算一样 | `HARNESS` 找到 `harness` |
-| 相近的词 | 5 个字母以上的英文单词允许敲错一两个字母。只在这个词哪儿都原样找不到时才启用 | `hraness` 找到 `harness` |
-| 隔字包含 | 每个字按顺序都出现，中间可以隔几个字。英文要 4 个字母以上，而且不跨单词 | `周五报告` 找到"周五下午交报告" |
-
-多个关键词要全部满足，先后顺序不限，也可以分别出现在不同的地方。排序时先看档：每个关键词都原样找到的排最前，
-其次是靠"相近的词"找到的，用到"隔字包含"的排最后。同一档里，标题里的命中排在内容里的前面，
-你说的话排在工具输出前面；一样相关时新的会话在前。
-
-页面上的搜索结果里标出来的位置是服务器算好的。这里有个容易踩的坑：浏览器里的字符串按 UTF-16 计数，
-一个表情符号占两格，而 Python 里只占一格，所以服务器发给页面之前要把位置换算一遍，否则文字里一有表情，
-后面标的位置就全偏了。
-
-### 一个循环，两种界面
-
-终端版和网页版用的也是同一个循环。循环只要求界面提供这几个方法：
-
-| 方法 | 什么时候被调用 |
-|---|---|
-| `thinking` / `text` | 模型每生成一小段思考或回答 |
-| `tool_call` / `tool_result` | 一个工具开始执行 / 执行完毕 |
-| `confirm` | 需要用户点头，循环停在这里等答复 |
-| `info` / `notice` | 有一句提示要告诉用户 |
-
-终端版（`ui.py`）把这些调用直接变成屏幕上的文字。网页版多绕一步，因为循环和浏览器不在同一个程序里：
-
-```
-agent 循环 ──调用──► WebUI ──事件──► 本地服务器 ──推送──► 浏览器里的页面
-                    (webui/ui.py)   (webui/server.py)     (webui/index.html)
-```
-
-`WebUI` 把每次调用记成一条"事件"存进日志，服务器把事件推送给浏览器，页面收到后画出对应的内容。
-你在页面上点"允许"或"停止"，则是浏览器向服务器发一个请求，服务器再转告 `WebUI`。
-页面自己不保存对话，所以刷新后服务器把日志重发一遍，页面就能照着重新画出来。
-
-页面上的动画只给"此刻正在发生"的内容：新来的消息会浮现出来，而刷新页面、打开旧会话时重放出来的内容直接显示，
-不会把几百条消息的入场动画挨个播一遍。页面怎么分辨这两种内容？服务器在补发完已有的事件之后，会多发一个名叫
-`synced` 的标记，标记之后的才是实时的事件；打开旧会话时，则是从"清空页面"的事件到下一个"状态"事件之间算重放。
-
-页面里所有会动的东西都只改两样属性：位置和缩放（`transform`）、透明度（`opacity`）。浏览器可以把这两样交给
-专门的合成线程去做，不用重新排版，所以即使脚本正忙着处理模型不断吐出来的文字，动画也不会卡。
-
-要减少动画的时候（系统开了"减少动态效果"，或者你在外观面板里选了"减少"），所有动画都会关掉，内容直接出现。
-页面不是直接去查系统设置，而是在画出页面之前，把系统设置和你的选择合在一起算一次，结果写在 `<html data-motion>`
-上，样式和脚本都只看这一处。这样你选的"完整"才能盖过系统设置，而且刷新页面时不会先播一段动画、再突然停下。
-深浅色也是同样的做法（`<html data-theme>`）。
-
-### 三类工具
-
-区别在于"说明书谁写"和"谁来执行"：
-
-| 类别 | 说明书 | 执行 | 这个项目里的例子 |
-|---|---|---|---|
-| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、执行命令（[shell.py](harness/tools/shell.py)） |
-| Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)）、记忆（[memory.py](harness/tools/memory.py)） |
-| 服务器工具 | Anthropic | Anthropic 的服务器 | 联网搜索（[web.py](harness/tools/web.py)） |
-
-第二类工具的说明书 Claude 在训练时就学过，所以给 Claude 只需要一行声明。别家的模型没学过，
-所以 `files.py` 和 `memory.py` 里另有一份手写的说明书（`PORTABLE`）给它们用，执行的代码是同一份。
-第三类工具在 Anthropic 的服务器上，别家的模型用不了。
-
-### 权限规则
-
-| 操作 | 处理 |
-|---|---|
-| 待办、记忆 | 直接执行（只动 `data/` 里助手自己的文件） |
-| 读取工作目录里的文件 | 直接执行 |
-| 读取工作目录之外的文件 | 先问你 |
-| 读取 `data/` 里的文件（保存的会话、设置） | 先问你，即使 `data/` 就在工作目录里 |
-| 创建、修改任何文件 | 先问你，并显示要写入的内容 |
-| 执行任何 shell 命令 | 先问你，并显示完整的命令 |
-| 联网搜索 | 直接执行（在 Anthropic 的服务器上进行，不碰你的电脑），次数有上限 |
-
-拒绝时可以直接输入一句话（比如"不要删，改成移到废纸篓"），这句话会转告给模型。
-
-不想每次都点"允许"的话，可以放宽"问不问"（网页：输入框下面的"每次确认"按钮；终端：`/auto` 命令）：
-
-| 选项 | 终端命令 | 效果 |
-|---|---|---|
-| 每次确认（默认） | `/auto ask` | 上表里写着"先问你"的，每一次都问 |
-| 自动允许改文件 | `/auto edits` | 创建、修改工作目录里的文件不再问；执行命令、读写工作目录之外的文件、读 `data/` 照常问 |
-| 全部自动允许 | `/auto all` | 都不再问 |
-
-放宽的只是"问不问"，没有问你就执行的那些，网页上的工具卡片会标"自动允许"，终端里也会注明。
-这个选择不会保存，每次启动都回到"每次确认"，免得开了忘记关。
-
-另外有两条不经过询问的硬性限制：助手不能读写 `.env`（里面是各家的 API 密钥），
-执行命令时也看不到这些密钥。
-
-需要了解的风险：确认提示是你和模型之间唯一的关卡。批准一条命令之前请看清楚它要做什么，
-尤其是在助手刚读过网页或陌生文件之后，因为那些内容里可能藏着误导模型的话。
-
-## 数据存在哪里
-
-| 路径 | 内容 |
-|---|---|
-| `.env` | 各家的 API 密钥。通过网页界面保存时，会把它设成只有你的账号能读 |
-| `data/conversations/` | 网页界面里的每段会话，一段一个 JSON 文件 |
-| `data/memories/` | 助手的长期记忆和笔记。可以手动编辑或删除 |
-| `data/todos.json` | 待办事项 |
-| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言。不含密钥 |
-| `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
-| `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
-
-这些都是可以直接打开的普通文件。`data/` 和 `.env` 都写进了 `.gitignore`，不会被提交到 git。
-`data/` 里的文件夹和会话文件都设成只有你的账号能读写，同一台电脑上的其他账号看不到。
-网页界面保存密钥之后只显示最后 4 位，不会把完整的密钥发回浏览器。
-
-对话内容会发送给你所选厂商的 API 处理，同时保存在你自己电脑上的 `data/conversations/` 里，
-不会上传到别处。在会话栏里删除一段会话，对应的文件也会被删掉。
-
-想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。这是页面上唯一一个会让电脑启动别的程序
-（文件管理器）的按钮，所以服务器对它格外小心：页面只能告诉服务器"哪一段会话"，文件在哪儿由服务器自己算，
-页面没有办法让它打开别的路径。Linux 上没有通用的"选中某个文件"的办法，打开的是文件所在的文件夹。
-
-## 费用
-
-API 按 token 计费（一个汉字大约 1 到 2 个 token）。因为每次请求都要重发整个对话历史，
-对话越长、步骤越多，每一步越贵。一次让助手自己查资料的任务可能要走几十步，费用会比普通聊天高很多。
-
-程序里控制费用的几样东西：
-
-- **估算费用**：网页侧栏和终端的 `/usage` 会把用量换算成美元。这只是估算，实际以各家的账单为准，
-  账单通常有延迟。
-- **搜索次数上限**：用户每发一条消息，Claude 最多搜索 5 次、读取网页 5 次，超过后它会根据已有的信息回答。
-  这个上限由 API 强制执行。联网搜索除了 token 之外每次另收 1 美分。
-- **缓存**：重复发送的部分命中缓存后便宜很多（Claude 约为原价的二十分之一）。
-  缓存只保留几分钟，所以隔了一阵再接着聊一段很长的旧会话时，第一条消息要按整段历史的原价计费。
-  打开超过 3 万 token 的旧会话时，页面会提示一下。
-- **自动压缩**：和 Claude 的对话特别长时，较早的内容会被压缩成摘要。
-- 随时可以点"停止"，或者用"新对话"把历史清零。
-
-内置的价格只有 Claude 的几个模型（写这份文档时的公开价格，单位是美元 / 每百万 token）：
-
-| 模型 | 输入 | 命中缓存的输入 | 输出 |
+| Model | Input | Cached input | Output |
 |---|---|---|---|
 | `claude-opus-5-5` | 4 | 0.2 | 20 |
 | `claude-sonnet-5-5` | 2 | 0.1 | 10 |
 | `claude-fable-5-2` | 8 | 0.2 | 40 |
 
-其他模型的价格需要你在设置里自己填。没有价格的模型只显示 token 数，页面会提示它没有计入估算。
+For other models, enter prices yourself in Settings. Models without a price show token counts only, and the page notes
+that they aren't included in the estimate.
 
-## 配置
+## Configuration
 
-写在 `.env` 里，都是可选的：
+Set these in `.env`. All of them are optional:
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Meaning |
 |---|---|---|
-| `HARNESS_MAX_SEARCHES` | `5` | 每条消息最多联网搜索几次，`0` 表示不限制 |
-| `HARNESS_WEB` | `1` | 设为 `0` 完全关闭联网搜索 |
-| `HARNESS_EFFORT` | `medium` | Claude 思考的力度：`low` / `medium` / `high` / `xhigh` / `max` |
-| `HARNESS_DATA_DIR` | 项目里的 `data/` | 记忆、待办、设置等数据存放的目录 |
-| `HARNESS_PROVIDER`、`HARNESS_MODEL` | `anthropic`、`claude-opus-5-5` | 还没在界面上选过模型时用哪一个。选过之后以界面上的选择为准 |
+| `HARNESS_MAX_SEARCHES` | `5` | Maximum web searches per message; `0` means no limit |
+| `HARNESS_WEB` | `1` | Set to `0` to turn off web search completely |
+| `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
+| `HARNESS_DATA_DIR` | The project's `data/` | Where memory, to-dos, settings and other data are stored |
+| `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
 
-## 动手试试：加一个自己的工具
+## Build your own tool
 
-新建 `harness/tools/dice.py`：
+Create `harness/tools/dice.py`:
 
 ```python
 import random
@@ -445,69 +638,151 @@ from .base import Tool, function_tool
 
 def make_dice_tool() -> Tool:
     def roll_dice(sides: int = 6) -> str:
-        return f"掷出了 {random.randint(1, sides)} 点"
+        return f"Rolled a {random.randint(1, sides)}"
 
     return function_tool(
         name="roll_dice",
-        description="掷一次骰子，返回点数。用户想要随机数、抛硬币或抽签时使用。",
-        properties={"sides": {"type": "integer", "description": "骰子有几个面，默认 6"}},
+        description="Roll a die once and return the result. Use it when the user wants a random number, a coin flip or a random pick.",
+        properties={"sides": {"type": "integer", "description": "How many sides the die has; defaults to 6"}},
         required=[],
         function=roll_dice,
     )
 ```
 
-然后在 [harness/tools/\_\_init\_\_.py](harness/tools/__init__.py) 里导入它，并在 `build_registry` 的列表中加一行 `make_dice_tool(),`。
-重新启动，对助手说"帮我掷个骰子"。用 `function_tool` 创建的工具，四家的模型都能用。
+Then import it in [`harness/tools/__init__.py`](harness/tools/__init__.py) and add a line `make_dice_tool(),` to the list
+in `build_registry`. Restart, and ask the assistant to roll a die for you. Tools created with `function_tool` work with
+all four providers' models. (The built-in tools write their specs in Chinese; yours can be in any language the model
+reads.)
 
-几点说明：
+A few notes:
 
-- `description` 是模型决定要不要调用这个工具的唯一依据。除了写它做什么，也要写**什么时候该用**。
-- 工具返回的是给模型看的文字。出错时抛出 `ToolError("原因")`，模型会看到原因并自己调整。
-- 如果新工具会改动电脑上的东西，在 [harness/permissions.py](harness/permissions.py) 的 `review` 里给它加一条规则，让它先问你。
+- The `description` is the only thing the model has to decide whether to call the tool. Besides what it does, say
+  **when it should be used**.
+- What a tool returns is text for the model to read. On failure, raise `ToolError("reason")` (also importable from
+  `.base`); the model sees the reason and adjusts.
+- If the new tool changes anything on your computer, add a rule for it in `review` in
+  [harness/permissions.py](harness/permissions.py) so that it asks you first.
 
-## 测试
+## Testing
 
 ```bash
 uv run pytest
 ```
 
-测试不需要 API 密钥，也不花钱。[tests/fake_api.py](tests/fake_api.py) 和 [tests/fake_openai.py](tests/fake_openai.py)
-是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
-并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
-可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
-会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)。
+The tests need no API key and cost nothing. [tests/fake_api.py](tests/fake_api.py) and
+[tests/fake_openai.py](tests/fake_openai.py) are two local fake servers that replay prepared replies in Claude's and
+OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
+To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
+read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
+where the test code plays the browser. Saving conversations and searching them are covered in
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py).
 
-页面本身（`index.html` 里的样式和脚本）没有自动化测试，每次改动后是在真实的浏览器里对着假服务器手动操作检查的。
+The page itself (the styles and scripts in `index.html`) has no automated tests. After every change it is checked by hand
+in a real browser against the fake servers.
 
-想不花钱地到处点点、看看界面，可以运行 `uv run python tests/demo_web.py`：它启动的是真实的服务器和页面，
-后面接的是本地的假模型，回复都是预设的，数据写在临时目录里，不碰你的密钥和 `data/`。
+To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
+the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
+doesn't touch your keys or `data/`.
 
-## 局限
+Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
+and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
+page.
 
-- 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
-- GPT、Gemini、DeepSeek 没有用真实的密钥实测过（见上面"支持的模型"）。
-- 用 GPT、Gemini、DeepSeek 时没有联网搜索，对话太长时也不会自动压缩。
-- GPT 走的是 Chat Completions 接口。OpenAI 的个别新模型如果只支持它的另一套接口，在这里用不了。
-- Claude 的模型只列出程序适配过的三个，Anthropic 的其他模型接受的参数不完全一样。
-- 每条命令都在全新的 shell 里运行，`cd` 和环境变量不会保留到下一条命令。
-- 会话只在网页界面里保存，终端界面的对话关掉程序后不保留。
-- 搜索不支持拼音（比如输入 `baogao` 找不到"报告"）。它把所有会话的文字放在内存里，
-  会话非常多（几千段长对话）时会多占一些内存。正在进行、还没保存过的那一段搜不到。
-- 一次只能进行一段对话：一段会话正在回复时，不能切换到另一段，也不能给会话改名或删除会话。
-- 两种界面都只显示纯文本，不渲染 Markdown（系统提示词里也让模型不要用 Markdown）。
-- 换成英文或西班牙语之后，工具返回的提示（比如"没有编号为 9 的待办"）和终端 `/tools` 里工具的说明仍然是中文：
-  这些是写给模型看的。换语言之前保存的会话里，程序发出的提示也还是当时的语言。
-- 网页界面的"停止"在模型下一次有输出时生效：模型还在思考、没有任何输出的那几秒里，按了不会立刻停。
-- Claude 的"拒绝后自动换模型重试"、"自动压缩历史"和"接着聊旧会话时丢掉对不上的思考内容"用的是 API 的
-  beta 功能，其中第三个每个 Claude 请求都会带上。如果每个请求都报 400，可以在
-  [harness/config.py](harness/config.py) 里把它们关掉（三个开关各管一个）。
+## Limitations
 
-## 可以接着做的方向
+- macOS and Linux only (running commands depends on bash).
+- GPT, Gemini and DeepSeek have not been tested with real keys (see [Supported models](#supported-models)).
+- With GPT, Gemini and DeepSeek there is no web search, and long conversations are not compacted automatically.
+- GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
+- Only the three Claude models the program has been adapted to are listed; other Anthropic models accept slightly
+  different parameters.
+- Each command runs in a fresh shell, so `cd` and environment variables don't carry over to the next command.
+- Conversations are saved only in the web UI. Terminal conversations are gone when you close the program.
+- Search doesn't support pinyin (typing `baogao` won't find "报告"). It keeps the text of every conversation in memory,
+  so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
+  searchable until it has been saved.
+- One conversation at a time: while one is replying, you can't switch to another, rename one or delete one.
+- Both interfaces show plain text only and don't render Markdown (the system prompt also tells the model not to use
+  Markdown).
+- With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
+  #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
+  Conversations saved before you switched language keep the program's notices in the language used at the time.
+- **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
+  still thinking and has produced nothing, it won't stop immediately.
+- Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
+  compaction, and dropping mismatched thinking when you continue an old conversation. The third is included in every
+  Claude request. If every request fails with a 400 error, you can turn them off in [harness/config.py](harness/config.py)
+  (one switch each).
 
-- 让终端界面也能保存和打开会话。
-- 给常用的只读命令（`ls`、`git status`）加一个"本次会话不再询问"的选项。
-- 给不支持联网搜索的模型接一个本地执行的搜索工具。
-- 通过 MCP 接入日历、邮件等外部服务。
-- 在网页的侧栏里直接勾选完成待办，或者让页面渲染 Markdown。
-- 给搜索加上拼音匹配。
-- 再加一种界面语言：在 `harness/locales/` 下照着 `en.json` 写一份，再在 `harness/i18n.py` 的 `LANGUAGES` 里加上它。
+## Roadmap
+
+- Let the terminal UI save and open conversations too.
+- Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
+- Add a locally run search tool for models that don't support web search.
+- Connect calendars, email and other external services through MCP.
+- Tick off to-dos directly in the web sidebar, or render Markdown in the page.
+- Add pinyin matching to search.
+- Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
+  `harness/i18n.py`.
+
+## FAQ
+
+### How is ZhiFox different from LangChain, LangGraph and other agent frameworks?
+
+ZhiFox is not a framework or a library to build on. It is a small, complete assistant whose whole harness you can read.
+Its only runtime dependencies are the official `anthropic` and `openai` SDKs and `prompt-toolkit` for the terminal; the
+agent loop, tool dispatch, permission checks, provider adapters, storage and search are written by hand, one concern per
+file. Use it to learn how an LLM agent works, or as a starting point you understand completely.
+
+### Does my data leave my computer?
+
+Only what the model needs to answer. Your messages, the conversation history and tool results (for example, the contents
+of a file the assistant reads) go to the API of the provider you chose; with Claude, web searches also run on Anthropic's
+servers. Saved conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded
+anywhere else. The web UI's server accepts connections from your own machine only. See
+[Data and privacy](#data-and-privacy).
+
+### Which models does it support?
+
+Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-2`) through Anthropic's native API, and GPT, Gemini and
+DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings. Only Claude has
+been tested in real chats so far, and web search and automatic compaction are Claude-only. Any other provider that speaks the
+OpenAI format can be added with one entry in `PROVIDERS`.
+
+### Can it run commands without asking me?
+
+Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
+session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
+every launch, and steps that ran without asking are marked as auto-approved. In every mode the assistant can't touch
+`.env`, and the commands it runs can't see your API keys. See [Permissions](#permissions).
+
+### What does it cost to run?
+
+ZhiFox itself is free and MIT-licensed. You pay each provider for API usage by the token, separately from any chat
+subscription. Cost grows with conversation length and the number of steps, because each request resends the history.
+The web UI and `/usage` show an estimated cost as you go; Claude's web search adds $0.01 per search. The tests and the
+demo cost nothing. See [Cost](#cost).
+
+### Does it run on Windows?
+
+No. ZhiFox supports macOS and Linux only, because running commands depends on bash.
+
+## Keywords
+
+AI agent · agent harness · AI agent from scratch · AI agent without a framework · personal AI assistant · local-first AI
+assistant · Claude API · Anthropic SDK · OpenAI-compatible API · GPT · Gemini · DeepSeek · tool use · function calling ·
+prompt caching · human-in-the-loop approval · agent loop · Python · terminal chat · web UI
+
+## License
+
+[MIT](LICENSE). You can use, modify and distribute it freely, as long as you keep the copyright notice.
+
+## Star History
+
+<a href="https://www.star-history.com/#Akxan/zhifox-agent-harness&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Akxan/zhifox-agent-harness&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Akxan/zhifox-agent-harness&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Akxan/zhifox-agent-harness&type=Date" />
+  </picture>
+</a>
