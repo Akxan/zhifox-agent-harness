@@ -117,6 +117,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
 | `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥） |
+| `harness/webui/markdown.js` | 回复里的 Markdown → 页面元素；逐字输出时只重画最后一两块 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -135,6 +136,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则。
 - **网页界面的安全措施不能削弱**：只监听 `127.0.0.1`；所有请求校验 token、Host 和 Origin；
   页面不加载任何外部资源；模型和工具输出的文字只用 `textContent` 放进页面，不当作 HTML 解析；
+  回复的 Markdown 由 `harness/webui/markdown.js` 画：只用 createElement / createTextNode 和固定几个属性，从不解析 HTML；
+  链接只认 http、https、mailto；图片不加载。服务器把它填进页面的 `__MARKDOWN__`（同一个 nonce），所以这个文件里
+  不能出现 `</script`、`<!--` 和页面的占位符（`tests/test_markdown.py` 会查）。改了它要跑 `node --test tests/markdown.test.mjs`
+  （pytest 也会跑）；演示页面第 6 条消息是一段用齐各种 Markdown 写法的回复。
   API key 不出现在发给浏览器的任何内容里。
   服务器里只有这几处会替页面启动系统程序（文件管理器）：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆的文件）、`/api/memory/reveal`（记忆文件夹）和 `/api/reveal`（任务、待办、提示词的文件）。

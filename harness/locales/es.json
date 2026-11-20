@@ -225,6 +225,7 @@
  "地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。": "El token de la dirección es la contraseña de esta ejecución; no lo compartas. Pulsa Ctrl-C para salir.",
  "地址里缺少口令（token）。请使用终端里显示的完整地址打开。": "A la dirección le falta el token. Abre la dirección completa que aparece en la terminal.",
  "复制": "Copiar",
+ "复制代码": "Copiar código",
  "复制图片": "Copiar imagen",
  "复制失败：浏览器没有允许访问剪贴板。": "No se pudo copiar: el navegador no permitió acceder al portapapeles.",
  "复制文字": "Copiar texto",

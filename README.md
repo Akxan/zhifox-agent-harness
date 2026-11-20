@@ -66,7 +66,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
   search library.
 - 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
-  has light and dark themes, and respects reduced-motion settings.
+  renders replies as Markdown (code blocks, tables, lists) with a small hand-written renderer, has light and dark
+  themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
 - 💸 **Cost you can see:** token usage and an estimated cost after every model call, built-in prices for Claude and
   DeepSeek (checked against the official pricing pages, DeepSeek's off-peak discount included), a spending record that
@@ -201,6 +202,7 @@ Each part of the harness has its own file or directory:
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
+| Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
@@ -462,6 +464,40 @@ styles and scripts look only there. That is what lets your Full choice override 
 refresh from starting an animation and then cutting it off. Light and dark themes work the same way
 (`<html data-theme>`).
 
+### Markdown in replies
+
+Models like to answer in Markdown, and code, lists and tables are much easier to read once they're drawn. The page
+can't load a Markdown library (it loads nothing from outside, and has to work offline), and a full one is thousands
+of lines, so ZhiFox has a small renderer of its own: [harness/webui/markdown.js](harness/webui/markdown.js). It covers
+what chat replies use: most of CommonMark, plus GitHub's tables, task lists and strikethrough. The server pastes the
+file into the page under the same one-time `nonce` as the page's own script, so the security policy stays as strict
+as before.
+
+**Safety.** The renderer never builds or parses HTML. It first turns the text into plain objects (a syntax tree),
+then creates every element itself with `createElement` and `createTextNode`, so `<script>` or `onerror=` in a reply is
+only ever text. Links are made only for `http`, `https` and `mailto` and always open in a new tab with
+`rel="noopener noreferrer"`; any other address (`javascript:`, `data:`, `file:`, a relative path) is shown as text.
+Images are never loaded: you get their description and address, as a link when the address is safe.
+
+**Two changes for Chinese.** A single line break inside a paragraph stays a line break (CommonMark turns it into a
+space; older replies were plain text and relied on line breaks, and Chinese sentences shouldn't gain spaces). And
+when deciding whether `**` opens or closes bold, CJK characters count as punctuation, otherwise the very common
+`**注意：**这一点` would never turn bold.
+
+**Streaming.** A reply arrives a few characters at a time, and re-parsing the whole reply for every piece would get
+slower as it grows. So the page draws at most once per frame, and the renderer splits the text in two. Blocks that
+are *settled* (a new block has started after them, on a complete line) are drawn once and never touched again; the
+next parse starts after them. Only the last block or two are re-parsed, and compared with what is already drawn, so
+only what changed is rebuilt: the next characters of an open code block are appended to its text, and a long list or
+table that is still growing re-parses only its last item or row. A half-written marker on the last line (`-`, `1.`,
+```` ``` ````, a link whose address is still arriving, a line that may be a table header) is held back until it is
+clear what it will become, so raw syntax doesn't flash on screen. Replayed content (a refresh, an old conversation) is
+drawn once, in its final form, with no animation.
+
+Search still works: results come from the Markdown source, and when the hit includes syntax that isn't visible
+(`**`, `` ` ``), the page drops those marks before looking for it on the page. A hit that only exists in the source
+(such as a link's address) scrolls to the reply. The terminal shows the Markdown source as is.
+
 ### Scheduled tasks: running when nobody is watching
 
 A task is a saved instruction plus a schedule ([harness/tasks.py](harness/tasks.py)). Running one reuses the same loop,
@@ -564,9 +600,12 @@ This starts a small server on your computer and opens the chat page in your brow
   open the first) and the page scrolls straight to that spot.
 - **Empty state.** Before there is any content, a greeting, the input box and a few clickable examples sit in the middle
   of the page.
-- **Conversation.** Replies stream in as they're written. You can expand the model's thinking. Each tool call is a card
-  you can open to see its parameters and result. Hovering over a reply shows a **Copy** button. When you scroll up to
-  read earlier content, new output doesn't pull you back to the bottom.
+- **Conversation.** Replies stream in as they're written and are shown as Markdown: headings, bold and italic, lists
+  and task lists, quotes, tables (a wide table scrolls sideways inside its own frame) and code blocks with a language
+  label, light syntax colors and a **Copy code** button. Links open in a new tab; images aren't loaded, you see their
+  description and address instead. You can expand the model's thinking. Each tool call is a card you can open to see
+  its parameters and result. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
+  When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
@@ -971,8 +1010,14 @@ server with a fake clock, so no test waits for 9 a.m.). The media library is cov
 histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
 only when no conversation uses them) and in the media section of `tests/test_webui.py` (the endpoints and their headers).
 
-The page itself (the styles and scripts in `index.html`) has no automated tests. After every change it is checked by hand
-in a real browser against the fake servers.
+The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
+test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
+available. They use a tiny fake document whose `innerHTML` and similar HTML-parsing APIs throw, and which only allows
+a fixed list of tags and attributes. They cover every supported syntax, nesting, escaping, malicious input, streaming
+in random-sized pieces (the result must equal rendering all at once), and 10,000-line inputs.
+
+The rest of the page (the styles and scripts in `index.html`) has no automated tests. After every change it is checked
+by hand in a real browser against the fake servers.
 
 To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
 the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
@@ -1004,11 +1049,13 @@ page.
   so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
   searchable until it has been saved.
 - One conversation at a time: while one is replying, you can't switch to another, rename one or delete one.
+- The web UI renders a subset of Markdown: CommonMark plus GitHub's tables, task lists and strikethrough. Images
+  aren't loaded (you see their description and address), raw HTML is shown as text, links work only for http, https
+  and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
+  only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
 - Scheduled tasks run only while the web UI is running, one at a time, taking turns with your own conversation. A task
   that pauses for your approval keeps its turn until you answer or stop it. Reminders appear only in the page; there are
   no system notifications.
-- Both interfaces show plain text only and don't render Markdown (the system prompt also tells the model not to use
-  Markdown).
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
   #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
@@ -1025,7 +1072,7 @@ page.
 - Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
 - Add a locally run search tool for models that don't support web search.
 - Connect calendars, email and other external services through MCP.
-- Tick off to-dos directly in the web sidebar, or render Markdown in the page.
+- Tick off to-dos directly in the web sidebar.
 - Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
