@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import i18n
+from . import budget, i18n
 from .agent import Agent
 from .attachments import Attachment, unsupported
 from .config import Config
@@ -20,6 +20,7 @@ from .conversations import (
     make_title,
 )
 from .i18n import t
+from .ledger import Ledger
 from .permissions import Permissions
 from .prompt import build_system_prompt, reset_template, save_template
 from .providers import (
@@ -53,6 +54,7 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -132,7 +134,10 @@ class App:
         """
         backend = self._backend_for(self.settings.provider, self.settings.model)
         permissions = self.agent.permissions.unattended()
-        return Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        agent = Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看
+        agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
+        return agent
 
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""
@@ -239,6 +244,31 @@ class App:
         if provider_id == self.agent.backend.provider:
             self.agent.backend.client = self.client_factory(provider)  # 正在用这一家：换上带新 key 的连接
 
+    def spending(self) -> dict:
+        """今天、本月花了多少，预算是多少、超了没有（见 ledger.py、budget.py）。
+
+        这个月的花费刚越过预算时，顺便记下"已经提醒过了"，所以同一个预算只提醒一次。记不下来（磁盘写不进去）
+        也不要紧，只是下一次还会再提醒。
+        """
+        today = self.agent.clock().date()
+        month = budget.month_of(today)
+        spent = self.ledger.month_total(month)
+        amount = self.settings.budget
+        if budget.should_alert(spent, amount, self.settings.budget_alert, month):
+            try:
+                self.settings.set_budget_alert({"month": month, "amount": amount})
+            except OSError:
+                pass
+        return {
+            "day": today.isoformat(),
+            "today": self.ledger.day_total(today),
+            "month": spent,
+            "budget": amount,
+            "over": bool(amount) and spent >= amount,
+            "alert": budget.marker(self.settings.budget_alert, month),
+            "error": self.ledger.error,
+        }
+
     def sync_models(self, provider_id: str) -> list[str]:
         """向一家的服务器询问有哪些模型，并把列表记下来。"""
         provider = PROVIDERS[provider_id]
@@ -267,6 +297,9 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
+    # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
+    ledger = Ledger(config.ledger_file)
+    agent.on_call = ledger.recorder(lambda: settings.prices)
     store = ConversationStore(config.conversations_dir)
     return App(
         config=config,
@@ -281,6 +314,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
+        ledger=ledger,
     )
 
 

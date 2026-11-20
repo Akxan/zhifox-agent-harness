@@ -564,3 +564,18 @@ def test_progress_is_throttled_but_the_latest_always_goes_out():
     assert sent[1] - sent[0] >= 0.09
     throttle(now=True)  # 开始、结束、停在确认上：马上发，不等
     assert len(sent) == 3
+
+
+def test_task_runs_are_recorded_in_the_ledger_as_task(make_config):
+    """定时任务跑一次花的钱进花费账本，来源是 task（和对话分开）。"""
+    from types import SimpleNamespace
+
+    from harness.app import build_app
+    from harness.providers.base import Usage
+
+    config = make_config()
+    app = build_app(config, SimpleNamespace(), client_factory=lambda provider: None)
+    agent = app.unattended_agent(SimpleNamespace())
+    agent.on_call("anthropic", "claude-opus-5-5", Usage(input_tokens=1_000_000), app.agent.clock())
+    rows = [line for line in config.ledger_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1 and '"task"' in rows[0]

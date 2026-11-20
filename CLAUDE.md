@@ -116,6 +116,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
+| `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥） |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -159,6 +160,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **调度器的锁规矩：** 拿着 `Scheduler._lock` 时不调用 RunUI 的方法、不发状态、不写任务文件。
 - **任务的时间按本地时间、按日历算**（`tasks.next_after`），不要"加 24 小时"。测试用假的钟加 `tick()`，不真的等。
   定时任务只在网页界面运行，终端界面不运行。
+- **花费账本只在末尾追加。** `ledger.py` 每次模型调用写一行；超过 `LEDGER_DETAIL_DAYS` 天的明细会被合并重写
+  （有意的例外，金额不变，读不懂的行原样保留）。新的调用方要记账，就给它的 agent 接 `ledger.recorder(..., source="…")`
+  （定时任务用 source="task"），不要另算价格。
+- **导出不能带出密钥。** 新增存着密钥的配置文件时，把它加进 `export.MASKED_FILES`，并在 `tests/test_export.py` 里
+  加一条"压缩包里找不到这个密钥"的测试。
 - **会话的索引要和文件保持一致。** `ConversationStore` 里保存、改名、删除都要经过 `_remember` 或
   `_index.remove`，否则搜索结果会和磁盘上的内容对不上。发给页面的标记位置按 UTF-16 计数。
 - 改和 Claude API 有关的代码之前，先读一遍 `claude-api` 这个 skill，不要凭记忆写参数。
