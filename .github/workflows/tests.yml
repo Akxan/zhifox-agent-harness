@@ -1,0 +1,32 @@
+# 每次推送到 main、每个 pull request 都把测试和代码检查跑一遍。
+# 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 README 的 Testing 一节）。
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv sync --locked
+      - name: Tests
+        run: uv run pytest -q
+      - name: Lint
+        run: uvx ruff@0.17.6 check harness tests
