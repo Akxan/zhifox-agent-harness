@@ -33,10 +33,14 @@ HELP = k("""\
 /tools   查看模型可以使用的工具
 /usage   查看本次运行的 token 用量和估算费用
 /model   查看当前使用的模型
+/mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
 /auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
 /exit    退出""")
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model", "/auto"}
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model", "/mcp", "/auto"}
+
+# MCP 服务器的几种状态，给人看的说法
+MCP_STATUS = {"connecting": k("连接中"), "ready": k("已连接"), "failed": k("连接失败"), "disabled": k("已停用")}
 
 # /auto 换成每种模式之后各说一句话，让用户清楚自己放开了什么
 AUTO_NOTES = {
@@ -81,8 +85,10 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     elif command == "/todos":
         ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
-        for name, local in app.agent.backend.tool_names():
-            tool = app.tools.get(name)
+        # MCP 的工具不在 app.tools 里（那里只有自己的工具），而对话还没开始时，它们也还不在 agent.tools 里
+        known = {tool.name: tool for tool in [*app.tools, *app.agent.tools, *app.mcp.snapshot().tools]}
+        for name, local in app.tool_names():
+            tool = known.get(name)
             description = tool.spec.get("description") if tool else None
             # 自定义工具显示说明的第一句；Anthropic 定义的工具没有我们写的说明，显示它的类型
             summary = description.split("。")[0] + "。" if description else t("Anthropic 定义（{type}）", type=tool.spec["type"])
@@ -113,6 +119,16 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
         ui.plain(t("今天 ${today}，本月 ${month}", today=f"{spend['today']:.4f}", month=f"{spend['month']:.4f}"))
         if spend["budget"]:
             ui.plain(t("每月预算 ${budget}", budget=f"{spend['budget']:.2f}") + (t("（已超出）") if spend["over"] else ""))
+    elif command == "/mcp":
+        servers = app.mcp.status(started=False)
+        if not servers:
+            ui.info(t("还没有接入 MCP 服务器。在网页界面（uv run harness --web）的“扩展 → MCP”里添加，或者编辑 {path}。", path=app.config.mcp_file))
+        for server in servers:
+            ui.plain(f"{server['name']}  [{t(MCP_STATUS.get(server['status'], server['status']))}]  " + t("{n} 个工具", n=server["tools"]))
+            if server["error"]:
+                ui.info(f"    {server['error']}")
+        if servers:
+            ui.info(t("新连上的服务器从下一段新对话（/new）开始可以用。"))
     elif command == "/model":
         ui.plain(f"{app.provider.label} · {app.settings.model}")
         ui.info(t("换模型：运行 uv run harness --web ，在网页界面的“设置”里选择。选择会保存下来，终端版也会跟着用。"))
@@ -126,21 +142,25 @@ def run_terminal(config: Config) -> int:
     provider = app.provider
     if not has_key(provider):
         print(t(SETUP_HELP, label=provider.label, env_file=config.env_file, key_env=provider.key_env, key_page=provider.key_page))
+        app.close()
         return 1
     ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
 
-    while True:
-        text = ui.read_input()
-        if text is None:
-            break
-        text = text.strip()
-        if not text:
-            continue
-        if text in COMMANDS or text.startswith("/auto "):  # 只有 /auto 可以带参数
-            if not handle_command(text, app, ui):
+    try:
+        while True:
+            text = ui.read_input()
+            if text is None:
                 break
-            continue
-        run_turn(app.agent, ui, text)
+            text = text.strip()
+            if not text:
+                continue
+            if text in COMMANDS or text.startswith("/auto "):  # 只有 /auto 可以带参数
+                if not handle_command(text, app, ui):
+                    break
+                continue
+            run_turn(app.agent, ui, text)
+    finally:
+        app.close()  # 关掉启动过的 MCP 服务器
 
     ui.info(t("再见。"))
     return 0

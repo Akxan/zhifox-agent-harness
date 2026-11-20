@@ -47,7 +47,6 @@ class AnthropicBackend:
         self.client = client
         self.model = model
         self.config = config
-        self._tools = tools
 
         # 模型没有记忆，所以每次请求都要把这三样完整地发过去：
         #   system    系统提示词
@@ -61,8 +60,13 @@ class AnthropicBackend:
         #   2. 模型的思考内容（thinking 块）带有签名，签名和它之前的全部对话绑定。
         #      改了前面的内容再把思考发回去，API 会拒绝这个请求。
         self.system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
-        self.tool_specs = tools.specs()
+        self.use_tools(tools)
         self._messages: list[dict] = []
+
+    def use_tools(self, tools: ToolRegistry) -> None:
+        """换一套工具。按上面的规矩，只能在一段对话开始之前换（见 agent.py 的 on_start）。"""
+        self._tools = tools
+        self.tool_specs = tools.specs()
 
     # ---- 对话历史 ---------------------------------------------------------
 
@@ -110,7 +114,13 @@ class AnthropicBackend:
         # （API 靠"最后一条消息只有工具结果"来判断这是同一轮对话的延续，联网搜索的次数上限按轮累计。）
         content = []
         for result in results:
-            block = {"type": "tool_result", "tool_use_id": result.id, "content": result.text}
+            block: dict[str, Any] = {"type": "tool_result", "tool_use_id": result.id, "content": result.text}
+            if result.images:
+                # 结果里有图片（MCP 的工具返回的截图之类）：内容写成一串块，文字在前，图片跟在后面。Claude 看得懂图片
+                block["content"] = [{"type": "text", "text": result.text}] + [
+                    {"type": "image", "source": {"type": "base64", "media_type": image.media_type, "data": image.data}}
+                    for image in result.images
+                ]
             if result.is_error:
                 block["is_error"] = True
             content.append(block)

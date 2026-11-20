@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -579,3 +580,33 @@ def test_task_runs_are_recorded_in_the_ledger_as_task(make_config):
     agent.on_call("anthropic", "claude-opus-5-5", Usage(input_tokens=1_000_000), app.agent.clock())
     rows = [line for line in config.ledger_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 1 and '"task"' in rows[0]
+
+
+def test_a_deleted_task_disappears_from_the_page(serve):
+    """删掉一个跑过（被停掉）的任务：页面最后收到的状态里不能还有它。"""
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"))
+    task_id = agent_task(s)
+    s.browser.post("/api/task/run", {"id": task_id})
+    paused(s, task_id)
+    assert s.browser.post("/api/task/stop", {"id": task_id}) == (200, {"ok": True})
+    finished(s, task_id, "stopped")
+    assert s.browser.post("/api/task/delete", {"id": task_id}) == (200, {"ok": True})
+    until(lambda: all(task["id"] != task_id for task in latest_state(s)["tasks"]), what="页面收到删掉以后的状态")
+    time.sleep(0.5)  # 之后不能再有一份带着它的旧状态冒出来
+    assert all(task["id"] != task_id for task in latest_state(s)["tasks"])
+    assert s.browser.post("/api/task/delete", {"id": task_id})[0] == 409
+
+
+def test_a_task_removed_by_another_program_disappears_once_the_page_touches_it(serve):
+    """另一个程序（终端版、重启前的旧进程）改了任务文件：页面上的列表是旧的，点删除时服务器说"不存在"，
+    这时要顺手把最新的状态发给页面，不然那一行一直留在页面上、怎么删都删不掉。"""
+    s = serve()
+    task_id = agent_task(s)
+    until(lambda: any(task["id"] == task_id for task in latest_state(s)["tasks"]), what="页面上有这个任务")
+    data = json.loads(s.config.tasks_file.read_text(encoding="utf-8"))
+    data["tasks"] = [task for task in data["tasks"] if task["id"] != task_id]
+    s.config.tasks_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    os.utime(s.config.tasks_file, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))  # 保证修改时间变了
+    status, body = s.browser.post("/api/task/delete", {"id": task_id})
+    assert status == 409 and "不存在" in body["error"]
+    until(lambda: all(task["id"] != task_id for task in latest_state(s)["tasks"]), what="页面收到最新的列表")

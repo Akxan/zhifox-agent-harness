@@ -20,6 +20,7 @@ from typing import Any, Protocol
 
 from ..attachments import Attachment
 from ..i18n import t
+from ..tools.base import ToolImage
 
 ERROR_CHARS = 300  # 厂商返回的出错说明最多显示这么多字
 
@@ -96,6 +97,7 @@ class ToolResult:
     id: str  # 对应 ToolCall 的 id
     text: str
     is_error: bool = False
+    images: tuple[ToolImage, ...] = ()  # 结果里的图片（MCP 的工具可能返回截图）。各家怎么交给模型见各自的 add_tool_results
 
 
 @dataclass
@@ -144,3 +146,4 @@ class Backend(Protocol):
     def add_tool_results(self, results: list[ToolResult]) -> None: ...  # 追加工具结果
     def step(self, ui: StreamUI) -> Step: ...  # 调用一次模型，边收边显示，并把回复追加进历史
     def tool_names(self) -> list[tuple[str, bool]]: ...  # 这家模型能用的工具：（名字，是否在本地执行）
+    def use_tools(self, tools: Any) -> None: ...  # 换一套工具（ToolRegistry）。只在一段对话开始之前调用，见 agent.py 的 on_start

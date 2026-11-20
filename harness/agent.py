@@ -29,6 +29,7 @@ from .pricing import usage_key
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
+from .tools.base import ToolImage, ToolOutput
 
 WEEKDAYS = "一二三四五六日"
 
@@ -64,6 +65,14 @@ class Agent:
         # 每调用完一次模型，把"哪一家、哪个模型、用了多少、什么时候"交出去（记账用，见 ledger.py 和 app.py）。
         # 循环自己不管钱怎么算、记在哪儿，只负责在每次调用之后说一声
         self.on_call: Callable[[str, str, Usage, datetime], None] | None = None
+        # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
+        # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
+        self.on_start: Callable[[], None] | None = None
+
+    def use_tools(self, tools: ToolRegistry) -> None:
+        """换一套工具（循环执行的、和发给模型的说明书一起换）。只在一段对话开始之前用。"""
+        self.tools = tools
+        self.backend.use_tools(tools)
 
     @property
     def messages(self) -> list:
@@ -81,6 +90,8 @@ class Agent:
         # 粘贴进来的文字里可能有半个表情这样编码不了的字符。它一旦进了历史，之后每次请求都发不出去，
         # 所以在入口处换掉（见 safe.py）
         user_text = clean_text(user_text)
+        if self.on_start is not None and not self.backend.export():
+            self.on_start()
         start = self.backend.mark()
         # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。
         # 只发了附件、没写字的时候，没有"用户的话"这一段（API 不接受空的文字块）
@@ -147,13 +158,14 @@ class Agent:
         try:
             for call in step.tool_calls:
                 self.ui.tool_call(call.name, call.input)
+                images: tuple[ToolImage, ...] = ()
                 if step.truncated:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
                     text, is_error = "这次调用的参数在生成中途被截断，没有执行。请重新调用。", True
                 else:
-                    text, is_error = self._run_one(call)
+                    text, is_error, images = self._run_one(call)
                 text = clean_text(text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
-                results.append(ToolResult(call.id, text, is_error))
+                results.append(ToolResult(call.id, text, is_error, images))
                 self.ui.tool_result(text, is_error)
         finally:
             # 每个工具调用都必须有对应的结果，否则下一次请求会被 API 拒绝。
@@ -165,28 +177,31 @@ class Agent:
                     results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
             self.backend.add_tool_results(results)
 
-    def _run_one(self, call: ToolCall) -> tuple[str, bool]:
-        """执行一次工具调用，返回（给模型看的结果，是否出错）。"""
+    def _run_one(self, call: ToolCall) -> tuple[str, bool, tuple[ToolImage, ...]]:
+        """执行一次工具调用，返回（给模型看的结果，是否出错，结果里的图片）。只有 MCP 的工具会返回图片。"""
         if call.error:
-            return call.error, True  # 模型给的参数没法解析，把问题告诉它
+            return call.error, True, ()  # 模型给的参数没法解析，把问题告诉它
         tool = self.tools.get(call.name)
         if tool is None or tool.run is None:
-            return f"没有可以在本地执行的工具 {call.name}。", True
+            return f"没有可以在本地执行的工具 {call.name}。", True, ()
 
         # 先过权限这一关
-        question = self.permissions.review(call.name, call.input)
+        question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
         if question is not None:
-            if self.permissions.auto_allows(call.name, call.input):
+            if self.permissions.auto_allows(call.name, call.input, tool):
                 self.ui.auto_allowed()  # 没有问用户就放行了：告诉界面一声，记录里要看得出来
             else:
                 allowed, feedback = self.ui.confirm(question)
                 if not allowed:
-                    return "用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), True
+                    return "用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), True, ()
 
         # 工具出错不会让程序崩溃：错误信息作为结果返回给模型，由它决定怎么办
         try:
-            return tool.run(call.input) or "（没有输出）", False
+            output = tool.run(call.input)
         except ToolError as exc:
-            return str(exc), True
+            return str(exc), True, ()
         except Exception as exc:  # noqa: BLE001 —— 故意捕获所有异常：工具里的 bug 不应该让整个程序退出
-            return f"工具内部出错：{type(exc).__name__}: {exc}", True
+            return f"工具内部出错：{type(exc).__name__}: {exc}", True, ()
+        if isinstance(output, ToolOutput):
+            return output.text or "（没有输出）", output.is_error, output.images
+        return output or "（没有输出）", False, ()
