@@ -1,0 +1,11 @@
+# API key，绝对不要提交
+.env
+
+# 助手的私人数据：记忆、待办、文件备份、输入历史
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

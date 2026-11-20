@@ -1,0 +1,269 @@
+"""各个工具和权限规则的测试，不涉及模型。"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from harness.config import load_env_file
+from harness.permissions import Permissions
+from harness.tools.base import ToolError, check_input
+from harness.tools.files import FileEditor
+from harness.tools.memory import make_memory_tool
+from harness.tools.shell import make_shell_tool
+from harness.tools.todo import TodoStore, format_todos, make_todo_tools
+
+FILE_TOOL = "str_replace_based_edit_tool"
+
+
+# ---- 待办 -----------------------------------------------------------------
+
+
+def test_todo_lifecycle(tmp_path):
+    store = TodoStore(tmp_path / "data" / "todos.json")
+    store.add("没有期限的事")
+    store.add("后天的事", due="2026-11-22")
+    store.add("明天的事", due="2026-11-21 09:00")
+
+    # 有截止时间的排前面，按时间先后
+    assert [item["title"] for item in store.items()] == ["明天的事", "后天的事", "没有期限的事"]
+
+    store.update(2, done=True)
+    assert [item["id"] for item in store.items("pending")] == [3, 1]
+    assert [item["id"] for item in store.items("done")] == [2]
+    assert store.items("done")[0]["completed_at"] is not None
+
+    store.update(3, due="")  # 空字符串清除截止时间
+    assert next(item for item in store.items("all") if item["id"] == 3)["due"] is None
+
+    store.delete(1)
+    assert [item["id"] for item in store.items("all")] == [2, 3]
+    # 重新打开文件，数据还在；编号不会重复使用
+    assert TodoStore(store.path).add("新的")["id"] == 4
+    assert "□ #4 新的" in format_todos(store.items())
+
+
+def test_todo_rejects_bad_input(tmp_path):
+    store = TodoStore(tmp_path / "todos.json")
+    with pytest.raises(ToolError, match="格式不对"):
+        store.add("x", due="下周五")
+    with pytest.raises(ToolError, match="没有编号为 7"):
+        store.update(7, done=True)
+    assert store.items("all") == []
+
+
+def test_todo_tools_validate_arguments(tmp_path):
+    tools = {tool.name: tool for tool in make_todo_tools(TodoStore(tmp_path / "todos.json"))}
+    assert '"id": 1' in tools["todo_add"].run({"title": "写周报", "due": None})  # null 等于没填
+    with pytest.raises(ToolError, match="缺少必填参数 title"):
+        tools["todo_add"].run({})
+    with pytest.raises(ToolError, match="没有 priority 这个参数"):
+        tools["todo_add"].run({"title": "x", "priority": "high"})
+    with pytest.raises(ToolError, match="类型应该是 integer"):
+        tools["todo_update"].run({"id": "1", "done": True})
+    with pytest.raises(ToolError, match="类型应该是 integer"):
+        tools["todo_update"].run({"id": True, "done": True})  # 布尔值不能冒充整数
+    with pytest.raises(ToolError, match="只能是"):
+        tools["todo_list"].run({"status": "later"})
+    with pytest.raises(ToolError, match="没有提供要修改的内容"):
+        tools["todo_update"].run({"id": 1})
+
+
+def test_check_input_rejects_non_objects():
+    schema = {"properties": {}, "required": []}
+    with pytest.raises(ToolError, match="INVALID_JSON"):
+        check_input(schema, "not an object")
+
+
+# ---- 文件 -----------------------------------------------------------------
+
+
+@pytest.fixture
+def editor(tmp_path):
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    return FileEditor(workspace, tmp_path / "data" / "backups", protected=[workspace / ".env"])
+
+
+def test_file_create_view_edit(editor):
+    target = editor.workspace / "notes" / "a.txt"
+    assert "已创建" in editor.run({"command": "create", "path": "notes/a.txt", "file_text": "第一行\n第二行\n第三行"})
+    assert target.read_text(encoding="utf-8") == "第一行\n第二行\n第三行"
+
+    assert editor.run({"command": "view", "path": "notes/a.txt"}) == "     1\t第一行\n     2\t第二行\n     3\t第三行"
+    assert editor.run({"command": "view", "path": "notes/a.txt", "view_range": [2, -1]}) == (
+        "     2\t第二行\n     3\t第三行"
+    )
+
+    editor.run({"command": "str_replace", "path": "notes/a.txt", "old_str": "第二行", "new_str": "改过的第二行"})
+    editor.run({"command": "insert", "path": "notes/a.txt", "insert_line": 0, "insert_text": "标题"})
+    assert target.read_text(encoding="utf-8") == "标题\n第一行\n改过的第二行\n第三行"
+
+    listing = editor.run({"command": "view", "path": "."})
+    assert "notes/" in listing
+
+
+def test_file_overwrite_keeps_a_backup(editor):
+    editor.run({"command": "create", "path": "a.txt", "file_text": "旧内容"})
+    assert "已覆盖" in editor.run({"command": "create", "path": "a.txt", "file_text": "新内容"})
+    (backup,) = editor.backup_dir.iterdir()
+    assert backup.read_text(encoding="utf-8") == "旧内容"
+    assert (editor.workspace / "a.txt").read_text(encoding="utf-8") == "新内容"
+
+
+def test_file_errors(editor):
+    editor.run({"command": "create", "path": "a.txt", "file_text": "重复 重复"})
+    with pytest.raises(ToolError, match="出现了 2 次"):
+        editor.run({"command": "str_replace", "path": "a.txt", "old_str": "重复", "new_str": "x"})
+    with pytest.raises(ToolError, match="没有在文件里找到"):
+        editor.run({"command": "str_replace", "path": "a.txt", "old_str": "不存在", "new_str": "x"})
+    with pytest.raises(ToolError, match="不存在"):
+        editor.run({"command": "view", "path": "missing.txt"})
+    with pytest.raises(ToolError, match="insert_line"):
+        editor.run({"command": "insert", "path": "a.txt", "insert_line": 9, "insert_text": "x"})
+    with pytest.raises(ToolError, match="不支持的命令"):
+        editor.run({"command": "delete", "path": "a.txt"})
+    with pytest.raises(ToolError, match="缺少 path"):
+        editor.run({"command": "view"})
+    (editor.workspace / "image.bin").write_bytes(b"\xff\xfe\x00\x01")
+    with pytest.raises(ToolError, match="不是文本文件"):
+        editor.run({"command": "view", "path": "image.bin"})
+    assert (editor.workspace / "a.txt").read_text(encoding="utf-8") == "重复 重复"
+
+
+def test_file_protects_the_key_file(editor):
+    (editor.workspace / ".env").write_text("ANTHROPIC_API_KEY=secret", encoding="utf-8")
+    for tool_input in (
+        {"command": "view", "path": ".env"},
+        {"command": "view", "path": "sub/../.env"},  # 绕路也不行
+        {"command": "create", "path": ".env", "file_text": "x"},
+    ):
+        with pytest.raises(ToolError, match="密钥"):
+            editor.run(tool_input)
+    assert (editor.workspace / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=secret"
+
+
+def test_paths_are_resolved_before_checking(editor, tmp_path):
+    assert editor.in_workspace(editor.resolve("a/b.txt"))
+    assert not editor.in_workspace(editor.resolve("../outside.txt"))
+    assert not editor.in_workspace(editor.resolve(str(tmp_path / "other" / "x.txt")))
+    # 指向外面的符号链接，按它真正指向的位置算
+    (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
+    (editor.workspace / "link.txt").symlink_to(tmp_path / "secret.txt")
+    assert not editor.in_workspace(editor.resolve("link.txt"))
+
+
+# ---- 权限 -----------------------------------------------------------------
+
+
+def test_permission_rules(editor, tmp_path):
+    permissions = Permissions(editor)
+    (editor.workspace / "a.txt").write_text("x", encoding="utf-8")
+
+    def ask(tool: str, **tool_input) -> str | None:
+        return permissions.review(tool, tool_input)
+
+    # 直接执行
+    assert ask("todo_add", title="x") is None
+    assert ask("memory", command="create", path="/memories/a.md", file_text="x") is None
+    assert ask(FILE_TOOL, command="view", path="a.txt") is None
+    assert ask(FILE_TOOL, command="view", path=".") is None
+    # 先问用户
+    assert "ls -la" in ask("run_command", command="ls -la")
+    assert "工作目录之外" in ask(FILE_TOOL, command="view", path=str(tmp_path / "outside.txt"))
+    assert "工作目录之外" in ask(FILE_TOOL, command="view", path="../outside.txt")
+    assert "创建文件：new.txt" in ask(FILE_TOOL, command="create", path="new.txt", file_text="内容")
+    assert "覆盖已有文件：a.txt" in ask(FILE_TOOL, command="create", path="a.txt", file_text="内容")
+    assert "修改文件：a.txt" in ask(FILE_TOOL, command="str_replace", path="a.txt", old_str="x", new_str="y")
+    assert "第 0 行之后插入" in ask(FILE_TOOL, command="insert", path="a.txt", insert_line=0, insert_text="y")
+    # 工作目录之外的写入，显示完整路径
+    assert str(tmp_path / "outside.txt") in ask(
+        FILE_TOOL, command="create", path=str(tmp_path / "outside.txt"), file_text="x"
+    )
+
+
+def test_long_previews_are_shortened(editor):
+    question = Permissions(editor).review(
+        FILE_TOOL, {"command": "create", "path": "big.txt", "file_text": "\n".join(f"行{n}" for n in range(100))}
+    )
+    assert "行11" in question and "行12" not in question
+    assert "共 100 行" in question
+
+
+# ---- 命令 -----------------------------------------------------------------
+
+
+def test_shell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("HARMLESS", "visible")
+    tool = make_shell_tool(tmp_path)
+
+    assert tool.run({"command": "pwd"}) == str(tmp_path.resolve())
+    assert tool.run({"command": 'echo "[$ANTHROPIC_API_KEY] [$HARMLESS]"'}) == "[] [visible]"
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-secret"  # 只是不传给子进程，自己的环境不受影响
+    assert tool.run({"command": "echo out; echo err >&2; exit 3"}) == "out\nerr\n[退出码 3]"
+    assert tool.run({"command": "true"}) == "（没有输出）"
+
+
+def test_shell_timeout_kills_the_command(tmp_path):
+    tool = make_shell_tool(tmp_path)
+    result = tool.run({"command": "echo started; sleep 30; echo finished", "timeout_seconds": 1})
+    assert "started" in result and "finished" not in result
+    assert "超过 1 秒" in result
+
+
+def test_shell_clips_long_output(tmp_path):
+    result = make_shell_tool(tmp_path).run({"command": "yes | head -n 50000"})
+    assert len(result) < 21_000
+    assert "中间省略了" in result
+
+
+# ---- 记忆 -----------------------------------------------------------------
+
+
+def test_memory_persists_as_plain_files(tmp_path):
+    tool = make_memory_tool(tmp_path / "data")
+    assert tool.spec == {"type": "memory_20250818", "name": "memory"}
+
+    tool.run({"command": "create", "path": "/memories/user.md", "file_text": "用户喜欢简短的回答"})
+    assert (tmp_path / "data" / "memories" / "user.md").read_text(encoding="utf-8") == "用户喜欢简短的回答"
+
+    # 换一个新的工具实例（相当于重启程序），内容还在
+    again = make_memory_tool(tmp_path / "data")
+    assert "user.md" in again.run({"command": "view", "path": "/memories"})
+    assert "用户喜欢简短的回答" in again.run({"command": "view", "path": "/memories/user.md"})
+
+    again.run({"command": "str_replace", "path": "/memories/user.md", "old_str": "简短", "new_str": "详细"})
+    assert "详细" in again.run({"command": "view", "path": "/memories/user.md"})
+
+
+def test_memory_cannot_escape_its_directory(tmp_path):
+    tool = make_memory_tool(tmp_path / "data")
+    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
+    for path in ("/memories/../../outside.txt", "/etc/passwd", str(tmp_path / "outside.txt")):
+        with pytest.raises(ToolError):
+            tool.run({"command": "view", "path": path})
+    with pytest.raises(ToolError):
+        tool.run({"command": "create", "path": "/memories/../escaped.txt", "file_text": "x"})
+    assert not (tmp_path / "data" / "escaped.txt").exists()
+
+
+# ---- 配置 -----------------------------------------------------------------
+
+
+def test_env_file_loading(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, "environ", {"HARNESS_T_C": "from-shell"})  # 用一份假的环境变量，不影响真实环境
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        '# 注释\nHARNESS_T_A=plain\nexport HARNESS_T_B="quoted value"\nHARNESS_T_C=from-file\nHARNESS_T_EMPTY=\n',
+        encoding="utf-8",
+    )
+    load_env_file(env_file)
+    load_env_file(tmp_path / "missing.env")  # 文件不存在也不报错
+
+    assert os.environ == {
+        "HARNESS_T_A": "plain",
+        "HARNESS_T_B": "quoted value",
+        "HARNESS_T_C": "from-shell",  # 已有的环境变量不被覆盖；留空的 HARNESS_T_EMPTY 等于没填
+    }
