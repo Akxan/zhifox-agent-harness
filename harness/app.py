@@ -21,6 +21,8 @@ from .conversations import (
 )
 from .i18n import t
 from .ledger import Ledger
+from .mcp import McpConfig, McpManager
+from .mcp.bridge import PREFIX as MCP_PREFIX
 from .permissions import Permissions
 from .prompt import build_system_prompt, reset_template, save_template
 from .providers import (
@@ -55,6 +57,7 @@ class App:
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
     ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
+    mcp: McpManager  # 接入的 MCP 服务器（见 mcp/）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -130,11 +133,16 @@ class App:
         （见 webui/scheduler.py），不会同时用到它们。不共用的有三样：
           - 适配层是新建的，历史是空的：任务从头开始，不带着你正在聊的内容，也不往你的对话里写东西；
           - 用的是此刻设置里选中的那一家、那个模型；
-          - 权限是"永远要问"的那一份（见 Permissions.unattended）：没人看着的时候不自动放行。
+          - 权限是"永远要问"的那一份（见 Permissions.unattended）：没人看着的时候不自动放行，
+            设成了"不用问"的 MCP 工具也一样要问；
+          - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 fresh_tools）。
         """
         backend = self._backend_for(self.settings.provider, self.settings.model)
         permissions = self.agent.permissions.unattended()
         agent = Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        # 任务的这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
+        # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
+        agent.use_tools(ToolRegistry([*self.tools, *self.mcp.snapshot().tools]))
         # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
         return agent
@@ -176,10 +184,39 @@ class App:
         backend.restore(conversation.messages)
         self.agent.backend = backend
         self.prompt_in_use = self.system_prompt
+        self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation
+
+    # ---- 工具 -------------------------------------------------------------
+
+    def fresh_tools(self) -> None:
+        """换上这段对话要用的工具：自己的工具，加上此刻已经连上的 MCP 服务器的工具。
+
+        MCP 的那部分是一张"快照"，这段对话从头到尾都用它（原因见 mcp/manager.py）。
+        新对话的第一条消息发出之前调用（agent.on_start），打开一段旧会话时也调用一次。
+        """
+        shot = self.mcp.snapshot()
+        self.mcp.active = shot
+        self.agent.use_tools(ToolRegistry([*self.tools, *shot.tools]))
+
+    def tool_names(self) -> list[tuple[str, bool]]:
+        """界面上"模型可以使用的工具"：（名字，是否在本地执行）。
+
+        对话已经开始了，就是这段对话实际在用的那一套。还没开始的话，列的是"现在发第一条消息会用上的"：
+        这时手里的还是上一段对话的快照，新连上的服务器还不在里面。
+        """
+        names = self.agent.backend.tool_names()
+        if self.agent.backend.export():
+            return names
+        own = [(name, local) for name, local in names if not name.startswith(MCP_PREFIX)]
+        return own + [(tool.name, True) for tool in self.mcp.snapshot().tools]
+
+    def close(self) -> None:
+        """程序退出前的收尾：关掉启动过的 MCP 服务器进程。"""
+        self.mcp.shutdown()
 
     def save_conversation(self, events: list) -> bool:
         """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。"""
@@ -285,7 +322,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         settings.provider, settings.model = "anthropic", "claude-opus-5-5"
     i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
 
-    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
+    # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序
+    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file, config.mcp_file])
     todos = TodoStore(config.todo_file)
     tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)
@@ -295,13 +333,14 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     provider = PROVIDERS[settings.provider]
     prompt = build_system_prompt(config, web=config.web and provider.web)
     backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
-    permissions = Permissions(files, private=[config.data_dir], tasks=tasks)
+    mcp = McpManager(McpConfig(config.mcp_file))
+    permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
     ledger = Ledger(config.ledger_file)
     agent.on_call = ledger.recorder(lambda: settings.prices)
     store = ConversationStore(config.conversations_dir)
-    return App(
+    app = App(
         config=config,
         settings=settings,
         agent=agent,
@@ -315,7 +354,11 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         store=store,
         conversation=store.new(settings.provider, settings.model),
         ledger=ledger,
+        mcp=mcp,
     )
+    agent.on_start = app.fresh_tools
+    mcp.start()  # 每个启用的服务器在自己的后台线程里连接，这里不等
+    return app
 
 
 def run_turn(agent: Agent, ui: Any, text: str, attachments: Sequence[Attachment] | None = None) -> None:

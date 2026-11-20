@@ -113,6 +113,10 @@ class Config:
         return self.data_dir / "conversations"
 
     @property
+    def mcp_file(self) -> Path:
+        return self.data_dir / "mcp.json"  # 接入的 MCP 服务器（见 mcp/config.py）
+
+    @property
     def ledger_file(self) -> Path:
         return self.data_dir / "ledger.jsonl"
 

@@ -22,12 +22,33 @@ class ToolError(Exception):
 
 
 @dataclass(frozen=True)
+class ToolImage:
+    """工具结果里的一张图片。data 是 base64（不带 data: 前缀），media_type 是检查过的真实格式。"""
+
+    media_type: str
+    data: str
+
+
+@dataclass(frozen=True)
+class ToolOutput:
+    """结果不只是一段文字的时候用它：可以带上图片，也可以标明"这是一个出错的结果"。
+
+    普通的工具直接返回字符串就够了。MCP 服务器的工具会返回这个（见 mcp/bridge.py）：
+    它们可能返回截图，也会用 isError 告诉我们"这次没做成"，同时附上给模型看的原因。
+    """
+
+    text: str
+    images: tuple[ToolImage, ...] = ()
+    is_error: bool = False
+
+
+@dataclass(frozen=True)
 class Tool:
     # 发给 Claude 的说明书（Anthropic 的格式）
     spec: dict
-    # 接收模型给的参数（一个 dict），返回给模型看的文字。
+    # 接收模型给的参数（一个 dict），返回给模型看的文字（或者带图片的 ToolOutput）。
     # None 表示这是"服务器工具"：由 Anthropic 的服务器执行，本地不需要做任何事。
-    run: Callable[[dict], str] | None = None
+    run: Callable[[dict], str | ToolOutput] | None = None
     # 发给其他厂商模型的说明书：{"name", "description", "parameters"}，各家通用的函数格式。
     # None 表示这个工具只有 Claude 能用（比如 Anthropic 服务器上的联网搜索）。
     portable: dict | None = None

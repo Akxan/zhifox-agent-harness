@@ -12,6 +12,10 @@
   - 页面每次刷新都重新从磁盘读，改完 index.html（或 markdown.js）刷新一下就能看到，不用重启。
   - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
+  - 也预先接好了几个假的 MCP 服务器（tests/fake_mcp.py）：两个本地的（新一代、老一代协议各一个）、
+    一个 HTTP 的（在这个进程里跑）、一个启动不了的、一个停用的。"扩展 → MCP"里都能看到、能点。
+    "从 Claude 导入"读的是临时目录里编造的 Claude Desktop / Claude Code 配置，不会读你电脑上真正的那些
+    （这个脚本把 HOME 换成了临时目录）。
   - 定时任务照常运行（调度线程和正式程序里一样）。全新的数据目录里预先放了几个编造的任务：
     一条已经弹出、还没关掉的提醒，一个跑过两次的"每日安排"，一个关掉了的每周任务，一个每 45 分钟的提醒。
     "立即运行"会用掉下面预设回复里的下一条。
@@ -52,6 +56,7 @@ if not options.no_key:
 import anthropic
 import openai
 from fake_api import _events, reply, text, thinking, tool_use
+from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
 
 import harness.webui.server as server_module
@@ -197,6 +202,9 @@ claude = SlowClaude(
         reply(tool_use("toolu_3", "todo_update", {"id": 99, "done": True}), stop_reason="tool_use"),
         reply(text("没有编号为 99 的待办，所以没有改动。")),
         reply(thinking("用户想看看各种 Markdown 的样子。"), text(MARKDOWN_TOUR)),
+        # 调用一个 MCP 服务器的工具（假服务器 files 的 echo）：会弹出确认卡片，除非在"扩展 → MCP"里把它设成了不用问
+        reply(text("我用 MCP 服务器试一下。"), tool_use("toolu_4", "mcp__files__echo", {"text": "你好，MCP"}), stop_reason="tool_use"),
+        reply(text("MCP 服务器原样回了这句话。")),
         *(reply(text("（这是一条预设的回复，用来凑数。）" * 3)) for _ in range(8)),
     ]
 ).start()
@@ -211,6 +219,13 @@ others = FakeOpenAI(
 ).start()
 
 root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
+# "从 Claude 导入"会去读 HOME 下面 Claude Desktop 和 Claude Code 的配置。演示里换成临时目录里编造的那几份，
+# 绝不读你电脑上真正的配置（那里面有你的密钥）
+fake_home = root / "home"
+os.environ["HOME"] = str(fake_home)
+# 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
+docs_server = FakeMcpHttp("modern", sse=True, token="demo-header-token-9876wxyz").start()
+os.environ["DEMO_MCP_URL"] = docs_server.url
 workspace = root / "work"
 workspace.mkdir(parents=True, exist_ok=True)
 (workspace / "notes.txt").write_text("第一行\n第二行\n", encoding="utf-8")
@@ -225,6 +240,35 @@ if not (root / "data").exists():
     ):
         (memory_dir / name).parent.mkdir(parents=True, exist_ok=True)
         (memory_dir / name).write_text(body, encoding="utf-8")
+    fake_mcp = str(Path(__file__).parent / "fake_mcp.py")
+    servers = {
+        "files": {"command": sys.executable, "args": [fake_mcp, "--era", "modern"]},
+        "notes": {"command": sys.executable, "args": [fake_mcp, "--era", "legacy", "--page-size", "3"], "env": {"NOTES_TOKEN": "demo-secret-token-1234abcd"}},
+        "docs": {"type": "http", "url": "${DEMO_MCP_URL}", "headers": {"Authorization": "Bearer demo-header-token-9876wxyz"}},
+        "broken": {"command": "definitely-not-installed-mcp", "args": ["--serve"]},
+        "paused": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "enabled": False},
+    }
+    (root / "data" / "mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=2), encoding="utf-8")
+    # 编造的 Claude Desktop / Claude Code 配置，给"从 Claude 导入"用（macOS 和 Linux 的位置各放一份）
+    desktop = {
+        "mcpServers": {
+            "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/demo/Desktop"]},
+            "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "fake-github-token-for-the-demo-0001"}},
+            "files": servers["files"],
+        }
+    }
+    for folder in (fake_home / "Library" / "Application Support" / "Claude", fake_home / ".config" / "Claude"):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "claude_desktop_config.json").write_text(json.dumps(desktop, indent=2), encoding="utf-8")
+    claude_code = {
+        "mcpServers": {
+            "sentry": {"type": "http", "url": "https://mcp.sentry.example/mcp", "headers": {"Authorization": "Bearer fake-sentry-token-for-the-demo-0002"}},
+            "old-sse": {"type": "sse", "url": "https://legacy.example/sse"},
+        },
+        "projects": {str(workspace): {"mcpServers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]}}}},
+    }
+    (fake_home / ".claude.json").write_text(json.dumps(claude_code, indent=2), encoding="utf-8")
+    (workspace / ".mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {"command": "npx", "args": ["@playwright/mcp@latest"]}}}, indent=2), encoding="utf-8")
 config = Config(
     effort="medium",
     max_tokens=64000,
@@ -282,3 +326,6 @@ try:
     server.serve_forever()
 except KeyboardInterrupt:
     pass
+finally:
+    app.close()  # 关掉启动过的假 MCP 服务器进程
+    docs_server.stop()
