@@ -8,6 +8,8 @@
 
   操作                              处理
   待办、记忆                        直接执行（只动 data/ 里助手自己的文件）
+  添加、删除只是提醒的定时任务      直接执行（到时间只弹一条提醒，不花钱）
+  添加、删除让助手去做的定时任务    先问用户（以后每次运行都花钱，还会在没人看着的时候自己调用工具）
   读取工作目录里的文件              直接执行
   读取工作目录之外的文件            先问用户
   读取助手自己的数据目录里的文件    先问用户（即使它在工作目录里面。见 Permissions 的说明）
@@ -17,6 +19,9 @@
 
 "先问用户"可以由用户自己放宽（见 MODES）。放宽的只是"问不问"：哪些操作需要确认、
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
+
+定时任务自己运行的时候（没人看着）不能放宽：表上要问的，一律停下来等用户批准，用户选了"全部自动允许"也一样
+（见 unattended）。用户选择放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。
 """
 
 from __future__ import annotations
@@ -25,7 +30,9 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .i18n import k, t
+from .tasks import TaskError, TaskStore, check_task, describe
 from .tools import files, shell
+from .tools import tasks as task_tools
 from .tools.base import ToolError
 from .tools.files import FileEditor
 
@@ -38,7 +45,7 @@ MODES = {
 
 
 class Permissions:
-    def __init__(self, editor: FileEditor, private: Iterable[Path] = ()):
+    def __init__(self, editor: FileEditor, private: Iterable[Path] = (), tasks: TaskStore | None = None):
         """private 是助手自己的数据目录（保存下来的会话、设置、待办、记忆）。
 
         在项目目录里运行时，这个目录就在工作目录里面。如果把它当成普通的工作目录文件、读取时不用问，
@@ -48,12 +55,25 @@ class Permissions:
         """
         self.editor = editor
         self.private = [path.resolve() for path in private]
+        self.tasks = tasks  # 删除定时任务时要看一眼它是哪一种（只是提醒的不用问）
         # 现在是哪种模式。每次启动都从"每次都问"开始，不记进设置文件：
         # 放开之后忘了关，比每次多点一下要危险得多。
         self.mode = "ask"
+        self.always_ask = False  # 为真时不管什么模式都要问（定时任务自己运行时用的那一份，见 unattended）
+
+    def unattended(self) -> Permissions:
+        """给定时任务自己运行时用的一份：规则和这一份完全相同，但永远是"每次都问"。
+
+        是另外一个对象，所以用户在页面上换模式（改的是对话用的那一份）碰不到它。
+        """
+        copy = Permissions(self.editor, self.private, self.tasks)
+        copy.always_ask = True
+        return copy
 
     def auto_allows(self, tool_name: str, tool_input: object) -> bool:
         """一次需要确认的操作，在现在的模式下是不是可以不问就做。"""
+        if self.always_ask:
+            return False
         if self.mode == "all":
             return True
         if self.mode == "edits":
@@ -87,7 +107,31 @@ class Permissions:
             return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:
             return self._review_file(tool_input)
+        if tool_name == task_tools.ADD:
+            return self._review_task_add(tool_input)
+        if tool_name == task_tools.DELETE:
+            return self._review_task_delete(tool_input)
         return None
+
+    def _review_task_add(self, tool_input: dict) -> str | None:
+        try:
+            task = check_task({**tool_input, "enabled": True})
+        except TaskError:
+            return None  # 参数不对，工具会直接报错，什么都不会添加
+        if task["kind"] != "agent":
+            return None  # 只是提醒：不花钱，也不会自己做任何事
+        return t(
+            "添加定时任务“{title}”（{when}）：到时间后，助手会在没人看着的时候自己运行下面这条指令，每次运行都要花 API 费用。\n\n{prompt}",
+            title=task["title"],
+            when=describe(task["schedule"]),
+            prompt=_preview(task["prompt"]),
+        )
+
+    def _review_task_delete(self, tool_input: dict) -> str | None:
+        task = self.tasks.get(tool_input.get("id")) if self.tasks is not None else None
+        if task is None or task["kind"] != "agent":
+            return None  # 不存在（工具会报错）或者只是提醒：不用问
+        return t("删除定时任务“{title}”（{when}），以后它不会再自动运行。", title=task["title"], when=describe(task["schedule"]))
 
     def _review_file(self, tool_input: dict) -> str | None:
         command = tool_input.get("command")

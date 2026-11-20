@@ -34,7 +34,7 @@ from sample_files import (
 )
 
 import harness.webui.server as server_module
-from harness import memories
+from harness import memories, prompt
 from harness.app import build_app
 from harness.attachments import (
     MAX_IMAGE_BYTES,
@@ -716,7 +716,8 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     state = latest_state(s.browser)
     assert (state["provider"], state["model"]) == ("deepseek", "deepseek-flash")
     assert [tool["name"] for tool in state["tools"]] == [
-        "todo_add", "todo_list", "todo_update", "todo_delete", "memory", "str_replace_based_edit_tool", "run_command",
+        "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory",
+        "str_replace_based_edit_tool", "run_command",
     ]  # 没有联网搜索
     # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
     assert state["unpriced"] == []
@@ -1205,7 +1206,7 @@ def test_unknown_and_malformed_conversation_ids_are_refused(serve):
     assert s.ui.events_after(0, timeout=0) == before
     assert (s.config.conversations_dir / f"{first}.json").read_bytes() == file_before
     assert saved_ids(s.config) == [first] and s.app.conversation.id == first
-    others = [path for path in s.config.data_dir.rglob("*") if path.is_file() and path != s.config.settings_file]
+    others = [path for path in s.config.data_dir.rglob("*") if path.is_file() and path not in (s.config.settings_file, s.config.ledger_file)]
     assert [path.name for path in others] == [f"{first}.json"]
 
 
@@ -2479,3 +2480,91 @@ def test_each_provider_says_what_it_can_take_and_the_rest_is_refused(serve, monk
     s.browser.wait_for("turn_end")
     (request,) = s.other_api.requests
     assert request["model"] == "gpt-6-luna" and request["messages"][1]["content"][0]["type"] == "text"
+
+
+# ---- 提示词 -----------------------------------------------------------------
+
+
+def test_prompt_endpoints(serve):
+    s = serve(reply(text("好。")))
+    status, body = s.browser.post("/api/prompt", {})
+    assert status == 200 and body["text"] == body["default"] == prompt.DEFAULT_TEMPLATE and body["custom"] is False
+    assert "web_search" in body["preview"] and "{name}" not in body["preview"]
+    assert {item["name"] for item in body["placeholders"]} == set(prompt.PLACEHOLDERS)
+
+    # 预览还没保存的
+    assert s.browser.post("/api/prompt/preview", {"text": "我是{name}"}) == (200, {"ok": True, "preview": "我是智狐"})
+    assert s.browser.post("/api/prompt/preview", {"text": 5})[0] == 400
+
+    # 保存：还没聊，这一段马上用上；状态里标着"改过了"
+    assert s.browser.post("/api/prompt/save", {"text": "我是{name}"}) == (200, {"ok": True, "applied": True})
+    deadline = time.monotonic() + 5  # 状态走的是事件流，可能比请求的回答晚一点到
+    while not latest_state(s.browser)["prompt_custom"] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert latest_state(s.browser)["prompt_custom"] is True
+    assert s.browser.post("/api/prompt", {})[1]["custom"] is True
+    s.browser.post("/api/message", {"text": "你好"})
+    s.browser.wait_for("turn_end")
+    assert s.api.requests[0]["system"][0]["text"] == "我是智狐"
+    # 已经聊过了：恢复默认从下一段开始
+    assert s.browser.post("/api/prompt/reset", {}) == (200, {"ok": True, "applied": False})
+    assert not s.config.prompt_file.exists()
+    # 存不了的说清楚原因
+    status, body = s.browser.post("/api/prompt/save", {"text": " "})
+    assert status == 409 and "不能是空的" in body["error"]
+    assert s.browser.post("/api/prompt/save", {})[0] == 400
+
+
+# ---- 待办、数据文件 ---------------------------------------------------------
+
+
+def test_todos_can_be_completed_edited_and_deleted_from_the_page(serve):
+    s = serve()
+    first = s.app.todos.add("交报告", "2026-11-27")
+    second = s.app.todos.add("买牛奶")
+    # 改标题和截止日期；把截止日期清掉
+    assert s.browser.post("/api/todo/update", {"id": first["id"], "title": "  交周报  ", "due": "2026-11-28"}) == OK
+    assert s.browser.post("/api/todo/update", {"id": second["id"], "due": None}) == OK
+    titles = {item["title"]: item["due"] for item in s.app.todos.items("pending")}
+    assert titles == {"交周报": "2026-11-28", "买牛奶": None}
+    # 完成：从"未完成"里消失，状态里跟着变
+    assert s.browser.post("/api/todo/update", {"id": second["id"], "done": True}) == OK
+    deadline = time.monotonic() + 5
+    while [item["title"] for item in latest_state(s.browser)["todos"]] != ["交周报"] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert [item["title"] for item in latest_state(s.browser)["todos"]] == ["交周报"]
+    assert s.app.todos.items("done")[0]["completed_at"]
+    # 删除；已经不在的，说给人听（不是写给模型看的"先用 todo_list 查看"）
+    assert s.browser.post("/api/todo/delete", {"id": first["id"]}) == OK
+    status, body = s.browser.post("/api/todo/delete", {"id": first["id"]})
+    assert status == 409 and "已经不在了" in body["error"] and "todo_list" not in body["error"]
+    # 参数不对
+    for bad in ({"id": "1"}, {"id": True}, {"id": 1}, {"id": 1, "title": " "}, {"id": 1, "due": "下周五"}, {"id": 1, "done": "yes"}):
+        assert s.browser.post("/api/todo/update", bad)[0] == 400, bad
+
+
+def test_data_files_are_revealed_by_name_only(serve):
+    s = serve()
+    config = s.config
+    # 还没有这个文件：打开它将来所在的文件夹
+    assert s.browser.post("/api/reveal", {"what": "prompt"}) == (200, {"ok": True, "path": str(config.data_dir)})
+    s.app.todos.add("交报告")
+    assert s.browser.post("/api/reveal", {"what": "todos"}) == (200, {"ok": True, "path": str(config.todo_file)})
+    assert s.revealed == [config.data_dir, config.todo_file]
+    # 只认那几个名字，页面给不了路径
+    for bad in ({"what": "../../etc/passwd"}, {"what": "env"}, {}, {"what": str(config.todo_file)}):
+        assert s.browser.post("/api/reveal", bad)[0] == 400, bad
+    assert len(s.revealed) == 2
+
+
+def test_todo_changes_from_several_threads_are_not_lost(tmp_path):
+    from harness.tools.todo import TodoStore
+
+    store = TodoStore(tmp_path / "todos.json")
+    workers = [threading.Thread(target=lambda n=n: [store.add(f"事情 {n}-{i}") for i in range(20)]) for n in range(5)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    items = store.items("all")
+    assert len(items) == 100 and len({item["id"] for item in items}) == 100  # 一条都没丢，编号也没重复

@@ -1,4 +1,4 @@
-"""终端里的斜杠命令的测试。目前只有 /auto：别的命令只是把已有的东西打印出来。"""
+"""终端里的斜杠命令的测试：/auto，以及 /usage 里来自花费账本的那几行。别的命令只是把已有的东西打印出来。"""
 
 from __future__ import annotations
 
@@ -79,3 +79,18 @@ def test_auto_with_an_argument_is_handled_as_a_command(make_config, monkeypatch,
     out = capsys.readouterr().out
     assert "现在是：每次都问（ask）" in out and AUTO_NOTES["all"] in out and AUTO_NOTES["edits"] in out
     assert sent == [("/autopilot", "edits")]
+
+
+def test_usage_shows_today_and_this_month_from_the_ledger(start, capsys):
+    # 账本里的数（见 ledger.py）：重启不清零，网页上花的、定时任务花的都算在里面
+    ui = TerminalUI()
+    h = start(reply(text("你好！")), ui=ui)
+    h.agent.run_turn("你好")
+    capsys.readouterr()
+    spend = h.app.spending()
+    handle_command("/usage", h.app, ui)
+    out = capsys.readouterr().out
+    assert f"今天 ${spend['today']:.4f}，本月 ${spend['month']:.4f}" in out and "每月预算" not in out
+    h.app.settings.set_budget(spend["month"] / 2)
+    handle_command("/usage", h.app, ui)
+    assert f"每月预算 ${spend['month'] / 2:.2f}（已超出）" in capsys.readouterr().out

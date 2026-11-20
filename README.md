@@ -30,7 +30,8 @@
 ZhiFox is an AI agent harness built from scratch in Python, with no agent framework: a local-first personal assistant
 that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
 tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
-commands and search the web, with a permission prompt before anything that changes your computer. It is also a teaching
+commands, search the web and run scheduled or recurring tasks, with a permission prompt before anything that changes
+your computer. It also reads the screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching
 project: every part of this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
@@ -47,6 +48,17 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   share one OpenAI Chat Completions adapter.
 - 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
   shell commands, and web search (Claude only).
+- ⏰ **Scheduled and recurring tasks.** Free reminders, or instructions the assistant runs on its own at a set time:
+  once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs take turns with
+  your conversation, pause for your approval even in Allow everything mode, catch up once after ZhiFox was closed, and
+  record what each one cost.
+- 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
+  can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
+  convert it, in all three interface languages.
+- 🧠 **Memory you can manage.** A window at the top of the sidebar lists everything the assistant remembers; read,
+  edit, rename or delete any memory, or show its file in Finder.
+- ✍️ **Your own system prompt.** Edit the built-in prompt in Settings, with placeholders and a preview of exactly what
+  the model receives; changes apply from the next conversation.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
@@ -57,8 +69,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   renders replies as Markdown (code blocks, tables, lists) with a small hand-written renderer, has light and dark
   themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
-- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, and per-message
-  caps on web search.
+- 💸 **Cost you can see:** token usage and an estimated cost after every model call, built-in prices for Claude and
+  DeepSeek (checked against the official pricing pages, DeepSeek's off-peak discount included), a spending record that
+  survives restarts (today, this month, the last 30 days, by model and source), an optional monthly budget reminder,
+  prompt caching, automatic compaction of long conversations with every provider, and per-message caps on web search.
 - 🧪 **Tests without API keys.** The test suite drives the real SDKs against local fake servers, so running it is free.
 
 ## Quick start
@@ -113,7 +127,7 @@ flowchart TB
     subgraph parts ["Harness parts"]
         prompt["System prompt<br/>prompt.py"]
         perms{{"Permissions<br/>permissions.py"}}
-        tools["Tools · tools/<br/>to-dos · memory · files · shell · web search"]
+        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · web search"]
         store[("Conversations + search index<br/>conversations.py · search.py")]
     end
 
@@ -177,16 +191,20 @@ Each part of the harness has its own file or directory:
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
+| History compaction | [harness/providers/compaction.py](harness/providers/compaction.py) | Resending the whole history every turn gets more expensive and finally exceeds the model's limit. When a GPT, Gemini or DeepSeek conversation gets too long, the model is asked to summarize the earlier part (Claude's API compacts on its own) |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
-| System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
+| Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that takes turns with you and pauses for approval, and the tools that set one up from a sentence |
+| System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
+| Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
+| Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
 
@@ -240,7 +258,8 @@ than in the system prompt, because it changes every time, and a changing system 
 One rule holds throughout: **the history is only ever appended to; nothing earlier is changed.** The reasons are in the
 comment in `AnthropicBackend.__init__` in [harness/providers/claude.py](harness/providers/claude.py). In short, changing
 earlier content invalidates the cache (so requests cost more), and it makes the model's earlier thinking fail the API's
-validation (so requests are rejected).
+validation (so requests are rejected). The one exception is compacting very long GPT, Gemini and DeepSeek
+conversations; see [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction).
 
 ### One loop, many models
 
@@ -264,11 +283,56 @@ and DeepSeek all support it at different server addresses, so one piece of code 
 | Tool calls | A "content block" in the reply | A `tool_calls` field on the assistant message; the arguments are a JSON string |
 | Tool results | All results in one message | One message per result |
 | Web search | Yes, run on Anthropic's servers | No |
-| Very long conversations | Earlier content is automatically condensed into a summary | Not handled |
+| Very long conversations | Anthropic's API condenses earlier content into a summary on its servers | ZhiFox asks the model for a summary and replaces the earlier content (see the next section) |
 | Caching | We mark it in the request | Each provider handles it automatically |
 
 To add another provider that supports the OpenAI format, add one entry to `PROVIDERS` in
 [`harness/providers/__init__.py`](harness/providers/__init__.py).
+
+### When a conversation gets too long: compaction
+
+Every turn resends the whole history, so the longer a conversation gets, the more each turn costs; once it grows past
+what the model can read at once (its context window), requests are rejected and the conversation can't go on. The fix
+is compaction: replace the earlier part with a summary and keep only the last few turns verbatim.
+
+For Claude, Anthropic's API compacts on its servers (the request carries `context_management`; see
+[claude.py](harness/providers/claude.py)), and on our side the history is still only appended to. The OpenAI format has
+no such feature, so for GPT, Gemini and DeepSeek ZhiFox does it itself, in
+[harness/providers/compaction.py](harness/providers/compaction.py):
+
+1. **When.** Every response reports how many tokens went in and came out, which is how much context the conversation
+   now takes up. Once that passes 70% of the model's window, the next request is preceded by a compaction. The
+   remaining 30% has to fit the next message, tool results and the model's reply.
+2. **Where to cut.** Only between turns, that is, right before one of your messages. A tool call and its result always
+   belong to the same turn, so they always end up on the same side of the cut, and the history never holds a call
+   without its result (the API would reject that). The last two turns, counting the one in progress, are kept verbatim.
+3. **Who writes the summary.** The same model you are talking to. The part before the cut is sent exactly as it was,
+   followed by an instruction asking for a summary (the instruction lives in `compaction.py`). Sending it unchanged
+   means it hits the cache: that part went out with every earlier request, so its beginning matches and is billed at
+   the much lower cache price. The usage of this call is recorded like any other, so the cost estimate includes it.
+4. **What replaces it.** The system prompt, a user message holding the summary and an assistant message acknowledging
+   it (so the history still alternates between you and the model; some models refuse two user messages in a row),
+   then the recent turns verbatim. Attachments in the summarized part aren't kept; one sentence mentions which files
+   you sent. When the conversation gets too long again, it is compacted again, and the previous summary is folded into
+   the new one.
+
+This is the one exception to "the history is only ever appended to", so its boundaries are drawn tightly: only the
+OpenAI-format adapter does it; only the part before the cut changes, never the system prompt or the recent turns; and
+only between two requests. Because the history gets shorter, the positions that `mark` hands out are adjusted too, so
+undoing a turn after an error still removes exactly that turn. The price is one cache miss: the first request after a
+compaction starts differently, so it pays the full input price once, and the new beginning is cached from then on. In
+return, the history stops growing without bound.
+
+You see two notices: one while the model writes the summary, and one when it's done, telling you roughly how many
+fewer tokens each turn now sends. If writing the summary fails (the network drops, the server is busy), the notice says
+why, the turn goes on as usual, and the next turn tries again. In the saved conversation, `messages` (the copy for the
+model) is the compacted history, so a reopened conversation continues from the summary, while `events` (the copy for
+the page) keeps everything, so replay and search still see the whole conversation.
+
+The tunables are in [harness/config.py](harness/config.py): `ENABLE_OPENAI_COMPACTION` (set it to `False` to turn
+compaction off), `CONTEXT_WINDOWS` (each model's window; 1M tokens for both DeepSeek models), `DEFAULT_CONTEXT_WINDOW`
+(128K tokens for models not in the table, erring on the side of compacting early), `COMPACTION_THRESHOLD` (0.7) and
+`COMPACTION_KEEP_TURNS` (2).
 
 ### How conversations are saved and restored
 
@@ -428,13 +492,36 @@ Search still works: results come from the Markdown source, and when the hit incl
 (`**`, `` ` ``), the page drops those marks before looking for it on the page. A hit that only exists in the source
 (such as a link's address) scrolls to the reply. The terminal shows the Markdown source as is.
 
+### Scheduled tasks: running when nobody is watching
+
+A task is a saved instruction plus a schedule ([harness/tasks.py](harness/tasks.py)). Running one reuses the same loop,
+with three things handled differently ([harness/webui/scheduler.py](harness/webui/scheduler.py)):
+
+1. **When.** A scheduler thread sleeps until the next task is due, at most 30 seconds at a time so that a changed clock
+   or a computer waking from sleep is noticed soon, and is woken early whenever a task changes. The next time is worked
+   out on the calendar in local time rather than by adding 24 hours, which is what keeps "every day at 9:00" at 9:00 on
+   the wall clock across daylight saving. Each task's next time is saved in `data/tasks.json`; finding it in the past on
+   the next start is how ZhiFox knows a run was missed.
+2. **Taking turns.** The loop and its tools assume one turn at a time: one shell whose running command Stop can end,
+   one set of files and to-dos. So a task run takes the same lock as your own turns, and waits for yours to finish.
+   Reminders call no model and don't need it.
+3. **Nobody watching.** The run gets its own `Agent` with a new adapter and an empty history
+   (`App.unattended_agent`), and its own event log (a second `WebUI` whose events aren't pushed to the page), so it
+   can't write into the conversation you're looking at. Its permissions are a copy that always asks
+   (`Permissions.unattended`). When it reaches a step that needs approval, the loop waits in `confirm` exactly as it
+   does in a conversation, and the waiting approval goes into the page state so you can answer it from the task.
+
+Progress reaches the page in the same `state` event as everything else: at most four times a second while text streams
+in, and immediately when a run starts, pauses for approval or ends. A stopped run still gives every tool call its
+result (the same `finally` in `Agent._run_tools`), so its saved conversation can be continued like any other.
+
 ### Three kinds of tools
 
 The difference is who writes the spec and who runs the tool:
 
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
-| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), running commands ([shell.py](harness/tools/shell.py)) |
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)) |
 | Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
@@ -447,6 +534,8 @@ that runs is the same. Tools of the third kind live on Anthropic's servers, so o
 | Action | Handling |
 |---|---|
 | To-dos, memory | Runs directly (only touches the assistant's own files in `data/`) |
+| Adding or deleting a reminder | Runs directly (at the set time it only shows a reminder: no model call, no cost) |
+| Adding or deleting a task the assistant runs on its own | Asks you first, and shows the schedule and the instruction (it will spend money later, with nobody watching) |
 | Reading files in the working directory | Runs directly |
 | Reading files outside the working directory | Asks you first |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
@@ -472,6 +561,10 @@ below the input box; in the terminal, use `/auto`:
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
 every time, so you can't turn it on and forget about it.
+
+Scheduled tasks are the exception. When one runs on its own, every step marked "Asks you first" pauses the run until you
+answer, whichever option you chose: loosening the prompts means "I'm here, go ahead", which isn't true at 3 a.m. (see
+[Scheduled and recurring tasks](#scheduled-and-recurring-tasks)).
 
 Two hard limits apply regardless of any prompt: the assistant can't read or write `.env` (which holds your API keys),
 and the commands it runs can't see those keys either.
@@ -532,10 +625,31 @@ This starts a small server on your computer and opens the chat page in your brow
   tested against local fake servers, not real keys. Attachments are saved with the conversation, so their thumbnails
   come back when you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
-  each provider's model list, choose and switch models, and enter model prices.
+  each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
+  that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
+  and a list of placeholders such as `{name}` and `{workspace}` that are filled in before sending; other braces are left
+  alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
+  conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
+  a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
+  is also the way to pick up a newer built-in version after an upgrade. Two more sections at the bottom:
+  - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
+    message on the page, and a system notification if the page is in the background and you allowed notifications).
+    It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
+    remembered across restarts, so it doesn't repeat. If you set a budget below what you've already spent this month,
+    the panel says so right away.
+  - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
+    afterwards. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
-  updates after every model call.
+  updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
+  **this month** (from the spending record, so restarts don't reset it), how much of your monthly budget is left, and a
+  red note once you're over it (the cost next to the input box gets a red dot too). **Spending** opens a window with
+  the last 30 days as a bar chart (hover a bar, click it, or use the arrow keys and Home / End to read a day), a total
+  for every month, and a breakdown by model and by source (chat or scheduled task) for this month, the last 30 days or
+  all time. Calls to models without a price are listed separately with their tokens. Click a to-do's circle to complete
+  it; hover over it for the same three buttons as every other row (**Show in Finder** for the to-do file, **edit** its
+  text and due date in place, **delete** after an in-place confirm). Scheduled task rows and the prompt editor have a
+  **Show in Finder** button for their files too.
 - **Memory** (fixed at the top of the sidebar, with a count; it opens a two-pane window: the list on the left, searchable
   by name, and the selected memory on the right; on a narrow screen it shows one side at a time). Every file the
   assistant keeps in its long-term memory (`data/memories/`), with its
@@ -585,6 +699,50 @@ The address shown in the terminal contains a `token`, a password for this run th
 the address to anyone, and don't post screenshots that show the address bar: whoever has it can use the page to make the
 assistant run commands on your computer. The server only accepts connections from your own machine.
 
+### Scheduled and recurring tasks
+
+Tell the assistant "remind me to drink water every morning at 9" or "every weekday at 9, look at my to-dos and write a
+plan for the day", or add a task by hand in the web UI. There are two kinds:
+
+| Kind | What happens at the set time | Cost |
+|---|---|---|
+| **Reminder** | A reminder appears in the page with the task's title and text. No model is called | Free |
+| **Agent** | The assistant carries out the task's instruction on its own, as if you had sent it as a message, calling the model and using its tools | Every run costs API credits, like a normal turn |
+
+Schedules use your computer's local time: once at a date and time, every day, on chosen days of the week, on a day of
+the month (the 31st means the last day in shorter months), or every N minutes (5 minutes to 7 days, counted from when the
+task was created or last ran). Daylight saving is handled on the calendar: "every day at 9:00" stays at 9:00 on the wall
+clock, a time skipped when the clocks spring forward runs right after the jump, and a time repeated when they fall back
+runs only once. Before you save a task, the form shows the next three times it will run.
+
+How agent tasks behave:
+
+- **They take turns with you.** Tasks use the same tools as your conversation (the same shell, files and to-dos), so a
+  task never runs during your own turn. One that comes due while you're chatting waits until your turn ends. While a
+  task runs, sending a message, switching models or opening a conversation is refused with a note naming the task and
+  how to stop it. Reminders don't wait for anything.
+- **They leave your conversation alone.** Each run starts with an empty history, uses the provider and model selected
+  in Settings at that moment, and is saved as a normal conversation named after the task and the time (for example
+  "Daily plan · 2026-11-21 09:00"). It appears in the sidebar marked as coming from a task, and you can open it, replay
+  it, search it and keep chatting in it.
+- **They pause for your approval.** Anything that would ask you in a conversation (running a command, writing a file…)
+  pauses the run until you answer, **even if you chose Allow everything**. The waiting approval is shown with the task,
+  where you can allow or deny it. Until you answer, the task keeps its turn, so answer it (or stop it) to get back to
+  chatting.
+- **You can watch and stop them.** While a task runs you can see what it is doing (thinking, writing, which tool), how
+  many model calls it has made, its cost so far and the tool calls so far. **Stop** works like the Stop button in a
+  conversation and also ends a running command; a run still waiting for its turn is simply dropped.
+- **Missed runs are caught up once.** If ZhiFox wasn't running at the scheduled time (or the computer was asleep), the
+  task runs once the next time ZhiFox notices, however many times it was missed. The run is marked as a catch-up with
+  the number of missed times, and the assistant is told when it should have run.
+- **Every run is recorded.** Each task keeps its last 20 runs: start and end time, status, number of model calls,
+  estimated cost, the beginning of the final answer, and the error if it failed. There is no spending cap.
+
+**Tasks run only while the web UI (`uv run harness --web`) is running.** The terminal UI doesn't run them; you can
+still ask the assistant there to add or delete tasks, and they run the next time the web UI is open. **Run now** runs a
+task once without changing its schedule. When the assistant adds or deletes an agent task for you, it asks you first,
+because that task will spend money later on its own; reminders don't ask.
+
 ### Terminal UI
 
 ```bash
@@ -614,12 +772,15 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/new` | Start a new conversation (memory and to-dos are kept) |
 | `/todos` | Show open to-dos |
 | `/tools` | Show the tools the model can use |
-| `/usage` | Show this run's token usage and estimated cost |
+| `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
+
+The terminal UI doesn't run scheduled tasks. You can ask the assistant to add or delete them here too; they run while
+the web UI is open.
 
 ### Using it in another folder
 
@@ -640,7 +801,9 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `data/conversations/` | Every web UI conversation, one JSON file each |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/todos.json` | To-dos |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
+| `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
+| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat or scheduled task, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
@@ -667,6 +830,29 @@ deletes plain files; a subfolder left empty by the deletion is removed too. A ne
 name (no `/`, not starting with a dot), so a memory can be renamed but never moved out of its folder, and the new text
 is written to a temporary file first and swapped in, so a failed save never leaves half a file.
 
+### Backup and restore
+
+**Settings → Export all data** packs the data folder into `zhifox-backup-<date>-<time>.zip` and downloads it:
+conversations, memories, to-dos, settings, the spending record, and anything else later features keep there. API keys
+are never in it: they live in `.env`, which isn't in the data folder, and any `.env`-like file found there anyway is
+skipped. If `data/mcp.json` exists, it is exported with every secret replaced by `<removed-from-backup>` (environment
+variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
+URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
+valid JSON, it is left out entirely rather than risk exporting a secret. Symbolic links are skipped too, since they
+could point anywhere on your computer. A `README-backup.txt` inside the zip lists the date, how to restore, and what was
+masked or skipped. The zip is built in a temporary file outside the data folder and deleted once it has been sent.
+
+To restore:
+
+1. Quit ZhiFox (Ctrl-C in its terminal).
+2. Unzip the archive into the data folder (by default the project's `data/`), replacing files with the same name:
+   `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
+   into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
+   `data/`.
+3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again.
+
+Importing from the web UI isn't supported yet.
+
 ## Cost
 
 APIs bill by the token (a Chinese character is roughly 1 to 2 tokens). Because every request resends the whole
@@ -677,17 +863,30 @@ What the program does to keep cost under control:
 
 - **Estimated cost.** The web UI's info panel and the terminal's `/usage` convert usage into US dollars. It's only an
   estimate; each provider's bill is what counts, and bills usually lag.
+- **Spending record.** Every model call, from a chat or a scheduled task, is written to `data/ledger.jsonl` with its
+  price at that moment (DeepSeek's peak or off-peak rate included), so today's and this month's totals survive
+  restarts. Changing a price later doesn't rewrite old entries; calls to a model without a price keep their tokens and
+  count as $0 until it has one. Each call is appended as one line, so a crash can at most leave half a line, which is
+  skipped when reading.
+- **Monthly budget.** Optional, in Settings. Passing it shows one reminder and never stops anything, including
+  scheduled tasks.
 - **Search caps.** For each message you send, Claude can search the web at most 5 times and fetch at most 5 pages; past
   that, it answers with what it has. The API enforces this cap. Each web search costs $0.01 on top of tokens.
 - **Caching.** Parts that are sent again and again cost far less once they hit the cache (for Claude, about a twentieth
   of the normal input price). The cache lasts only a few minutes, so when you come back to a long old conversation after
   a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
   30,000 tokens shows a notice about this.
-- **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
+- **Automatic compaction.** In very long conversations, earlier content is condensed into a summary, so every later
+  turn sends far fewer tokens. Claude's API does this itself; for GPT, Gemini and DeepSeek, ZhiFox asks the same model
+  to write the summary, and that call is included in the cost estimate (see
+  [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction)).
 - **Attachments.** Images are billed by size: every 28×28-pixel patch is one token, so a full-size screenshot costs at
   most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
   PowerPoint file costs what its text costs. Like the rest of the
   history, attachments are resent on every turn, and caching is what keeps that cheap.
+- **Scheduled tasks.** Each run of an agent task costs about as much as sending its instruction as a message, and it
+  runs whether or not you're there. There is no spending cap: a task every 5 minutes is 288 runs a day. The estimated
+  cost of every run is recorded with the task. Reminders are free.
 - You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
 Built-in prices, checked against the official pricing pages on 2026-11-20 (USD per million tokens):
@@ -771,7 +970,14 @@ OpenAI's formats. That lets the real SDKs run the whole loop, and the tests chec
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
 where the test code plays the browser. Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py).
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py), and
+compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
+budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
+half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
+ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). Scheduled
+tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
+storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
+server with a fake clock, so no test waits for 9 a.m.).
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -794,7 +1000,12 @@ page.
 
 - macOS and Linux only (running commands depends on bash).
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
-- With GPT, Gemini and DeepSeek there is no web search, and long conversations are not compacted automatically.
+- With GPT, Gemini and DeepSeek there is no web search.
+- Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
+  inevitably loses detail. The cut can only fall between turns, so a single turn that by itself exceeds the model's
+  limit (say, one that reads many large files) can't be compacted. Models not listed in `config.py` are all assumed
+  to have a 128K-token window, so models with a larger window are compacted earlier than they need to be. After you
+  reopen an old conversation, the first request has to measure its size before compaction can kick in.
 - Attachments work in the web UI only, not in the terminal. Images with GPT and Gemini, and PDFs with GPT, have not
   been tested with real keys. Gemini and DeepSeek can't read PDFs.
 - GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
@@ -810,6 +1021,9 @@ page.
   aren't loaded (you see their description and address), raw HTML is shown as text, links work only for http, https
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
   only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
+- Scheduled tasks run only while the web UI is running, one at a time, taking turns with your own conversation. A task
+  that pauses for your approval keeps its turn until you answer or stop it. Reminders appear only in the page; there are
+  no system notifications.
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
   #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
@@ -852,15 +1066,24 @@ anywhere else. The web UI's server accepts connections from your own machine onl
 
 Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-2`) through Anthropic's native API, and GPT, Gemini and
 DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings. Only Claude has
-been tested in real chats so far, and web search and automatic compaction are Claude-only. Any other provider that speaks the
-OpenAI format can be added with one entry in `PROVIDERS`.
+been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
+Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
+added with one entry in `PROVIDERS`.
 
 ### Can it run commands without asking me?
 
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
-every launch, and steps that ran without asking are marked as allowed automatically. In every mode the assistant can't touch
-`.env`, and the commands it runs can't see your API keys. See [Permissions](#permissions).
+every launch, and steps that ran without asking are marked as allowed automatically. Scheduled tasks always ask, whatever
+the mode. In every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
+[Permissions](#permissions).
+
+### Can it do things on a schedule?
+
+Yes, while the web UI is running. Ask for "remind me at 3 p.m. to call the bank" (a free reminder) or "every Monday at
+9, summarize my open to-dos" (the assistant does it, and each run costs API credits). Runs wait for your turn to end,
+pause for your approval before commands and file writes, and are caught up once if ZhiFox was closed. See
+[Scheduled and recurring tasks](#scheduled-and-recurring-tasks).
 
 ### What does it cost to run?
 
