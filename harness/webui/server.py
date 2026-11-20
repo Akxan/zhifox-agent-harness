@@ -138,6 +138,7 @@ class WebApp:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
         cost, unpriced = estimate(agent.usage_by_model, settings.prices)
+        price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
         self.ui.publish(
             "state",
@@ -161,7 +162,8 @@ class WebApp:
                 }
                 for provider in PROVIDERS.values()
             ],
-            price=price_of(settings.model, settings.prices),
+            price=price,
+            price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
             todos=[
                 {"id": item["id"], "title": item["title"], "due": item["due"]}
                 for item in self.app.todos.items("pending")

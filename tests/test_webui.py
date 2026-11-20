@@ -715,16 +715,20 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     assert [tool["name"] for tool in state["tools"]] == [
         "todo_add", "todo_list", "todo_update", "todo_delete", "memory", "str_replace_based_edit_tool", "run_command",
     ]  # 没有联网搜索
-    # Claude 的那一轮有内置价格；DeepSeek 没有价格，所以被列为"没有计入"
-    assert state["unpriced"] == ["deepseek-flash"] and state["price"] is None
+    # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
+    assert state["unpriced"] == []
+    assert state["price"] == {"input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0.3}
+    assert state["price_offpeak"] == {"input": 0.15, "output": 0.6, "cache_read": 0.003, "cache_write": 0.15}
     claude_cost = (100 * 4 + 40 * 0.2 + 10 * 5 + 20 * 20) / 1_000_000
-    assert state["cost"] == round(claude_cost, 4)
+    # 这一轮是 100 个输入 token、20 个输出 token。落在高峰还是闲时，要看测试机器的时区，两种都对
+    peak, offpeak = (100 * 0.3 + 20 * 1.2) / 1_000_000, (100 * 0.15 + 20 * 0.6) / 1_000_000
+    assert state["cost"] in (round(claude_cost + peak, 4), round(claude_cost + offpeak, 4))
 
-    # 填上价格之后就计入了：这一轮是 100 个输入 token、20 个输出 token
-    assert s.browser.post("/api/price", {"model": "deepseek-flash", "price": {"input": 0.3, "output": 1.2}})[0] == 200
+    # 自己填了价格，全天都按它算（不再分时段）
+    assert s.browser.post("/api/price", {"model": "deepseek-flash", "price": {"input": 3, "output": 12}})[0] == 200
     state = s.browser.wait_for("state")
-    assert state["unpriced"] == [] and state["price"]["input"] == 0.3
-    assert state["cost"] == round(claude_cost + (100 * 0.3 + 20 * 1.2) / 1_000_000, 4)
+    assert state["unpriced"] == [] and state["price"]["input"] == 3 and state["price_offpeak"] is None
+    assert state["cost"] == round(claude_cost + (100 * 3 + 20 * 12) / 1_000_000, 4)
     assert s.browser.post("/api/price", {"model": "deepseek-flash", "price": {"input": -1, "output": 1}})[0] == 400
     assert s.browser.post("/api/price", {"model": "deepseek-flash", "price": {"input": 1}})[0] == 400
 

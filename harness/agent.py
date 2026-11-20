@@ -25,6 +25,7 @@ from .attachments import Attachment
 from .config import Config
 from .i18n import t
 from .permissions import Permissions
+from .pricing import usage_key
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
@@ -121,7 +122,8 @@ class Agent:
 
     def _record(self, usage: Usage) -> None:
         self.usage.add(usage)
-        self.usage_by_model.setdefault(self.backend.model, Usage()).add(usage)
+        # 按模型分开记。价格分时段的模型（DeepSeek），闲时的用量另记一份，算钱时按闲时价（见 pricing.usage_key）
+        self.usage_by_model.setdefault(usage_key(self.backend.model, self.clock()), Usage()).add(usage)
         if self.on_usage is not None:
             self.on_usage()
 

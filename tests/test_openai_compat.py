@@ -128,7 +128,8 @@ def test_usage_counts_cached_tokens_in_both_styles(start):
     assert (usage.requests, usage.input_tokens, usage.cache_read_tokens) == (2, 400 + 500, 600 + 1500)
     assert (usage.output_tokens, usage.cache_write_tokens, usage.searches) == (120, 0, 0)
     assert usage.context_tokens == 2070
-    assert list(h.agent.usage_by_model) == ["deepseek-flash"]
+    # DeepSeek 分时段计价，闲时的用量记在"@offpeak"下面。测试的时钟是本地时间，是不是闲时要看机器在哪个时区，所以只比模型名
+    assert [key.removesuffix("@offpeak") for key in h.agent.usage_by_model] == ["deepseek-flash"]
 
 
 def test_truncated_and_filtered_replies(start):
@@ -207,7 +208,7 @@ def test_switching_models_and_providers(start):
     # 选择被保存了下来；用量按模型分开记
     saved = json.loads(h.config.settings_file.read_text(encoding="utf-8"))
     assert (saved["provider"], saved["model"]) == ("gemini", "gemini-4-neon")
-    assert sorted(h.agent.usage_by_model) == ["deepseek-flash", "deepseek-v4-pro", "gemini-4-neon"]
+    assert sorted(key.removesuffix("@offpeak") for key in h.agent.usage_by_model) == ["deepseek-flash", "deepseek-v4-pro", "gemini-4-neon"]
     assert h.agent.usage.requests == 3
 
 

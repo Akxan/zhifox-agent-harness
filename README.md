@@ -495,9 +495,11 @@ This starts a small server on your computer and opens the chat page in your brow
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, and enter model prices.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
-  kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, memory, and the tools the model can
-  use. It updates after every model call.
-- **Memory** (in the info panel). Every file the assistant keeps in its long-term memory (`data/memories/`), with its
+  kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
+  updates after every model call.
+- **Memory** (fixed at the top of the sidebar, with a count; it opens a two-pane window: the list on the left, searchable
+  by name, and the selected memory on the right; on a narrow screen it shows one side at a time). Every file the
+  assistant keeps in its long-term memory (`data/memories/`), with its
   folder, size and when it last changed. Click one to read it. Hover over a row (or move to it with Tab) for the same
   three buttons as a conversation row: **Show in Finder** selects that file in your file manager, the **pencil** opens
   it for editing (change its name and its text, ⌘Enter / Ctrl+Enter saves, Esc stops editing and warns you first if
@@ -649,15 +651,24 @@ What the program does to keep cost under control:
   history, attachments are resent on every turn, and caching is what keeps that cheap.
 - You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
-Built-in prices cover only these Claude models (public prices at the time of writing, in USD per million tokens):
+Built-in prices, checked against the official pricing pages on 2026-11-20 (USD per million tokens):
 
-| Model | Input | Cached input | Output |
-|---|---|---|---|
-| `claude-opus-5-5` | 4 | 0.2 | 20 |
-| `claude-sonnet-5-5` | 2 | 0.1 | 10 |
-| `claude-fable-5-2` | 8 | 0.2 | 40 |
+| Model | Input | Cache write | Cache hit | Output |
+|---|---|---|---|---|
+| `claude-opus-5-5` | 4 | 5 | 0.2 | 20 |
+| `claude-sonnet-5-5` | 2 | 2.5 | 0.1 | 10 |
+| `claude-fable-5-2` | 8 | 10 | 0.2 | 40 |
+| `deepseek-flash` (peak / off-peak) | 0.30 / 0.15 | none | 0.006 / 0.003 | 1.20 / 0.60 |
+| `deepseek-v4-pro` (peak / off-peak) | 1.32 / 0.66 | none | 0.044 / 0.022 | 3.96 / 1.98 |
 
-For other models, enter prices yourself in Settings. Models without a price show token counts only, and the page notes
+Claude's cache write price is for the 5-minute cache, which is the one ZhiFox uses; web search is another $10 per 1,000
+searches. DeepSeek charges by time of day: peak hours are weekdays 9:00–12:00 and 14:00–18:00 Beijing time, and every
+other hour, weekends included, costs half. ZhiFox checks the time on every model call and records off-peak usage
+separately, so a conversation that runs across the boundary is priced correctly. DeepSeek also treats Chinese public
+holidays as off-peak; those dates aren't built in, so a weekday holiday is estimated at the peak price (a little high,
+never low). The old name `deepseek-v4-flash` is billed as `deepseek-flash`.
+
+For other models, enter prices yourself in Settings (a price you enter applies all day). Models without a price show token counts only, and the page notes
 that they aren't included in the estimate.
 
 ## Configuration
