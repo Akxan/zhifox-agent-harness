@@ -101,7 +101,14 @@ class ConversationStore:
     def new(self, provider: str, model: str) -> Conversation:
         """开一段新会话。它先只存在于内存里，等第一轮对话完成后才写到磁盘。"""
         now = time.time()
-        conversation_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + "-" + secrets.token_hex(3)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+        # 编号是时间（精确到秒）加一段随机数。同一秒里开的两段会话，随机数撞上的机会极小，
+        # 可一旦撞上，后存的那段会把先存的文件整个盖掉。所以还是查一下：用过了就再抽一个。
+        # 查的是磁盘上的文件，不用为此把所有会话扫一遍（终端界面从不扫，见 _load）。
+        while True:
+            conversation_id = stamp + "-" + secrets.token_hex(3)
+            if conversation_id not in self._summaries and not self._path(conversation_id).exists():
+                break
         return Conversation(id=conversation_id, provider=provider, model=model, created_at=now, updated_at=now)
 
     def summaries(self) -> list[dict]:

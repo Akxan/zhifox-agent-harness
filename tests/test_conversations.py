@@ -81,6 +81,20 @@ def test_a_new_conversation_exists_only_in_memory(store):
         store.load(conversation.id)
 
 
+def test_a_new_conversation_never_takes_the_number_of_a_saved_one(store, monkeypatch):
+    # 编号是"时间（精确到秒）+ 随机数"。同一秒里随机数万一撞上，后存的会把先存的文件整个盖掉
+    monkeypatch.setattr("harness.conversations.time.time", lambda: 1_795_000_000.0)  # 两次都在同一秒
+    draws = iter(["aaaaaa", "aaaaaa", "bbbbbb", "aaaaaa", "cccccc"])
+    monkeypatch.setattr("harness.conversations.secrets.token_hex", lambda size: next(draws))
+    first = put(store, "先存的")
+    second = store.new("anthropic", "claude-opus-5-5")
+    assert first.id.endswith("-aaaaaa") and second.id.endswith("-bbbbbb")  # 撞上了就再抽一个
+    # 还没扫过目录（比如刚启动），也认得出磁盘上已经有的文件
+    fresh = ConversationStore(store.directory)
+    assert fresh.new("anthropic", "claude-opus-5-5").id.endswith("-cccccc")
+    assert fresh.load(first.id).title == "先存的"
+
+
 def test_a_saved_conversation_loads_back_unchanged(store):
     conversation = store.new("deepseek", "deepseek-flash")
     conversation.title = "暗号"
