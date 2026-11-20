@@ -14,6 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # 这个助手给人看的名字。代码里的包名和命令仍然叫 harness（它讲的就是 harness 是怎么回事），
 # 只有显示给用户的地方用这个名字：终端的标题、网页、系统提示词。
 APP_NAME = "智狐"
+# 英文名。界面上在任何语言下都写"智狐"；用中文以外的语言回答时，助手用这个名字称呼自己（见 prompt.py）。
+# 不定一个的话，模型会自己把"智狐"音译成 Zhihu，正好和另一个知名网站同名
+APP_NAME_LATIN = "ZhiFox"
 
 # 下面三个开关只对 Claude 生效，用的是 Anthropic API 的 beta 功能。
 # 如果你的账号不支持、每个请求都报 400，把对应的开关改成 False 即可。

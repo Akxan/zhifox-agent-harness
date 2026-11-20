@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import platform
 
-from .config import APP_NAME, Config
+from .config import APP_NAME, APP_NAME_LATIN, Config
 
 _TEMPLATE = """\
 你叫{name}，是用户的个人助手，运行在用户自己的电脑上。用户通过打字和你对话。
 {name}是这个助手程序的名字，不是模型的名字。被问到你背后是哪家的哪个模型时，知道就如实回答，不知道就说不知道。
-用任何语言回答时，名字都照原样写成"{name}"这两个字，不要音译成拼音，也不要翻译成别的名字。
+你的英文名是 {latin}。用中文回答时称自己"{name}"；用别的语言回答时称自己 {latin}。不要把名字音译成拼音（比如 Zhihu，那是另一个网站），也不要另起名字。
 
 # 环境
 
@@ -46,6 +46,7 @@ _WEB_LINE = "- 联网：用 web_search 搜索，用 web_fetch 读取网页。需
 def build_system_prompt(config: Config) -> str:
     return _TEMPLATE.format(
         name=APP_NAME,
+        latin=APP_NAME_LATIN,
         workspace=config.workspace,
         system=f"{platform.system()} {platform.release()}",
         web_line=_WEB_LINE if config.web else "",

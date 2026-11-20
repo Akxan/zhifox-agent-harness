@@ -75,8 +75,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 每次推送都会由 GitHub Actions 在 Ubuntu 和 macOS 上跑测试（`.github/workflows/tests.yml`），推送后看一眼结果。
 
 **给人看的名字是"智狐"，英文名 ZhiFox，标志是一只小狐狸**（都是用户定的）。GitHub 仓库名是
-`Akxan/zhifox-agent-harness`（2026-11-20 用户选定改名）。界面里在任何语言下都写"智狐"。名字只有一处定义：`harness/config.py` 里的
-`APP_NAME`，页面里另有几处写死的文字和内嵌的 SVG 标志（`#i-fox`）。包名、命令（`uv run harness`）、
+`Akxan/zhifox-agent-harness`（2026-11-20 用户选定改名）。界面里在任何语言下都写"智狐"；助手用中文以外的语言回答时称自己 ZhiFox
+（写在系统提示词里）。名字只有一处定义：`harness/config.py` 里的 `APP_NAME` 和 `APP_NAME_LATIN`，页面里另有几处写死的文字和内嵌的 SVG 标志（`#i-fox`）。包名、命令（`uv run harness`）、
 请求头和浏览器里保存设置用的键名仍然叫 harness，不要跟着改。
 
 | 位置 | 内容 |
