@@ -404,9 +404,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .send .i-stop { width: 14px; height: 14px; fill: currentColor; stroke: none; opacity: 0; transform: scale(.3) rotate(-90deg); }
 .send.stop .i-send { opacity: 0; transform: scale(.3) rotate(90deg); }
 .send.stop .i-stop { opacity: 1; transform: none; }
-.foot { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px 0; font-size: 12px; color: var(--ink-3); }
-.foot button { padding: 0; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
-.foot button:hover { color: var(--ink); }
+.foot { display: flex; align-items: center; gap: 12px; padding: 8px 10px 0; font-size: 12px; color: var(--ink-3); }
+.foot .keys { margin-right: auto; }
+#foot-cost { margin-left: auto; padding: 0; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
+#foot-cost:hover { color: var(--ink); }
+/* "要不要先问你"的开关。放开得越多，颜色越醒目，一眼能看出现在是哪一档 */
+.approval { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; transition: transform .15s var(--ease); }
+.approval:hover { border-color: var(--ink-3); }
+.approval:active { transform: scale(.96); }
+.approval .icon { width: 13px; height: 13px; }
+.approval.edits { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+.approval.all { color: #fff; background: var(--danger); border-color: transparent; }
+.auto-tag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; }
+.confirm .link { margin-left: auto; padding: 0; font-size: 12.5px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; }
+.confirm .link:hover { color: var(--ink); }
 .to-bottom { position: absolute; left: 50%; top: -48px; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; margin-left: -17px; padding: 0; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 50%; box-shadow: var(--shadow-1); opacity: 0; transform: translateY(8px) scale(.9); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
 .to-bottom.show { opacity: 1; transform: none; pointer-events: auto; }
 .main.fresh .to-bottom { display: none; }
@@ -475,6 +486,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .key-head a .icon { width: 12px; height: 12px; }
 .tag { padding: 1px 9px; font-size: 11.5px; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
 .tag.set { color: var(--ok); background: var(--ok-soft); }
+/* 选"要不要先问你"的小面板：三个选项，一个一行 */
+.approval-dialog { width: min(540px, calc(100vw - 32px)); }
+.options { display: grid; gap: 8px; }
+.option { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 12px 44px 13px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 14px; transition: transform .15s var(--ease); }
+.option:hover { border-color: var(--ink-3); }
+.option:active { transform: scale(.99); }
+.option b { font-size: 14px; font-weight: 600; }
+.option span { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
+.option .icon { position: absolute; right: 14px; top: 14px; color: var(--accent); opacity: 0; transform: scale(.5); transition: opacity .15s ease, transform .3s var(--spring); }
+.option.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.option.current .icon { opacity: 1; transform: none; }
+.warning { margin-top: 12px; padding: 12px 14px 14px; font-size: 13px; line-height: 1.65; background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 14px; animation: reveal .28s var(--ease); }
+.warning p { margin: 0 0 12px; }
 .settings-message { flex: none; min-height: 46px; padding: 12px 22px 14px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); }
 .settings-message.bad { color: var(--err); }
 .settings-message.good { color: var(--ok); }
@@ -498,7 +522,6 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   body:not(.nav-closed) .scrim { display: block; }
   .column, .hero, .composer, .starters { padding-left: 14px; padding-right: 14px; }
   .foot .keys { display: none; }
-  .foot { justify-content: flex-end; }
 }
 
 /* ---- 动画 ---------------------------------------------------------------- */
@@ -659,6 +682,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
             </button>
           </div>
           <div class="foot">
+            <button id="approval" class="approval" type="button" title="助手动手之前要不要先问你" hidden><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="approval-label">每次确认</span></button>
             <span class="keys">Enter 发送 · Shift + Enter 换行</span>
             <button id="foot-cost" type="button" title="查看用量明细">本次运行估算 $0.0000</button>
           </div>
@@ -743,6 +767,28 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <div id="settings-message" class="settings-message" role="status"></div>
 </dialog>
 
+<dialog id="approval-dialog" class="settings approval-dialog" aria-labelledby="approval-title">
+  <div class="settings-head">
+    <h2 id="approval-title">助手动手之前，要不要先问你</h2>
+    <button id="close-approval" class="icon-button" type="button" title="关闭" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body">
+    <div id="approval-options" class="options">
+      <button class="option" type="button" data-mode="ask"><b>每次确认</b><span>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      <button class="option" type="button" data-mode="edits"><b>自动允许改文件</b><span>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      <button class="option" type="button" data-mode="all"><b>全部自动允许</b><span>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+    </div>
+    <div id="approval-warning" class="warning" hidden>
+      <p><b>开启之前请知道：</b>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件。只在你信任手头的任务、并且会盯着它的时候开启。</p>
+      <div class="row">
+        <button id="approval-confirm" class="button danger" type="button">我明白风险，开启</button>
+        <button id="approval-cancel" class="button" type="button">取消</button>
+      </div>
+    </div>
+    <p class="hint">不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
+  </div>
+</dialog>
+
 <script nonce="__NONCE__">
 // 这个页面做的事情很少：
 //   1. 连上服务器的事件流（/events），每收到一个事件，就在页面上画出对应的东西；
@@ -769,6 +815,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   let busy = false;          // 是否有一轮对话正在进行
   let stopping = false;      // 用户点了"停止"，还在等这一轮收尾
   let sending = false;       // 发送消息的请求还没有回来（防止连按两次回车发出两条）
+  let sentAt = 0;            // 上一条消息是什么时候发出去的（防止双击发送按钮时第二下变成"停止"）
   let state = null;          // 助手程序发来的最新状态：当前模型、各家的情况、用量……
   let block = null;          // 正在逐字输出的那一段：{kind, box, holder, label, node, text}
   let toolCard = null;       // 最近一次工具调用的卡片，等它的结果来填
@@ -930,6 +977,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     lastTop = top;
   }, { passive: true });
 
+  // 有一种"位置变小"不是用户翻的：内容自己变矮了（思考块折叠、卡片收起、窗口变宽），浏览器把滚动位置
+  // 收了回来。这时把上面用来比较的基准一起收回来，否则紧跟着来的新内容会被当成"用户往上翻了"而不再跟。
+  // ResizeObserver 在浏览器排完版之后、下一次滚动事件之前通知我们，正好赶在前面。
+  if ('ResizeObserver' in window) {
+    const settled = new ResizeObserver(() => {
+      if (stick) lastTop = Math.min(lastTop, chat.scrollHeight - chat.clientHeight);
+    });
+    settled.observe(log);
+    settled.observe(chat);
+  }
+
   toBottom.addEventListener('click', () => {
     setStick(true);
     chat.scrollTo({ top: chat.scrollHeight, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
@@ -1088,6 +1146,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       // 再滚动对话区，把命中的地方放在靠上三分之一处。一条回复可能比屏幕还长，所以对的是那几个字，不是整块
       const spot = (range || node).getBoundingClientRect(), view = chat.getBoundingClientRect();
       chat.scrollTop += spot.top - view.top - view.height / 3;
+      // 这段会话可能不满一屏，或者命中就在最后：那就还是"看着最新内容"，不用亮出"回到最新"的按钮
+      setStick(chat.scrollHeight - chat.scrollTop - chat.clientHeight < 4);
       // 把那几个字标出来。用的是浏览器的"自定义高亮"：只登记一个范围，不往页面里加标签
       if (range && window.Highlight && window.CSS && CSS.highlights) {
         CSS.highlights.set('found', new Highlight(range));
@@ -1214,6 +1274,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       renderUsage(event);
       renderTools(event.tools);
       if (settings.open) renderSettings();
+      renderApproval(event.approval);
 
       if (replaying) {  // 重放的旧内容到这里就画完了
         replaying = false;
@@ -1260,7 +1321,13 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       details.appendChild(el('div', 'label', '参数'));
       details.appendChild(el('pre', null, JSON.stringify(event.input, null, 2)));
       add(card);
-      toolCard = { card, status, outcome, details };
+      toolCard = { card, status, outcome, details, summary };
+    },
+
+    // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出
+    auto_allowed() {
+      if (!toolCard || toolCard.summary.querySelector('.auto-tag')) return;
+      toolCard.summary.insertBefore(el('span', 'auto-tag', '自动允许'), toolCard.summary.lastChild);
     },
 
     tool_result(event) {
@@ -1286,6 +1353,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       reason.type = 'text';
       reason.placeholder = '拒绝时可以告诉助手原因（可选）';
       reason.setAttribute('aria-label', '拒绝的原因');
+      if (!$('approval').hidden) {  // 助手程序支持"自动允许"时，在这里放一个直达的入口
+        const fewer = actions.appendChild(el('button', 'link', '不想每次都问？'));
+        fewer.type = 'button';
+        fewer.addEventListener('click', openApproval);
+      }
 
       const answer = async (allowed) => {
         allow.disabled = deny.disabled = true;
@@ -1337,6 +1409,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const sent = await post('/api/message', { text });
     sending = false;
     if (!sent) return;
+    sentAt = performance.now();
     input.value = '';
     resizeInput();
     refreshStatus();
@@ -1347,6 +1420,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('form').addEventListener('submit', (submit) => {
     submit.preventDefault();
     if (!busy) { sendMessage(); return; }
+    // 发送和停止是同一个按钮。双击发送时，第二下会落在刚变出来的"停止"上：刚发出的半秒内不算数
+    if (performance.now() - sentAt < 500) return;
     stopping = true;
     refreshStatus();
     post('/api/stop');
@@ -1363,6 +1438,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function startNew() {
     if (busy) { toast(BUSY_HINT); return; }
     post('/api/new');
+    if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，点完就收起来
     input.focus();
   }
   newButton.addEventListener('click', startNew);
@@ -1524,7 +1600,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       pill.classList.remove('jump');
       return;
     }
-    const sudden = jump || !pill.classList.contains('on') || !isLive();
+    const sudden = jump || !pill.classList.contains('on') || !synced;  // 刚连上、还在补发旧内容时直接到位；之后换会话都滑过去
     if (sudden) pill.classList.add('jump');
     pill.style.transform = 'translateY(' + active.offsetTop + 'px)';
     pill.style.height = active.offsetHeight + 'px';  // 搜索结果那几行带着摘录，比平时高
@@ -1791,6 +1867,53 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     $('legend-remote').hidden = tools.every((tool) => tool.local);
   }
 
+  // ---- 要不要先问你 --------------------------------------------------------
+  // 助手改文件、执行命令之前默认每次都问。这里可以放开一部分或者全部。
+  // 现在是哪一档由助手程序说了算（它在状态里告诉页面），页面只负责显示和提出修改。
+
+  const APPROVAL = { ask: '每次确认', edits: '自动允许改文件', all: '全部自动允许' };
+  const approvalDialog = $('approval-dialog');
+  let approval = 'ask';
+
+  function renderApproval(mode) {
+    const button = $('approval');
+    button.hidden = !(mode in APPROVAL);  // 助手程序是旧版本、没有这个功能时，不显示这个开关
+    if (button.hidden) return;
+    approval = mode;
+    button.className = 'approval ' + mode;
+    $('approval-label').textContent = APPROVAL[mode];
+    for (const option of document.querySelectorAll('#approval-options .option')) {
+      option.classList.toggle('current', option.dataset.mode === mode);
+      option.setAttribute('aria-pressed', String(option.dataset.mode === mode));
+    }
+  }
+
+  function openApproval() {
+    $('approval-warning').hidden = true;
+    approvalDialog.showModal();
+  }
+
+  async function setApproval(mode) {
+    const reply = await call('/api/approval', { mode });
+    if (!reply.ok) { toast(reply.error); return; }
+    approvalDialog.close();
+    toast(mode === 'ask' ? '已恢复为每次确认。' : '已开启：' + APPROVAL[mode] + '。重启程序后会恢复为每次确认。');
+  }
+
+  $('approval').addEventListener('click', openApproval);
+  $('close-approval').addEventListener('click', () => approvalDialog.close());
+  for (const option of document.querySelectorAll('#approval-options .option')) {
+    option.addEventListener('click', () => {
+      const mode = option.dataset.mode;
+      if (mode === approval) { approvalDialog.close(); return; }
+      // 全部放开之前多一步：把风险说清楚，要再点一次才生效
+      if (mode === 'all') { $('approval-warning').hidden = false; $('approval-confirm').focus(); return; }
+      setApproval(mode);
+    });
+  }
+  $('approval-confirm').addEventListener('click', () => setApproval('all'));
+  $('approval-cancel').addEventListener('click', () => { $('approval-warning').hidden = true; });
+
   // ---- 设置面板 ------------------------------------------------------------
 
   let settingsDrawn = '';
@@ -1885,10 +2008,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         say(result.ok ? provider.label + ' 的模型列表已更新。' : result.error, result.ok ? 'good' : 'bad');
       });
       // 删除密钥要点两下：第一下只是让按钮变成"确认删除"，过几秒不点就恢复原样
-      let armed = false;
+      let armed = false, armedAt = 0;
       remove.addEventListener('click', async () => {
+        if (armed && performance.now() - armedAt < 500) return;  // 双击的第二下不算确认
         if (!armed) {
           armed = true;
+          armedAt = performance.now();
           remove.textContent = '确认删除';
           remove.classList.add('danger');
           setTimeout(() => { armed = false; remove.textContent = '删除'; remove.classList.remove('danger'); }, 4000);
@@ -1951,9 +2076,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
   // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-  let pressedOutside = false;
-  settings.addEventListener('mousedown', (press) => { pressedOutside = press.target === settings; });
-  settings.addEventListener('click', (click) => { if (click.target === settings && pressedOutside) settings.close(); });
+  for (const dialog of [settings, approvalDialog]) {
+    let pressedOutside = false;
+    dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
+    dialog.addEventListener('click', (click) => { if (click.target === dialog && pressedOutside) dialog.close(); });
+  }
   pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
   $('apply-model').addEventListener('click', async () => {
     if (!pickModel.value) return;
@@ -1964,13 +2091,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // ---- 键盘 ----------------------------------------------------------------
 
   document.addEventListener('keydown', (key) => {
-    if ((key.metaKey || key.ctrlKey) && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
+    const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
+    if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
       key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
-      if (settings.open) return;
+      if (settings.open || approvalDialog.open) return;
       setNav(true, false);
       search.focus();
       search.select();
-    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open) {
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) setNav(false, false);
       if (overlaySide.matches && body.classList.contains('side-open')) setSide(false, false);
     }
