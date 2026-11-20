@@ -274,6 +274,9 @@ def test_page_is_served_with_a_strict_content_policy(serve):
     assert "unsafe-inline" not in policy
     # 页面不引用任何外部资源
     assert 'src="http' not in page["text"] and 'href="http' not in page["text"]
+    # 回复的 Markdown 渲染器填进了页面，和主脚本带着同一个 nonce
+    assert "__MARKDOWN__" not in page["text"]
+    assert f'<script nonce="{nonce}">// 回复里的 Markdown' in page["text"]
 
 
 def test_bad_requests_are_rejected(serve):

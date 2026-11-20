@@ -9,7 +9,7 @@
   - 数据写在临时目录里，不碰项目的 `data/`；密钥也是编造的，不读也不写真正的 `.env`。
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
-  - 页面每次刷新都重新从磁盘读，改完 index.html 刷新一下就能看到，不用重启。
+  - 页面每次刷新都重新从磁盘读，改完 index.html（或 markdown.js）刷新一下就能看到，不用重启。
   - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
@@ -20,7 +20,8 @@
     "立即运行"会用掉下面预设回复里的下一条。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
-联网搜索、一次出错的工具调用；之后是几条凑数的回复。发什么消息都行，回复只看顺序。
+联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）；
+之后是几条凑数的回复。发什么消息都行，回复只看顺序。
 """
 
 from __future__ import annotations
@@ -131,6 +132,53 @@ GREETING = (
     "4. 命令：在终端里运行命令（每次都会先问你）。\n\n"
     "想了解原理的话，可以看看 https://example.com/agent-loop 这篇说明。"
 )
+# 一段用齐了各种 Markdown 写法的回复：看渲染、逐字输出、搜索跳转、窄屏下的表格和代码块都用它
+MARKDOWN_TOUR = """## 智狐能画的 Markdown
+
+回复现在按 **Markdown** 显示：*斜体*、~~删除线~~、`行内代码`，还有 [链接](https://example.com/markdown)。
+单个换行就是换行，
+不用空一行。
+
+### 列表
+
+1. 第一步：安装依赖
+2. 第二步：启动
+   - 终端界面
+   - 网页界面
+     - [x] 浅色
+     - [x] 深色
+     - [ ] 窄屏
+3. 第三步：开始对话
+
+> **提示：**引用里也能用粗体和 `代码`。
+> 第二行接着写。
+
+### 表格
+
+| 功能 | 状态 | 说明 |
+|:-----|:----:|-----:|
+| 标题和段落 | ✅ | 衬线字体的标题 |
+| 代码块 | ✅ | 语言标签、复制按钮、简单着色 |
+| 表格 | ✅ | 太宽时在框里横向滚动，这一格的文字故意写得很长很长，好看看窄屏上的样子 |
+| 图片 | ⚠️ | 不加载，只显示说明和网址：![一只小狐狸](https://example.com/fox.png) |
+
+### 代码
+
+```python
+def greet(name: str) -> str:
+    \"\"\"打个招呼（这一行是字符串）\"\"\"
+    count = 42  # 注释是灰色的
+    return f"你好，{name}！" * count
+```
+
+```bash
+uv run python tests/demo_web.py --port 8901  # 换一个端口
+```
+
+---
+
+不安全的链接只显示成文字：[点我](javascript:alert(1))；页面里的 <script>alert(1)</script> 也只是文字。
+"""
 WEB_SEARCH = [
     {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "agent harness 是什么"}},
     {
@@ -152,6 +200,7 @@ claude = SlowClaude(
         reply(*WEB_SEARCH, text("查到了两条资料：harness 是包在模型外面的那层程序。")),
         reply(tool_use("toolu_3", "todo_update", {"id": 99, "done": True}), stop_reason="tool_use"),
         reply(text("没有编号为 99 的待办，所以没有改动。")),
+        reply(thinking("用户想看看各种 Markdown 的样子。"), text(MARKDOWN_TOUR)),
         *(reply(text("（这是一条预设的回复，用来凑数。）" * 3)) for _ in range(8)),
     ]
 ).start()
@@ -235,7 +284,9 @@ send_page = server_module.Handler._send_page
 
 
 def send_fresh_page(self) -> None:
-    server_module.PAGE = (Path(server_module.__file__).parent / "index.html").read_text(encoding="utf-8")
+    folder = Path(server_module.__file__).parent
+    server_module.PAGE = (folder / "index.html").read_text(encoding="utf-8")
+    server_module.MARKDOWN = (folder / "markdown.js").read_text(encoding="utf-8")
     send_page(self)
 
 

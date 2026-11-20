@@ -299,11 +299,12 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 
 /* ---- 消息 ---------------------------------------------------------------- */
 .msg { position: relative; font-size: 15.5px; line-height: 1.75; }
-.msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-text { overflow-wrap: anywhere; }  /* 回复按 Markdown 画（见下面"回复里的 Markdown"一节） */
 .msg.user { align-self: flex-end; max-width: min(86%, 600px); padding: 10px 16px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bubble-ink); background: var(--bubble); border-radius: 20px 20px 6px 20px; transform-origin: 100% 100%; }
 .msg.user:not(:first-child) { margin-top: 12px; }
-/* 正在逐字输出时，文字末尾跟着一个呼吸的小光点 */
-.msg.streaming .msg-text::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 5px; vertical-align: 1px; border-radius: 50%; background: linear-gradient(135deg, var(--a2), var(--a3)); animation: breathe 1s ease-in-out infinite; }
+/* 正在逐字输出时，文字末尾跟着一个呼吸的小光点。它画在最后一段（或最后一个单元格、最后一行代码）的末尾，
+   那个元素由 markdown.js 标上 md-caret */
+.msg.streaming .md-caret::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 5px; vertical-align: 1px; border-radius: 50%; background: linear-gradient(135deg, var(--a2), var(--a3)); animation: breathe 1s ease-in-out infinite; }
 .msg-actions { display: flex; height: 26px; margin: 2px 0 -12px -6px; opacity: 0; transition: opacity .15s ease; }
 /* 从搜索结果打开会话时，命中的那一块背后亮一下，告诉你"在这儿" */
 .found { position: relative; }
@@ -379,6 +380,72 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .working.on .dots i:nth-child(2) { animation-delay: .15s; }
 .working.on .dots i:nth-child(3) { animation-delay: .3s; }
 .working.waiting .dots i { animation: none; }
+
+/* ---- 回复里的 Markdown ------------------------------------------------------
+   回复按 Markdown 画成标题、列表、表格、代码块（怎么解析、怎么建元素见 markdown.js），这里只管样子。
+   正文沿用消息的字号和行高；标题用和问候语一样的衬线字体；代码、表格、引用都是安静的灰色调，不和"极光"抢眼。
+   宽的代码和表格在自己的框里横向滚动，不把对话这一栏撑破。 */
+:root { --code-k: #6236d0; --code-s: #0b7350; --code-n: #a24a06; }  /* 代码着色：关键字、字符串、数字。在代码块的底色上对比度都在 5:1 以上 */
+:root[data-theme="dark"] { --code-k: #b7a8ff; --code-s: #5fd3a5; --code-n: #f3b061; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .75em; }
+.md h1, .md h2, .md h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em; }
+.md h1 { margin: 1.3em 0 .5em; font-size: 1.45em; line-height: 1.3; }
+.md h2 { margin: 1.25em 0 .45em; font-size: 1.24em; line-height: 1.38; }
+.md h3 { margin: 1.15em 0 .4em; font-size: 1.08em; line-height: 1.45; }
+.md h4, .md h5, .md h6 { margin: 1.05em 0 .35em; font-size: 1em; font-weight: 650; }
+.md h6 { color: var(--ink-2); }
+.md strong { font-weight: 650; }
+.md del { color: var(--ink-3); }
+.md a { text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.md a:hover { text-decoration-color: currentColor; }
+.md :not(pre) > code { padding: .1em .38em; font: .87em/1 var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; }
+.md ul, .md ol { margin: 0 0 .75em; padding-left: 1.6em; }
+.md li > p { margin: 0 0 .45em; }
+.md .md-tight > li > p { margin: 0; }
+.md .md-tight > li + li { margin-top: .12em; }
+.md li > ul, .md li > ol, .md li > blockquote, .md li > .md-code, .md li > .md-table { margin: .3em 0 .45em; }
+.md li::marker { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 任务列表：方框放在原来圆点的位置上，文字和别的项对齐。只显示，不能点 */
+.md .md-task { list-style: none; }
+.md .md-task input { appearance: none; display: inline-block; width: 15px; height: 15px; margin: 0 .5em 0 -1.5em; vertical-align: -2px; background: var(--surface) center / 11px no-repeat; border: 1.5px solid var(--line-3); border-radius: 5px; }
+.md .md-task input:checked { background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.3l2.4 2.3 4.6-5' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); border-color: var(--accent); }
+:root[data-theme="dark"] .md .md-task input:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.3l2.4 2.3 4.6-5' fill='none' stroke='%23121318' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.md blockquote { margin: 0 0 .75em; padding: .05em 0 .05em 1em; color: var(--ink-2); border-left: 2px solid var(--line-2); }
+.md hr { height: 1px; margin: 1.5em 0; background: var(--line-2); border: 0; }
+/* 代码块：上面一条写着语言和"复制"按钮，代码在下面，太宽就在框里横向滚动（不折行，缩进才看得清） */
+.md-code { margin: 1em 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.md-code-bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 14px; border-bottom: 1px solid var(--line); }
+.md-code-lang { flex: 1; min-width: 0; font: 500 11.5px/1 var(--mono); letter-spacing: .03em; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-code .md-copy { opacity: .72; transition: opacity .15s ease, transform .15s var(--ease); }
+.md-code:hover .md-copy, .md-code .md-copy:focus-visible { opacity: 1; }
+@media (hover: none) { .md-code .md-copy { opacity: 1; } }
+.md-code pre { padding: 12px 16px 14px; overflow-x: auto; font: 13px/1.65 var(--mono); white-space: pre; overflow-wrap: normal; tab-size: 4; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.md-code code { font: inherit; }
+.tk-k { color: var(--code-k); }
+.tk-s, .tk-add { color: var(--code-s); }
+.tk-n { color: var(--code-n); }
+.tk-c { color: var(--ink-3); }
+.tk-del { color: var(--err); }
+/* 表格：框跟着内容的宽度走，超过这一栏就在框里横向滚动。每格至少有五六个字宽，窄屏上中文不会被挤成一两个字一行 */
+.md-table { width: fit-content; max-width: 100%; margin: 1em 0; overflow-x: auto; overflow-wrap: normal; border: 1px solid var(--line); border-radius: 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.md-table table { border-collapse: collapse; font-size: 14px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { min-width: 6.5em; padding: 7px 14px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
+@media (max-width: 760px) { .md-table th, .md-table td { padding: 7px 10px; } }
+.md-table th { font-weight: 600; background: var(--sunken); }
+.md-table tbody tr > * { border-top: 1px solid var(--line); }
+.md-table th + th, .md-table td + td { border-left: 1px solid var(--line); }
+.md-table tbody tr:hover { background: var(--hover); }
+.md-table .md-center { text-align: center; }
+.md-table .md-right { text-align: right; }
+/* 图片不加载：一个虚线框里是图片的记号、说明文字和网址。网址安全的话整个框是链接，点开在新标签页里看 */
+.md-image { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0 10px 0 8px; vertical-align: bottom; font-size: .92em; color: var(--ink-2); text-decoration: none; background: var(--surface); border: 1px dashed var(--line-2); border-radius: 8px; }
+a.md-image:hover { color: var(--ink); border-color: var(--line-3); }
+.md-image .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.md-image-alt, .md-image-url { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-image-url { max-width: 24em; font: .88em var(--mono); color: var(--ink-3); }
+.md-plain { white-space: pre-wrap; }  /* 万一渲染出错，退回纯文字时保留换行 */
 
 /* ---- 空白页：问候语、输入框、建议都摆在页面中间 ---------------------------- */
 .main.fresh .viewport { flex: .8 0 auto; }  /* 问候区有多高就占多高，不能被压扁（否则顶上的标志会被裁掉） */
@@ -1253,6 +1320,8 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 5.5L4.5 12 11 18.5"/></symbol>
+  <!-- 回复里的图片：不加载，只画一个图片的记号，后面是说明文字和网址 -->
+  <symbol id="i-picture" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5L20 17.5M15.5 9.5v.01"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
 </svg>
@@ -1667,6 +1736,9 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 <!-- 翻译表：助手程序在发出页面时把它填进来（harness/i18n.py 是唯一的一份）。这是一段数据，不是脚本，不会被执行 -->
 <script type="application/json" id="i18n">__I18N__</script>
 
+<!-- 回复里的 Markdown 怎么画：harness/webui/markdown.js。助手程序发页面时把它原样填在这里，和下面的脚本用同一个 nonce -->
+<script nonce="__NONCE__">__MARKDOWN__</script>
+
 <script nonce="__NONCE__">
 // 这个页面做的事情很少：
 //   1. 连上服务器的事件流（/events），每收到一个事件，就在页面上画出对应的东西；
@@ -1809,30 +1881,6 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   function firstLine(text) {
     const line = text.trim().split('\n')[0] || '';
     return line.length > 120 ? line.slice(0, 119) + '…' : line;
-  }
-
-  // 把文字里的网址变成可以点击的链接。链接是用 DOM 接口一个个创建的，不拼接 HTML。
-  const URL_PATTERN = /https?:\/\/[^\s<>"'（）【】《》，。；！？、]+/g;
-  function linkify(node, text) {
-    const parts = document.createDocumentFragment();
-    let last = 0;
-    for (const match of text.matchAll(URL_PATTERN)) {
-      let end = match[0].length;  // 网址末尾的标点多半是句子的，不是网址的。从后往前数，不用正则
-      while (end > 0 && '.,;:!?)]}'.includes(match[0][end - 1])) end -= 1;
-      const url = match[0].slice(0, end);
-      let safe = false;
-      try { safe = ['http:', 'https:'].includes(new URL(url).protocol); } catch (_) { /* 不是合法网址 */ }
-      if (!safe) continue;
-      parts.appendChild(document.createTextNode(text.slice(last, match.index)));
-      const link = el('a', null, url);
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      parts.appendChild(link);
-      last = match.index + url.length;
-    }
-    parts.appendChild(document.createTextNode(text.slice(last)));
-    node.replaceChildren(parts);
   }
 
   // ---- 动效 ----------------------------------------------------------------
@@ -2055,12 +2103,17 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   // 附件的文件名也算"你说的话"（搜索按文件名找到的，要能跳到那一排附件上）
   const FOUND_IN = { user: '.msg.user, :scope > .msg-atts', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call, :scope > .notice.tool', result: '.call' };
   const squash = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');  // 比较时不管大小写、全角半角和空白
+  // 回复是按 Markdown 画出来的：服务器给的是原文，里面的 **、`、# 这些记号在页面上看不到。
+  // 原样对不上时，两边都去掉这些记号再比
+  const MARKUP = /[*_~`#>|\\]/g;
+  const bare = (text) => squash(text).replace(MARKUP, '');
+  const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');  // 在正则表达式里按原样匹配
 
   // 在一块内容里找到命中的那几个字，返回它们的位置（一个 Range）；找不到返回 null。
   // 服务器给的原文里，连续的空白被压成了一个空格，页面上一行工具调用又是几段文字拼起来的，
   // 所以词和词之间按"有没有空白都行"去对。
   function locate(node, find) {
-    const escaped = find.split(/\s+/).filter(Boolean).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const escaped = find.split(/\s+/).filter(Boolean).map(literal);
     if (!escaped.length) return null;
     const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
     const pieces = [];
@@ -2069,7 +2122,11 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       pieces.push([piece, text.length]);
       text += piece.data;
     }
-    const match = new RegExp(escaped.join('\\s*')).exec(text);
+    let match = new RegExp(escaped.join('\\s*')).exec(text);
+    if (!match) {  // 命中的原文里夹着 Markdown 的记号：去掉记号，字和字之间允许隔着空白或记号
+      const chars = [...find.replace(MARKUP, '').replace(/\s+/g, '')].map(literal);
+      if (chars.length) match = new RegExp(chars.join('[\\s*_~`#>|\\\\]*')).exec(text);
+    }
     if (!match) return null;
     const at = (index) => {  // 整段文字里的第 index 个字，落在哪个文本节点的第几个字
       let which = pieces.length - 1;
@@ -2086,10 +2143,12 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 
   function reveal(target) {
     const find = (target.find || '').trim();
-    const wanted = squash(find);
+    const wanted = squash(find), loose = bare(find);
     if (!wanted || !FOUND_IN[target.kind]) return;
     for (const node of log.querySelectorAll(':scope > ' + FOUND_IN[target.kind])) {
-      if (!squash(node.textContent).includes(wanted)) continue;
+      // 回复还可以按原文对：命中的可能是页面上不显示的部分（比如链接的网址），那就只滚到这条回复
+      const record = replies.get(node), shown = node.textContent;
+      if (!squash(shown).includes(wanted) && !(record && ((loose && bare(shown).includes(loose)) || squash(record.text).includes(wanted)))) continue;
       if (node.tagName === 'DETAILS') node.open = true;  // 命中在折叠起来的内容里（思考过程、工具结果）：展开它
       setStick(false);  // 要停在命中的地方，不能被"跟着最新内容"拉回底部
       const range = locate(node, find);
@@ -2099,6 +2158,11 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
         if (inner && inner.scrollHeight > inner.clientHeight) {
           inner.scrollTop += range.getBoundingClientRect().top - inner.getBoundingClientRect().top - inner.clientHeight / 3;
         }
+        // 回复里的代码块和表格太宽时在自己的框里横向滚动：也滚到命中的那几个字
+        const wide = range.startContainer.parentElement.closest('.md-code pre, .md-table');
+        if (wide && wide.scrollWidth > wide.clientWidth) {
+          wide.scrollLeft += range.getBoundingClientRect().left - wide.getBoundingClientRect().left - wide.clientWidth / 3;
+        }
       }
       // 再滚动对话区，把命中的地方放在靠上三分之一处。一条回复可能比屏幕还长，所以对的是那几个字，不是整块
       const spot = (range || node).getBoundingClientRect(), view = chat.getBoundingClientRect();
@@ -2106,10 +2170,13 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       // 这段会话可能不满一屏，或者命中就在最后：那就还是"看着最新内容"，不用亮出"回到最新"的按钮
       setStick(chat.scrollHeight - chat.scrollTop - chat.clientHeight < 4);
       // 把那几个字标出来。用的是浏览器的"自定义高亮"：只登记一个范围，不往页面里加标签
-      if (range && window.Highlight && window.CSS && CSS.highlights) {
-        CSS.highlights.set('found', new Highlight(range));
+      // 这次没有能标的字（比如命中的是回复里链接的网址，页面上看不到）：上一次标的那几个字也要收掉，不能留着误导人
+      if (window.Highlight && window.CSS && CSS.highlights) {
         clearTimeout(highlightTimer);
-        highlightTimer = setTimeout(() => CSS.highlights.delete('found'), 8000);
+        if (range) {
+          CSS.highlights.set('found', new Highlight(range));
+          highlightTimer = setTimeout(() => CSS.highlights.delete('found'), 8000);
+        } else CSS.highlights.delete('found');
       }
       node.classList.remove('found');
       void node.offsetWidth;  // 让浏览器先认下"没有这个类"，再加回去，动画才会重新播
@@ -2127,14 +2194,69 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     return node;
   }
 
+  // ---- 回复里的 Markdown ----------------------------------------------------
+  // 回复里的标题、列表、表格、代码块怎么解析、怎么建成元素，都在 markdown.js 里（服务器发页面时把它填在这个脚本
+  // 前面，它在 window.Markdown 上留下一个 createView）。这里只接上页面自己的几样东西：
+  //   · 图标和代码块右上角的"复制"按钮（按钮要用页面的 t()，换语言时跟着换）；
+  //   · 一帧最多画一次：模型一秒能吐几十小段，每段都重画一遍是白费力气。屏幕一帧只刷新一次，攒到下一帧一起画；
+  //   · 万一渲染出错（不该发生），退回到纯文字，回复不能因此看不见。
+  // 安全上的规矩不变：渲染器只用 createElement 和文字节点建元素，从不把模型的输出当作 HTML 解析。
+
+  const replies = new WeakMap();  // 回复的元素 → 它的记录（里面有 Markdown 原文）。搜索跳转时要对照原文
+
+  const markdownHooks = {
+    icon,
+    codeTools() {
+      const button = iconButton('copy', k('复制代码'));
+      button.classList.add('md-copy');
+      return button;
+    },
+  };
+
+  function markdownView(holder) {
+    try { return window.Markdown.createView(holder, markdownHooks); } catch (problem) { console.error(problem); return null; }
+  }
+
+  // 按现在攒到的文字画一次。final：这段回复已经完整了，没写完的代码块也按写完了画
+  function draw(record, final) {
+    if (record.view) {
+      try { record.view.update(record.text, final); return; } catch (problem) {
+        console.error(problem);
+        record.view = null;
+      }
+    }
+    record.holder.classList.add('md-plain');  // 纯文字的样子：保留换行
+    record.holder.textContent = record.text;
+  }
+
+  function drawSoon(record) {
+    if (record.queued) return;
+    record.queued = true;
+    requestAnimationFrame(() => {
+      record.queued = false;
+      if (block !== record) return;  // 这一段已经结束了，endBlock 里画过完整的样子
+      draw(record, false);
+      if (stick) chat.scrollTop = chat.scrollHeight;  // 刚画上去的内容可能让页面变高了：跟着最新内容的话，留在底部
+    });
+  }
+
+  // 代码块的"复制"：所有代码块共用一个监听，复制的是代码原文（不含语言名和按钮）
+  log.addEventListener('click', (event) => {
+    const button = event.target.closest ? event.target.closest('.md-copy') : null;
+    const code = button && button.closest('.md-code') && button.closest('.md-code').querySelector('pre code');
+    if (code) copy(code.textContent, button);
+  });
+
   // ---- 逐字输出的文字 ------------------------------------------------------
 
   async function copy(text, button) {
+    // 过一会儿换回原来的说明（回复上是"复制"，代码块上是"复制代码"）。第一次点的时候记下来，连点两下也不会记错
+    const label = button.dataset.copyLabel || (button.dataset.copyLabel = button.dataset.i18nTitle || k('复制'));
     try {
       await navigator.clipboard.writeText(text);
       button.replaceChildren(icon('check'));
       tattr(button, 'title', k('已复制'));
-      setTimeout(() => { button.replaceChildren(icon('copy')); tattr(button, 'title', k('复制')); }, 1400);
+      setTimeout(() => { button.replaceChildren(icon('copy')); tattr(button, 'title', label); }, 1400);
     } catch (_) {
       toast(t('复制失败：浏览器没有允许访问剪贴板。'));
     }
@@ -2164,12 +2286,17 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
         holder = box.appendChild(el('div', 'thinking-body'));
       } else {
         box = el('div', 'msg assistant');
-        holder = box.appendChild(el('div', 'msg-text'));
+        holder = box.appendChild(el('div', 'msg-text md'));
       }
-      // 整段文字放在同一个文本节点里，来一小段就接在后面，比每次新建一个节点省事
-      block = { kind, box, holder, label, node: holder.appendChild(document.createTextNode('')), text: '' };
-      if (kind === 'text') {
+      // 思考过程是纯文字：整段放在同一个文本节点里，来一小段就接在后面。
+      // 回复按 Markdown 画：先把字攒在 text 里，一帧最多画一次（见"回复里的 Markdown"一节的 drawSoon）
+      block = { kind, box, holder, label, text: '', node: null, view: null, queued: false };
+      if (kind === 'thinking') block.node = holder.appendChild(document.createTextNode(''));
+      else {
         const record = block;
+        record.view = markdownView(holder);
+        replies.set(box, record);
+        // 复制的是 Markdown 原文：贴到别处（编辑器、另一个聊天窗口）还能保留格式
         const button = box.appendChild(el('div', 'msg-actions')).appendChild(iconButton('copy', k('复制')));
         button.addEventListener('click', () => copy(record.text.trim(), button));
       }
@@ -2177,7 +2304,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       add(box);
     }
     block.text += text;
-    block.node.appendData(text);
+    if (block.view) drawSoon(block); else block.node.appendData(text);
     follow();
   }
 
@@ -2185,7 +2312,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     if (!block) return;
     setStreaming(false);
     if (block.kind === 'text') {
-      if (block.text.trim()) { linkify(block.holder, block.text); announce(block.text.trim()); }
+      if (block.text.trim()) { draw(block, true); announce(block.holder.textContent.trim()); }
       else block.box.remove();  // 模型有时只输出几个换行，不值得占一块地方
     }
     block = null;
