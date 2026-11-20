@@ -13,6 +13,7 @@ import anthropic
 from ..config import (
     ENABLE_COMPACTION,
     ENABLE_FALLBACKS,
+    ENABLE_THINKING_DROP,
     FALLBACK_CAPABLE_MODELS,
     Config,
 )
@@ -54,6 +55,12 @@ class AnthropicBackend:
     def reset(self) -> None:
         self._messages = []
 
+    def export(self) -> list:
+        return self._messages  # 历史里只有普通的字典和字符串，可以直接存成 JSON
+
+    def restore(self, messages: list) -> None:
+        self._messages = list(messages)
+
     def mark(self) -> int:
         return len(self._messages)
 
@@ -80,19 +87,25 @@ class AnthropicBackend:
     # ---- 调用模型 ---------------------------------------------------------
 
     def step(self, ui: StreamUI) -> Step:
+        betas = []
+        # 让模型自己决定何时思考、想多深；summarized 表示把思考的摘要也返回给我们显示
+        thinking: dict[str, Any] = {"type": "adaptive", "display": "summarized"}
+        if ENABLE_THINKING_DROP:
+            # 读回来的旧会话里，以前的思考内容可能和现在的对话对不上；让 API 丢掉它们而不是报错
+            betas.append("thinking-binding-controls-2026-08-01")
+            thinking["block_binding"] = {"prefix_mismatch_behavior": "drop_block"}
+
         request: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.config.max_tokens,
             "system": self.system,
             "tools": self.tool_specs,
             "messages": self._messages,
-            # 让模型自己决定何时思考、想多深；summarized 表示把思考的摘要也返回给我们显示
-            "thinking": {"type": "adaptive", "display": "summarized"},
+            "thinking": thinking,
             "output_config": {"effort": self.config.effort},
             # 自动缓存到对话的最后一块。循环里每一步都重发整个历史，有缓存便宜很多
             "cache_control": {"type": "ephemeral"},
         }
-        betas = []
         if ENABLE_FALLBACKS and self.model in FALLBACK_CAPABLE_MODELS:
             # 请求被安全分类器误拦时，由 API 自动换一个模型重试
             betas.append("server-side-fallback-2026-07-01")
@@ -114,12 +127,12 @@ class AnthropicBackend:
             return step
 
         # 把模型的回复原样追加进历史。不能只存文字：思考块、工具调用块下次都要原样发回去。
-        content = blocks_to_keep(response.content)
-        if content:
-            self._messages.append({"role": "assistant", "content": content})
+        kept = blocks_to_keep(response.content)
+        if kept:
+            self._messages.append({"role": "assistant", "content": [_plain(block) for block in kept]})
 
         step.truncated = response.stop_reason == "max_tokens"
-        step.tool_calls = [ToolCall(block.id, block.name, block.input) for block in content if block.type == "tool_use"]
+        step.tool_calls = [ToolCall(block.id, block.name, block.input) for block in kept if block.type == "tool_use"]
         if response.stop_reason == "pause_turn":
             step.status = "paused"
         elif step.tool_calls:
@@ -161,6 +174,17 @@ class AnthropicBackend:
                 notice = block_notice(block)
                 if notice is not None:
                     ui.notice(*notice)
+
+
+def _plain(block: Any) -> dict:
+    """把 SDK 的内容块对象变成普通的字典，内容和 SDK 把它发回 API 时用的完全一样。
+
+    历史里只放普通字典有两个好处：可以直接存成 JSON 文件；读回来之后发给 API 的内容
+    和当初一字不差（对话历史必须保持原样，原因见 AnthropicBackend.__init__ 里的说明）。
+    """
+    data = block.to_dict(mode="json")
+    data.pop("parsed_output", None)  # SDK 自己加的字段，不属于 API 的内容
+    return data
 
 
 def _usage(response: Any) -> Usage:

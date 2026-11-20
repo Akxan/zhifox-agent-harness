@@ -45,6 +45,12 @@ class OpenAICompatBackend:
     def reset(self) -> None:
         self._messages = [self._system]
 
+    def export(self) -> list:
+        return self._messages[1:]  # 系统提示词不用存，每次启动都会重新生成
+
+    def restore(self, messages: list) -> None:
+        self._messages = [self._system, *messages]
+
     def mark(self) -> int:
         return len(self._messages)
 

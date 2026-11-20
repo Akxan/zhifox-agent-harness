@@ -6,11 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import anthropic
+import openai
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fake_api import FakeAPI
+from fake_openai import FakeOpenAI
 
 from harness.app import build_app
 from harness.config import Config
@@ -102,4 +104,27 @@ def start(make_config):
 
     yield start
     for api in apis:
+        api.stop()
+
+
+@pytest.fixture
+def start_openai(make_config):
+    """和 start 一样，但用的是 DeepSeek（OpenAI 格式），后面连着 OpenAI 格式的假服务器。
+
+    start 和 start_openai 用的是同一个数据目录，所以在一个测试里先后调用两次，就相当于把程序重启了一遍。
+    """
+    servers: list[FakeOpenAI] = []
+
+    def start(*replies, approve: bool = True, feedback: str = "", key: str = "test-key", **config_overrides):
+        api = FakeOpenAI(list(replies)).start()
+        servers.append(api)
+        config = make_config(default_provider="deepseek", default_model="deepseek-flash", **config_overrides)
+        ui = RecordingUI(approve, feedback)
+        client = openai.OpenAI(api_key=key, base_url=api.base_url, max_retries=0)
+        app = build_app(config, ui, client_factory=lambda provider: client)
+        app.agent.clock = lambda: datetime(2026, 11, 20, 14, 3)
+        return SimpleNamespace(agent=app.agent, app=app, api=api, ui=ui, config=config, todos=app.todos)
+
+    yield start
+    for api in servers:
         api.stop()

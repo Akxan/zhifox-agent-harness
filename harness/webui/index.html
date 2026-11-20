@@ -5,249 +5,714 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>Harness 个人助手</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f6bff'/%3E%3Cstop offset='.55' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='url(%23g)' stroke-width='4' stroke-linecap='round' stroke-dasharray='52 17.2'/%3E%3Ccircle cx='16' cy='16' r='4.6' fill='url(%23g)'/%3E%3C/svg%3E">
+<script nonce="__NONCE__">
+// 页面画出来之前就定好用浅色还是深色，免得先亮后暗地闪一下。
+// 默认是浅色；用户在页面上选过"深色"或"跟随系统"的话，按他选的来。
+(() => {
+  let choice = null;
+  try { choice = localStorage.getItem('harness.theme'); } catch (_) { /* 浏览器禁用了本地存储 */ }
+  const dark = choice === 'dark' || (choice === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
 <style nonce="__NONCE__">
+/* 这个页面的样式有三条纪律，都是为了"好看但不卡"：
+     1. 会动的东西只改 transform（位移、缩放、旋转）和 opacity（透明度）。这两样浏览器可以在
+        专门的合成线程上完成，不用重新排版和重画，所以再忙也不掉帧。
+     2. 不用 backdrop-filter 之类每一帧都要重算的昂贵效果。
+     3. 系统开了"减少动态效果"时，所有动画都关掉（见文件末尾的 prefers-reduced-motion）。 */
+
+/* ---- 颜色和字体 ---------------------------------------------------------- */
 :root {
-  color-scheme: light dark;
-  --bg: #f6f6f3;
-  --surface: #ffffff;
-  --text: #1d1f23;
-  --muted: #6a6f78;
-  --line: #dfdfd9;
-  --accent: #2b62d9;
-  --on-accent: #ffffff;
-  --user: #e4ecfb;
-  --warn-bg: #fff6dc;
-  --warn-line: #e2b33c;
-  --ok: #1f8a4c;
-  --err: #c5303b;
-  --code: #efefea;
+  color-scheme: light;
+  --bg: #eeece7;          /* 窗口的底色，会话栏就直接放在它上面 */
+  --sheet: #fbfaf7;       /* 中间那张"纸"：对话区 */
+  --surface: #ffffff;     /* 卡片、输入框 */
+  --sunken: #f2f0eb;      /* 凹下去的地方：代码块 */
+  --ink: #16171b;
+  --ink-2: #454851;
+  --ink-3: #60636d;
+  --on-ink: #ffffff;
+  --line: rgba(22, 23, 27, .09);
+  --line-2: rgba(22, 23, 27, .17);
+  --hover: rgba(22, 23, 27, .05);
+  --select: rgba(90, 69, 224, .22);
+  /* 强调色是一道"极光"渐变，只用在少数几个地方：标志、发送按钮、输入框的光环、当前会话 */
+  --a1: #4f6bff;
+  --a2: #8b5cf6;
+  --a3: #ec4899;
+  --a4: #f59e0b;
+  --teal: #0d9488;
+  --aurora: linear-gradient(115deg, var(--a1), var(--a2) 40%, var(--a3) 75%, var(--a4));
+  --aurora-text: linear-gradient(100deg, var(--a1), var(--a2) 50%, var(--a3));
+  --aurora-solid: linear-gradient(135deg, #4f6bff, #8b5cf6 55%, #ec4899);  /* 上面要放白色图标，所以两套外观都用深的这一组 */
+  --accent: #5a45e0;
+  --accent-soft: rgba(90, 69, 224, .12);
+  --bubble: #1c1d22;
+  --bubble-ink: #f6f5f1;
+  --stop: #1c1d22;
+  --ok: #0c7a53;
+  --ok-soft: rgba(12, 122, 83, .12);
+  --err: #c02a37;
+  --err-soft: rgba(192, 42, 55, .08);
+  --err-line: rgba(192, 42, 55, .26);
+  --danger: #c02a37;
+  --warn: #855600;
+  --warn-soft: #fff5dc;
+  --warn-line: #ebcf8f;
+  --warn-dot: #d99a00;
+  --scrim: rgba(22, 23, 27, .34);
+  --shadow-1: 0 1px 2px rgba(22, 23, 27, .04), 0 6px 20px rgba(22, 23, 27, .05);
+  --shadow-2: 0 2px 8px rgba(22, 23, 27, .06), 0 20px 56px rgba(22, 23, 27, .16);
+  --glow: .3;
+  --col: 808px;           /* 对话这一栏的最大宽度（含两边的留白） */
   --sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --serif: "New York", "Iowan Old Style", Georgia, "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);       /* 起步快、收尾慢，像东西滑到位 */
+  --spring: cubic-bezier(.34, 1.45, .64, 1); /* 稍微冲过头再回来，用在小图标上 */
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16171a;
-    --surface: #1e2024;
-    --text: #e7e7e4;
-    --muted: #9a9fa8;
-    --line: #32353b;
-    --accent: #6b9bff;
-    --on-accent: #10131a;
-    --user: #24324d;
-    --warn-bg: #372f17;
-    --warn-line: #9a7a22;
-    --ok: #4cc27a;
-    --err: #ff6b6b;
-    --code: #272a2f;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0c0f;
+  --sheet: #121318;
+  --surface: #191b21;
+  --sunken: #0e0f13;
+  --ink: #edece8;
+  --ink-2: #b9bac2;
+  --ink-3: #8f919c;
+  --on-ink: #121318;
+  --line: rgba(255, 255, 255, .075);
+  --line-2: rgba(255, 255, 255, .15);
+  --hover: rgba(255, 255, 255, .055);
+  --select: rgba(169, 155, 255, .32);
+  --a1: #6e8bff;
+  --a2: #a78bfa;
+  --a3: #f472b6;
+  --a4: #fbbf24;
+  --teal: #2dd4bf;
+  --accent: #a99bff;
+  --accent-soft: rgba(169, 155, 255, .16);
+  --bubble: #2a2c35;
+  --bubble-ink: #f1f0ec;
+  --stop: #3a3d49;
+  --ok: #4ccf9f;
+  --ok-soft: rgba(76, 207, 159, .13);
+  --err: #ff8a93;
+  --err-soft: rgba(255, 138, 147, .09);
+  --err-line: rgba(255, 138, 147, .3);
+  --danger: #c5303d;
+  --warn: #f2c35b;
+  --warn-soft: #231d10;
+  --warn-line: #5a4718;
+  --warn-dot: #f2c35b;
+  --scrim: rgba(0, 0, 0, .58);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 20px rgba(0, 0, 0, .25);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, .4), 0 20px 56px rgba(0, 0, 0, .55);
+  --glow: .24;
 }
+
+/* ---- 基础 ---------------------------------------------------------------- */
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
+body { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
 [hidden] { display: none !important; }
-button { font: inherit; cursor: pointer; }
-button:disabled { opacity: .5; cursor: default; }
-a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+a { color: var(--accent); text-underline-offset: 2px; }
+::selection { background: var(--select); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.s1 { stop-color: var(--a1); }
+.s2 { stop-color: var(--a2); }
+.s3 { stop-color: var(--a3); }
+.s4 { stop-color: var(--a4); }
+.icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mark { width: 22px; height: 22px; flex: none; }
+.icon-button { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: 9px; transition: transform .15s var(--ease); }
+.icon-button:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.icon-button:active:not(:disabled) { transform: scale(.9); }
+.icon-button:disabled { opacity: .4; }
+.icon-button.small { width: 26px; height: 26px; border-radius: 7px; }
+.icon-button.small .icon { width: 14px; height: 14px; }
+.button { height: 34px; flex: none; padding: 0 16px; font-size: 13.5px; font-weight: 500; white-space: nowrap; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; transition: transform .15s var(--ease); }
+.button:hover:not(:disabled) { border-color: var(--ink-3); }
+.button:active:not(:disabled) { transform: scale(.96); }
+.button:disabled { opacity: .45; }
+.button.primary { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.button.danger { color: #fff; background: var(--danger); border-color: transparent; }
+.field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; outline: 0; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* 渐变描边：一个盖在边框位置上的渐变环，平时透明，需要时淡入。
+   只改透明度，所以淡入淡出不用重画。新对话按钮、输入框、建议卡片共用这一条。 */
+.new-chat::after, .box::before, .starter::after {
+  content: ""; position: absolute; inset: -1px; padding: 1.5px; border-radius: inherit; background: var(--aurora);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0; transition: opacity .25s ease; pointer-events: none;
+}
+
+/* ---- 整体：左边会话栏，中间对话，右边信息栏 -------------------------------- */
+.app { position: relative; flex: 1; min-height: 0; display: flex; gap: 8px; padding: 8px; opacity: 0; }
+.ready .app { opacity: 1; transition: opacity .35s ease; }  /* 第一批内容画好之后，整个界面淡入 */
+.scrim { display: none; position: absolute; inset: 0; z-index: 20; background: var(--scrim); animation: fade .25s ease; }
+
+/* ---- 会话栏 -------------------------------------------------------------- */
+.nav { width: 272px; flex: none; display: flex; flex-direction: column; min-height: 0; }
+.nav-closed .nav { display: none; }
+.nav-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 46px; padding: 0 4px 0 12px; }
+.brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.new-chat { position: relative; flex: none; display: flex; align-items: center; gap: 10px; margin: 4px 6px 8px; padding: 9px 12px; font-size: 14px; font-weight: 500; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: transform .15s var(--ease); }
+.new-chat .icon { transition: transform .4s var(--ease); }
+.new-chat:hover:not(:disabled) .icon { transform: rotate(90deg); }
+.new-chat:hover:not(:disabled)::after { opacity: 1; }
+.new-chat:active:not(:disabled) { transform: scale(.98); }
+.new-chat:disabled { opacity: .5; }
+.search { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; margin: 0 6px 4px; padding: 0 8px 0 12px; color: var(--ink-3); border: 1px solid transparent; border-radius: 10px; }
+.search:hover { background: var(--hover); }
+.search:focus-within { color: var(--ink); background: var(--surface); border-color: var(--line-2); }
+.search input { flex: 1; min-width: 0; height: 100%; padding: 0; font-size: 13.5px; background: none; border: 0; outline: 0; }
+.search input::placeholder { color: var(--ink-3); }
+.search input::-webkit-search-cancel-button { display: none; }
+kbd { flex: none; padding: 2px 6px; font: 11px/1.4 var(--sans); color: var(--ink-3); border: 1px solid var(--line-2); border-radius: 6px; }
+.search:focus-within kbd { display: none; }
+.conversations { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 10px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+/* 当前会话的高亮是单独的一块，换会话时它滑到新的位置（只改 transform），而不是一处消失、另一处出现 */
+.conv-pill { position: absolute; top: 0; left: 6px; right: 6px; height: 52px; background: var(--surface); border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); opacity: 0; pointer-events: none; transition: transform .4s var(--ease), opacity .2s ease; }
+.conv-pill::before { content: ""; position: absolute; left: 0; top: 15px; bottom: 15px; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(var(--a1), var(--a3)); }
+.conv-pill.on { opacity: 1; }
+.conv-pill.jump { transition: none; }
+.conv-group { position: sticky; top: 0; z-index: 2; padding: 14px 12px 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); background: var(--bg); }
+.conv { position: relative; z-index: 1; display: flex; align-items: center; height: 52px; border-radius: 12px; }
+.conv:hover:not(.active) { background: var(--hover); }
+.conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; height: 100%; justify-content: center; padding: 0 12px 0 14px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.conv-title { font-size: 14px; line-height: 1.35; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv.active .conv-title { color: var(--ink); font-weight: 500; }
+mark { color: inherit; background: var(--select); border-radius: 3px; }
+/* 搜索结果：第二行是命中的那段文字，最多两行 */
+.conv.hit { height: auto; min-height: 52px; }
+.conv.hit .conv-main { height: auto; gap: 3px; padding-top: 9px; padding-bottom: 9px; }
+.conv-snippet { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 12px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.conv-kind { display: inline-block; margin-right: 6px; padding: 0 5px; font-size: 10.5px; line-height: 1.5; color: var(--ink-2); border: 1px solid var(--line-2); border-radius: 5px; vertical-align: 1px; }
+.conv-meta { font-size: 11.5px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.conv:hover .conv-actions, .conv:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
+.conv:hover .conv-main, .conv:focus-within .conv-main { padding-right: 66px; }
+.busy .conv-actions { display: none; }
+.busy .conv:hover .conv-main, .busy .conv:focus-within .conv-main { padding-right: 12px; }
+.busy .conv:not(.active) .conv-main { cursor: not-allowed; }
+.conv-edit { flex: 1; min-width: 0; height: 36px; margin: 0 8px; padding: 0 10px; font-size: 14px; background: var(--surface); border: 1px solid var(--accent); border-radius: 9px; outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
+.conv-confirm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; font-size: 13px; }
+.conv-confirm span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini { flex: none; height: 26px; padding: 0 10px; font-size: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 7px; }
+.mini.danger { color: #fff; background: var(--danger); border-color: transparent; }
+.conv-empty { padding: 18px 12px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
+.nav-foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 14px 4px; font-size: 11.5px; color: var(--ink-3); }
+.nav-foot .icon { width: 13px; height: 13px; }
+
+/* ---- 中间那张"纸" --------------------------------------------------------
+   纸的底色单独放在 .sheet 这一层里。这样会话栏收起、信息栏展开时，可以只把这一层
+   横向拉伸到位（transform），里面的文字不跟着变形。 */
+.main { position: relative; isolation: isolate; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sheet { position: absolute; inset: 0; z-index: -1; background: var(--sheet); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); transform-origin: 0 0; }
+.stage { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* 极光：三团颜色很淡的光，缓慢漂移。只在还没有内容的"空白页"上出现；一旦开始对话就淡出并且
+   不再渲染（display: none），所以聊天时它不占任何资源。
+   它们是普通的渐变色块（不是模糊滤镜），漂移只改 transform。 */
+.aurora { position: absolute; inset: 1px; z-index: 0; display: none; overflow: hidden; border-radius: 17px; pointer-events: none; opacity: 0; transition: opacity .7s ease; transition: opacity .7s ease, display .7s allow-discrete; }
+.main.fresh .aurora { display: block; opacity: 1; }
+@starting-style { .main.fresh .aurora { opacity: 0; } }
+.aurora i { position: absolute; border-radius: 50%; opacity: var(--glow); }
+.aurora i:nth-child(1) { width: 62vmin; height: 62vmin; right: 4%; top: -24vmin; background: radial-gradient(closest-side, var(--a2), transparent); animation: drift-1 26s ease-in-out infinite alternate; }
+.aurora i:nth-child(2) { width: 54vmin; height: 54vmin; right: 30%; top: -14vmin; background: radial-gradient(closest-side, var(--a1), transparent); animation: drift-2 32s ease-in-out infinite alternate; }
+.aurora i:nth-child(3) { width: 48vmin; height: 48vmin; right: -6%; top: 6vmin; background: radial-gradient(closest-side, var(--a3), transparent); animation: drift-3 23s ease-in-out infinite alternate; }
+/* 一层很淡的颗粒，让渐变有点纸张的质感。它是一小块静态图案平铺出来的，只画一次 */
+.aurora::after { content: ""; position: absolute; inset: 0; opacity: .5; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+@keyframes drift-1 { to { transform: translate3d(-10vmin, 8vmin, 0) scale(1.15); } }
+@keyframes drift-2 { to { transform: translate3d(12vmin, 6vmin, 0) scale(.9); } }
+@keyframes drift-3 { to { transform: translate3d(-8vmin, -6vmin, 0) scale(1.1); } }
 
 /* 顶栏 */
-.bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.bar h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; }
-.meta { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ghost { background: none; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; font-size: 13px; white-space: nowrap; }
-.ghost:hover:not(:disabled) { border-color: var(--muted); }
-.banner { padding: 8px 16px; background: var(--warn-bg); border-bottom: 1px solid var(--warn-line); font-size: 13px; }
+.bar { flex: none; display: flex; align-items: center; gap: 4px; height: 54px; padding: 0 10px 0 12px; }
+.title { flex: 1 1 60px; min-width: 0; margin: 0 8px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-actions { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.model-button { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; max-width: 340px; padding: 0 10px 0 12px; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; transition: transform .15s var(--ease); }
+.model-button:hover { color: var(--ink); border-color: var(--line-2); }
+.model-button:active { transform: scale(.97); }
+.model-button .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.model-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.model-button.no-key .model-dot { background: var(--warn-dot); box-shadow: 0 0 0 3px var(--warn-soft); }
+#model-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme .icon { position: absolute; opacity: 0; transform: rotate(-90deg) scale(.5); transition: transform .45s var(--ease), opacity .2s ease; }
+.theme[data-mode="auto"] .t-auto, .theme[data-mode="light"] .t-light, .theme[data-mode="dark"] .t-dark { opacity: 1; transform: none; }
 
-/* 主体：左边对话，右边侧栏 */
-.layout { flex: 1; min-height: 0; display: flex; }
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.chat { flex: 1; overflow-y: auto; padding: 20px 16px 8px; }
-.column { max-width: 760px; margin: 0 auto; }
-.log { display: flex; flex-direction: column; gap: 10px; }
+/* 对话区。上下两条很窄的渐变盖在滚动内容的边缘，让文字淡出，而不是被一刀切断 */
+.viewport { position: relative; flex: 1 1 0; min-height: 0; display: flex; }
+.viewport::before, .viewport::after { content: ""; position: absolute; left: 0; right: 16px; z-index: 2; height: 22px; pointer-events: none; }
+.viewport::before { top: 0; background: linear-gradient(var(--sheet), transparent); }
+.viewport::after { bottom: 0; background: linear-gradient(transparent, var(--sheet)); }
+.main.fresh .viewport::before, .main.fresh .viewport::after { display: none; }
+.chat { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; scrollbar-gutter: stable both-edges; }
+.column { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 24px; }
+.log { display: flex; flex-direction: column; gap: 14px; padding-top: 26px; }
+.log:empty { display: none; }
+.bottom { height: 1px; margin-top: -1px; }
 
-/* 消息 */
-.msg { white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg.user { align-self: flex-end; max-width: 85%; padding: 8px 12px; background: var(--user); border-radius: 12px 12px 2px 12px; }
-.thinking { color: var(--muted); font-size: 13px; border-left: 2px solid var(--line); padding-left: 10px; }
-.thinking summary { cursor: pointer; user-select: none; }
-.thinking-body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
-.notice { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.notice.error { color: var(--err); }
-.notice.tool { font-family: var(--mono); font-size: 12px; }
-.notice.result { padding-left: 16px; }
+/* ---- 消息 ---------------------------------------------------------------- */
+.msg { position: relative; font-size: 15.5px; line-height: 1.75; }
+.msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; max-width: min(86%, 600px); padding: 10px 16px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bubble-ink); background: var(--bubble); border-radius: 20px 20px 6px 20px; transform-origin: 100% 100%; }
+.msg.user:not(:first-child) { margin-top: 12px; }
+/* 正在逐字输出时，文字末尾跟着一个呼吸的小光点 */
+.msg.streaming .msg-text::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 5px; vertical-align: 1px; border-radius: 50%; background: linear-gradient(135deg, var(--a2), var(--a3)); animation: breathe 1s ease-in-out infinite; }
+.msg-actions { display: flex; height: 26px; margin: 2px 0 -12px -6px; opacity: 0; transition: opacity .15s ease; }
+/* 从搜索结果打开会话时，命中的那一块背后亮一下，告诉你"在这儿" */
+.found { position: relative; }
+.found::before { content: ""; position: absolute; inset: -6px -10px; z-index: -1; border-radius: 14px; background: var(--accent-soft); opacity: 0; pointer-events: none; animation: found 2.2s ease-out; }
+.msg.assistant:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg.streaming .msg-actions { visibility: hidden; }
+
+.thinking { font-size: 13.5px; color: var(--ink-3); }
+.thinking summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -8px; padding: 4px 10px 4px 8px; border-radius: 8px; cursor: pointer; user-select: none; list-style: none; }
+.thinking summary::-webkit-details-marker, .call summary::-webkit-details-marker { display: none; }
+.thinking summary:hover { color: var(--ink-2); background: var(--hover); }
+.chev { width: 13px; height: 13px; transition: transform .25s var(--ease); }
+[open] > summary .chev { transform: rotate(90deg); }
+.thinking.streaming .spark { color: var(--accent); animation: twinkle 1.4s ease-in-out infinite; }
+.thinking-body { margin: 6px 0 2px 1px; padding: 2px 0 2px 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 2px solid var(--line-2); }
+[open] > .thinking-body, [open] > .tool-body { animation: reveal .28s var(--ease); }
+
+.notice { font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
+.notice.info { display: flex; align-items: center; gap: 12px; text-align: center; }
+.notice.info::before, .notice.info::after { content: ""; flex: 1 1 24px; min-width: 16px; height: 1px; background: var(--line); }
+.notice.info span { flex: 0 1 auto; max-width: 80%; }
+.notice.error { display: flex; gap: 10px; padding: 10px 14px; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; }
+.notice.error .icon { margin-top: 2px; }
+.notice.tool { display: flex; align-items: center; gap: 9px; font: 12.5px/1.5 var(--mono); color: var(--ink-2); }
+.notice.result { margin-top: -8px; padding-left: 25px; font-size: 12.5px; }
 
 /* 工具调用卡片 */
-.tool { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
-.tool summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; list-style: none; }
-.tool summary::-webkit-details-marker { display: none; }
-.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.dot.pending { animation: pulse 1s ease-in-out infinite; }
-.dot.ok { background: var(--ok); }
-.dot.failed { background: var(--err); }
-@keyframes pulse { 50% { opacity: .25; } }
-.tool-name { flex: 0 1 auto; min-width: 0; font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tool-outcome { flex: 1 1 0; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tool.failed .tool-outcome { color: var(--err); }
-.tool-body { padding: 0 10px 10px; }
-.label { margin: 8px 0 4px; color: var(--muted); font-size: 12px; }
-pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.tool-body pre { max-height: 280px; overflow: auto; padding: 8px; background: var(--code); border-radius: 6px; }
+.call { font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.call summary { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 12px; cursor: pointer; user-select: none; list-style: none; }
+.call summary:hover { background: var(--hover); }
+.status { display: grid; place-items: center; width: 18px; height: 18px; flex: none; border-radius: 50%; }
+.status.pending { border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.status.ok { color: var(--ok); background: var(--ok-soft); }
+.status.failed { color: var(--err); background: var(--err-soft); }
+.status.stopped { color: var(--ink-3); background: var(--hover); }
+.status .icon { width: 12px; height: 12px; stroke-width: 2.6; }
+.status.pop { animation: pop .4s var(--spring); }
+.tool-name { flex: none; max-width: 62%; font: 600 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-args { flex: 1 1 0; min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-outcome { flex: 0 1 auto; min-width: 0; max-width: 44%; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call.failed .tool-outcome { color: var(--err); }
+.call .chev { color: var(--ink-3); }
+.tool-body { padding: 0 12px 12px; }
+.label { margin: 10px 0 5px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-body pre { max-height: 300px; overflow: auto; padding: 10px 12px; background: var(--sunken); border-radius: 9px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 
 /* 确认卡片 */
-.confirm { padding: 12px; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; }
-.confirm-title { font-weight: 600; }
-.confirm pre { margin: 6px 0 12px; font-size: 13px; max-height: 320px; overflow: auto; }
-.confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.confirm-actions button { border: 1px solid var(--warn-line); border-radius: 8px; padding: 5px 16px; background: var(--surface); color: var(--text); }
-.confirm-actions .allow { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.reason { flex: 1 1 220px; min-width: 0; padding: 6px 10px; font: inherit; font-size: 13px; color: inherit; background: var(--surface); border: 1px solid var(--warn-line); border-radius: 8px; }
-.outcome { font-size: 13px; color: var(--muted); }
+.confirm { position: relative; padding: 14px 16px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; }
+.confirm-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--warn); }
+.confirm pre { margin: 8px 0 14px; max-height: 320px; overflow: auto; font-size: 13px; }
+.confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.reason { flex: 1 1 220px; }
+.outcome { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); }
 .outcome.allowed { color: var(--ok); }
 .outcome.denied { color: var(--err); }
-.confirm.done { opacity: .75; }
+.confirm.done { background: none; border-color: var(--line); }
+.confirm.done .confirm-head { color: var(--ink-3); }
+.confirm.done pre { margin-bottom: 10px; color: var(--ink-2); }
+/* 刚出现的确认卡片外面荡开两圈光环，提醒一下：这里在等你 */
+.confirm.alert::after { content: ""; position: absolute; inset: -1px; border: 2px solid var(--warn-dot); border-radius: inherit; opacity: 0; pointer-events: none; animation: ring 1.5s ease-out .2s 2; }
 
-/* 空白状态 */
-.empty { margin-top: 12vh; text-align: center; color: var(--muted); }
-.empty p { margin: 0 0 14px; }
-.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.chip { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 13px; }
-.chip:hover { border-color: var(--accent); }
+/* "正在工作"：标志上那个环转起来，表示循环正在运行 */
+.working { display: flex; align-items: center; gap: 9px; height: 46px; font-size: 13px; color: var(--ink-3); opacity: 0; transition: opacity .2s ease; }
+.working.on { opacity: 1; }
+.working .mark { width: 16px; height: 16px; }
+.working.on .mark { animation: spin 1.5s linear infinite; }
+.working.waiting { color: var(--warn); }
+.working.waiting .mark { animation-play-state: paused; }
+.dots { display: inline-flex; gap: 3px; margin-left: -4px; }
+.dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .3; }
+.working.on .dots i { animation: dot 1.2s ease-in-out infinite; }
+.working.on .dots i:nth-child(2) { animation-delay: .15s; }
+.working.on .dots i:nth-child(3) { animation-delay: .3s; }
+.working.waiting .dots i { animation: none; }
 
-/* 输入区 */
-.working { min-height: 22px; margin-top: 10px; color: var(--muted); font-size: 13px; }
-.composer { padding: 8px 16px 16px; }
-.composer form { display: flex; align-items: flex-end; gap: 8px; }
-.composer textarea { flex: 1; min-width: 0; max-height: 200px; resize: none; padding: 9px 12px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.composer textarea:focus, .reason:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.send { flex: none; padding: 9px 20px; background: var(--accent); color: var(--on-accent); border: 0; border-radius: 10px; }
-.send.stop { background: var(--err); color: #fff; }
+/* ---- 空白页：问候语、输入框、建议都摆在页面中间 ---------------------------- */
+.main.fresh .chat { display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.main.fresh .working { display: none; }
+.main.fresh .log { padding: 0 0 16px; }
+.hero { padding: 0 24px 24px; }
+.hero-inner, .starters-inner, .composer form { width: 100%; max-width: calc(var(--col) - 48px); margin: 0 auto; }
+.hero-inner > * { animation: rise .7s var(--ease) backwards; }
+.hero-inner > :nth-child(2) { animation-delay: .06s; }
+.hero-inner > :nth-child(3) { animation-delay: .12s; }
+.hero-mark { width: 44px; height: 44px; margin-bottom: 18px; }
+.hero-mark .mark { width: 44px; height: 44px; animation: spin 24s linear infinite; }
+.hero h2 { margin: 0; font: 600 clamp(32px, 4.4vw, 52px)/1.18 var(--serif); letter-spacing: -.012em; }
+.hero h2 span { display: block; width: fit-content; max-width: 100%; }
+.hero h2 .hl { padding-bottom: .08em; color: transparent; -webkit-text-fill-color: transparent; background: var(--aurora-text); -webkit-background-clip: text; background-clip: text; }
+.hero p { margin: 14px 0 0; max-width: 36em; font-size: 15px; color: var(--ink-2); }
+.starters { flex: 1.35 1 0; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }
+.starter { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 13px 14px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: transform .3s var(--ease); animation: rise .6s var(--ease) backwards; }
+.starter:nth-child(1) { animation-delay: .16s; }
+.starter:nth-child(2) { animation-delay: .21s; }
+.starter:nth-child(3) { animation-delay: .26s; }
+.starter:nth-child(4) { animation-delay: .31s; }
+.starter:hover { transform: translateY(-3px); }
+.starter:hover::after { opacity: 1; }
+.starter:active { transform: translateY(-1px) scale(.985); }
+.starter .icon { width: 18px; height: 18px; margin-bottom: 7px; color: var(--accent); }
+.starter b { font-size: 13.5px; font-weight: 600; }
+.starter span { font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.setup { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: rise .6s var(--ease) .16s backwards; }
+.setup .icon { width: 20px; height: 20px; color: var(--warn); }
+.setup p { flex: 1; min-width: 0; margin: 0; font-size: 13.5px; }
 
-/* 侧栏 */
-.side { width: 270px; flex: none; overflow-y: auto; padding: 16px; background: var(--surface); border-left: 1px solid var(--line); font-size: 13px; }
-.side h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.side section + section { margin-top: 20px; }
+/* ---- 输入区 -------------------------------------------------------------- */
+.composer { position: relative; flex: none; padding: 0 24px 12px; }
+.box { position: relative; display: flex; align-items: flex-end; gap: 6px; padding: 7px 7px 7px 18px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 26px; box-shadow: var(--shadow-1); }
+.box:focus-within::before { opacity: 1; }
+.busy .box::before { opacity: 1; animation: glow 2.4s ease-in-out infinite; }  /* 助手工作时，光环缓缓明暗 */
+.box textarea { flex: 1; min-width: 0; height: 42px; max-height: 210px; padding: 9px 0; overflow-y: hidden; font-size: 15.5px; line-height: 24px; resize: none; background: none; border: 0; outline: 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.box textarea::placeholder { color: var(--ink-3); }
+.send { position: relative; display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: var(--sunken); border: 0; border-radius: 50%; overflow: hidden; transition: transform .2s var(--ease); }
+.send::before, .send::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s ease; }
+.send::before { background: var(--aurora-solid); }
+.send::after { background: var(--stop); }
+.send:not(:disabled) { color: #fff; }
+.send:not(:disabled):not(.stop)::before, .send.stop::after { opacity: 1; }
+.send:hover:not(:disabled) { transform: scale(1.07); }
+.send:active:not(:disabled) { transform: scale(.9); }
+.send .icon { position: absolute; z-index: 1; width: 18px; height: 18px; stroke-width: 2.2; transition: transform .35s var(--ease), opacity .2s ease; }
+.send .i-stop { width: 14px; height: 14px; fill: currentColor; stroke: none; opacity: 0; transform: scale(.3) rotate(-90deg); }
+.send.stop .i-send { opacity: 0; transform: scale(.3) rotate(90deg); }
+.send.stop .i-stop { opacity: 1; transform: none; }
+.foot { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px 0; font-size: 12px; color: var(--ink-3); }
+.foot button { padding: 0; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
+.foot button:hover { color: var(--ink); }
+.to-bottom { position: absolute; left: 50%; top: -48px; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; margin-left: -17px; padding: 0; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 50%; box-shadow: var(--shadow-1); opacity: 0; transform: translateY(8px) scale(.9); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
+.to-bottom.show { opacity: 1; transform: none; pointer-events: auto; }
+.main.fresh .to-bottom { display: none; }
+
+/* ---- 信息栏 -------------------------------------------------------------- */
+.side { width: 292px; flex: none; min-height: 0; display: none; flex-direction: column; }
+.side-open .side { display: flex; }
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 12px 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.side section { padding: 14px 12px; }
+.side h2 { display: flex; justify-content: space-between; margin: 0 0 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.side h2 span { font-weight: 400; letter-spacing: 0; }
 .side ul { margin: 0; padding: 0; list-style: none; }
-.side li { padding: 3px 0; overflow-wrap: anywhere; }
-.due { color: var(--muted); font-size: 12px; }
-.side .none { color: var(--muted); }
-.usage { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; }
-.usage dt { color: var(--muted); }
+.side .cost-card { position: relative; margin: 0 0 4px; padding: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); }
+.cost-card::before { content: ""; position: absolute; right: -50px; top: -70px; width: 190px; height: 190px; border-radius: 50%; background: radial-gradient(closest-side, var(--a2), transparent); opacity: .18; pointer-events: none; }
+.cost-figure { position: relative; font-size: 34px; font-weight: 650; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.fine { position: relative; margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+/* 四类 token 各占多少：四条色带叠在一起，各自横向缩放到"累计占比"的长度，露出来的就是自己的那一段 */
+.mix { position: relative; height: 6px; margin-bottom: 12px; overflow: hidden; background: var(--hover); border-radius: 3px; }
+.mix i { position: absolute; inset: 0; transform: scaleX(0); transform-origin: 0 50%; transition: transform .6s var(--ease); }
+.k1 { background: var(--a1); }
+.k2 { background: var(--teal); }
+.k3 { background: var(--a4); }
+.k4 { background: var(--a3); }
+.usage { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 13px; }
+.usage.more { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.usage dt { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
 .usage dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.tool-item { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 12px; }
-.where { flex: none; font-family: var(--sans); color: var(--muted); }
-.cost { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-weight: 600; }
-.cost span:last-child { font-size: 16px; font-variant-numeric: tabular-nums; }
-.fine { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-@media (max-width: 900px) { .side { display: none; } }
+.swatch { width: 8px; height: 8px; flex: none; border-radius: 3px; }
+.todo { display: flex; align-items: baseline; gap: 9px; padding: 5px 0; font-size: 13.5px; }
+.todo-mark { width: 13px; height: 13px; flex: none; border: 1.6px solid var(--line-2); border-radius: 50%; transform: translateY(2px); }
+.todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.due { flex: none; padding: 1px 8px; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
+.none { font-size: 13px; color: var(--ink-3); }
+.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px 3px 8px; font: 11.5px/1.6 var(--mono); color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.tool-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--ink-3); }
+.remote .dot, .dot.remote { background: linear-gradient(135deg, var(--a1), var(--a3)); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 11.5px; color: var(--ink-3); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.path { font: 12px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
 
-/* 顶栏上的模型按钮 */
-.model-button { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
-.model-button::after { content: " ▾"; color: var(--muted); }
-
-/* 设置面板 */
-.settings { width: min(660px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
-.settings::backdrop { background: rgba(0, 0, 0, .45); }
-.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.settings-head h2 { margin: 0; font-size: 15px; }
-.settings section { padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.settings h3 { margin: 0 0 8px; font-size: 13px; }
-.settings .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.settings select, .settings input { min-width: 0; padding: 6px 10px; font: inherit; font-size: 13px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+/* ---- 设置面板 ------------------------------------------------------------ */
+.settings { width: min(680px, calc(100vw - 32px)); max-height: min(780px, calc(100vh - 48px)); padding: 0; overflow: hidden; font-size: 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--shadow-2); }
+.settings[open] { display: flex; flex-direction: column; animation: dialog-in .32s var(--ease); }
+.settings::backdrop { background: var(--scrim); animation: fade .25s ease; }
+.settings-head { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 14px 12px 22px; }
+.settings-head h2 { margin: 0; font: 600 21px/1.2 var(--serif); }
+.settings-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 22px 4px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.settings section { padding: 16px 0; border-top: 1px solid var(--line); }
+.settings h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.settings h3 small { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .settings select { flex: 1 1 180px; }
-.settings input[type="password"] { flex: 1 1 220px; }
-.settings input[type="number"] { width: 92px; }
-.settings button { flex: none; white-space: nowrap; padding: 5px 12px; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
-.settings button:hover:not(:disabled) { border-color: var(--muted); }
-.settings button.main { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
-.settings label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-.hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
-.key-row + .key-row { margin-top: 14px; }
-.key-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-bottom: 6px; }
-.key-status { font-size: 12px; color: var(--muted); }
-.key-status.set { color: var(--ok); }
-.key-head a { margin-left: auto; font-size: 12px; }
-.settings-message { min-height: 20px; padding: 10px 18px 14px; font-size: 13px; color: var(--muted); }
+.settings input[type="password"] { flex: 1 1 220px; font-family: var(--mono); }
+.settings input[type="number"] { width: 96px; }
+.settings label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.hint { margin: 10px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
+.key-row { padding: 12px 14px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.key-row + .key-row { margin-top: 10px; }
+.key-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 10px; }
+.key-head strong { margin-right: 2px; font-size: 14px; }
+.key-head a { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 12.5px; text-decoration: none; }
+.key-head a:hover { text-decoration: underline; }
+.key-head a .icon { width: 12px; height: 12px; }
+.tag { padding: 1px 9px; font-size: 11.5px; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
+.tag.set { color: var(--ok); background: var(--ok-soft); }
+.settings-message { flex: none; min-height: 46px; padding: 12px 22px 14px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); }
 .settings-message.bad { color: var(--err); }
 .settings-message.good { color: var(--ok); }
+
+/* ---- 浮在最上面的提示 ---------------------------------------------------- */
+.banner { position: fixed; z-index: 50; top: 14px; left: 50%; max-width: min(640px, calc(100vw - 32px)); padding: 9px 16px; font-size: 13px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
+.toast { position: fixed; z-index: 50; left: 50%; bottom: 108px; max-width: min(520px, calc(100vw - 32px)); padding: 9px 16px; font-size: 13px; color: var(--on-ink); background: var(--ink); border-radius: 12px; box-shadow: var(--shadow-2); opacity: 0; transform: translate(-50%, 10px); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---- 窄屏：两边的栏变成盖在上面的抽屉 -------------------------------------- */
+@media (max-width: 1180px) {
+  .side { position: absolute; z-index: 30; top: 8px; right: 8px; bottom: 8px; width: min(300px, calc(100vw - 16px)); padding: 8px 4px 0 8px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
+  .side-open .scrim { display: block; }
+}
+@media (max-width: 760px) {
+  .nav { position: absolute; z-index: 30; top: 8px; left: 8px; bottom: 8px; width: min(288px, calc(100vw - 16px)); padding: 0 2px 4px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
+  body:not(.nav-closed) .scrim { display: block; }
+  .column, .hero, .composer, .starters { padding-left: 14px; padding-right: 14px; }
+  .foot .keys { display: none; }
+  .foot { justify-content: flex-end; }
+}
+
+/* ---- 动画 ---------------------------------------------------------------- */
+/* 入场动画只加在"此刻刚发生"的内容上（脚本负责判断）；重放旧对话时不加，整段一起淡入 */
+.enter { animation: enter .34s var(--ease) backwards; }
+.msg.user.enter { animation: send .42s var(--ease) backwards; }
+@keyframes enter { from { opacity: 0; transform: translateY(10px); } }
+@keyframes send { from { opacity: 0; transform: translateY(18px) scale(.94); } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes reveal { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes drop { from { opacity: 0; transform: translate(-50%, -12px); } }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(14px) scale(.975); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop { from { opacity: 0; transform: scale(.4); } }
+@keyframes breathe { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes twinkle { 0%, 100% { opacity: .5; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.12) rotate(45deg); } }
+@keyframes glow { 50% { opacity: .3; } }
+@keyframes found { 12%, 55% { opacity: 1; } }
+@keyframes dot { 30% { opacity: 1; transform: translateY(-2px); } 60% { opacity: .3; transform: none; } }
+@keyframes ring { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.03, 1.16); } }
+/* 换外观时的交叉淡化（浏览器对新旧两张画面做合成，不重新排版） */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .aurora i { animation: none !important; }
+}
 </style>
 </head>
 <body>
-<header class="bar">
-  <h1>Harness 个人助手</h1>
-  <span id="meta" class="meta"></span>
-  <button id="model" class="ghost model-button" type="button" title="换模型、填写 API 密钥">设置</button>
-  <button id="new" class="ghost" type="button">新对话</button>
-</header>
-<div id="banner" class="banner" hidden></div>
+<!-- 图标都是几条 SVG 线段，直接写在页面里，不加载任何外部文件。别处用 <use href="#i-名字"> 引用。 -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="aurora" x1="0" y1="0" x2="1" y2="1">
+      <stop class="s1" offset="0"/><stop class="s2" offset=".4"/><stop class="s3" offset=".75"/><stop class="s4" offset="1"/>
+    </linearGradient>
+  </defs>
+  <!-- 标志：中间的点是模型，外面那一圈是 harness。助手工作时这一圈会转起来 -->
+  <symbol id="i-mark" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="11" fill="none" stroke="url(#aurora)" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="52 17.2"/>
+    <circle cx="16" cy="16" r="4.3" fill="url(#aurora)" stroke="none"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM9 5v14"/></symbol>
+  <symbol id="i-panel-right" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM15 5v14"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5.5 12.5L12 19l6.5-6.5"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 24 24"><path d="M4 5h16v11H4zM9 20h6M12 16v4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2a3 3 0 0 0 2 2L21 12l-5.2 1.8a3 3 0 0 0-2 2L12 21l-1.8-5.2a3 3 0 0 0-2-2L3 12l5.2-1.8a3 3 0 0 0 2-2z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.3-2.9 8-7 9.5-4.1-1.5-7-5.2-7-9.5V6zM12 8.5v4M12 15.8v.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3zM12 10v4.5M12 17.4v.01"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 9h10v11H9zM5 15V4h10"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M8 19a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM10.9 12.1L20 3M16 7l3 3M13.5 9.5l2 2"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M11 6H6v12h12v-5"/></symbol>
+  <symbol id="i-todo" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.8 2.8L16 9.8"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3.6L7 20z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+</svg>
 
-<div class="layout">
-  <div class="main">
-    <div id="chat" class="chat">
-      <div class="column">
-        <div id="empty" class="empty">
-          <p>直接输入想说的话，或者从下面选一个试试。</p>
-          <div class="chips">
-            <button class="chip" type="button">提醒我周五下午交报告</button>
-            <button class="chip" type="button">记住：我喜欢简短的回答</button>
-            <button class="chip" type="button">这个目录里有哪些文件？</button>
-            <button class="chip" type="button">我有哪些待办？</button>
+<div id="banner" class="banner" role="alert" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div class="app">
+  <aside id="nav" class="nav" aria-label="会话">
+    <div class="nav-head">
+      <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg>Harness</span>
+      <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏"><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
+    </div>
+    <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>新对话</span></button>
+    <label class="search">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="search" type="search" maxlength="200" placeholder="搜索标题和内容" aria-label="搜索会话的标题和内容" autocomplete="off" spellcheck="false">
+      <kbd id="search-key"></kbd>
+    </label>
+    <nav id="conversations" class="conversations" aria-label="会话列表">
+      <div id="pill" class="conv-pill" aria-hidden="true"></div>
+      <div id="conversation-rows"></div>
+    </nav>
+    <div class="nav-foot"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="nav-count">会话只保存在这台电脑上</span></div>
+  </aside>
+
+  <main id="main" class="main">
+    <div id="sheet" class="sheet"></div>
+    <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="stage">
+      <header class="bar">
+        <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
+        <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+        <h1 id="title" class="title">新对话</h1>
+        <div id="bar-actions" class="bar-actions">
+          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" aria-label="设置：换模型、填写 API 密钥"><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+          <button id="theme" class="icon-button theme" type="button">
+            <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
+            <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
+            <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon"/></svg>
+          </button>
+          <button id="side-toggle" class="icon-button" type="button" title="用量、待办和工具" aria-label="用量、待办和工具"><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
+        </div>
+      </header>
+
+      <div id="viewport" class="viewport">
+        <div id="chat" class="chat">
+          <div id="empty" class="hero" hidden>
+            <div class="hero-inner">
+              <div class="hero-mark"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg></div>
+              <h2><span id="greeting">你好，</span><span class="hl">今天想做点什么？</span></h2>
+              <p>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
+            </div>
+          </div>
+          <div class="column">
+            <div id="log" class="log"></div>
+            <div id="working" class="working"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+            <div id="bottom" class="bottom"></div>
           </div>
         </div>
-        <div id="log" class="log"></div>
-        <div id="working" class="working"></div>
+      </div>
+
+      <div id="composer" class="composer">
+        <button id="to-bottom" class="to-bottom" type="button" title="回到最新的内容" aria-label="回到最新的内容" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
+        <form id="form">
+          <div class="box">
+            <textarea id="input" rows="1" placeholder="给助手发消息" aria-label="消息" autofocus></textarea>
+            <button id="send" class="send" type="submit" title="发送" aria-label="发送" disabled>
+              <svg class="icon i-send" aria-hidden="true"><use href="#i-up"/></svg>
+              <svg class="icon i-stop" aria-hidden="true"><use href="#i-stop"/></svg>
+            </button>
+          </div>
+          <div class="foot">
+            <span class="keys">Enter 发送 · Shift + Enter 换行</span>
+            <button id="foot-cost" type="button" title="查看用量明细">本次运行估算 $0.0000</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="starters" class="starters" hidden>
+        <div class="starters-inner">
+          <div id="setup" class="setup" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#i-key"/></svg>
+            <p id="setup-text"></p>
+            <button id="setup-open" class="button primary" type="button">去设置</button>
+          </div>
+          <div id="cards" class="cards">
+            <button class="starter" type="button" data-prompt="提醒我周五下午交报告"><svg class="icon" aria-hidden="true"><use href="#i-todo"/></svg><b>安排一件事</b><span>提醒我周五下午交报告</span></button>
+            <button class="starter" type="button" data-prompt="记住：我喜欢简短的回答"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><b>让我记住</b><span>记住：我喜欢简短的回答</span></button>
+            <button class="starter" type="button" data-prompt="这个目录里有哪些文件？"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><b>看看这个目录</b><span>这个目录里有哪些文件？</span></button>
+            <button class="starter" type="button" data-prompt="我有哪些待办？"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><b>查看待办</b><span>我有哪些待办？</span></button>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="composer">
-      <form id="form" class="column">
-        <textarea id="input" rows="1" placeholder="输入消息。Enter 发送，Shift+Enter 换行" autofocus></textarea>
-        <button id="send" class="send" type="submit">发送</button>
-      </form>
-    </div>
-  </div>
+  </main>
 
-  <aside class="side">
-    <section>
-      <h2>未完成的待办</h2>
-      <ul id="todos"></ul>
-    </section>
-    <section>
-      <h2>本次运行的用量（token）</h2>
-      <dl id="usage" class="usage"></dl>
-      <div class="cost"><span>估算费用</span><span id="cost">$0.0000</span></div>
-      <p id="cost-note" class="fine"></p>
-    </section>
-    <section>
-      <h2>模型可以使用的工具</h2>
-      <ul id="tools"></ul>
-    </section>
+  <aside id="side" class="side" aria-label="用量、待办和工具">
+    <div class="side-scroll">
+      <section class="cost-card">
+        <h2>估算费用<span>本次运行</span></h2>
+        <div id="cost" class="cost-figure">$0.0000</div>
+        <p id="cost-note" class="fine"></p>
+      </section>
+      <section>
+        <h2>Token 用量</h2>
+        <div id="mix" class="mix" aria-hidden="true"><i class="k4"></i><i class="k3"></i><i class="k2"></i><i class="k1"></i></div>
+        <dl id="usage" class="usage"></dl>
+        <dl id="usage-more" class="usage more"></dl>
+      </section>
+      <section>
+        <h2>未完成的待办</h2>
+        <ul id="todos"></ul>
+      </section>
+      <section>
+        <h2>模型可以使用的工具</h2>
+        <ul id="tools" class="tool-chips"></ul>
+        <div class="legend"><span><i class="dot"></i>在这台电脑上执行</span><span id="legend-remote"><i class="dot remote"></i>在厂商的服务器上执行</span></div>
+      </section>
+      <section>
+        <h2>工作目录</h2>
+        <div id="workspace" class="path"></div>
+      </section>
+    </div>
   </aside>
+  <div id="scrim" class="scrim"></div>
 </div>
 
-<dialog id="settings" class="settings">
+<dialog id="settings" class="settings" aria-labelledby="settings-title">
   <div class="settings-head">
-    <h2>设置</h2>
-    <button id="close-settings" type="button">关闭</button>
+    <h2 id="settings-title">设置</h2>
+    <button id="close-settings" class="icon-button" type="button" title="关闭" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
-  <section>
-    <h3>当前模型</h3>
-    <div class="row">
-      <select id="pick-provider" aria-label="厂商"></select>
-      <select id="pick-model" aria-label="模型"></select>
-      <button id="apply-model" class="main" type="button">使用这个模型</button>
-    </div>
-    <p class="hint">同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
-  </section>
-  <section>
-    <h3>API 密钥</h3>
-    <div id="keys"></div>
-    <p class="hint">密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
-  </section>
-  <section>
-    <h3>价格（用来估算费用，单位：美元 / 每百万 token）</h3>
-    <div id="price" class="row"></div>
-    <p id="price-note" class="hint"></p>
-  </section>
-  <div id="settings-message" class="settings-message"></div>
+  <div class="settings-body">
+    <section>
+      <h3>当前模型</h3>
+      <div class="row">
+        <select id="pick-provider" class="field" aria-label="厂商"></select>
+        <select id="pick-model" class="field" aria-label="模型"></select>
+        <button id="apply-model" class="button primary" type="button">使用这个模型</button>
+      </div>
+      <p class="hint">同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
+    </section>
+    <section>
+      <h3>API 密钥</h3>
+      <div id="keys"></div>
+      <p class="hint">密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
+    </section>
+    <section>
+      <h3>价格 <small>用来估算费用，单位：美元 / 每百万 token</small></h3>
+      <div id="price" class="row"></div>
+      <p id="price-note" class="hint"></p>
+    </section>
+  </div>
+  <div id="settings-message" class="settings-message" role="status"></div>
 </dialog>
 
 <script nonce="__NONCE__">
@@ -255,6 +720,7 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
 //   1. 连上服务器的事件流（/events），每收到一个事件，就在页面上画出对应的东西；
 //   2. 用户发消息、点按钮时，向服务器发一个请求（/api/...）。
 // 页面自己不保存对话。刷新之后，服务器会把这段对话的事件从头重发一遍，页面照着重新画出来。
+// 左边的会话列表也一样：列表内容来自服务器发来的状态，点一段会话就是请服务器把那一段重发过来。
 //
 // 安全上只有一条规矩：模型和工具输出的文字一律用 textContent 放进页面，从不当作 HTML 解析。
 (() => {
@@ -262,15 +728,33 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
 
   const token = new URLSearchParams(location.search).get('token') || '';
   const $ = (id) => document.getElementById(id);
-  const chat = $('chat'), log = $('log'), input = $('input'), sendButton = $('send');
-  const banner = $('banner'), working = $('working'), empty = $('empty'), newButton = $('new');
+  const root = document.documentElement, body = document.body;
+  // 界面要等第一批内容画好才淡入。万一脚本中途出错，也要让界面显示出来，不能留下一个空白页
+  window.addEventListener('error', () => body.classList.add('ready'));
+  const nav = $('nav'), side = $('side'), main = $('main'), sheet = $('sheet'), viewport = $('viewport');
+  const chat = $('chat'), log = $('log'), empty = $('empty'), starters = $('starters'), working = $('working');
+  const composer = $('composer'), input = $('input'), sendButton = $('send'), toBottom = $('to-bottom');
+  const banner = $('banner'), newButton = $('new'), search = $('search');
+  const rows = $('conversation-rows'), pill = $('pill');
   const settings = $('settings'), pickProvider = $('pick-provider'), pickModel = $('pick-model');
 
   let busy = false;          // 是否有一轮对话正在进行
+  let stopping = false;      // 用户点了"停止"，还在等这一轮收尾
+  let sending = false;       // 发送消息的请求还没有回来（防止连按两次回车发出两条）
   let state = null;          // 助手程序发来的最新状态：当前模型、各家的情况、用量……
-  let block = null;          // 正在逐字输出的那一段：{kind, body, wrap, text}
+  let block = null;          // 正在逐字输出的那一段：{kind, box, holder, label, node, text}
   let toolCard = null;       // 最近一次工具调用的卡片，等它的结果来填
   const confirms = new Map(); // 还没答复的确认卡片
+
+  // 动画只给"此刻正在发生"的内容。旧内容（刷新页面后补发的、打开旧会话时重放的）直接画出来，
+  // 画完之后整段一起淡入一次。下面三个标记用来分辨这两种情况。
+  let synced = false;        // 刚连上事件流时，服务器先把已有的内容补发一遍；补发完了才算"同步好了"
+  let replaying = false;     // 收到 reset 之后、下一个状态之前的内容，都是重放出来的旧内容
+  let unsettled = true;      // 有一批旧内容刚画完，还没有收尾（滚到底、整段淡入）
+  let jump = null;           // 从搜索结果打开一段会话后，要滚到的那处命中：{id, kind, find}
+  const isLive = () => synced && !replaying;
+
+  const BUSY_HINT = '请先等这一轮对话结束，或者点“停止”。';
 
   // ---- 小工具 --------------------------------------------------------------
 
@@ -281,17 +765,31 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     return node;
   }
 
-  // 用户正看着最新内容时，新内容出现后自动滚到底；如果他往上翻了，就不打扰
-  function keepAtBottom(change) {
-    const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
-    change();
-    if (atBottom) chat.scrollTop = chat.scrollHeight;
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  function icon(name, className) {
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('class', 'icon' + (className ? ' ' + className : ''));
+    svg.setAttribute('aria-hidden', 'true');
+    svg.appendChild(document.createElementNS(SVG, 'use')).setAttribute('href', '#i-' + name);
+    return svg;
   }
 
-  function add(node) {
-    empty.hidden = true;
-    keepAtBottom(() => log.appendChild(node));
-    return node;
+  function iconButton(name, label) {
+    const button = el('button', 'icon-button small');
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.appendChild(icon(name));
+    return button;
+  }
+
+  function remember(key, value) {
+    try { localStorage.setItem(key, value); } catch (_) { /* 浏览器禁用了本地存储 */ }
+  }
+
+  function recall(key) {
+    try { return localStorage.getItem(key); } catch (_) { return null; }
   }
 
   function firstLine(text) {
@@ -321,7 +819,99 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     node.replaceChildren(parts);
   }
 
-  // 向助手程序发一个请求。返回 {ok, error, warning}，不会抛异常。
+  // ---- 动效 ----------------------------------------------------------------
+  // 页面里所有会动的东西都只改 transform 和 opacity。浏览器可以把这两样交给专门的合成线程去做，
+  // 不用重新排版，所以即使脚本正忙着处理模型不断吐出来的文字，动画也不会卡。
+
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');  // 系统设置里的"减少动态效果"
+  const EASE = 'cubic-bezier(.2, .8, .2, 1)';
+
+  // 播一次性的小动画。frames 里只写 transform 和 opacity。
+  function play(node, frames, duration) {
+    if (reduceMotion.matches || !node.animate) return;
+    node.animate(frames, { duration, easing: EASE });
+  }
+
+  // 布局突然变化时（收起会话栏、展开信息栏），让画面滑到新位置，而不是跳过去。
+  // 做法是先量好各部分的旧位置，改完布局再量新位置，然后用 transform 把它们"摆回"旧位置，
+  // 再放手让它们回到原位（这个手法通常叫 FLIP）。布局只重算了一次，滑动的过程交给合成线程。
+  function relayout(change) {
+    if (!body.classList.contains('ready') || reduceMotion.matches || !sheet.animate) { change(); return; }
+    const parts = [[sheet, 'box'], [viewport, 'center'], [composer, 'center'], [starters, 'center'],
+                   [$('title'), 'left'], [$('bar-actions'), 'right']];
+    const before = parts.map(([node]) => node.getBoundingClientRect());
+    change();
+    parts.forEach(([node, mode], index) => {
+      const from = before[index], to = node.getBoundingClientRect();
+      if (!from.width || !to.width) return;  // 这一部分现在没有显示
+      let transform;
+      if (mode === 'box') {  // 那张"纸"的底：位置和宽度都变了，横向拉伸到位
+        if (Math.abs(from.left - to.left) < 1 && Math.abs(from.width - to.width) < 1) return;
+        transform = 'translateX(' + (from.left - to.left) + 'px) scaleX(' + (from.width / to.width) + ')';
+      } else {               // 里面的内容：只平移，不拉伸，文字才不会变形
+        const at = (rect) => (mode === 'left' ? rect.left : mode === 'right' ? rect.right : rect.left + rect.width / 2);
+        const shift = at(from) - at(to);
+        if (Math.abs(shift) < 1) return;
+        transform = 'translateX(' + shift + 'px)';
+      }
+      play(node, [{ transform }, { transform: 'none' }], 380);
+    });
+  }
+
+  // 换外观时让新旧两个画面交叉淡化。用的是浏览器自带的"视图过渡"：它给新旧画面各拍一张快照，
+  // 在合成线程上淡入淡出，页面本身只换了一次颜色。浏览器不支持的话就直接换。
+  function crossfade(update) {
+    if (!document.startViewTransition || reduceMotion.matches) { update(); return; }
+    document.startViewTransition(update);
+  }
+
+  // ---- 跟着最新内容滚动 ----------------------------------------------------
+  // 用户正看着最新内容时，新内容出现后自动滚到底；如果他往上翻了，就不打扰。
+  // "是不是在底部"由浏览器在对话区底部的一个标记进出视野时通知我们（IntersectionObserver），
+  // 不用每来一个字就去量一次滚动位置；滚动本身每一帧最多做一次。
+
+  let stick = true;          // 用户是不是正看着最新的内容
+  let scrollQueued = false;
+
+  function follow() {
+    if (!stick || scrollQueued) return;
+    scrollQueued = true;
+    requestAnimationFrame(() => {
+      scrollQueued = false;
+      if (stick) chat.scrollTop = chat.scrollHeight;
+    });
+  }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((entries) => {
+      stick = entries[entries.length - 1].isIntersecting;
+      toBottom.classList.toggle('show', !stick);
+      toBottom.tabIndex = stick ? -1 : 0;
+    }, { root: chat, rootMargin: '0px 0px 96px 0px' }).observe($('bottom'));
+  }
+
+  toBottom.addEventListener('click', () => {
+    stick = true;
+    chat.scrollTo({ top: chat.scrollHeight, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+  });
+
+  // ---- 提示和请求 ----------------------------------------------------------
+
+  let toastTimer = 0;
+  function toast(text) {
+    const box = $('toast');
+    box.textContent = text;
+    box.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => box.classList.remove('show'), Math.min(8000, Math.max(2600, text.length * 130)));
+  }
+
+  function showBanner(text) {
+    banner.textContent = text;
+    banner.hidden = false;
+  }
+
+  // 向助手程序发一个请求。返回 {ok, error, warning, data}，不会抛异常。data 是服务器回答的内容。
   async function call(path, data) {
     try {
       const response = await fetch(path, {
@@ -334,60 +924,179 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
         ok: response.ok,
         error: response.ok ? '' : reply.error || '请求失败（' + response.status + '）',
         warning: reply.warning || '',
+        data: reply,
       };
     } catch (_) {
       showBanner('连接不上助手程序。它可能已经退出，请回到终端重新运行。');
-      return { ok: false, error: '连接不上助手程序', warning: '' };
+      return { ok: false, error: '连接不上助手程序', warning: '', data: {} };
     }
   }
 
-  // 对话区里用的：失败时把原因显示在对话里
+  // 对话区里用的：失败时在页面底部弹出原因
   async function post(path, data) {
     const result = await call(path, data);
-    if (!result.ok) add(el('div', 'notice error', result.error));
+    if (!result.ok) toast(result.error);
     return result.ok;
   }
 
-  function showBanner(text) {
-    banner.textContent = text;
-    banner.hidden = false;
+  function refreshStatus() {
+    const label = busy ? '停止' : '发送';
+    sendButton.classList.toggle('stop', busy);
+    sendButton.disabled = !busy && !input.value.trim();
+    sendButton.title = label;
+    sendButton.setAttribute('aria-label', label);
+    newButton.disabled = $('new-compact').disabled = busy;
+    body.classList.toggle('busy', busy);
+    working.classList.toggle('on', busy);
+    working.classList.toggle('waiting', busy && !stopping && confirms.size > 0);
+    $('working-text').textContent = !busy ? '' : stopping ? '正在停止' : confirms.size ? '等待你确认' : '助手正在工作';
   }
 
-  function refreshStatus() {
-    sendButton.textContent = busy ? '停止' : '发送';
-    sendButton.classList.toggle('stop', busy);
-    newButton.disabled = busy;
-    working.textContent = !busy ? '' : confirms.size ? '等待你确认……' : '助手正在工作……';
+  // ---- 空白页和收尾 --------------------------------------------------------
+
+  function greeting() {
+    const hour = new Date().getHours();
+    return (hour < 5 ? '夜深了' : hour < 11 ? '早上好' : hour < 13 ? '中午好' : hour < 18 ? '下午好' : hour < 23 ? '晚上好' : '夜深了') + '，';
+  }
+
+  // 对话里还没有实质内容时，页面是"空白页"的样子：问候语和输入框摆在中间。
+  // 有了内容，输入框就滑到底部（只量一次位置，然后用 transform 滑过去）。
+  function setFresh(fresh) {
+    if (main.classList.contains('fresh') === fresh) return;
+    const apply = () => {
+      if (fresh) $('greeting').textContent = greeting();
+      main.classList.toggle('fresh', fresh);
+      empty.hidden = starters.hidden = !fresh;
+    };
+    if (!body.classList.contains('ready')) { apply(); return; }  // 页面还没亮相，不需要过渡
+    const before = composer.getBoundingClientRect().top;
+    apply();
+    const shift = before - composer.getBoundingClientRect().top;
+    if (Math.abs(shift) > 1) play(composer, [{ transform: 'translateY(' + shift + 'px)' }, { transform: 'none' }], 480);
+    if (!fresh) play(viewport, [{ opacity: 0 }, { opacity: 1 }], 280);
+  }
+
+  const hasContent = () => Boolean(log.querySelector(':scope > :not(.notice)'));
+
+  // 一批旧内容画完之后的收尾：决定是不是空白页，滚到最新的位置，整段淡入一次。
+  function settle() {
+    unsettled = false;
+    setFresh(!hasContent());
+    stick = true;
+    chat.scrollTop = chat.scrollHeight;
+    if (body.classList.contains('ready') && log.childElementCount) {
+      play(log, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], 340);
+    }
+    body.classList.add('ready');
+    if (jump) {  // 这段会话是从搜索结果里点开的：滚到命中的那个位置
+      const target = jump;
+      jump = null;
+      if (state && state.conversation === target.id) reveal(target);
+    }
+  }
+
+  // 在对话里找到搜索命中的那一块，滚到屏幕中间，背后亮一下。
+  // 服务器告诉了我们命中的原文（find）和它属于哪一类内容（kind），这里按文字去对。
+  const FOUND_IN = { user: '.msg.user', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call', result: '.call' };
+  const squash = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');  // 比较时不管大小写、全角半角和空白
+
+  function reveal(target) {
+    const wanted = squash(target.find || '');
+    if (!wanted || !FOUND_IN[target.kind]) return;
+    for (const node of log.querySelectorAll(':scope > ' + FOUND_IN[target.kind])) {
+      if (!squash(node.textContent).includes(wanted)) continue;
+      if (node.tagName === 'DETAILS') node.open = true;  // 命中在折叠起来的内容里（思考过程、工具结果）：展开它
+      node.scrollIntoView({ block: 'center' });
+      node.classList.remove('found');
+      void node.offsetWidth;  // 让浏览器先认下"没有这个类"，再加回去，动画才会重新播
+      node.classList.add('found');
+      setTimeout(() => node.classList.remove('found'), 2300);
+      return;
+    }
+  }
+
+  function add(node) {
+    if (!node.classList.contains('notice')) setFresh(false);
+    if (isLive()) node.classList.add('enter');
+    log.appendChild(node);
+    follow();
+    return node;
   }
 
   // ---- 逐字输出的文字 ------------------------------------------------------
 
+  async function copy(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      button.replaceChildren(icon('check'));
+      button.title = '已复制';
+      setTimeout(() => { button.replaceChildren(icon('copy')); button.title = '复制'; }, 1400);
+    } catch (_) {
+      toast('复制失败：浏览器没有允许访问剪贴板。');
+    }
+  }
+
+  // "正在输出"的样子：思考过程展开着、标着"正在思考"，回复的末尾有一个呼吸的光点。
+  // 只有此刻实时发生的输出才这样显示。
+  function setStreaming(on) {
+    if (!block) return;
+    block.box.classList.toggle('streaming', on);
+    if (block.kind === 'thinking') {
+      block.box.open = on;  // 思考完就折叠起来，想看可以再点开
+      block.label.textContent = on ? '正在思考' : '思考过程';
+    }
+  }
+
   function stream(kind, text) {
     if (!block || block.kind !== kind) {
       endBlock();
+      let box, holder, label = null;
       if (kind === 'thinking') {
-        const wrap = el('details', 'thinking');
-        wrap.open = true;
-        wrap.appendChild(el('summary', null, '思考过程'));
-        const body = wrap.appendChild(el('div', 'thinking-body'));
-        add(wrap);
-        block = { kind, body, wrap, text: '' };
+        box = el('details', 'thinking');
+        const summary = box.appendChild(el('summary'));
+        summary.appendChild(icon('spark', 'spark'));
+        label = summary.appendChild(el('span', null, '思考过程'));
+        summary.appendChild(icon('chevron', 'chev'));
+        holder = box.appendChild(el('div', 'thinking-body'));
       } else {
-        block = { kind, body: add(el('div', 'msg assistant')), text: '' };
+        box = el('div', 'msg assistant');
+        holder = box.appendChild(el('div', 'msg-text'));
       }
+      // 整段文字放在同一个文本节点里，来一小段就接在后面，比每次新建一个节点省事
+      block = { kind, box, holder, label, node: holder.appendChild(document.createTextNode('')), text: '' };
+      if (kind === 'text') {
+        const record = block;
+        const button = box.appendChild(el('div', 'msg-actions')).appendChild(iconButton('copy', '复制'));
+        button.addEventListener('click', () => copy(record.text.trim(), button));
+      }
+      if (isLive()) setStreaming(true);
+      add(box);
     }
     block.text += text;
-    keepAtBottom(() => block.body.appendChild(document.createTextNode(text)));
+    block.node.appendData(text);
+    follow();
   }
 
   function endBlock() {
     if (!block) return;
-    if (block.kind === 'thinking') block.wrap.open = false;  // 思考完就折叠起来，想看可以再点开
-    else linkify(block.body, block.text);
+    setStreaming(false);
+    if (block.kind === 'text') {
+      if (block.text.trim()) linkify(block.holder, block.text);
+      else block.box.remove();  // 模型有时只输出几个换行，不值得占一块地方
+    }
     block = null;
   }
 
   // ---- 每种事件怎么画 ------------------------------------------------------
+
+  function finishTool(kind, text) {
+    const { card, status, outcome } = toolCard;
+    status.className = 'status ' + kind + (isLive() ? ' pop' : '');
+    status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'));
+    card.classList.toggle('failed', kind === 'failed');
+    outcome.textContent = kind === 'ok' ? '' : text;  // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开
+    toolCard = null;
+  }
 
   const handlers = {
     reset() {
@@ -395,92 +1104,100 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
       block = null;
       toolCard = null;
       confirms.clear();
-      busy = false;
-      empty.hidden = false;
+      busy = stopping = false;
+      replaying = unsettled = true;
       refreshStatus();
     },
 
     state(event) {
       state = event;
       const current = event.providers.find((provider) => provider.id === event.provider);
-      $('meta').textContent = event.workspace;
-      $('model').textContent = current.label + ' · ' + event.model;
+      $('workspace').textContent = event.workspace;
+      // 还没有密钥时，右上角这个按钮直接写明要做什么（服务器的提示里说的"右上角的设置"就是它）
+      $('model-label').textContent = current.has_key ? current.label + ' · ' + event.model : '设置 API 密钥';
+      $('model').classList.toggle('no-key', !current.has_key);
+      $('title').textContent = event.title || '新对话';
+      document.title = (event.title ? event.title + ' · ' : '') + 'Harness 个人助手';
+      $('setup').hidden = current.has_key;
+      $('cards').hidden = !current.has_key;
+      $('setup-text').textContent = '还没有设置 ' + current.label + ' 的 API 密钥，填好之后就可以开始对话。';
 
-      const todos = event.todos.map((item) => {
-        const row = el('li', null, item.title);
-        if (item.due) row.appendChild(el('span', 'due', '  截止 ' + item.due));
-        return row;
-      });
-      $('todos').replaceChildren(...(todos.length ? todos : [el('li', 'none', '没有')]));
-
-      const usage = event.usage;
-      const rows = [['请求次数', usage.requests], ['联网搜索次数', usage.searches], ['输入（原价）', usage.input],
-                    ['输入（命中缓存）', usage.cache_read], ['输入（写入缓存）', usage.cache_write], ['输出', usage.output],
-                    ['当前对话占用的上下文', usage.context]];
-      $('usage').replaceChildren(...rows.flatMap(([name, value]) => [el('dt', null, name), el('dd', null, value.toLocaleString())]));
-      $('cost').textContent = '$' + event.cost.toFixed(4);
-      $('cost-note').textContent = event.unpriced.length
-        ? '没有计入 ' + event.unpriced.join('、') + '：还没有设置价格，可以在“设置”里填写。'
-        : '按公开价格估算，实际以各家的账单为准。';
-
-      $('tools').replaceChildren(...event.tools.map((tool) => {
-        const row = el('li', 'tool-item');
-        row.appendChild(el('span', null, tool.name));
-        row.appendChild(el('span', 'where', tool.local ? '本地' : '服务器'));
-        return row;
-      }));
-
+      renderConversations();
+      renderTodos(event.todos);
+      renderUsage(event);
+      renderTools(event.tools);
       if (settings.open) renderSettings();
+
+      if (replaying) {  // 重放的旧内容到这里就画完了
+        replaying = false;
+        if (synced) settle();
+      }
     },
 
     user(event) { add(el('div', 'msg user', event.text)); },
-    turn_start() { busy = true; refreshStatus(); },
-    turn_end() { endBlock(); busy = false; refreshStatus(); },
+    turn_start() { busy = true; stopping = false; refreshStatus(); },
+
+    turn_end() {
+      endBlock();
+      if (toolCard) finishTool('stopped', '没有执行完');  // 这一轮结束时工具还没给出结果（比如被中断了）
+      busy = stopping = false;
+      refreshStatus();
+    },
+
     thinking(event) { stream('thinking', event.text); },
     text(event) { stream('text', event.text); },
     block_end() { endBlock(); },
 
     notice(event) {
       endBlock();
-      add(el('div', 'notice ' + event.level, event.text));
+      const node = el('div', 'notice ' + event.level);
+      if (event.level === 'error') node.appendChild(icon('alert'));
+      if (event.level === 'tool') node.appendChild(icon('globe'));
+      node.appendChild(el('span', null, event.text));
+      add(node);
     },
 
     tool_call(event) {
       endBlock();
-      const card = el('details', 'tool');
+      if (toolCard) finishTool('stopped', '');
+      const card = el('details', 'call');
       const summary = card.appendChild(el('summary'));
-      const dot = summary.appendChild(el('span', 'dot pending'));
-      summary.appendChild(el('span', 'tool-name', event.summary));
+      const status = summary.appendChild(el('span', 'status pending'));
+      // 摘要的开头是工具名，后面是参数。分开放，名字用粗体
+      const name = typeof event.name === 'string' && event.summary.startsWith(event.name) ? event.name : '';
+      summary.appendChild(el('span', 'tool-name', name || event.summary));
+      summary.appendChild(el('span', 'tool-args', name ? event.summary.slice(name.length).trim() : ''));
       const outcome = summary.appendChild(el('span', 'tool-outcome'));
-      const body = card.appendChild(el('div', 'tool-body'));
-      body.appendChild(el('div', 'label', '参数'));
-      body.appendChild(el('pre', null, JSON.stringify(event.input, null, 2)));
+      summary.appendChild(icon('chevron', 'chev'));
+      const details = card.appendChild(el('div', 'tool-body'));
+      details.appendChild(el('div', 'label', '参数'));
+      details.appendChild(el('pre', null, JSON.stringify(event.input, null, 2)));
       add(card);
-      toolCard = { card, dot, outcome, body };
+      toolCard = { card, status, outcome, details };
     },
 
     tool_result(event) {
       if (!toolCard) return;
-      toolCard.dot.className = 'dot ' + (event.is_error ? 'failed' : 'ok');
-      toolCard.card.classList.toggle('failed', event.is_error);
-      toolCard.outcome.textContent = firstLine(event.text);
-      toolCard.body.appendChild(el('div', 'label', '结果'));
-      toolCard.body.appendChild(el('pre', null, event.text));
-      toolCard = null;
+      toolCard.details.appendChild(el('div', 'label', '结果'));
+      toolCard.details.appendChild(el('pre', null, event.text));
+      finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
     },
 
     confirm(event) {
       endBlock();
       const card = el('div', 'confirm');
-      card.appendChild(el('div', 'confirm-title', '需要你确认'));
+      const head = card.appendChild(el('div', 'confirm-head'));
+      head.appendChild(icon('shield'));
+      const heading = head.appendChild(el('span', null, '需要你确认'));
       card.appendChild(el('pre', null, '助手想要' + event.description.trimEnd()));
       const actions = card.appendChild(el('div', 'confirm-actions'));
-      const allow = actions.appendChild(el('button', 'allow', '允许'));
-      const deny = actions.appendChild(el('button', null, '拒绝'));
-      const reason = actions.appendChild(el('input', 'reason'));
+      const allow = actions.appendChild(el('button', 'button primary', '允许'));
+      const deny = actions.appendChild(el('button', 'button', '拒绝'));
+      const reason = actions.appendChild(el('input', 'field reason'));
       allow.type = deny.type = 'button';
       reason.type = 'text';
       reason.placeholder = '拒绝时可以告诉助手原因（可选）';
+      reason.setAttribute('aria-label', '拒绝的原因');
 
       const answer = async (allowed) => {
         allow.disabled = deny.disabled = true;
@@ -493,17 +1210,22 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
         if (key.key === 'Enter' && !key.isComposing && key.keyCode !== 229) { key.preventDefault(); answer(false); }
       });
 
+      if (isLive()) card.classList.add('alert');
       add(card);
-      confirms.set(event.id, { card, actions });
+      confirms.set(event.id, { card, actions, heading });
       refreshStatus();
     },
 
     confirm_done(event) {
       const pending = confirms.get(event.confirm);
       if (!pending) return;
-      const label = event.allowed ? '已允许' : event.stopped ? '已中断' : '已拒绝';
-      pending.actions.replaceChildren(el('span', 'outcome ' + (event.allowed ? 'allowed' : 'denied'), label));
+      const outcome = el('span', 'outcome' + (event.allowed ? ' allowed' : event.stopped ? '' : ' denied'));
+      outcome.appendChild(icon(event.allowed ? 'check' : event.stopped ? 'minus' : 'x'));
+      outcome.appendChild(document.createTextNode(event.allowed ? '已允许' : event.stopped ? '已中断' : '已拒绝'));
+      pending.actions.replaceChildren(outcome);
+      pending.heading.textContent = '需要确认的操作';
       pending.card.classList.add('done');
+      pending.card.classList.remove('alert');
       confirms.delete(event.confirm);
       refreshStatus();
     },
@@ -511,24 +1233,35 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
 
   // ---- 发送消息 ------------------------------------------------------------
 
+  // 输入框跟着内容长高，到上限为止；超过上限才出现滚动条
+  const INPUT_LIMIT = 210;
   function resizeInput() {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight + 2, 200) + 'px';
+    const wanted = input.scrollHeight;
+    input.style.height = Math.min(wanted, INPUT_LIMIT) + 'px';
+    input.style.overflowY = wanted > INPUT_LIMIT ? 'auto' : 'hidden';
   }
 
   async function sendMessage() {
     const text = input.value.trim();
-    if (!text || busy) return;
-    if (await post('/api/message', { text })) {
-      input.value = '';
-      resizeInput();
-      chat.scrollTop = chat.scrollHeight;
-    }
+    if (!text || busy || sending) return;
+    sending = true;
+    const sent = await post('/api/message', { text });
+    sending = false;
+    if (!sent) return;
+    input.value = '';
+    resizeInput();
+    refreshStatus();
+    stick = true;
+    follow();
   }
 
   $('form').addEventListener('submit', (submit) => {
     submit.preventDefault();
-    if (busy) post('/api/stop'); else sendMessage();
+    if (!busy) { sendMessage(); return; }
+    stopping = true;
+    refreshStatus();
+    post('/api/stop');
   });
 
   input.addEventListener('keydown', (key) => {
@@ -537,19 +1270,414 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     key.preventDefault();
     sendMessage();  // 正忙的时候 sendMessage 什么都不做，避免误触变成"停止"
   });
-  input.addEventListener('input', resizeInput);
+  input.addEventListener('input', () => { resizeInput(); refreshStatus(); });
 
-  newButton.addEventListener('click', () => post('/api/new'));
+  function startNew() {
+    if (busy) { toast(BUSY_HINT); return; }
+    post('/api/new');
+    input.focus();
+  }
+  newButton.addEventListener('click', startNew);
+  $('new-compact').addEventListener('click', startNew);
 
-  for (const chip of document.querySelectorAll('.chip')) {
-    chip.addEventListener('click', () => {
-      input.value = chip.textContent;
+  for (const card of document.querySelectorAll('.starter')) {
+    card.addEventListener('click', () => {  // 只是把例子填进输入框，发不发由用户决定
+      input.value = card.dataset.prompt;
       resizeInput();
+      refreshStatus();
       input.focus();
     });
   }
 
+  // ---- 两边的栏：展开和收起 ------------------------------------------------
+
+  const overlayNav = matchMedia('(max-width: 760px)');    // 窄屏上，会话栏是盖在对话上面的抽屉
+  const overlaySide = matchMedia('(max-width: 1180px)');  // 信息栏也一样
+
+  function setNav(open, keep) {
+    const was = !body.classList.contains('nav-closed');
+    const change = () => {
+      body.classList.toggle('nav-closed', !open);
+      $('nav-open').hidden = $('new-compact').hidden = open;
+    };
+    if (was === open) change(); else relayout(change);
+    if (open) {
+      placePill(true);
+      if (!was) play(nav, [{ opacity: 0, transform: 'translateX(-18px)' }, { opacity: 1, transform: 'none' }], 360);
+    }
+    if (keep) remember('harness.nav', open ? 'open' : 'closed');
+  }
+
+  function setSide(open, keep) {
+    const was = body.classList.contains('side-open');
+    const change = () => {
+      body.classList.toggle('side-open', open);
+      $('side-toggle').setAttribute('aria-pressed', String(open));
+    };
+    if (was === open) change(); else relayout(change);
+    if (open && !was) play(side, [{ opacity: 0, transform: 'translateX(18px)' }, { opacity: 1, transform: 'none' }], 360);
+    if (keep) remember('harness.side', open ? 'open' : 'closed');
+  }
+
+  $('nav-close').addEventListener('click', () => setNav(false, true));
+  $('nav-open').addEventListener('click', () => setNav(true, true));
+  $('side-toggle').addEventListener('click', () => setSide(!body.classList.contains('side-open'), true));
+  $('foot-cost').addEventListener('click', () => setSide(!body.classList.contains('side-open'), true));
+  $('scrim').addEventListener('click', () => {
+    if (overlayNav.matches) setNav(false, false);
+    if (overlaySide.matches) setSide(false, false);
+  });
+
+  // ---- 外观：浅色、深色、跟随系统 ------------------------------------------
+  // 默认是浅色。点右上角的按钮在三种之间轮换，选择记在浏览器里。
+
+  const THEMES = { light: '浅色', dark: '深色', auto: '跟随系统' };
+  const systemDark = matchMedia('(prefers-color-scheme: dark)');
+  let theme = recall('harness.theme');
+  if (!(theme in THEMES)) theme = 'light';
+
+  function applyTheme() {
+    root.dataset.theme = theme === 'dark' || (theme === 'auto' && systemDark.matches) ? 'dark' : 'light';
+    const button = $('theme');
+    button.dataset.mode = theme;
+    button.title = '外观：' + THEMES[theme] + '（点击切换）';
+    button.setAttribute('aria-label', button.title);
+  }
+  applyTheme();
+
+  function nextTheme() {
+    const names = Object.keys(THEMES);
+    theme = names[(names.indexOf(theme) + 1) % names.length];
+    remember('harness.theme', theme);
+    crossfade(applyTheme);
+  }
+  $('theme').addEventListener('click', nextTheme);
+  // 交叉淡化的那一小会儿，浏览器把点击都算在整个页面头上，按钮自己收不到。
+  // 这时如果点的位置正好在外观按钮上，就当作点了它，连点两下才不会丢掉一下。
+  root.addEventListener('click', (click) => {
+    if (click.target !== root) return;
+    const box = $('theme').getBoundingClientRect();
+    const inside = click.clientX >= box.left && click.clientX <= box.right && click.clientY >= box.top && click.clientY <= box.bottom;
+    if (inside) nextTheme();
+  });
+  systemDark.addEventListener('change', () => { if (theme === 'auto') crossfade(applyTheme); });
+
+  // ---- 会话列表 ------------------------------------------------------------
+
+  let filter = '';         // 搜索框里的字
+  let found = null;        // 搜索结果：{stamp, results}。没在搜索时是 null
+  let searchSeq = 0;       // 每发起一次搜索加一。回来得晚的旧结果靠它认出来、丢掉
+  let searchTimer = 0;
+  let listPrint = '';      // 上一次的会话列表。搜索时列表一变（改名、删除、聊了新的一轮），就重新搜一次
+  let renaming = null;     // 正在改名的会话：{id, draft}
+  let deleting = null;     // 正在确认删除的会话编号
+  let drawn = '';          // 上一次画出来的列表是什么样的；内容没变就不重画
+  let listShown = false;   // 列表是不是已经亮过相了（第一次出现时，各行依次浮现）
+  let focusCancel = false; // 刚点了删除：画完之后把焦点放到"取消"上
+
+  const DAY = 24 * 60 * 60 * 1000;
+  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+  function groupOf(seconds) {
+    const days = Math.round((startOfDay(new Date()) - startOfDay(new Date(seconds * 1000))) / DAY);
+    if (days <= 0) return '今天';
+    if (days === 1) return '昨天';
+    if (days < 7) return '最近 7 天';
+    if (days < 30) return '最近 30 天';
+    return '更早';
+  }
+
+  function timeLabel(seconds) {
+    const date = new Date(seconds * 1000), now = new Date();
+    const pad = (number) => String(number).padStart(2, '0');
+    if (startOfDay(date) === startOfDay(now)) return pad(date.getHours()) + ':' + pad(date.getMinutes());
+    if (date.getFullYear() === now.getFullYear()) return (date.getMonth() + 1) + '月' + date.getDate() + '日';
+    return date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate();
+  }
+
+  // 把一段文字放进节点里，marks 指出的那几处（[[起, 止], ...]，由服务器算好）标出来。
+  // 标记是用 DOM 接口一个个创建的，不拼接 HTML。
+  function paint(node, text, marks) {
+    let last = 0;
+    for (const [from, to] of marks || []) {
+      if (from < last || to > text.length) continue;  // 位置对不上就不标，不能因此把文字弄丢
+      node.append(text.slice(last, from), el('mark', null, text.slice(from, to)));
+      last = to;
+    }
+    node.append(text.slice(last));
+    return node;
+  }
+
+  // 搜索在服务器上做（会话的正文不在页面里）。敲字的时候稍等一下再发，免得每敲一个字就搜一次。
+  function runSearch() {
+    clearTimeout(searchTimer);
+    const query = filter.trim();
+    const mine = ++searchSeq;
+    if (!query) { found = null; renderConversations(); return; }
+    if (!found) renderConversations();  // 第一次搜：先显示"正在搜索"。之后的每次，新结果回来之前先留着旧的
+    searchTimer = setTimeout(async () => {
+      const reply = await call('/api/search', { query });
+      if (mine !== searchSeq) return;  // 这期间又敲了字，这次的结果已经过时了
+      found = { stamp: mine, results: reply.ok ? reply.data.results || [] : [], error: reply.ok ? '' : reply.error };
+      renderConversations();
+    }, 140);
+  }
+
+  // 把高亮块摆到当前会话那一行的位置上。jump 为真时直接到位，否则滑过去
+  function placePill(jump) {
+    const active = rows.querySelector('.conv.active');
+    if (!active || !active.offsetParent) { pill.classList.remove('on'); return; }
+    const sudden = jump || !pill.classList.contains('on') || !isLive();
+    if (sudden) pill.classList.add('jump');
+    pill.style.transform = 'translateY(' + active.offsetTop + 'px)';
+    pill.style.height = active.offsetHeight + 'px';  // 搜索结果那几行带着摘录，比平时高
+    if (sudden) {
+      void pill.offsetWidth;  // 读一下尺寸，让浏览器先把"直接到位"算完，再恢复滑动的过渡
+      pill.classList.remove('jump');
+    }
+    pill.classList.add('on');
+  }
+
+  const KINDS = { user: '你', assistant: '助手', tool: '工具', thinking: '思考', result: '结果' };
+
+  function renderConversations() {
+    if (!state) return;
+    const all = state.conversations;
+    if (renaming && !all.some((item) => item.id === renaming.id)) renaming = null;
+    if (deleting && !all.some((item) => item.id === deleting)) deleting = null;
+
+    const query = filter.trim();
+    const list = JSON.stringify(all);
+    if (query && found && list !== listPrint) runSearch();  // 列表变了，搜索结果可能也跟着变
+    listPrint = list;
+
+    // 状态隔一会儿就会更新一次（比如用量变了），列表多半没变。没变就不重画，
+    // 免得鼠标正悬在某一行上、或者正在改名时，那一行被换成新的。
+    const print = JSON.stringify([list, state.conversation, query, found && found.stamp, renaming && renaming.id, deleting, startOfDay(new Date())]);
+    if (print === drawn) return;
+    drawn = print;
+
+    const nodes = [];
+    let count = 0;
+    const addRow = (item) => {
+      const row = conversationRow(item);
+      if (!listShown && count < 12) {  // 列表第一次出现时，前几行依次浮现
+        row.classList.add('enter');
+        row.style.animationDelay = count * 24 + 'ms';
+      }
+      count += 1;
+      nodes.push(row);
+    };
+
+    if (!query) {
+      // 平时：按时间分组
+      let group = null;
+      for (const item of all) {
+        const name = groupOf(item.updated_at);
+        if (name !== group) nodes.push(el('div', 'conv-group', group = name));
+        addRow(item);
+      }
+      if (!all.length) nodes.push(el('div', 'conv-empty', '还没有保存的会话。发出第一条消息后，它会出现在这里，下次打开还能接着聊。'));
+    } else if (!found) {
+      nodes.push(el('div', 'conv-group', '正在搜索……'));
+    } else if (found.error) {
+      nodes.push(el('div', 'conv-empty', found.error));
+    } else {
+      // 搜索：先是每个关键词都原样找到的，然后是只对得上大概的
+      const known = new Set(all.map((item) => item.id));
+      const results = found.results.filter((item) => known.has(item.id));  // 刚被删掉的不再显示
+      const exact = results.filter((item) => item.exact), near = results.filter((item) => !item.exact);
+      if (exact.length) nodes.push(el('div', 'conv-group', '找到 ' + exact.length + ' 段会话'));
+      exact.forEach(addRow);
+      if (near.length) nodes.push(el('div', 'conv-group', exact.length ? '相近的结果' : '没有完全对得上的，这些比较接近'));
+      near.forEach(addRow);
+      if (!results.length) nodes.push(el('div', 'conv-empty', '没有找到相关的会话。可以换个说法，或者只输入其中的几个字；多个关键词用空格隔开。'));
+      if (found.results.length >= 50) nodes.push(el('div', 'conv-empty', '只显示最相关的 50 段。'));
+    }
+    if (count) listShown = true;
+    rows.replaceChildren(...nodes);
+    $('nav-count').textContent = all.length ? all.length + ' 段会话 · 只保存在这台电脑上' : '会话只保存在这台电脑上';
+    placePill();
+
+    const editor = rows.querySelector('.conv-edit');
+    if (editor) {
+      editor.focus();
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    } else if (focusCancel) {
+      const cancel = rows.querySelector('.conv-confirm .cancel');
+      if (cancel) cancel.focus();
+    }
+    focusCancel = false;
+  }
+
+  // 列表里的一行。item 平时是会话的基本信息；搜索时还带着命中的情况（title_marks、snippet）
+  function conversationRow(item) {
+    const isCurrent = item.id === state.conversation;
+    const row = el('div', 'conv' + (isCurrent ? ' active' : '') + (item.snippet ? ' hit' : ''));
+
+    // 删除前先在原地确认一下，不弹对话框
+    if (deleting === item.id) {
+      const box = row.appendChild(el('div', 'conv-confirm'));
+      box.appendChild(el('span', null, '删除这段会话？'));
+      const yes = box.appendChild(el('button', 'mini danger', '删除'));
+      const no = box.appendChild(el('button', 'mini cancel', '取消'));
+      yes.type = no.type = 'button';
+      yes.addEventListener('click', async () => {
+        deleting = null;
+        await post('/api/conversation/delete', { id: item.id });
+        renderConversations();
+      });
+      no.addEventListener('click', () => { deleting = null; renderConversations(); });
+      return row;
+    }
+
+    // 改名：标题原地变成输入框。回车或点别处保存，Esc 取消
+    if (renaming && renaming.id === item.id) {
+      const editor = row.appendChild(el('input', 'conv-edit'));
+      editor.type = 'text';
+      editor.maxLength = 200;
+      editor.value = renaming.draft;
+      editor.setAttribute('aria-label', '会话标题');
+      const finish = async (save) => {
+        if (!renaming || renaming.id !== item.id) return;  // 回车和失去焦点可能各触发一次，只处理第一次
+        const title = renaming.draft.trim();
+        renaming = null;
+        if (save && title && title !== item.title) await post('/api/conversation/rename', { id: item.id, title });
+        renderConversations();
+      };
+      editor.addEventListener('input', () => { if (renaming) renaming.draft = editor.value; });
+      editor.addEventListener('keydown', (key) => {
+        if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+        if (key.key === 'Enter') { key.preventDefault(); finish(true); }
+        if (key.key === 'Escape') { key.preventDefault(); finish(false); }
+      });
+      editor.addEventListener('blur', () => finish(true));
+      return row;
+    }
+
+    const open = row.appendChild(el('button', 'conv-main'));
+    open.type = 'button';
+    open.title = item.title;
+    if (isCurrent) open.setAttribute('aria-current', 'true');
+    paint(open.appendChild(el('span', 'conv-title')), item.title, item.title_marks);
+    const hit = item.snippet;
+    if (hit) {  // 搜索结果：第二行是命中的那段文字，前面标明是谁说的
+      const line = open.appendChild(el('span', 'conv-snippet'));
+      line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] || ''));
+      paint(line, hit.text, hit.marks);
+    } else {
+      open.appendChild(el('span', 'conv-meta', item.model + ' · ' + timeLabel(item.updated_at)));
+    }
+    open.addEventListener('click', () => {
+      const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
+      if (isCurrent) { if (target) reveal(target); return; }
+      if (busy) { toast(BUSY_HINT); return; }
+      jump = target;  // 打开之后滚到命中的位置（见 settle）
+      post('/api/conversation/open', { id: item.id });
+      if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，选完就收起来
+    });
+
+    const actions = row.appendChild(el('div', 'conv-actions'));
+    const rename = actions.appendChild(iconButton('edit', '重命名'));
+    const remove = actions.appendChild(iconButton('trash', '删除'));
+    rename.addEventListener('click', () => { deleting = null; renaming = { id: item.id, draft: item.title }; renderConversations(); });
+    remove.addEventListener('click', () => { renaming = null; deleting = item.id; focusCancel = true; renderConversations(); });
+    return row;
+  }
+
+  search.addEventListener('input', (typed) => {
+    if (typed.isComposing) return;  // 输入法还在组字（比如拼音打到一半），等选定了字再搜
+    filter = search.value;
+    runSearch();
+  });
+  search.addEventListener('compositionend', () => { filter = search.value; runSearch(); });
+  search.addEventListener('keydown', (key) => {
+    if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+    if (key.key === 'Escape') {  // Esc：先清空搜索词，再按一次离开搜索框
+      key.preventDefault();
+      if (search.value) { search.value = filter = ''; runSearch(); } else search.blur();
+    } else if (key.key === 'Enter') {  // 回车：打开第一条结果（结果还没回来的时候不动，免得打开的是上一次搜的）
+      key.preventDefault();
+      const first = found && found.stamp === searchSeq ? rows.querySelector('.conv-main') : null;
+      if (first) first.click();
+    }
+  });
+  $('search-key').textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
+
+  // ---- 信息栏：费用、用量、待办、工具 --------------------------------------
+
+  const usageCells = {};
+  for (const [list, key, name, swatch] of [
+    ['usage', 'input', '输入 · 原价', 'k1'], ['usage', 'cache_read', '输入 · 命中缓存', 'k2'],
+    ['usage', 'cache_write', '输入 · 写入缓存', 'k3'], ['usage', 'output', '输出', 'k4'],
+    ['usage-more', 'context', '当前对话占用的上下文'], ['usage-more', 'requests', '请求次数'],
+    ['usage-more', 'searches', '联网搜索次数'],
+  ]) {
+    const term = $(list).appendChild(el('dt'));
+    if (swatch) term.appendChild(el('i', 'swatch ' + swatch));
+    term.appendChild(document.createTextNode(name));
+    usageCells[key] = $(list).appendChild(el('dd', null, '0'));
+  }
+  const mixBars = [...$('mix').children].reverse();  // 页面上是从下往上叠的，这里按 输入、命中缓存、写入缓存、输出 的顺序
+
+  function renderUsage(event) {
+    const usage = event.usage;
+    for (const key of Object.keys(usageCells)) usageCells[key].textContent = usage[key].toLocaleString();
+
+    const parts = [usage.input, usage.cache_read, usage.cache_write, usage.output];
+    const total = parts.reduce((sum, value) => sum + value, 0);
+    let running = 0;
+    parts.forEach((value, index) => {
+      running += value;
+      mixBars[index].style.transform = 'scaleX(' + (total ? running / total : 0) + ')';
+    });
+
+    const cost = '$' + event.cost.toFixed(4);
+    if ($('cost').textContent !== cost) {
+      $('cost').textContent = cost;
+      if (isLive()) play($('cost'), [{ opacity: .4, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 320);
+    }
+    $('foot-cost').textContent = '本次运行估算 ' + cost;
+    $('cost-note').textContent = event.unpriced.length
+      ? '没有计入 ' + event.unpriced.join('、') + '：还没有设置价格，可以在“设置”里填写。'
+      : '按公开价格估算，实际以各家的账单为准。';
+  }
+
+  let knownTodos = null, todosDrawn = '', toolsDrawn = '';
+
+  function renderTodos(todos) {
+    const print = JSON.stringify(todos);
+    if (print === todosDrawn) return;
+    todosDrawn = print;
+    const fresh = knownTodos && isLive() ? todos.filter((item) => !knownTodos.has(item.id)).map((item) => item.id) : [];
+    knownTodos = new Set(todos.map((item) => item.id));
+    const items = todos.map((item) => {
+      const row = el('li', 'todo' + (fresh.includes(item.id) ? ' enter' : ''));  // 刚加上的那一条浮现出来
+      row.appendChild(el('span', 'todo-mark'));
+      row.appendChild(el('span', 'todo-text', item.title));
+      if (item.due) row.appendChild(el('span', 'due', item.due));
+      return row;
+    });
+    $('todos').replaceChildren(...(items.length ? items : [el('li', 'none', '没有未完成的待办')]));
+  }
+
+  function renderTools(tools) {
+    const print = JSON.stringify(tools);
+    if (print === toolsDrawn) return;
+    toolsDrawn = print;
+    $('tools').replaceChildren(...tools.map((tool) => {
+      const chip = el('li', 'tool-chip' + (tool.local ? '' : ' remote'));
+      chip.title = tool.local ? '在这台电脑上执行' : '在厂商的服务器上执行';
+      chip.appendChild(el('i', 'dot'));
+      chip.appendChild(el('span', null, tool.name));
+      return chip;
+    }));
+    $('legend-remote').hidden = tools.every((tool) => tool.local);
+  }
+
   // ---- 设置面板 ------------------------------------------------------------
+
+  let settingsDrawn = '';
 
   function say(text, kind) {
     const box = $('settings-message');
@@ -574,10 +1702,15 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     $('apply-model').disabled = !provider.has_key || !provider.models.length;
   }
 
-  // 把最新的状态画到设置面板上。面板开着的时候状态可能更新，所以要保留用户正在输入的内容。
+  // 把最新的状态画到设置面板上。面板开着的时候状态可能更新，所以要保留用户正在输入的内容和焦点。
   function renderSettings() {
+    const print = JSON.stringify([state.providers, state.price, state.provider, state.model]);
+    if (settings.dataset.ready && print === settingsDrawn) return;  // 和面板有关的内容没变，不用重画
+    settingsDrawn = print;
+
     const typed = {};
-    for (const input of settings.querySelectorAll('input[data-keep]')) typed[input.dataset.keep] = input.value;
+    for (const field of settings.querySelectorAll('input[data-keep]')) typed[field.dataset.keep] = field.value;
+    const focused = settings.contains(document.activeElement) ? document.activeElement.dataset.keep : null;
     const chosenProvider = settings.dataset.ready ? pickProvider.value : state.provider;
     const chosenModel = settings.dataset.ready ? pickModel.value : state.model;
     settings.dataset.ready = '1';
@@ -594,42 +1727,57 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
       const row = el('div', 'key-row');
       const head = row.appendChild(el('div', 'key-head'));
       head.appendChild(el('strong', null, provider.label));
-      head.appendChild(el('span', 'key-status' + (provider.has_key ? ' set' : ''),
+      head.appendChild(el('span', 'tag' + (provider.has_key ? ' set' : ''),
         provider.has_key ? '已设置 ' + (provider.key_hint || '') : '未设置'));
-      if (provider.models.length) head.appendChild(el('span', 'key-status', provider.models.length + ' 个模型'));
+      if (provider.models.length) head.appendChild(el('span', 'tag', provider.models.length + ' 个模型'));
       const link = head.appendChild(el('a', null, '去申请'));
       link.href = provider.key_page;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
+      link.appendChild(icon('external'));
 
       const controls = row.appendChild(el('div', 'row'));
-      const input = controls.appendChild(el('input'));
-      input.type = 'password';
-      input.autocomplete = 'off';
-      input.placeholder = provider.has_key ? '粘贴新的 API 密钥可以替换' : '粘贴 API 密钥';
-      input.dataset.keep = 'key-' + provider.id;
-      input.value = typed[input.dataset.keep] || '';
-      const save = controls.appendChild(el('button', 'main', '保存'));
-      const sync = controls.appendChild(el('button', null, '同步模型'));
-      const remove = controls.appendChild(el('button', null, '删除'));
+      const field = controls.appendChild(el('input', 'field'));
+      field.type = 'password';
+      field.autocomplete = 'off';
+      field.spellcheck = false;
+      field.placeholder = provider.has_key ? '粘贴新的 API 密钥可以替换' : '粘贴 API 密钥';
+      field.setAttribute('aria-label', provider.label + ' 的 API 密钥');
+      field.dataset.keep = 'key-' + provider.id;
+      field.value = typed[field.dataset.keep] || '';
+      const save = controls.appendChild(el('button', 'button primary', '保存'));
+      const sync = controls.appendChild(el('button', 'button', '同步模型'));
+      const remove = controls.appendChild(el('button', 'button', '删除'));
       save.type = sync.type = remove.type = 'button';
       sync.disabled = remove.disabled = !provider.has_key;
 
       save.addEventListener('click', async () => {
-        const key = input.value.trim();
+        const key = field.value.trim();
         if (!key) { say('请先粘贴 API 密钥。', 'bad'); return; }
-        input.value = '';  // 密钥一交出去就从输入框里清掉，不在页面上多留
+        field.value = '';  // 密钥一交出去就从输入框里清掉，不在页面上多留
         say('正在保存并同步模型列表……');
         const result = await call('/api/key', { provider: provider.id, key });
         say(result.ok ? result.warning || provider.label + ' 的密钥已保存，模型列表已同步。' : result.error,
             result.ok && !result.warning ? 'good' : 'bad');
+      });
+      field.addEventListener('keydown', (key) => {
+        if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); save.click(); }
       });
       sync.addEventListener('click', async () => {
         say('正在同步 ' + provider.label + ' 的模型列表……');
         const result = await call('/api/models', { provider: provider.id });
         say(result.ok ? provider.label + ' 的模型列表已更新。' : result.error, result.ok ? 'good' : 'bad');
       });
+      // 删除密钥要点两下：第一下只是让按钮变成"确认删除"，过几秒不点就恢复原样
+      let armed = false;
       remove.addEventListener('click', async () => {
+        if (!armed) {
+          armed = true;
+          remove.textContent = '确认删除';
+          remove.classList.add('danger');
+          setTimeout(() => { armed = false; remove.textContent = '删除'; remove.classList.remove('danger'); }, 4000);
+          return;
+        }
         const result = await call('/api/key', { provider: provider.id, key: '' });
         say(result.ok ? provider.label + ' 的密钥已删除。' : result.error, result.ok ? 'good' : 'bad');
       });
@@ -644,15 +1792,15 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     priceRow.replaceChildren();
     for (const [key, label] of fields) {
       const wrap = priceRow.appendChild(el('label', null, label));
-      const input = wrap.appendChild(el('input'));
-      input.type = 'number';
-      input.min = '0';
-      input.step = 'any';
-      input.dataset.keep = 'price-' + key;
-      input.value = typed[input.dataset.keep] !== undefined ? typed[input.dataset.keep] : (price[key] !== undefined ? price[key] : '');
-      inputs[key] = input;
+      const field = wrap.appendChild(el('input', 'field'));
+      field.type = 'number';
+      field.min = '0';
+      field.step = 'any';
+      field.dataset.keep = 'price-' + key;
+      field.value = typed[field.dataset.keep] !== undefined ? typed[field.dataset.keep] : (price[key] !== undefined ? price[key] : '');
+      inputs[key] = field;
     }
-    const savePrice = priceRow.appendChild(el('button', 'main', '保存价格'));
+    const savePrice = priceRow.appendChild(el('button', 'button', '保存价格'));
     savePrice.type = 'button';
     savePrice.addEventListener('click', async () => {
       const values = {};
@@ -666,9 +1814,14 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     $('price-note').textContent = state.price
       ? '这是 ' + state.model + ' 现在用来估算的价格，可以改成你实际的价格。'
       : state.model + ' 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。';
+
+    if (focused) {
+      const again = settings.querySelector('input[data-keep="' + focused + '"]');
+      if (again) again.focus();
+    }
   }
 
-  $('model').addEventListener('click', () => {
+  function openSettings() {
     if (!state) return;
     delete settings.dataset.ready;  // 每次打开都从当前状态重新开始，不保留上次打开时填了一半的内容
     $('keys').replaceChildren();
@@ -676,8 +1829,15 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     say('');
     renderSettings();
     settings.showModal();
-  });
+  }
+
+  $('model').addEventListener('click', openSettings);
+  $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
+  // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
+  let pressedOutside = false;
+  settings.addEventListener('mousedown', (press) => { pressedOutside = press.target === settings; });
+  settings.addEventListener('click', (click) => { if (click.target === settings && pressedOutside) settings.close(); });
   pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
   $('apply-model').addEventListener('click', async () => {
     if (!pickModel.value) return;
@@ -685,14 +1845,53 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     if (result.ok) settings.close(); else say(result.error, 'bad');
   });
 
-  // ---- 连接事件流 ----------------------------------------------------------
+  // ---- 键盘 ----------------------------------------------------------------
+
+  document.addEventListener('keydown', (key) => {
+    if ((key.metaKey || key.ctrlKey) && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
+      key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
+      if (settings.open) return;
+      setNav(true, false);
+      search.focus();
+      search.select();
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open) {
+      if (overlayNav.matches && !body.classList.contains('nav-closed')) setNav(false, false);
+      if (overlaySide.matches && body.classList.contains('side-open')) setSide(false, false);
+    }
+  });
+
+  // ---- 开始 ----------------------------------------------------------------
+
+  const navChoice = recall('harness.nav'), sideChoice = recall('harness.side');
+  setNav(!overlayNav.matches && navChoice !== 'closed', false);
+  setSide(!overlaySide.matches && (sideChoice ? sideChoice === 'open' : window.innerWidth >= 1400), false);
+  refreshStatus();
 
   if (!token) {
     showBanner('地址里缺少口令（token）。请使用终端里显示的完整地址打开。');
+    settle();
     return;
   }
+
+  // 连接事件流。服务器先把已有的事件补发一遍，然后发一个名叫 synced 的标记，之后才是实时的事件。
   const source = new EventSource('/events?token=' + encodeURIComponent(token));
-  source.onopen = () => { banner.hidden = true; };
+  let syncTimer = 0;
+
+  function markSynced() {
+    clearTimeout(syncTimer);
+    if (synced) return;
+    synced = true;
+    if (block) setStreaming(true);  // 刷新页面时正好有一段文字在输出：从现在起它是实时的了
+    if (unsettled && !replaying) settle();
+  }
+
+  source.onopen = () => {
+    banner.hidden = true;
+    synced = false;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(markSynced, 1500);  // 保险：万一没等到标记，也不能让页面一直不亮相
+  };
+  source.addEventListener('synced', markSynced);
   source.onmessage = (message) => {
     const event = JSON.parse(message.data);
     const handle = handlers[event.type];
@@ -702,6 +1901,7 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     showBanner(source.readyState === EventSource.CLOSED
       ? '连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。'
       : '连接中断，正在重连……');
+    body.classList.add('ready');  // 连不上也要让页面亮相，否则只看得到一条提示
   };
 })();
 </script>

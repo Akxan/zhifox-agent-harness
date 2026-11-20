@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -28,12 +29,19 @@ def test_plain_answer_sends_expected_request(start):
     assert request["model"] == "claude-opus-5-5"
     assert request["stream"] is True
     assert request["max_tokens"] == 64000
-    assert request["thinking"] == {"type": "adaptive", "display": "summarized"}
+    # 思考由模型自己决定；block_binding 那一项让"从磁盘读回来的旧会话"接着聊时不会因为思考内容对不上而报错
+    assert request["thinking"] == {
+        "type": "adaptive",
+        "display": "summarized",
+        "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+    }
     assert request["output_config"] == {"effort": "medium"}
     assert request["cache_control"] == {"type": "ephemeral"}
     assert request["fallbacks"] == "default"
     assert request["context_management"] == {"edits": [{"type": "compact_20260112"}]}
-    assert h.api.headers[0]["anthropic-beta"] == "server-side-fallback-2026-07-01,compact-2026-01-12"
+    assert h.api.headers[0]["anthropic-beta"] == (
+        "thinking-binding-controls-2026-08-01,server-side-fallback-2026-07-01,compact-2026-01-12"
+    )
     (system,) = request["system"]
     assert system["cache_control"] == {"type": "ephemeral"}  # 系统提示词上有缓存标记
     assert "个人助手" in system["text"] and str(h.config.workspace) in system["text"]
@@ -70,7 +78,7 @@ def test_optional_features_can_be_off(start):
 
     (request,) = h.api.requests
     assert "fallbacks" not in request  # 这个模型不支持 fallback
-    assert h.api.headers[0]["anthropic-beta"] == "compact-2026-01-12"
+    assert h.api.headers[0]["anthropic-beta"] == "thinking-binding-controls-2026-08-01,compact-2026-01-12"
     assert "web_search" not in [tool["name"] for tool in request["tools"]]
 
 
@@ -328,6 +336,9 @@ def test_fallback_boundary_survives_the_round_trip(start):
     assert assistant[1]["from"] == {"model": "claude-opus-5-5"}
     assert assistant[1]["to"] == {"model": "claude-opus-5"}
     assert assistant[2]["signature"] == "sig-new"
+    # 历史里存的是普通的字典，样子和发给 API 的一模一样（键名是 "from"，不是 SDK 对象上的 from_），
+    # 所以写进会话文件再读回来，还能原样发回去
+    assert json.loads(json.dumps(h.agent.messages[1]["content"])) == assistant
 
 
 def test_blocks_to_keep_drops_unfinished_work_before_fallback():

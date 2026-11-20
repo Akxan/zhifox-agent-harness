@@ -28,6 +28,11 @@ FALLBACK_CAPABLE_MODELS = {
 # 对话太长时，让 API 把较早的内容自动压缩成摘要。
 ENABLE_COMPACTION = True
 
+# 接着一段从磁盘读回来的旧会话聊时，如果系统提示词或工具和当初不一样了（比如换了工作目录、
+# 程序升级后工具变了），Claude 之前的"思考内容"就和现在的对话对不上了。打开这个开关后，
+# API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
+ENABLE_THINKING_DROP = True
+
 
 @dataclass(frozen=True)
 class Config:
@@ -57,6 +62,10 @@ class Config:
     @property
     def settings_file(self) -> Path:
         return self.data_dir / "settings.json"
+
+    @property
+    def conversations_dir(self) -> Path:
+        return self.data_dir / "conversations"
 
 
 def load_env_file(path: Path) -> None:

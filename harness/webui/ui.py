@@ -17,12 +17,30 @@ answer_confirm / request_stop。
 from __future__ import annotations
 
 import threading
+from bisect import bisect_right
 from collections.abc import Callable
 from typing import Any
 
 from ..display import describe_call
 
 MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符（发给模型的不受影响）
+
+# 会话文件里可以重放给页面的事件类型。别的类型（尤其是"状态"和"清空页面"）只能由程序自己发出：
+# 文件万一被改坏、或者被人动过手脚，也不能借着重放去冒充它们。
+REPLAYABLE = frozenset(
+    {"user", "turn_start", "turn_end", "thinking", "text", "block_end", "notice", "tool_call", "tool_result", "confirm"}
+)
+
+
+def latest_state_only(events: list[dict]) -> list[dict]:
+    """一批要一起补发给页面的事件里，"状态"只留最后一个。
+
+    状态事件是一张快照（当前模型、用量、会话列表……），新的完全取代旧的。刚打开页面时要把日志
+    从头补发一遍，里面攒了很多张旧快照，每张都带着整个会话列表；全发过去，页面也只用得上最后一张。
+    聊得久了，略去它们能让刷新页面快很多。其余的事件一个不少，顺序也不变。
+    """
+    latest = max((index for index, event in enumerate(events) if event["type"] == "state"), default=-1)
+    return [event for index, event in enumerate(events) if event["type"] != "state" or index == latest]
 
 
 class WebUI:
@@ -61,8 +79,17 @@ class WebUI:
             return []
         if cursor >= self._next_id:  # 浏览器记住的编号比我们的还新，说明对不上了，全部重发
             cursor = 0
-        first = self._events[0]["id"]
-        return self._events[max(0, cursor - first + 1) :]
+        # 编号是递增的，但不一定连续（过时的状态会被清掉，见 _drop_stale_states），所以用二分查找来定位
+        return self._events[bisect_right(self._events, cursor, key=lambda event: event["id"]) :]
+
+    def _drop_stale_states(self) -> None:
+        """把日志里过时的"状态"清掉，只留最后一个。调用的人要先拿到 self._changed 这把锁。
+
+        状态是一张快照，新的完全取代旧的，而每一张都带着整个会话列表。不清的话，一段聊了很久的会话
+        会让日志越来越大，白占内存。在每轮对话开始时清：这时上一轮的状态，开着的页面早就收到了。
+        """
+        latest = max((index for index, event in enumerate(self._events) if event["type"] == "state"), default=-1)
+        self._events = [event for index, event in enumerate(self._events) if event["type"] != "state" or index == latest]
 
     def reset(self) -> None:
         """开始新对话：清空日志，并通知浏览器把页面也清空。"""
@@ -71,11 +98,70 @@ class WebUI:
             self._block_open = False
         self.publish("reset")
 
+    # ---- 保存和恢复（server.py 使用）---------------------------------------
+
+    def export_events(self) -> list[dict]:
+        """把当前会话显示过的内容整理成适合保存的样子。
+
+        日志里的事件是为"实时推送"准备的，保存之前要整理一下：
+          - 去掉编号（重新打开时会分配新的）；
+          - 去掉只是临时显示的东西（侧栏的状态、打开会话时的提示）；
+          - 逐字到达的文字合并成整段；
+          - 确认请求和它的结果合成一条。
+        """
+        with self._changed:
+            events = list(self._events)
+        saved: list[dict] = []
+        confirms: dict[int, dict] = {}
+        for event in events:
+            kind = event["type"]
+            if kind in ("state", "reset") or event.get("transient"):
+                continue
+            if kind == "confirm_done":
+                if event["confirm"] in confirms:
+                    stopped = event.get("stopped")
+                    confirms[event["confirm"]]["outcome"] = (
+                        "allowed" if event["allowed"] else "stopped" if stopped else "denied"
+                    )
+                continue
+            entry = {key: value for key, value in event.items() if key != "id"}
+            if kind in ("thinking", "text") and saved and saved[-1]["type"] == kind:
+                saved[-1]["text"] += entry["text"]
+                continue
+            if kind == "confirm":
+                entry["outcome"] = "stopped"  # 没等到答复就结束了的，按"已中断"算
+                confirms[event["id"]] = entry
+            saved.append(entry)
+        return saved
+
+    def load_events(self, saved: list[dict]) -> None:
+        """打开一段保存过的会话：清空页面，再把保存的内容按顺序重新发一遍。"""
+        self.reset()
+        open_turns = 0
+        for entry in saved:
+            kind = entry.get("type") if isinstance(entry, dict) else None
+            if not isinstance(kind, str) or kind not in REPLAYABLE:
+                continue  # 不认识的东西不重放（见 REPLAYABLE 的说明）
+            # 编号由这里重新分配，文件里即使带着也不用
+            data = {key: value for key, value in entry.items() if key not in ("id", "type", "outcome")}
+            event_id = self.publish(kind, **data)
+            if kind == "confirm":
+                outcome = entry.get("outcome", "stopped")
+                self.publish("confirm_done", confirm=event_id, allowed=outcome == "allowed", stopped=outcome == "stopped")
+            open_turns += (kind == "turn_start") - (kind == "turn_end")
+        if open_turns > 0:
+            self.publish("turn_end")  # 保存的内容停在一轮中间：补上结尾，免得页面以为还在进行
+
+    def hint(self, text: str) -> None:
+        """一句只显示、不保存的提示。"""
+        self.publish("notice", level="info", text=text, transient=True)
+
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
     def begin_turn(self, user_text: str) -> None:
         with self._changed:
             self._stop_requested = False
+            self._drop_stale_states()
         self.publish("user", text=user_text)
         self.publish("turn_start")
 

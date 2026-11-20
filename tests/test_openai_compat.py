@@ -3,38 +3,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from types import SimpleNamespace
 
 import openai
 import pytest
-from conftest import RecordingUI
 from fake_openai import FakeOpenAI, call, chat
 
-from harness.app import build_app
 from harness.providers import PROVIDERS, ProviderError, list_models
 
 FILE_TOOL = "str_replace_based_edit_tool"
 
 
 @pytest.fixture
-def start(make_config):
-    """启动假服务器，并组装出一个用 DeepSeek（OpenAI 格式）的 agent。"""
-    servers: list[FakeOpenAI] = []
-
-    def start(*replies, approve: bool = True, feedback: str = "", key: str = "test-key", **config_overrides):
-        api = FakeOpenAI(list(replies)).start()
-        servers.append(api)
-        config = make_config(default_provider="deepseek", default_model="deepseek-flash", **config_overrides)
-        ui = RecordingUI(approve, feedback)
-        client = openai.OpenAI(api_key=key, base_url=api.base_url, max_retries=0)
-        app = build_app(config, ui, client_factory=lambda provider: client)
-        app.agent.clock = lambda: datetime(2026, 11, 20, 14, 3)
-        return SimpleNamespace(agent=app.agent, app=app, api=api, ui=ui, config=config, todos=app.todos)
-
-    yield start
-    for api in servers:
-        api.stop()
+def start(start_openai):
+    """这个文件里的测试都用 DeepSeek（OpenAI 格式）的 agent。"""
+    return start_openai
 
 
 def test_plain_answer_sends_expected_request(start):

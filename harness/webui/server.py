@@ -3,11 +3,14 @@
 浏览器只会发这几种请求：
 
   GET  /               页面本身（index.html）
-  GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去
+  GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去。
+                       刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
   POST /api/message    用户发了一条消息
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"
+  POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
+  POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/model      用户换了模型
   POST /api/key        用户填写或删除了一家的 API key
   POST /api/models     用户点了"同步模型"
@@ -35,15 +38,18 @@ from urllib.parse import parse_qs, urlsplit
 
 from ..app import App, build_app, run_turn
 from ..config import Config
+from ..conversations import ConversationError
 from ..pricing import estimate, price_of
 from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
+from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
-from .ui import WebUI
+from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
 MAX_MESSAGE_CHARS = 100_000
 KEEPALIVE_SECONDS = 15
+LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
 PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
@@ -73,6 +79,9 @@ class WebApp:
             provider=settings.provider,
             model=settings.model,
             workspace=str(config.workspace),
+            conversation=self.app.conversation.id,
+            title=self.app.conversation.title,
+            conversations=self.app.conversation_summaries(),
             providers=[
                 {
                     "id": provider.id,
@@ -126,12 +135,26 @@ class WebApp:
 
     def _run_turn(self, text: str) -> None:
         try:
+            self.app.name_conversation(text)  # 新会话用第一句话当标题
             self.ui.begin_turn(text)
+            self.publish_state()  # 让新会话马上出现在列表里
             run_turn(self.app.agent, self.ui, text)
-            self.publish_state()
         finally:
-            self.ui.end_turn()
-            self._turn.release()
+            try:
+                self.ui.end_stream()
+                self._save()  # 每一轮结束都存一次盘，所以最多只会丢失正在进行的这一轮
+                self.publish_state()
+            finally:
+                # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
+                # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
+                self.ui.end_turn()
+                self._turn.release()
+
+    def _save(self) -> None:
+        try:
+            self.app.save_conversation(self.ui.export_events())
+        except OSError as exc:
+            self.ui.error(f"保存会话失败：{exc}")
 
     def stop(self) -> None:
         if self._turn.locked():
@@ -142,12 +165,66 @@ class WebApp:
         if not self._turn.acquire(blocking=False):
             return False
         try:
-            self.app.agent.reset()
+            self.app.new_conversation()
             self.ui.reset()
             self.publish_state()
         finally:
             self._turn.release()
         return True
+
+    # ---- 会话 --------------------------------------------------------------
+
+    def open_conversation(self, conversation_id: str) -> str:
+        """打开一段保存过的会话。成功返回空字符串，否则返回原因。"""
+        if not self._turn.acquire(blocking=False):
+            return self.BUSY
+        try:
+            if conversation_id == self.app.conversation.id:
+                return ""  # 已经开着了
+            try:
+                conversation = self.app.open_conversation(conversation_id)
+            except ConversationError as exc:
+                return str(exc)
+            self.ui.load_events(conversation.events)
+            if conversation.context_tokens >= LARGE_CONTEXT_TOKENS:
+                self.ui.hint(
+                    f"这段会话的历史约有 {conversation.context_tokens:,} 个 token。"
+                    "接着聊的第一条消息需要把它重新发给模型，会按这个量计费。"
+                )
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return ""
+
+    def rename_conversation(self, conversation_id: str, title: str) -> str:
+        # 改名要读出会话文件、改掉标题、再写回去。如果这时正好有一轮对话结束、也在写同一个文件，
+        # 两边会互相覆盖。所以和打开、删除一样，对话进行中不让改。
+        if not self._turn.acquire(blocking=False):
+            return self.BUSY
+        try:
+            try:
+                self.app.rename_conversation(conversation_id, title)
+            except ConversationError as exc:
+                return str(exc)
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return ""
+
+    def delete_conversation(self, conversation_id: str) -> str:
+        if not self._turn.acquire(blocking=False):
+            return self.BUSY
+        try:
+            try:
+                was_current = self.app.delete_conversation(conversation_id)
+            except ConversationError as exc:
+                return str(exc)
+            if was_current:
+                self.ui.reset()
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return ""
 
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
@@ -166,6 +243,8 @@ class WebApp:
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
             label = PROVIDERS[provider_id].label
             self.ui.info(f"已换成 {label} · {model}。" + ("对话继续。" if continued else "换了一家，开始新对话。"))
+            if continued:
+                self._save()  # 这段会话以后用新模型，记下来
             self.publish_state()
         finally:
             self._turn.release()
@@ -264,6 +343,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
         elif path == "/api/new":
             self._finish("" if web.new_conversation() else WebApp.BUSY)
+        elif path.startswith("/api/conversation/"):
+            conversation_id, title = body.get("id"), body.get("title")
+            action = path.removeprefix("/api/conversation/")
+            if not isinstance(conversation_id, str):
+                self._send_json(400, {"error": "参数不正确"})
+            elif action == "open":
+                self._finish(web.open_conversation(conversation_id))
+            elif action == "delete":
+                self._finish(web.delete_conversation(conversation_id))
+            elif action == "rename" and isinstance(title, str) and 0 < len(title.strip()) <= 200:
+                self._finish(web.rename_conversation(conversation_id, title.strip()))
+            else:
+                self._send_json(400, {"error": "参数不正确"})
+        elif path == "/api/search":
+            query = body.get("query")
+            if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
+                self._send_json(400, {"error": f"搜索词必须是一段文字，最长 {MAX_QUERY_CHARS} 个字符"})
+            else:
+                # 只读内存里的索引，不改任何东西，所以对话进行中也可以搜
+                self._send_json(200, {"ok": True, "results": web.app.store.search(query)})
         elif path == "/api/model":
             provider, model = body.get("provider"), body.get("model")
             if provider not in PROVIDERS or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
@@ -335,7 +434,13 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _send_events(self) -> None:
-        """事件流（Server-Sent Events）：连接不关闭，有新事件就写过去。"""
+        """事件流（Server-Sent Events）：连接不关闭，有新事件就写过去。
+
+        刚连上时，先把日志里已有的事件补发一遍，然后发一个名叫 synced 的标记，意思是
+        "旧的补完了，后面的都是此刻正在发生的"。页面靠它区分两种内容：补发的旧内容直接画出来，
+        实时的新内容才播放入场动画。标记不带编号、也不进日志，所以不影响断线重连时
+        "从第几号接着发"的计算。
+        """
         try:
             # 浏览器断线重连时，会用这个请求头告诉我们它上次收到了第几号事件
             cursor = int(self.headers.get("Last-Event-ID") or 0)
@@ -345,15 +450,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        caught_up = False  # 已有的事件补发完了没有
         try:
             while True:
-                events = self.server.web.ui.events_after(cursor, timeout=KEEPALIVE_SECONDS)
-                if not events:
+                # 第一次不等待：有多少旧事件就发多少，紧接着发标记
+                wait = KEEPALIVE_SECONDS if caught_up else 0
+                events = self.server.web.ui.events_after(cursor, timeout=wait)
+                if not events and caught_up:
                     self.wfile.write(b": keepalive\n\n")  # 没有新事件时也定期写一点，才能发现对方已经断开
+                if events:
+                    cursor = events[-1]["id"]
+                if not caught_up:
+                    events = latest_state_only(events)  # 补发的这一批里，过时的状态不用发
                 for event in events:
                     data = json.dumps(event, ensure_ascii=False, default=str)
                     self.wfile.write(f"id: {event['id']}\ndata: {data}\n\n".encode())
-                    cursor = event["id"]
+                if not caught_up:
+                    caught_up = True
+                    self.wfile.write(b"event: synced\ndata: {}\n\n")
         except OSError:
             pass  # 浏览器关掉了页面
 

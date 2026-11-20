@@ -96,6 +96,8 @@ class Backend(Protocol):
     def messages(self) -> list: ...  # 对话历史（各家格式不同）
 
     def reset(self) -> None: ...  # 清空对话
+    def export(self) -> list: ...  # 把对话历史交出来保存（只含能写成 JSON 的普通数据）
+    def restore(self, messages: list) -> None: ...  # 换上一份以前保存的对话历史
     def mark(self) -> int: ...  # 记下历史现在的位置
     def rollback(self, mark: int) -> None: ...  # 把历史退回到某个位置（只会从末尾去掉内容）
     def add_user(self, parts: list[str]) -> None: ...  # 追加一条用户消息
