@@ -89,14 +89,15 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | 位置 | 内容 |
 |---|---|
 | `harness/agent.py` | 循环。不出现任何和具体厂商、具体界面有关的代码 |
-| `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用 |
+| `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用，`compaction.py` 是这三家的压缩历史 |
 | `harness/tools/` | 工具。`base.py` 里的 `function_tool` 用来创建自定义工具 |
 | `harness/permissions.py` | 哪些操作要先问用户 |
 | `harness/conversations.py` | 会话的保存和读取 |
 | `harness/search.py` | 会话的全文搜索：内存里的索引，三档匹配（原样、相近的词、隔字） |
 | `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
 | `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
-| `harness/memories.py` | 网页"记忆"一栏背后的部分：列出、查看、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
+| `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
+| `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |

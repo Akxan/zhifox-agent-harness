@@ -31,7 +31,7 @@ ZhiFox is an AI agent harness built from scratch in Python, with no agent framew
 that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
 tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
 commands, search the web and run scheduled or recurring tasks, with a permission prompt before anything that changes
-your computer. It is also a teaching
+your computer. It also reads the screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching
 project: every part of this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
@@ -52,6 +52,13 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs take turns with
   your conversation, pause for your approval even in Allow everything mode, catch up once after ZhiFox was closed, and
   record what each one cost.
+- 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
+  can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
+  convert it, in all three interface languages.
+- 🧠 **Memory you can manage.** A window at the top of the sidebar lists everything the assistant remembers; read,
+  edit, rename or delete any memory, or show its file in Finder.
+- ✍️ **Your own system prompt.** Edit the built-in prompt in Settings, with placeholders and a preview of exactly what
+  the model receives; changes apply from the next conversation.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
@@ -61,8 +68,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
   has light and dark themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
-- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, automatic
-  compaction of long conversations with every provider, and per-message caps on web search.
+- 💸 **Cost you can see:** token usage and an estimated cost after every model call, built-in prices for Claude and
+  DeepSeek (checked against the official pricing pages, DeepSeek's off-peak discount included), prompt caching,
+  automatic compaction of long conversations with every provider, and per-message caps on web search.
 - 🧪 **Tests without API keys.** The test suite drives the real SDKs against local fake servers, so running it is free.
 
 ## Quick start
