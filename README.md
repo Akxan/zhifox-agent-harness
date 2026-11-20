@@ -180,7 +180,7 @@ Each part of the harness has its own file or directory:
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
-| Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows and deletes the memory files, and never lets a path the browser sends leave the memory folder |
+| Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -497,9 +497,14 @@ This starts a small server on your computer and opens the chat page in your brow
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, memory, and the tools the model can
   use. It updates after every model call.
 - **Memory** (in the info panel). Every file the assistant keeps in its long-term memory (`data/memories/`), with its
-  folder, size and when it last changed. Click one to read it. Hover over it (or move to it with Tab) and click the trash
-  can to delete it; you confirm first, in place. **Open the memory folder in Finder** (**Open the memory folder** on
-  Linux) at the bottom opens the folder in your file manager, where you can edit the files by hand. The list keeps
+  folder, size and when it last changed. Click one to read it. Hover over a row (or move to it with Tab) for the same
+  three buttons as a conversation row: **Show in Finder** selects that file in your file manager, the **pencil** opens
+  it for editing (change its name and its text, ⌘Enter / Ctrl+Enter saves, Esc stops editing and warns you first if
+  there are unsaved changes), and the **trash can** deletes it after you confirm in place. Editing and deleting wait
+  until the current turn ends, since the assistant may be changing that memory. If the file changed while you were
+  editing it, saving asks before overwriting. Files that are too long to load in full, or aren't UTF-8 text, can only be
+  edited in the folder. **Open the memory folder in Finder** (**Open the memory folder** on Linux) at the bottom opens
+  the whole folder. The list keeps
   itself up to date: a memory the assistant writes appears while the turn is still running, and changes you make in
   Finder appear as soon as you switch back to the page. Deleting waits until the assistant has finished its turn,
   because it may be in the middle of editing that very memory.
@@ -591,7 +596,7 @@ The keys and data still come from the project's own `.env` and `data/`.
 |---|---|
 | `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only |
 | `data/conversations/` | Every web UI conversation, one JSON file each |
-| `data/memories/` | The assistant's long-term memory and notes. You can read and delete them in the web UI's info panel, or edit them by hand |
+| `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/todos.json` | To-dos |
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
@@ -606,17 +611,19 @@ Conversation content is sent to the API of the provider you chose, so the model 
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
 deletes its file too.
 
-To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button and **Open
-the memory folder** in the info panel are the only ones on the page that make your computer launch another program (the
-file manager), so the server is extra careful with them: the page can only tell the server *which conversation* (and,
-for the memory folder, nothing at all), the server works out the path itself, and the page has no way to make it open
-any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
+To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button and the two
+folder buttons in the memory panel are the only ones on the page that make your computer launch another program (the
+file manager), so the server is extra careful with them: the page can only tell the server *which conversation*, *which
+memory* (a name from the list, checked as described below) or, for the memory folder, nothing at all; the server works
+out the path itself, and the page has no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
 the file.
 
-Reading and deleting a memory from the info panel are guarded the same way. The page sends back the name it was shown
+Reading, editing and deleting a memory from the info panel are guarded the same way. The page sends back the name it was shown
 (such as `projects/zhifox.md`), and the server walks from the memory folder down to that file one step at a time. It
 refuses anything that would end up outside the folder: `..`, absolute paths, and symlinks that point elsewhere. It only
-deletes plain files; a subfolder left empty by the deletion is removed too.
+deletes plain files; a subfolder left empty by the deletion is removed too. A new name given while editing is a single
+name (no `/`, not starting with a dot), so a memory can be renamed but never moved out of its folder, and the new text
+is written to a temporary file first and swapped in, so a failed save never leaves half a file.
 
 ## Cost
 

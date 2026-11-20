@@ -516,21 +516,25 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .path { font: 12px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
 /* 记忆：一个文件一行，上面是文件名，下面是所在的文件夹 · 大小 · 修改时间。鼠标移上去（或者键盘移到这一行）出现删除按钮 */
 .side .memories { display: grid; gap: 1px; margin: 0 -8px; }  /* 两边各伸出去一点：悬停的底色比文字宽，图标和标题对齐 */
-.memory { position: relative; display: flex; align-items: center; min-height: 46px; border-radius: 10px; }
-.memory:hover { background: var(--hover); }
-.memory-open { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 7px 8px; text-align: left; background: none; border: 0; border-radius: 10px; }
+.memory { position: relative; display: flex; align-items: center; min-height: 48px; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+/* 和会话栏里选中的那一行同一种样子：一张浮起来的卡片 */
+.memory:hover, .memory:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.memory-open { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 8px 8px; text-align: left; background: none; border: 0; border-radius: 12px; }
 .memory-open > .icon { width: 15px; height: 15px; margin-top: 2px; color: var(--ink-3); transition: transform .3s var(--spring); }
 .memory-open:hover > .icon { color: var(--accent); transform: translateY(-1px) rotate(-6deg); }
 .memory-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .memory-name { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .memory-meta { font-size: 11.5px; line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 /* 用 top/bottom + margin 居中，不用 transform：按钮按下时自己要用 transform 缩一下 */
-.memory-remove { position: absolute; top: 0; bottom: 0; right: 6px; margin: auto 0; opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s var(--ease); }
-.memory:hover .memory-remove, .memory:focus-within .memory-remove { opacity: 1; pointer-events: auto; }
-.memory:hover .memory-words, .memory:focus-within .memory-words { padding-right: 26px; }
-@media (hover: none) { .memory-remove { opacity: 1; pointer-events: auto; } .memory-words { padding-right: 26px; } }  /* 触屏上没有"悬停"，删除按钮一直显示 */
-.busy .memory .memory-words { padding-right: 0; }  /* 助手工作时删除按钮藏起来（服务器这时也不让删），名字用回整行 */
-.memory-remove:hover:not(:disabled) { color: var(--err); }
+/* 右边的三个按钮（在访达中显示、编辑、删除），和会话行一样悬停时才出现 */
+.memory-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.memory:hover .memory-actions, .memory:focus-within .memory-actions { opacity: 1; pointer-events: auto; }
+.memory:hover .memory-words, .memory:focus-within .memory-words { padding-right: 82px; }
+@media (hover: none) { .memory-actions { opacity: 1; pointer-events: auto; } .memory-words { padding-right: 82px; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+/* 助手工作时编辑和删除藏起来（服务器这时也不让改），只剩"在访达中显示"，名字多让出一点地方 */
+.busy .memory:hover .memory-words, .busy .memory:focus-within .memory-words { padding-right: 28px; }
+@media (hover: none) { .busy .memory .memory-words { padding-right: 28px; } }
+.memory-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
 .memory-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 8px; font-size: 13px; }
 .memory-confirm span { flex: 1 1 110px; min-width: 0; }
 .memories .none { padding: 2px 8px 4px; line-height: 1.6; }
@@ -545,6 +549,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .memory-sub { margin: 5px 0 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .memory-dialog .memory-body { padding-bottom: 18px; }
 .memory-text { min-height: 132px; padding: 14px 16px; font: 13px/1.75 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+/* 编辑：上面是文件名，下面是内容。内容框和看的时候是同一种样子，只是可以改 */
+.memory-editor { display: grid; gap: 14px; }
+.memory-editor[hidden] { display: none; }
+/* 前面要带上 .settings：设置面板里的 label 默认横着排（标签在左、输入框在右），这里要标签在上 */
+.settings .memory-field { display: grid; align-items: stretch; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.memory-name-box { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.memory-name-box .field { flex: 1; font: 13.5px var(--mono); }
+.memory-folder { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--ink-3); }
+.memory-folder:empty { display: none; }
+.memory-textarea { display: block; width: 100%; min-height: 280px; max-height: 58vh; resize: vertical; outline: 0; transition: border-color .15s ease, box-shadow .15s ease; }
+.memory-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .memory-text.waiting { color: var(--ink-3); }
 .memory-text:not([hidden]) + .memory-problem { margin-top: 12px; }
 .memory-problem { padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; overflow-wrap: anywhere; }
@@ -939,6 +954,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   </div>
   <div class="settings-body memory-body">
     <pre id="memory-text" class="memory-text"></pre>
+    <div id="memory-editor" class="memory-editor" hidden>
+      <label class="memory-field"><span data-i18n>文件名</span>
+        <span class="memory-name-box"><span id="memory-edit-folder" class="memory-folder"></span><input id="memory-edit-name" class="field" type="text" maxlength="200" spellcheck="false" autocomplete="off"></span>
+      </label>
+      <label class="memory-field"><span data-i18n>内容</span>
+        <textarea id="memory-edit-text" class="memory-text memory-textarea" spellcheck="false"></textarea>
+      </label>
+    </div>
     <div id="memory-problem" class="memory-problem" role="alert" hidden></div>
     <p id="memory-note" class="hint"></p>
   </div>
@@ -2690,7 +2713,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // ---- 信息栏：记忆 --------------------------------------------------------
   // 助手的长期记忆是 data/memories/ 下的普通文件，模型用 memory 工具读写。这里把它们列出来：点一条看内容，
-  // 可以删掉，也可以在文件管理器里打开整个文件夹。
+  // 每一行悬停时有三个按钮（和会话行一样）：在文件管理器里显示这个文件、编辑（名字和内容）、删除。
   // 列表跟着状态走：服务器每次发状态都重新看一遍文件夹，所以模型在这一轮里记下的东西，下一次刷新状态时就出现了，
   // 页面不用自己去轮询。页面只拿到相对路径，查看和删除时原样交回去；文件到底在哪儿由服务器重新算，出不了那个文件夹。
 
@@ -2702,7 +2725,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   let memoriesDrawn = '';
   let forgetting = null;      // 正在原地确认删除的那一条（路径）
   let focusAfter = false;     // 画完之后把焦点放到哪一条上（路径；null 表示"打开文件夹"那个按钮；false 表示不用动）
-  let viewing = null;         // 对话框里正在看的那一条：{path, data, error, loading, gone, confirm, message}
+  let viewing = null;         // 对话框里正在看的那一条：{path, data, error, loading, gone, confirm, message, edit, wantEdit}
+                              // edit：正在编辑时是 {force, saving, armed, base}，base 是开始编辑时的名字和内容（用来判断改没改过）
   let viewSeq = 0;            // 每读一次加一。回来得晚的旧内容靠它认出来、丢掉
   let viewDrawn = '';
 
@@ -2802,12 +2826,24 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     words.appendChild(el('span', 'memory-meta', memoryMeta(folder, item.size, item.modified)));
     open.addEventListener('click', () => openMemory(item.path));
 
-    const remove = row.appendChild(el('button', 'icon-button small memory-remove idle-only'));  // 助手工作时藏起来（服务器这时也不让删）
-    remove.type = 'button';
-    remove.title = t('删除这条记忆');
-    remove.setAttribute('aria-label', t('删除记忆：{name}', { name }));  // 读屏软件要知道删的是哪一条
-    remove.appendChild(icon('trash'));
-    remove.addEventListener('click', () => { forgetting = item.path; focusAfter = item.path; renderMemories(memories); });
+    // 和会话行一样的三个按钮。编辑和删除在助手工作时藏起来（服务器这时也不让改）。
+    // 每个按钮的名字里带上是哪一条：读屏软件逐个读按钮时，要知道它操作的是哪一个文件
+    const actions = row.appendChild(el('div', 'memory-actions'));
+    const button = (iconName, title, label, extra) => {
+      const node = actions.appendChild(el('button', 'icon-button small' + (extra ? ' ' + extra : '')));
+      node.type = 'button';
+      node.title = t(title);
+      node.setAttribute('aria-label', t(label, { name }));
+      node.appendChild(icon(iconName));
+      return node;
+    };
+    button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示：{name}') : k('在文件夹中显示：{name}')).addEventListener('click', () => showMemoryFile(item.path));
+    button('edit', k('编辑'), k('编辑记忆：{name}'), 'idle-only').addEventListener('click', () => openMemory(item.path, true));
+    button('trash', k('删除'), k('删除记忆：{name}'), 'idle-only danger-hover').addEventListener('click', () => {
+      forgetting = item.path;
+      focusAfter = item.path;
+      renderMemories(memories);
+    });
     return row;
   }
 
@@ -2835,8 +2871,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // ---- 看一条记忆 ----
   // 和设置面板同一种对话框。正文用 textContent 放进去，文件里写的是什么就显示什么，不当作 HTML。
 
-  function openMemory(path) {
-    viewing = { path, data: null, error: '', loading: true, gone: false, confirm: false, message: null };
+  // edit：点的是铅笔，读出来之后直接进入编辑
+  function openMemory(path, edit) {
+    viewing = { path, data: null, error: '', loading: true, gone: false, confirm: false, message: null, edit: null, wantEdit: Boolean(edit) };
     viewDrawn = '';
     drawViewer();
     memoryDialog.showModal();
@@ -2857,6 +2894,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     } else {
       viewing.error = reply.error;
     }
+    if (reply.ok && viewing.wantEdit) { viewing.wantEdit = false; startEdit(); return; }
     drawViewer();
     if (first && reply.ok) play($('memory-text'), [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 240);
   }
@@ -2865,7 +2903,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // 这两种变化眼睛看得到，读屏软件的用户看不到，所以也播报一下
   function syncViewer() {
     if (!viewing || !memoryDialog.open) return;
+    if (viewing.edit && viewing.edit.saving) return;  // 正在保存：改了名字的话，旧名字马上就不在了，这不算"被删了"
     const item = memories.find((entry) => entry.path === viewing.path);
+    if (viewing.edit && item && viewing.data && item.modified !== viewing.data.modified && !viewing.edit.stale) {
+      // 不重新读：重新读会让"打开时的修改时间"跟着变新，保存时就发现不了冲突，助手刚写的东西会被一声不响地冲掉。
+      // 保存的时候服务器会对不上，先问你要不要覆盖
+      viewing.edit.stale = true;
+      viewing.message = { key: k('这条记忆刚刚在别处被改过了（可能是助手改的）。你的修改还在；保存时会先问你要不要覆盖。') };
+      announce(t('这条记忆刚刚在别处被改过了（可能是助手改的）。你的修改还在；保存时会先问你要不要覆盖。'));
+      drawViewer();
+      return;
+    }
     if (!item) {
       if (!viewing.gone) {
         viewing.gone = true;
@@ -2883,10 +2931,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   function drawViewer() {
     if (!viewing) return;
-    const { path, data, error, gone, confirm, message } = viewing;
+    const { path, data, error, gone, confirm, message, edit } = viewing;
     const waiting = viewing.loading && !data;
     // 每来一次状态都会走到这里。没有变化就不动，正文可能有几十万字
-    const print = JSON.stringify([path, data && data.modified, data && data.size, error, waiting, gone, confirm, message, language]);
+    const editing = edit && [edit.force, edit.saving, edit.armed];
+    const print = JSON.stringify([path, data && data.modified, data && data.size, error, waiting, gone, confirm, message, editing, language]);
     if (print === viewDrawn) return;
     viewDrawn = print;
 
@@ -2894,7 +2943,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     $('memory-name').textContent = name;
     $('memory-meta').textContent = data ? memoryMeta(folder && folder + '/', data.size, data.modified) : folder && folder + '/';
     const text = $('memory-text');
-    text.hidden = !data && !waiting;
+    $('memory-editor').hidden = !edit;
+    text.hidden = Boolean(edit) || (!data && !waiting);
     text.classList.toggle('waiting', waiting || Boolean(data && !data.text));
     if (waiting) retext(text, k('正在读取……'));
     else if (data && !data.text) retext(text, k('这个文件是空的。'));
@@ -2909,13 +2959,25 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // 对话框底部：平时是一句提示、"打开文件夹"和"删除"；点了删除，换成确认的问话和两个按钮
   function drawViewerFoot() {
-    const foot = $('memory-foot'), { confirm, message, gone, data } = viewing;
+    const foot = $('memory-foot'), { confirm, message, gone, data, edit } = viewing;
     const words = el('p', 'memory-message' + (message && message.bad ? ' bad' : ''));
     words.setAttribute('role', 'status');
     if (confirm) words.textContent = t('删除之后，助手就不再记得这些内容了。这一步不能撤销。');
     else if (message) words.textContent = message.key ? t(message.key, message.values) : message.text;
+    else if (edit) words.textContent = t(SAVE_HINT);
     const nodes = [words];
-    if (confirm) {
+    if (edit) {
+      // 编辑时：取消、保存。保存时发现这期间被别处改过，按钮变成"覆盖保存"
+      const no = el('button', 'button cancel', t('取消'));
+      const yes = el('button', 'button primary', edit.force ? t('覆盖保存') : edit.saving ? t('正在保存……') : t('保存'));
+      no.id = 'memory-edit-cancel';
+      yes.id = 'memory-save';
+      no.type = yes.type = 'button';
+      yes.disabled = edit.saving || gone;
+      no.addEventListener('click', () => leaveEdit());
+      yes.addEventListener('click', saveEdit);
+      nodes.push(no, yes);
+    } else if (confirm) {
       const yes = el('button', 'button danger', t('删除'));
       const no = el('button', 'button cancel', t('取消'));
       yes.type = no.type = 'button';
@@ -2926,10 +2988,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const folder = el('button', 'icon-button');
       folder.id = 'memory-reveal';
       folder.type = 'button';
-      folder.title = t(MEMORY_FOLDER);
-      folder.setAttribute('aria-label', t(MEMORY_FOLDER));
+      folder.title = t(SHOW_FILE);
+      folder.setAttribute('aria-label', t(SHOW_FILE));
       folder.appendChild(icon('folder'));
-      folder.addEventListener('click', openMemoryFolder);
+      folder.disabled = gone;
+      folder.addEventListener('click', () => showMemoryFile(viewing.path));
+      const change = el('button', 'button idle-only');
+      change.id = 'memory-edit';
+      change.type = 'button';
+      change.disabled = gone || !data;
+      change.append(icon('edit'), t('编辑'));
+      change.addEventListener('click', startEdit);
       const remove = el('button', 'button');
       remove.id = 'memory-delete';
       remove.type = 'button';
@@ -2943,12 +3012,130 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         drawViewer();
         foot.querySelector('.cancel').focus();  // 默认停在"取消"上，免得手快连按两下回车就删掉了
       });
-      nodes.push(folder, remove);
+      nodes.push(folder, change, remove);
     }
     // 重画会换掉这几个按钮。焦点原来在其中一个上的，画完放回同一个
     const keep = foot.contains(document.activeElement) ? document.activeElement.id : '';
     foot.replaceChildren(...nodes);
     if (keep && $(keep)) $(keep).focus();
+  }
+
+  const SAVE_HINT = ON_MAC ? k('⌘Enter 保存，Esc 退出编辑') : k('Ctrl+Enter 保存，Esc 退出编辑');
+
+  function startEdit() {
+    if (!viewing || !viewing.data) return;
+    if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
+    if (!viewing.data.editable) {
+      // 只读出了开头的、不是 UTF-8 的，在这里改了再存回去就把文件弄坏了
+      viewing.message = { bad: true, key: viewing.data.truncated
+        ? k('这条记忆太长了，这里只读出了开头，没法在这里改。请在记忆文件夹里用别的软件编辑。')
+        : k('这个文件不是 UTF-8 编码的文字，在这里改会把它弄坏。请在记忆文件夹里用别的软件编辑。') };
+      drawViewer();
+      return;
+    }
+    const [folder, name] = splitPath(viewing.path);
+    viewing.edit = { force: false, saving: false, armed: false, stale: false, base: { name, text: viewing.data.text } };
+    viewing.confirm = false;
+    viewing.message = null;
+    $('memory-edit-folder').textContent = folder ? folder + '/' : '';
+    $('memory-edit-name').value = name;
+    const area = $('memory-edit-text');
+    area.value = viewing.data.text;
+    drawViewer();
+    area.focus();
+    area.setSelectionRange(0, 0);
+    area.scrollTop = 0;
+  }
+
+  const editChanged = () => Boolean(viewing && viewing.edit) && (
+    $('memory-edit-name').value.trim() !== viewing.edit.base.name || $('memory-edit-text').value !== viewing.edit.base.text);
+
+  // 离开编辑（取消、Esc、关掉对话框）。改过还没保存的，先提醒一次，再来一次才真的放弃。
+  // 返回 true 表示已经离开了编辑
+  function leaveEdit(closing) {
+    const edit = viewing && viewing.edit;
+    if (!edit) return true;
+    if (editChanged() && !edit.armed) {
+      edit.armed = true;
+      viewing.message = { key: k('还有没保存的修改，再按一次就放弃。'), bad: true };
+      drawViewer();
+      return false;
+    }
+    viewing.edit = null;
+    viewing.message = null;
+    if (!closing) {
+      viewDrawn = '';
+      drawViewer();
+      $('memory-edit') && $('memory-edit').focus();
+    }
+    return true;
+  }
+
+  async function saveEdit() {
+    const edit = viewing && viewing.edit;
+    if (!edit || edit.saving) return;
+    if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
+    const name = $('memory-edit-name').value.trim();
+    if (!name) { viewing.message = { key: k('文件名不能为空。'), bad: true }; drawViewer(); $('memory-edit-name').focus(); return; }
+    const path = viewing.path;
+    edit.saving = true;
+    edit.armed = false;
+    drawViewer();
+    const reply = await call('/api/memory/save', { path, name, text: $('memory-edit-text').value, modified: viewing.data.modified, force: edit.force });
+    if (!viewing || viewing.path !== path || viewing.edit !== edit) return;  // 这期间对话框关掉了
+    edit.saving = false;
+    if (!reply.ok) {
+      if (reply.data && reply.data.conflict) edit.force = true;  // 再点一次就覆盖
+      viewing.message = { text: reply.error, bad: true };
+      drawViewer();
+      $('memory-save') && $('memory-save').focus();
+      return;
+    }
+    viewing.path = reply.data.path;
+    viewing.edit = null;
+    viewing.gone = false;
+    viewing.message = { key: k('已保存。') };
+    announce(t('已保存。'));
+    viewDrawn = '';
+    await loadMemory();
+    $('memory-edit') && $('memory-edit').focus();
+  }
+
+  // 想关掉对话框（×、点外面、Esc）。正在编辑的，先离开编辑：有没保存的修改就先提醒
+  function requestCloseMemory() {
+    if (leaveEdit(true)) memoryDialog.close();
+  }
+
+  memoryDialog.addEventListener('keydown', (key) => {
+    if (!viewing || !viewing.edit || key.isComposing || key.keyCode === 229) return;  // 输入法正在组字时，Esc 和回车是给输入法的
+    if (key.key === 'Escape') {
+      // 编辑时按 Esc 先回到"看"的样子，不直接关掉对话框；拦在 keydown 上，浏览器就不会发出关闭对话框的 cancel
+      key.preventDefault();
+      key.stopPropagation();
+      leaveEdit();
+    } else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) {
+      key.preventDefault();
+      saveEdit();
+    }
+  });
+  for (const field of ['memory-edit-name', 'memory-edit-text']) {
+    // 提醒过"再按一次就放弃"之后又接着改了，就当没提醒过；"已保存""文件名不能为空"这些话也该收起来了
+    $(field).addEventListener('input', () => {
+      const edit = viewing && viewing.edit;
+      if (!edit || (!edit.armed && !viewing.message)) return;
+      edit.armed = false;
+      if (!edit.stale && !edit.force) viewing.message = null;
+      drawViewer();
+    });
+  }
+
+  // 在文件管理器里显示一条记忆的文件。页面给的是列表里的相对路径，文件到底在哪儿由助手程序重新算
+  async function showMemoryFile(path) {
+    const reply = await call('/api/memory/show', { path });
+    const parts = String(reply.data.path || '').split('/');
+    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
+    const said = reply.ok ? (ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown })) : reply.error;
+    if (viewing && memoryDialog.open) { viewing.message = { text: said, bad: !reply.ok }; drawViewer(); } else toast(said);
   }
 
   async function forgetViewed() {
@@ -2993,13 +3180,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   document.addEventListener('visibilitychange', refreshMemories);
 
   $('memory-folder').addEventListener('click', openMemoryFolder);
-  $('close-memory').addEventListener('click', () => memoryDialog.close());
+  $('close-memory').addEventListener('click', requestCloseMemory);
   memoryDialog.addEventListener('close', () => {
     const path = viewing ? viewing.path : false;
     viewing = null;
     viewSeq += 1;
     viewDrawn = '';
     $('memory-text').textContent = '';  // 放开可能很长的正文
+    $('memory-edit-text').value = '';
     // 浏览器会把焦点还给打开它的那一行。那一行要是在这期间重画过（换成了新的元素），就由这里放回去。
     // 还不回去的时候，焦点这一刻可能还停在已经关上的对话框里（浏览器稍后才把它挪到 body 上），所以两种都算
     const lost = !document.activeElement || document.activeElement === body || memoryDialog.contains(document.activeElement);
@@ -3262,7 +3450,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog]) {
     let pressedOutside = false;
     dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
-    dialog.addEventListener('click', (click) => { if (click.target === dialog && pressedOutside) dialog.close(); });
+    dialog.addEventListener('click', (click) => {
+      if (click.target !== dialog || !pressedOutside) return;
+      if (dialog === memoryDialog) requestCloseMemory(); else dialog.close();  // 记忆正在编辑、还没保存的，先提醒
+    });
   }
   pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
   $('apply-model').addEventListener('click', async () => {

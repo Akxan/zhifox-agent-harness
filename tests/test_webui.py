@@ -1663,6 +1663,18 @@ def memory_state(s) -> list[dict]:
     return set_approval(s, "ask")["memories"]
 
 
+def shown_memories(s, expected: list[str]) -> list[str]:
+    """等页面收到的最新状态里，记忆列表变成 expected（最多等 5 秒）。
+
+    服务器是先发状态、再回答请求的，但状态走的是另一条连接（事件流），测试读它的线程可能还没收到。
+    这里只等、不催：要是删除之后服务器根本没发状态，这里会等到超时，测试照样失败。
+    """
+    deadline = time.monotonic() + 5
+    while (paths := [item["path"] for item in latest_state(s.browser)["memories"]]) != expected and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return paths
+
+
 def write(path, text: str = "记着", data: bytes | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     if data is None:
@@ -1739,6 +1751,7 @@ def test_reading_a_memory(serve):
         "size": len("# 智狐\n标志是一只小狐狸。\n".encode()),
         "modified": round((root / "projects" / "zhifox.md").stat().st_mtime, 3),
         "truncated": False,
+        "editable": True,
     }
     status, body = s.browser.post("/api/memory/read", {"path": "empty.md"})
     assert status == 200 and body["text"] == "" and body["size"] == 0 and body["truncated"] is False
@@ -1750,6 +1763,10 @@ def test_reading_a_memory(serve):
     status, body = s.browser.post("/api/memory/read", {"path": "long.md"})
     assert status == 200 and body["truncated"] is True and body["size"] == len(long.encode())
     assert body["text"] == "a" * (limit - 1) and "�" not in body["text"]
+    assert body["editable"] is False  # 只读出了开头：在网页上改了再存，后面那部分就没了
+    write(root / "gbk.md", data="旧的备忘".encode("gbk"))  # 不是 UTF-8：显示时认不出的字节换成了"�"，存回去就坏了
+    status, body = s.browser.post("/api/memory/read", {"path": "gbk.md"})
+    assert status == 200 and body["editable"] is False
 
     # 不是文本文件、不存在、是个文件夹：都说清楚原因，不返回内容
     status, body = s.browser.post("/api/memory/read", {"path": "binary.md"})
@@ -1771,7 +1788,7 @@ def test_deleting_a_memory(serve):
     assert s.browser.post("/api/memory/delete", {"path": "user.md"}) == OK
     assert not (root / "user.md").exists()
     # 删完服务器马上发一次状态，列表跟着变
-    assert [item["path"] for item in latest_state(s.browser)["memories"]] == ["notes/b.md", "projects/deep/a.md"]
+    assert shown_memories(s, ["notes/b.md", "projects/deep/a.md"]) == ["notes/b.md", "projects/deep/a.md"]
     status, body = s.browser.post("/api/memory/delete", {"path": "user.md"})
     assert status == 409 and GONE in body["error"]  # 删过的不能再删
 
@@ -1781,7 +1798,106 @@ def test_deleting_a_memory(serve):
     # 文件夹里还有别的东西（哪怕只是 .DS_Store）：不替你删
     assert s.browser.post("/api/memory/delete", {"path": "notes/b.md"}) == OK
     assert (root / "notes" / ".DS_Store").exists()
-    assert latest_state(s.browser)["memories"] == [] and root.is_dir()
+    assert shown_memories(s, []) == [] and root.is_dir()
+
+
+def save_memory(s, path, name, text, **extra):
+    modified = extra.pop("modified", None)
+    if modified is None:
+        modified = s.browser.post("/api/memory/read", {"path": path})[1]["modified"]
+    return s.browser.post("/api/memory/save", {"path": path, "name": name, "text": text, "modified": modified, **extra})
+
+
+def test_editing_a_memory(serve):
+    s = serve()
+    root = s.config.memory_dir
+    write(root / "projects" / "zhifox.md", "# 智狐\n标志是一只小狐狸。\n")
+
+    # 只改内容：名字不变，文件原地换成新的内容，列表跟着更新
+    assert save_memory(s, "projects/zhifox.md", "zhifox.md", "# 智狐\n英文名 ZhiFox。\n") == (200, {"ok": True, "path": "projects/zhifox.md"})
+    assert (root / "projects" / "zhifox.md").read_text(encoding="utf-8") == "# 智狐\n英文名 ZhiFox。\n"
+    assert [item["size"] for item in memory_state(s)] == [len("# 智狐\n英文名 ZhiFox。\n".encode())]
+
+    # 改名字（顺便改内容）：还在原来的子文件夹里，旧名字不在了
+    assert save_memory(s, "projects/zhifox.md", "智狐.md", "改过的") == (200, {"ok": True, "path": "projects/智狐.md"})
+    assert not (root / "projects" / "zhifox.md").exists()
+    assert (root / "projects" / "智狐.md").read_text(encoding="utf-8") == "改过的"
+    assert [item["path"] for item in memory_state(s)] == ["projects/智狐.md"]
+
+    # 名字不合格、和别的文件重名、内容太长：都说清楚原因，文件不动
+    write(root / "projects" / "别的.md", "别的")
+    refused = [
+        ("", "文件名不能为空"),
+        ("  ", "文件名不能为空"),
+        ("a/b.md", "不能有 / 或"),
+        ("a\\b.md", "不能有 / 或"),
+        (".hidden.md", "不能以 . 开头"),
+        ("x" * 201, "最多 200 个字符"),
+        ("别的.md", "已经有一个叫 别的.md 的文件了"),
+    ]
+    for name, error in refused:
+        status, body = save_memory(s, "projects/智狐.md", name, "新的")
+        assert status == 409 and error in body["error"] and body["conflict"] is False, name
+    status, body = save_memory(s, "projects/智狐.md", "智狐.md", "字" * (memories.MAX_READ_BYTES // 3 + 1))
+    assert status == 409 and "内容太长了" in body["error"]
+    assert (root / "projects" / "智狐.md").read_text(encoding="utf-8") == "改过的"
+
+    # 浏览器给的路径照样逐层检查，出不了记忆文件夹
+    write(s.config.data_dir / "secret.md", "不能被改")
+    status, body = save_memory(s, "../secret.md", "secret.md", "改掉", modified=0)
+    assert status == 409 and GONE in body["error"]
+    assert (s.config.data_dir / "secret.md").read_text(encoding="utf-8") == "不能被改"
+
+    # 参数不对
+    for bad in ({"modified": True}, {"modified": "1"}, {"force": "yes"}):
+        body = {"path": "projects/智狐.md", "name": "智狐.md", "text": "x", "modified": 1.0, **bad}
+        assert s.browser.post("/api/memory/save", body)[0] == 400, bad
+    assert s.browser.post("/api/memory/save", {"path": "projects/智狐.md", "name": "智狐.md", "modified": 1.0})[0] == 400
+
+
+def test_saving_a_memory_that_changed_meanwhile_asks_before_overwriting(serve):
+    s = serve()
+    path = s.config.memory_dir / "user.md"
+    write(path, "喜欢简短的回答")
+    opened = s.browser.post("/api/memory/read", {"path": "user.md"})[1]["modified"]
+
+    # 你在编辑的时候，助手（或者你在别处）改了这个文件
+    write(path, "喜欢简短的回答。住在塞维利亚")
+    os.utime(path, (opened + 5, opened + 5))
+    status, body = save_memory(s, "user.md", "user.md", "你的版本", modified=opened)
+    assert status == 409 and body["conflict"] is True and "再点一次" in body["error"]
+    assert path.read_text(encoding="utf-8") == "喜欢简短的回答。住在塞维利亚"  # 没有一声不响地冲掉
+
+    # 确认要覆盖
+    assert save_memory(s, "user.md", "user.md", "你的版本", modified=opened, force=True) == (200, {"ok": True, "path": "user.md"})
+    assert path.read_text(encoding="utf-8") == "你的版本"
+
+
+def test_memories_cannot_be_edited_during_a_turn(serve):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    write(s.config.memory_dir / "user.md", "喜欢简短的回答")
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    status, body = save_memory(s, "user.md", "user.md", "改掉")
+    assert status == 409 and "等当前这一轮对话结束" in body["error"]
+    assert (s.config.memory_dir / "user.md").read_text(encoding="utf-8") == "喜欢简短的回答"
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+    assert save_memory(s, "user.md", "user.md", "改掉")[0] == 200
+
+
+def test_showing_one_memory_file(serve, monkeypatch):
+    s = serve()
+    root = s.config.memory_dir
+    write(root / "projects" / "zhifox.md")
+    assert s.browser.post("/api/memory/show", {"path": "projects/zhifox.md"}) == (200, {"ok": True, "path": str(root.resolve() / "projects" / "zhifox.md")})
+    assert s.revealed == [root.resolve() / "projects" / "zhifox.md"]
+    # 记忆文件夹以外的、不存在的：不打开
+    for path in ("../settings.json", "/etc/passwd", "nope.md"):
+        status, body = s.browser.post("/api/memory/show", {"path": path})
+        assert status == 409 and GONE in body["error"], path
+    assert s.browser.post("/api/memory/show", {})[0] == 400
+    assert len(s.revealed) == 1
 
 
 def test_memory_paths_cannot_escape_the_memory_folder(serve):

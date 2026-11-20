@@ -1,7 +1,8 @@
 """记忆文件夹给"人"开的那扇门：网页界面"记忆"一栏背后的部分。
 
 助手通过 memory 工具读写 data/memories/（见 tools/memory.py），那是给模型用的门。这里是另一扇：
-列出文件夹里有哪些文件、读出一个文件、删掉一个文件，让你看得到助手记住了什么，不想让它记着的可以删掉。
+列出文件夹里有哪些文件、读出一个文件、改一个文件（内容和名字）、删掉一个文件，让你看得到助手记住了什么，
+记错了的可以改，不想让它记着的可以删掉。
 这里做的事模型看不到，它下次查看记忆时只会发现那个文件不在了。
 
 浏览器送来的是列表里给它的相对路径（比如 "projects/zhifox.md"）。这个路径是从网页上来的，不能全信：
@@ -17,16 +18,21 @@ import stat
 from pathlib import Path, PurePosixPath
 
 from .i18n import t
-from .safe import clean_text
+from .safe import clean_text, write_file
 
 MAX_LISTED = 500  # 列表里最多列这么多个。每调用一次模型就发一次状态，文件夹再大也不能每次都扫一大片
 MAX_DEPTH = 8  # 最多往下找几层子文件夹
 MAX_READ_BYTES = 256_000  # 点开看的时候最多读这么多字节，更长的只显示开头
 MAX_PATH_CHARS = 1000
+MAX_NAME_CHARS = 200  # 改名时文件名最长多少个字符
 
 
 class MemoryFileError(Exception):
-    """这条记忆读不了或删不了。错误信息可以直接显示给用户。"""
+    """这条记忆读不了、改不了或删不了。错误信息可以直接显示给用户。"""
+
+
+class MemoryConflict(MemoryFileError):
+    """你在编辑的时候，这条记忆在磁盘上被改过了（多半是助手改的）。"""
 
 
 def list_files(root: Path) -> list[dict]:
@@ -65,7 +71,11 @@ def list_files(root: Path) -> list[dict]:
 
 
 def read(root: Path, relative: object) -> dict:
-    """读出一条记忆。返回 {"path", "text", "size", "modified", "truncated"}；太长的只读开头，truncated 为真。"""
+    """读出一条记忆。返回 {"path", "text", "size", "modified", "truncated", "editable"}；太长的只读开头，truncated 为真。
+
+    editable：能不能在网页上改。只读了开头的不能改（保存时后面那部分就没了）；不是 UTF-8 的也不能改
+    （显示的时候认不出的字节换成了"�"，原样存回去就把它们弄坏了）。
+    """
     target = _locate(root, relative)
     try:
         # O_NOFOLLOW：_locate 检查过之后、打开之前，万一这个文件被换成了链接，打开会失败，而不是跟着链接读到别处去
@@ -83,13 +93,73 @@ def read(root: Path, relative: object) -> dict:
         raise MemoryFileError(t("这不是文本文件，没法在这里显示。可以打开记忆文件夹查看。"))
     # 截断的地方可能正好切在一个汉字的中间：final=False 让解码器把那半个字留着不解，而不是变成一个"�"
     text = codecs.getincrementaldecoder("utf-8")("replace").decode(data, final=not truncated)
+    try:
+        exact = not truncated and data.decode("utf-8") == clean_text(text)
+    except UnicodeDecodeError:
+        exact = False
     return {
         "path": relative,
         "text": clean_text(text),
         "size": info.st_size,
         "modified": round(info.st_mtime, 3),
         "truncated": truncated,
+        "editable": exact,
     }
+
+
+def save(root: Path, relative: object, name: object, text: object, modified: float | None, force: bool = False) -> str:
+    """改一条记忆：把内容换成 text，名字换成 name（只改名字，不挪到别的子文件夹）。返回改完之后的相对路径。
+
+    modified 是你打开它时看到的修改时间。磁盘上的对不上，说明这期间它被改过了：不是 force 的话不保存，
+    抛出 MemoryConflict，免得一声不响地把助手刚记下的东西冲掉。
+    先写内容、再改名：内容是"先写临时文件再一步换上去"（见 safe.write_file），中途出错原来的文件原封不动；
+    改名是一步完成的系统调用。
+    """
+    target = _locate(root, relative)
+    name = _valid_name(name)
+    if not isinstance(text, str):
+        raise MemoryFileError(t("参数不正确"))
+    text = clean_text(text)
+    if len(text.encode("utf-8")) > MAX_READ_BYTES:
+        raise MemoryFileError(t("内容太长了：在这里最多保存 {n} KB，更长的请在记忆文件夹里编辑。", n=MAX_READ_BYTES // 1000))
+    destination = target.with_name(name)
+    if name != target.name and os.path.lexists(destination) and not _same_file(target, destination):
+        raise MemoryFileError(t("这个文件夹里已经有一个叫 {name} 的文件了。", name=name))
+    if not force and (modified is None or abs(os.lstat(target).st_mtime - modified) > 0.001):
+        raise MemoryConflict(t("这条记忆在你编辑的时候被改过了（可能是助手改的）。你的修改还在框里：再点一次“保存”，就用你的版本覆盖。"))
+    try:
+        write_file(target, text)
+        if name != target.name:
+            os.rename(target, destination)  # 只差大小写的改名（a.md → A.md）也走这里：不区分大小写的磁盘上它们是同一个文件
+    except OSError as exc:
+        raise MemoryFileError(t("没能保存这条记忆：{error}", error=exc.strerror or exc)) from exc
+    return str(PurePosixPath(relative).with_name(name))
+
+
+def file_of(root: Path, relative: object) -> Path:
+    """一条记忆在磁盘上的位置（检查过的，出不了记忆文件夹）。给"在访达中显示"用。"""
+    return _locate(root, relative)
+
+
+def _valid_name(name: object) -> str:
+    """改名时的新名字：一段名字，不带路径，不以 . 开头（以 . 开头的文件列表里不显示，改了就"消失"了）。"""
+    if not isinstance(name, str):
+        raise MemoryFileError(t("参数不正确"))
+    name = clean_text(name).strip()
+    if not name:
+        raise MemoryFileError(t("文件名不能为空。"))
+    if len(name) > MAX_NAME_CHARS:
+        raise MemoryFileError(t("文件名太长了，最多 {n} 个字符。", n=MAX_NAME_CHARS))
+    if "/" in name or "\\" in name or name.startswith(".") or any(ord(char) < 32 for char in name):
+        raise MemoryFileError(t("文件名里不能有 / 或 \\，也不能以 . 开头。"))
+    return name
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    try:
+        return os.path.samestat(os.lstat(first), os.lstat(second))
+    except OSError:
+        return False
 
 
 def delete(root: Path, relative: object) -> None:
