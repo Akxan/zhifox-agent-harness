@@ -145,6 +145,7 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .button.danger { color: #fff; background: var(--danger); border-color: transparent; }
 .field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; outline: 0; }
 .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field::placeholder { color: var(--ink-3); opacity: 1; }
 
 /* 渐变描边：一个盖在边框位置上的渐变环，平时透明，需要时淡入。
    只改透明度，所以淡入淡出不用重画。新对话按钮、输入框、建议卡片共用这一条。 */
@@ -195,6 +196,8 @@ kbd { flex: none; padding: 2px 6px; font: 11px/1.4 var(--sans); color: var(--ink
 .conv-title { font-size: 14px; line-height: 1.35; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv.active .conv-title { color: var(--ink); font-weight: 500; }
 mark { color: inherit; background: var(--select); border-radius: 3px; }
+.conv-snippet mark { color: var(--ink); }
+::highlight(found) { background-color: var(--select); }  /* 从搜索结果跳过来时，对话里命中的那几个字 */
 /* 搜索结果：第二行是命中的那段文字，最多两行 */
 .conv.hit { height: auto; min-height: 52px; }
 .conv.hit .conv-main { height: auto; gap: 3px; padding-top: 9px; padding-bottom: 9px; }
@@ -203,9 +206,10 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .conv-meta { font-size: 11.5px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
 .conv:hover .conv-actions, .conv:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
-.conv:hover .conv-main, .conv:focus-within .conv-main { padding-right: 94px; }
-.busy .conv-actions { display: none; }
-.busy .conv:hover .conv-main, .busy .conv:focus-within .conv-main { padding-right: 12px; }
+.conv:hover .conv-title, .conv:focus-within .conv-title, .conv:hover .conv-meta, .conv:focus-within .conv-meta { padding-right: 82px; }
+.conv.hit .conv-actions { top: 6px; transform: none; }  /* 搜索结果：按钮对齐标题那一行，不挡摘录 */
+.busy .idle-only { display: none; }  /* 助手工作时不能改名和删除；"在访达中显示"照常可以点 */
+.busy .conv:hover .conv-title, .busy .conv:focus-within .conv-title, .busy .conv:hover .conv-meta, .busy .conv:focus-within .conv-meta { padding-right: 28px; }
 .busy .conv:not(.active) .conv-main { cursor: not-allowed; }
 .conv-edit { flex: 1; min-width: 0; height: 36px; margin: 0 8px; padding: 0 10px; font-size: 14px; background: var(--surface); border: 1px solid var(--accent); border-radius: 9px; outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
 .conv-confirm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; font-size: 13px; }
@@ -322,7 +326,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 /* 确认卡片 */
 .confirm { position: relative; padding: 14px 16px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; }
 .confirm-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--warn); }
-.confirm pre { margin: 8px 0 14px; max-height: 320px; overflow: auto; font-size: 13px; }
+.confirm pre { margin: 8px 0 14px; font-size: 13px; }  /* 不限高度：要你批准的内容必须整段摆在眼前，不能藏在小滚动框里 */
 .confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .reason { flex: 1 1 220px; }
 .outcome { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); }
@@ -349,6 +353,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .working.waiting .dots i { animation: none; }
 
 /* ---- 空白页：问候语、输入框、建议都摆在页面中间 ---------------------------- */
+.main.fresh .viewport { flex: .8 0 auto; }  /* 问候区有多高就占多高，不能被压扁（否则顶上的标志会被裁掉） */
 .main.fresh .chat { display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
 .main.fresh .working { display: none; }
 .main.fresh .log { padding: 0 0 16px; }
@@ -359,11 +364,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .hero-inner > :nth-child(3) { animation-delay: .12s; }
 .hero-mark { width: 52px; height: 52px; margin-bottom: 16px; }
 .hero-mark .mark { width: 52px; height: 52px; }
-.hero h2 { margin: 0; font: 600 clamp(32px, 4.4vw, 52px)/1.18 var(--serif); letter-spacing: -.012em; }
+.hero h2 { margin: 0; font: 600 clamp(28px, min(4.4vw, 6.2vh), 52px)/1.18 var(--serif); letter-spacing: -.012em; }
 .hero h2 span { display: block; width: fit-content; max-width: 100%; }
 .hero h2 .hl { padding-bottom: .08em; color: transparent; -webkit-text-fill-color: transparent; background: var(--aurora-text); -webkit-background-clip: text; background-clip: text; }
 .hero p { margin: 14px 0 0; max-width: 36em; font-size: 15px; color: var(--ink-2); }
-.starters { flex: 1.35 1 0; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.starters { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 24px 20px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }
 .starter { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 13px 14px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: transform .3s var(--ease); animation: rise .6s var(--ease) backwards; }
 .starter:nth-child(1) { animation-delay: .16s; }
@@ -416,6 +421,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .side ul { margin: 0; padding: 0; list-style: none; }
 .side .cost-card { position: relative; margin: 0 0 4px; padding: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); }
 .cost-card::before { content: ""; position: absolute; right: -50px; top: -70px; width: 190px; height: 190px; border-radius: 50%; background: radial-gradient(closest-side, var(--a2), transparent); opacity: .18; pointer-events: none; }
+:root[data-theme="dark"] .cost-card::before { opacity: .1; }
 .cost-figure { position: relative; font-size: 34px; font-weight: 650; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .fine { position: relative; margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
 /* 四类 token 各占多少：四条色带叠在一起，各自横向缩放到"累计占比"的长度，露出来的就是自己的那一段 */
@@ -474,14 +480,18 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .settings-message.good { color: var(--ok); }
 
 /* ---- 浮在最上面的提示 ---------------------------------------------------- */
-.banner { position: fixed; z-index: 50; top: 14px; left: 50%; max-width: min(640px, calc(100vw - 32px)); padding: 9px 16px; font-size: 13px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
-.toast { position: fixed; z-index: 50; left: 50%; bottom: 108px; max-width: min(520px, calc(100vw - 32px)); padding: 9px 16px; font-size: 13px; color: var(--on-ink); background: var(--ink); border-radius: 12px; box-shadow: var(--shadow-2); opacity: 0; transform: translate(-50%, 10px); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.banner, .toast { position: fixed; z-index: 50; left: 16px; right: 16px; width: fit-content; margin: 0 auto; padding: 9px 16px; font-size: 13px; box-shadow: var(--shadow-2); }
+.banner { top: 14px; max-width: 640px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: drop .4s var(--ease); }
+.toast { top: 66px; max-width: 520px; color: var(--on-ink); background: var(--ink); border-radius: 12px; opacity: 0; transform: translateY(-10px); pointer-events: none; transition: opacity .2s ease, transform .3s var(--ease); }
+.toast.show { opacity: 1; transform: none; }
 
 /* ---- 窄屏：两边的栏变成盖在上面的抽屉 -------------------------------------- */
 @media (max-width: 1180px) {
   .side { position: absolute; z-index: 30; top: 8px; right: 8px; bottom: 8px; width: min(300px, calc(100vw - 16px)); padding: 8px 4px 0 8px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
   .side-open .scrim { display: block; }
+}
+@media (max-height: 700px) {
+  .hero-mark { display: none; }
 }
 @media (max-width: 760px) {
   .nav { position: absolute; z-index: 30; top: 8px; left: 8px; bottom: 8px; width: min(288px, calc(100vw - 16px)); padding: 0 2px 4px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
@@ -500,7 +510,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 @keyframes reveal { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes fade { from { opacity: 0; } }
-@keyframes drop { from { opacity: 0; transform: translate(-50%, -12px); } }
+@keyframes drop { from { opacity: 0; transform: translateY(-12px); } }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(14px) scale(.975); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pop { from { opacity: 0; transform: scale(.4); } }
@@ -515,8 +525,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 ::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  *, *::before, *::after, ::backdrop { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .aurora i { animation: none !important; }
+  .found::before { opacity: 1; }  /* 不播动画时，命中的那一块静静地亮着，直到脚本把它收掉 */
 }
 </style>
 </head>
@@ -611,7 +622,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
-          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" aria-label="设置：换模型、填写 API 密钥"><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥"><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="theme" class="icon-button theme" type="button">
             <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
             <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
@@ -820,7 +831,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const parts = document.createDocumentFragment();
     let last = 0;
     for (const match of text.matchAll(URL_PATTERN)) {
-      const url = match[0].replace(/[.,;:!?)\]}]+$/, '');
+      let end = match[0].length;  // 网址末尾的标点多半是句子的，不是网址的。从后往前数，不用正则
+      while (end > 0 && '.,;:!?)]}'.includes(match[0][end - 1])) end -= 1;
+      const url = match[0].slice(0, end);
       let safe = false;
       try { safe = ['http:', 'https:'].includes(new URL(url).protocol); } catch (_) { /* 不是合法网址 */ }
       if (!safe) continue;
@@ -947,6 +960,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         body: JSON.stringify(data || {}),
       });
       const reply = await response.json().catch(() => ({}));
+      if (response.ok) banner.hidden = true;  // 请求通了，说明助手程序还在，之前"连接不上"的提示可以收起来
       return {
         ok: response.ok,
         error: response.ok ? '' : reply.error || '请求失败（' + response.status + '）',
@@ -1027,14 +1041,59 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   const FOUND_IN = { user: '.msg.user', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call, :scope > .notice.tool', result: '.call' };
   const squash = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');  // 比较时不管大小写、全角半角和空白
 
+  // 在一块内容里找到命中的那几个字，返回它们的位置（一个 Range）；找不到返回 null。
+  // 服务器给的原文里，连续的空白被压成了一个空格，页面上一行工具调用又是几段文字拼起来的，
+  // 所以词和词之间按"有没有空白都行"去对。
+  function locate(node, find) {
+    const escaped = find.split(/\s+/).filter(Boolean).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (!escaped.length) return null;
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const pieces = [];
+    let text = '';
+    for (let piece = walker.nextNode(); piece; piece = walker.nextNode()) {
+      pieces.push([piece, text.length]);
+      text += piece.data;
+    }
+    const match = new RegExp(escaped.join('\\s*')).exec(text);
+    if (!match) return null;
+    const at = (index) => {  // 整段文字里的第 index 个字，落在哪个文本节点的第几个字
+      let which = pieces.length - 1;
+      while (which > 0 && pieces[which][1] > index) which -= 1;
+      return [pieces[which][0], index - pieces[which][1]];
+    };
+    const range = document.createRange();
+    range.setStart(...at(match.index));
+    range.setEnd(...at(match.index + match[0].length));
+    return range;
+  }
+
+  let highlightTimer = 0;
+
   function reveal(target) {
-    const wanted = squash(target.find || '');
+    const find = (target.find || '').trim();
+    const wanted = squash(find);
     if (!wanted || !FOUND_IN[target.kind]) return;
     for (const node of log.querySelectorAll(':scope > ' + FOUND_IN[target.kind])) {
       if (!squash(node.textContent).includes(wanted)) continue;
       if (node.tagName === 'DETAILS') node.open = true;  // 命中在折叠起来的内容里（思考过程、工具结果）：展开它
       setStick(false);  // 要停在命中的地方，不能被"跟着最新内容"拉回底部
-      node.scrollIntoView({ block: 'center' });
+      const range = locate(node, find);
+      if (range) {
+        // 工具结果放在一个自己会滚动的小框里：先把小框滚到命中的那一行
+        const inner = range.startContainer.parentElement.closest('pre');
+        if (inner && inner.scrollHeight > inner.clientHeight) {
+          inner.scrollTop += range.getBoundingClientRect().top - inner.getBoundingClientRect().top - inner.clientHeight / 3;
+        }
+      }
+      // 再滚动对话区，把命中的地方放在靠上三分之一处。一条回复可能比屏幕还长，所以对的是那几个字，不是整块
+      const spot = (range || node).getBoundingClientRect(), view = chat.getBoundingClientRect();
+      chat.scrollTop += spot.top - view.top - view.height / 3;
+      // 把那几个字标出来。用的是浏览器的"自定义高亮"：只登记一个范围，不往页面里加标签
+      if (range && window.Highlight && window.CSS && CSS.highlights) {
+        CSS.highlights.set('found', new Highlight(range));
+        clearTimeout(highlightTimer);
+        highlightTimer = setTimeout(() => CSS.highlights.delete('found'), 8000);
+      }
       node.classList.remove('found');
       void node.offsetWidth;  // 让浏览器先认下"没有这个类"，再加回去，动画才会重新播
       node.classList.add('found');
@@ -1181,7 +1240,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const node = el('div', 'notice ' + event.level);
       if (event.level === 'error') node.appendChild(icon('alert'));
       if (event.level === 'tool') node.appendChild(icon('globe'));
-      node.appendChild(el('span', null, event.text));
+      node.appendChild(el('span', null, String(event.text)));
       add(node);
     },
 
@@ -1205,7 +1264,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     },
 
     tool_result(event) {
-      if (!toolCard) return;
+      // 对应的那次调用没画出来（比如那条事件坏了）：结果也要让人看到，不能悄悄丢掉
+      if (!toolCard) handlers.tool_call({ name: '', summary: '工具结果（对应的调用没能显示）', input: null });
       toolCard.details.appendChild(el('div', 'label', '结果'));
       toolCard.details.appendChild(el('pre', null, event.text));
       finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
@@ -1454,7 +1514,16 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // 把高亮块摆到当前会话那一行的位置上。jump 为真时直接到位，否则滑过去
   function placePill(jump) {
     const active = rows.querySelector('.conv.active');
-    if (!active || !active.offsetParent) { pill.classList.remove('on'); return; }
+    if (!active || !active.offsetParent) {
+      // 光把它变透明不够：它还占着原来的位置，列表下面会多出一段能滚动的空白。位置和高度也收回去
+      pill.classList.remove('on');
+      pill.classList.add('jump');
+      pill.style.transform = 'translateY(0)';
+      pill.style.height = '0';
+      void pill.offsetWidth;
+      pill.classList.remove('jump');
+      return;
+    }
     const sudden = jump || !pill.classList.contains('on') || !isLive();
     if (sudden) pill.classList.add('jump');
     pill.style.transform = 'translateY(' + active.offsetTop + 'px)';
@@ -1503,6 +1572,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (!listShown && count < 12) {  // 列表第一次出现时，前几行依次浮现
         row.classList.add('enter');
         row.style.animationDelay = count * 24 + 'ms';
+        // 播完就把标记去掉，免得会话栏收起再展开时又播一遍
+        row.addEventListener('animationend', () => { row.classList.remove('enter'); row.style.animationDelay = ''; }, { once: true });
       }
       count += 1;
       nodes.push(row);
@@ -1621,6 +1692,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     locate.addEventListener('click', () => showFile(item.id));
     const rename = actions.appendChild(iconButton('edit', '重命名'));
     const remove = actions.appendChild(iconButton('trash', '删除'));
+    rename.classList.add('idle-only');  // 助手工作时这两个按钮藏起来（服务器这时也不让改）
+    remove.classList.add('idle-only');
     rename.addEventListener('click', () => { deleting = null; renaming = { id: item.id, draft: item.title }; renderConversations(); });
     remove.addEventListener('click', () => { renaming = null; deleting = item.id; focusCancel = true; renderConversations(); });
     return row;
@@ -1905,9 +1978,18 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // ---- 开始 ----------------------------------------------------------------
 
-  const navChoice = recall('harness.nav'), sideChoice = recall('harness.side');
-  setNav(!overlayNav.matches && navChoice !== 'closed', false);
-  setSide(!overlaySide.matches && (sideChoice ? sideChoice === 'open' : window.innerWidth >= 1400), false);
+  // 两边的栏一开始是展开还是收起：窄窗口里它们是盖在对话上的抽屉，默认收起；
+  // 宽窗口里按上次的选择来（信息栏没选过的话，窗口够宽才展开）。
+  const navWanted = () => !overlayNav.matches && recall('harness.nav') !== 'closed';
+  const sideWanted = () => {
+    const choice = recall('harness.side');
+    return !overlaySide.matches && (choice ? choice === 'open' : window.innerWidth >= 1400);
+  };
+  setNav(navWanted(), false);
+  setSide(sideWanted(), false);
+  // 窗口拉宽拉窄跨过界限时重新决定一次。不然原来并排展开的栏会原样变成抽屉，把对话整个盖住
+  overlayNav.addEventListener('change', () => setNav(navWanted(), false));
+  overlaySide.addEventListener('change', () => setSide(sideWanted(), false));
   refreshStatus();
 
   if (!token) {
@@ -1936,15 +2018,31 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   };
   source.addEventListener('synced', markSynced);
   source.onmessage = (message) => {
-    const event = JSON.parse(message.data);
-    const handle = handlers[event.type];
-    if (handle) handle(event);
+    // 一条事件读不懂、或者画的时候出了错，都要在页面上说一声：不能让一次工具调用就这样不见了，
+    // 也不能因为它连累后面的事件。
+    let event = null;
+    try {
+      event = JSON.parse(message.data);
+      const handle = handlers[event.type];
+      if (handle) handle(event);
+    } catch (problem) {
+      console.error(problem);
+      try {
+        handlers.notice({ level: 'error', text: '有一项内容没能显示出来' + (event && event.type ? '（' + event.type + '）' : '') + '。可以点开这段会话的文件查看原始记录。' });
+      } catch (_) { /* 连提示都画不出来，就只能算了 */ }
+    }
   };
   source.onerror = () => {
-    showBanner(source.readyState === EventSource.CLOSED
+    const gone = source.readyState === EventSource.CLOSED;
+    showBanner(gone
       ? '连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。'
       : '连接中断，正在重连……');
     body.classList.add('ready');  // 连不上也要让页面亮相，否则只看得到一条提示
+    if (gone && busy) {  // 助手程序不在了，"正在工作"就不该一直转下去
+      endBlock();
+      busy = stopping = false;
+      refreshStatus();
+    }
   };
 })();
 </script>
