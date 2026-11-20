@@ -103,3 +103,12 @@ def test_providers_without_web_search_are_not_told_about_it(start_openai):
     assert system["role"] == "system" and "智狐" in system["content"]
     # DeepSeek 拿不到联网工具，提示词里也就不说能联网，不然它会去调用一个不存在的工具
     assert "web_search" not in system["content"]
+
+
+def test_the_built_in_prompt_explains_what_the_program_adds(make_config):
+    # 程序会往对话里放几样东西，模型得知道它们是什么：时间说明、定时任务的说明、附件、压缩后的摘要
+    prompt_text = build_system_prompt(make_config())
+    for marker in ("<context>", "<task>", '<attachment name="文件名">', "摘要"):
+        assert marker in prompt_text, marker
+    assert "以文件里现在的内容为准" in prompt_text  # 用户可以在界面里改、删记忆
+    assert "不用问" in prompt_text  # 用户可能设成了自动允许，不是每次都会问
