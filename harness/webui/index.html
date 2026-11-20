@@ -264,7 +264,6 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .column { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 24px; }
 .log { display: flex; flex-direction: column; gap: 14px; padding-top: 26px; }
 .log:empty { display: none; }
-.bottom { height: 1px; margin-top: -1px; }
 
 /* ---- 消息 ---------------------------------------------------------------- */
 .msg { position: relative; font-size: 15.5px; line-height: 1.75; }
@@ -634,7 +633,6 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
           <div class="column">
             <div id="log" class="log"></div>
             <div id="working" class="working"><svg class="loop" aria-hidden="true"><use href="#i-loop"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
-            <div id="bottom" class="bottom"></div>
           </div>
         </div>
       </div>
@@ -885,12 +883,23 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   // ---- 跟着最新内容滚动 ----------------------------------------------------
-  // 用户正看着最新内容时，新内容出现后自动滚到底；如果他往上翻了，就不打扰。
-  // "是不是在底部"由浏览器在对话区底部的一个标记进出视野时通知我们（IntersectionObserver），
-  // 不用每来一个字就去量一次滚动位置；滚动本身每一帧最多做一次。
+  // 用户正看着最新内容时，新内容出现后自动滚到底；他一往上翻就不再跟，直到他自己回到底部。
+  //
+  // 怎么知道他往上翻了：看滚动位置是不是变小了。程序自己滚动只会往下（滚到底），所以位置变小一定是
+  // 用户翻的，滚轮、拖滚动条、键盘都算。不能只看"离底部远不远"：回复逐字输出时，用户刚往上翻了一点，
+  // 下一段文字一到就又被拉回底部，怎么翻都翻不上去。
+  // 这些在滚动事件里判断，一帧最多一次，不用每来一个字就去量位置；"滚到底"这个动作也是一帧最多做一次。
 
   let stick = true;          // 用户是不是正看着最新的内容
+  let lastTop = 0;           // 上一次滚动事件时的位置，用来判断这一次是往上还是往下
   let scrollQueued = false;
+
+  function setStick(value) {
+    if (stick === value) return;
+    stick = value;
+    toBottom.classList.toggle('show', !value);  // 不跟了，就给一个"回到最新"的按钮
+    toBottom.tabIndex = value ? -1 : 0;
+  }
 
   function follow() {
     if (!stick || scrollQueued) return;
@@ -901,16 +910,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     });
   }
 
-  if ('IntersectionObserver' in window) {
-    new IntersectionObserver((entries) => {
-      stick = entries[entries.length - 1].isIntersecting;
-      toBottom.classList.toggle('show', !stick);
-      toBottom.tabIndex = stick ? -1 : 0;
-    }, { root: chat, rootMargin: '0px 0px 96px 0px' }).observe($('bottom'));
-  }
+  chat.addEventListener('scroll', () => {
+    const top = chat.scrollTop;
+    if (chat.scrollHeight - top - chat.clientHeight < 4) setStick(true);  // 到底了：重新开始跟
+    else if (top < lastTop - 1) setStick(false);                          // 位置变小了：是用户往上翻的
+    lastTop = top;
+  }, { passive: true });
 
   toBottom.addEventListener('click', () => {
-    stick = true;
+    setStick(true);
     chat.scrollTo({ top: chat.scrollHeight, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
   });
 
@@ -1001,7 +1009,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function settle() {
     unsettled = false;
     setFresh(!hasContent());
-    stick = true;
+    setStick(true);
     chat.scrollTop = chat.scrollHeight;
     if (body.classList.contains('ready') && log.childElementCount) {
       play(log, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], 340);
@@ -1016,7 +1024,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // 在对话里找到搜索命中的那一块，滚到屏幕中间，背后亮一下。
   // 服务器告诉了我们命中的原文（find）和它属于哪一类内容（kind），这里按文字去对。
-  const FOUND_IN = { user: '.msg.user', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call', result: '.call' };
+  const FOUND_IN = { user: '.msg.user', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call, :scope > .notice.tool', result: '.call' };
   const squash = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');  // 比较时不管大小写、全角半角和空白
 
   function reveal(target) {
@@ -1025,6 +1033,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     for (const node of log.querySelectorAll(':scope > ' + FOUND_IN[target.kind])) {
       if (!squash(node.textContent).includes(wanted)) continue;
       if (node.tagName === 'DETAILS') node.open = true;  // 命中在折叠起来的内容里（思考过程、工具结果）：展开它
+      setStick(false);  // 要停在命中的地方，不能被"跟着最新内容"拉回底部
       node.scrollIntoView({ block: 'center' });
       node.classList.remove('found');
       void node.offsetWidth;  // 让浏览器先认下"没有这个类"，再加回去，动画才会重新播
@@ -1271,7 +1280,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     input.value = '';
     resizeInput();
     refreshStatus();
-    stick = true;
+    setStick(true);  // 发了新消息，就回到最新的位置
     follow();
   }
 
@@ -1565,7 +1574,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (renaming && renaming.id === item.id) {
       const editor = row.appendChild(el('input', 'conv-edit'));
       editor.type = 'text';
-      editor.maxLength = 200;
+      editor.maxLength = 40;  // 标题最长保留 40 个字（服务器那边也是这样截的）
       editor.value = renaming.draft;
       editor.setAttribute('aria-label', '会话标题');
       const finish = async (save) => {

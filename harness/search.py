@@ -141,6 +141,8 @@ class SearchIndex:
             if not isinstance(event, dict) or not isinstance(event.get("type"), str):
                 continue
             kind, name = _SEARCHABLE.get(event["type"], ("", ""))
+            if event["type"] == "notice" and event.get("level") == "tool":
+                kind, name = "tool", "text"  # 在厂商服务器上执行的工具（比如联网搜索）是以提示的形式记下来的
             value = event.get(name) if kind else None
             if isinstance(value, str) and value.strip():
                 passages.append(make_passage(kind, value[:RESULT_CHARS] if kind == "result" else value))
