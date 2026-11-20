@@ -459,7 +459,8 @@ This starts a small server on your computer and opens the chat page in your brow
   your computer, **Rename** and **Delete**. Conversations save automatically at the end of every turn, with nothing to
   do by hand. The button at the top left hides the sidebar; clicking the bottom row opens the folder where conversations
   are saved.
-- **Search** (top of the sidebar, ⌘K or Ctrl+K). Searches all saved conversations, titles and content, without needing
+- **Search** (top of the sidebar, ⌘F or Ctrl+F; ⌘K and Ctrl+K work too, and pressing ⌘F again while you're in the
+  search box hands over to the browser's own find-in-page). Searches all saved conversations, titles and content, without needing
   an exact match. Separate keywords with spaces. Each result shows the passage that matched; open it (or press Enter to
   open the first) and the page scrolls straight to that spot.
 - **Empty state.** Before there is any content, a greeting, the input box and a few clickable examples sit in the middle
