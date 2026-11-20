@@ -82,7 +82,7 @@ def load_config() -> Config:
         max_tokens=64000,
         max_steps=50,
         workspace=Path.cwd().resolve(),
-        data_dir=PROJECT_ROOT / "data",
+        data_dir=Path(os.environ.get("HARNESS_DATA_DIR") or PROJECT_ROOT / "data").expanduser().resolve(),
         env_file=env_file,
         web=os.environ.get("HARNESS_WEB", "1") != "0",
     )

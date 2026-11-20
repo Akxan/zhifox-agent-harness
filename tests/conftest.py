@@ -17,6 +17,7 @@ from harness.config import Config
 from harness.permissions import Permissions
 from harness.tools import build_registry
 from harness.tools.files import FileEditor
+from harness.tools.shell import Shell
 from harness.tools.todo import TodoStore
 
 
@@ -75,11 +76,16 @@ def make_config(tmp_path):
     return make
 
 
-@pytest.fixture
-def start(make_config, monkeypatch):
-    """启动一个假 API，并组装出一个连着它的 agent。"""
+@pytest.fixture(autouse=True)
+def no_proxy(monkeypatch):
+    """测试里的请求都发往本机的假 API，不能被代理设置带到别处去。"""
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def start(make_config):
+    """启动一个假 API，并组装出一个连着它的 agent。"""
     apis: list[FakeAPI] = []
 
     def start(*replies, ui=None, approve: bool = True, feedback: str = "", **config_overrides):
@@ -92,7 +98,7 @@ def start(make_config, monkeypatch):
         agent = Agent(
             client=anthropic.Anthropic(api_key="test-key", base_url=api.base_url, max_retries=0),
             config=config,
-            tools=build_registry(config, files, todos),
+            tools=build_registry(config, files, todos, Shell(config.workspace)),
             permissions=Permissions(files),
             ui=ui,
             system_prompt="测试用的系统提示词",

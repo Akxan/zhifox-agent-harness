@@ -17,12 +17,15 @@ uv sync
 cp .env.example .env
 #    然后打开 .env，把 key 填在 ANTHROPIC_API_KEY= 后面
 
-# 3. 启动
-uv run harness
+# 3. 启动（二选一）
+uv run harness          # 终端界面
+uv run harness --web    # 网页界面，会自动在浏览器里打开
 ```
 
 API key 在 [platform.claude.com](https://platform.claude.com) 的 API Keys 页面创建。
 API 按用量计费，和 Claude 的订阅是分开的，需要先在控制台充值。
+
+### 终端界面
 
 启动后直接打字就可以对话：
 
@@ -52,6 +55,28 @@ API 按用量计费，和 Claude 的订阅是分开的，需要先在控制台�
 
 模型回复到一半时按 Ctrl-C 可以打断它。
 
+### 网页界面
+
+```bash
+uv run harness --web
+```
+
+程序会在本机启动一个小型服务器，并在浏览器里打开聊天页面。页面上有：
+
+- 对话区：回复逐字显示；模型的思考过程可以点开查看；每次工具调用是一张卡片，点开能看到参数和结果。
+- 确认卡片：助手要写文件或执行命令时出现，带"允许"和"拒绝"两个按钮。拒绝时可以顺便写一句原因。
+- 侧栏：未完成的待办、本次运行的 token 用量、模型可以使用的工具。
+- "停止"按钮：打断正在进行的回复，正在运行的命令也会一起结束。
+
+刷新页面不会丢失当前对话。关闭页面后程序仍在运行，回到终端按 Ctrl-C 才会退出。
+
+可选参数：`--port 9000` 指定端口（默认 8765，被占用时自动换一个），`--no-browser` 不自动打开浏览器。
+
+终端里显示的地址带有一段 `token`，它是这次运行的口令，每次启动都会换。不要把这个地址发给别人：
+拿到它的人可以通过这个页面让助手在你的电脑上执行命令。服务器只接受本机的连接。
+
+### 在别的目录里使用
+
 助手的"工作目录"是你启动它时所在的目录。想让它在别的目录里工作，先 `cd` 到那里，再运行：
 
 ```bash
@@ -73,10 +98,33 @@ uv run --project "/这个项目的完整路径" harness
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 程序关掉后对话就没了。记忆存在磁盘上，下次还在 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
-| 界面 | [harness/ui.py](harness/ui.py) | 把过程显示给你，把你的输入交给循环 |
-| 组装 | [harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
+| 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
+| 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
 
 建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py`，其余的按兴趣看。
+
+### 一个循环，两种界面
+
+终端版和网页版用的是同一个循环、同一套工具和权限规则，`agent.py` 里没有一行代码是为某种界面写的。
+循环只要求界面提供这几个方法：
+
+| 方法 | 循环在什么时候调用它 |
+|---|---|
+| `stream_event` | 模型每生成一小段内容 |
+| `tool_call` / `tool_result` | 一个工具开始执行 / 执行完毕 |
+| `confirm` | 需要用户点头，循环停在这里等答复 |
+| `info` | 有一句提示要告诉用户 |
+
+终端版（`ui.py`）把这些调用直接变成屏幕上的文字。网页版多绕一步，因为循环和浏览器不在同一个程序里：
+
+```
+agent 循环 ──调用──► WebUI ──事件──► 本地服务器 ──推送──► 浏览器里的页面
+                    (webui/ui.py)   (webui/server.py)     (webui/index.html)
+```
+
+`WebUI` 把每次调用记成一条"事件"存进日志，服务器把事件推送给浏览器，页面收到后画出对应的内容。
+你在页面上点"允许"或"停止"，则是浏览器向服务器发一个请求，服务器再转告 `WebUI`。
+页面自己不保存对话，所以刷新后服务器把日志重发一遍，页面就能照着重新画出来。
 
 ### 循环
 
@@ -204,6 +252,7 @@ def make_dice_tool() -> Tool:
 | `HARNESS_MODEL` | `claude-opus-5-5` | 使用的模型。`claude-sonnet-5-5` 更便宜、更快 |
 | `HARNESS_EFFORT` | `medium` | 模型思考的力度：`low` / `medium` / `high` / `xhigh` / `max` |
 | `HARNESS_WEB` | `1` | 设为 `0` 关闭联网搜索 |
+| `HARNESS_DATA_DIR` | 项目里的 `data/` | 记忆、待办等数据存放的目录 |
 
 代码是按上面两个模型写的。换成其他模型时，个别参数（比如联网工具的版本）可能需要调整。
 
@@ -230,12 +279,15 @@ uv run pytest
 它按真实 API 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、
 被 Ctrl-C 打断、模型拒绝回答），可以读 [tests/test_agent.py](tests/test_agent.py)。
+网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器。
 
 ## 局限
 
 - 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
 - 每条命令都在全新的 shell 里运行，`cd` 和环境变量不会保留到下一条命令。
 - 关掉程序后对话不保留。
+- 两种界面都只显示纯文本，不渲染 Markdown（系统提示词里也让模型不要用 Markdown）。
+- 网页界面的"停止"在模型下一次有输出时生效：模型还在思考、没有任何输出的那几秒里，按了不会立刻停。
 - "拒绝后自动换模型重试"和"自动压缩历史"用的是 API 的 beta 功能。如果启动后每个请求都报 400，
   可以在 [harness/config.py](harness/config.py) 里把它们关掉。
 
@@ -244,4 +296,4 @@ uv run pytest
 - 把对话保存到磁盘，下次启动时恢复。
 - 给常用的只读命令（`ls`、`git status`）加一个"本次会话不再询问"的选项。
 - 通过 MCP 接入日历、邮件等外部服务。
-- 把终端界面换成网页：只需要重写 `ui.py`，循环不用动。
+- 在网页的侧栏里直接勾选完成待办，或者让页面渲染 Markdown。

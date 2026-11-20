@@ -16,7 +16,7 @@ from ..config import Config
 from .base import Tool, ToolError
 from .files import FileEditor, make_file_tool
 from .memory import make_memory_tool
-from .shell import make_shell_tool
+from .shell import Shell, make_shell_tool
 from .todo import TodoStore, make_todo_tools
 from .web import make_web_tools
 
@@ -38,12 +38,12 @@ class ToolRegistry:
         return iter(self._tools.values())
 
 
-def build_registry(config: Config, files: FileEditor, todos: TodoStore) -> ToolRegistry:
+def build_registry(config: Config, files: FileEditor, todos: TodoStore, shell: Shell) -> ToolRegistry:
     tools = [
         *make_todo_tools(todos),
         make_memory_tool(config.data_dir),
         make_file_tool(files),
-        make_shell_tool(config.workspace),
+        make_shell_tool(shell),
     ]
     if config.web:
         tools += make_web_tools()

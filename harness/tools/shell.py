@@ -10,7 +10,7 @@ import signal
 import subprocess
 from pathlib import Path
 
-from .base import Tool, function_tool
+from .base import Tool, ToolError, function_tool
 
 TOOL_NAME = "run_command"
 DEFAULT_TIMEOUT = 60
@@ -37,13 +37,20 @@ def _kill(process: subprocess.Popen) -> None:
         pass
 
 
-def make_shell_tool(workspace: Path) -> Tool:
-    def run_command(command: str, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
+class Shell:
+    """在工作目录里执行命令，并记住正在运行的那个进程，方便从外面把它结束掉。"""
+
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        self._running: subprocess.Popen | None = None
+        self._stopped = False  # 正在运行的命令是不是被 kill_running 结束的
+
+    def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
         timeout = max(1, min(timeout_seconds, MAX_TIMEOUT))
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS}
         process = subprocess.Popen(
             ["/bin/bash", "-c", command],
-            cwd=workspace,
+            cwd=self.workspace,
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -52,20 +59,35 @@ def make_shell_tool(workspace: Path) -> Tool:
             errors="replace",
             start_new_session=True,  # 独立的进程组，超时或中断时可以整组结束
         )
+        self._running = process
+        self._stopped = False
         try:
             output, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _kill(process)
             output, _ = process.communicate()
             return f"{_clip(output)}\n[命令运行超过 {timeout} 秒，已被终止]"
-        except KeyboardInterrupt:
+        except KeyboardInterrupt:  # 终端里按了 Ctrl-C
             _kill(process)
             raise
+        finally:
+            self._running = None
+        if self._stopped:
+            raise ToolError(f"命令还没运行完，就被用户停止了。在那之前的输出：\n{_clip(output).rstrip() or '（没有输出）'}")
         result = _clip(output).rstrip("\n") or "（没有输出）"
         if process.returncode != 0:
             result += f"\n[退出码 {process.returncode}]"
         return result
 
+    def kill_running(self) -> None:
+        """结束正在运行的命令（如果有）。网页界面的"停止"按钮会调用它。"""
+        process = self._running
+        if process is not None:
+            self._stopped = True
+            _kill(process)
+
+
+def make_shell_tool(shell: Shell) -> Tool:
     return function_tool(
         name=TOOL_NAME,
         description=(
@@ -82,5 +104,5 @@ def make_shell_tool(workspace: Path) -> Tool:
             },
         },
         required=["command"],
-        function=run_command,
+        function=shell.run,
     )

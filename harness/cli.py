@@ -1,18 +1,13 @@
-"""程序入口：把各个部件组装起来，然后进入"读一句、答一句"的主循环。"""
+"""程序入口：读取配置，然后启动终端界面或网页界面。"""
 
 from __future__ import annotations
 
+import argparse
 import sys
 
-import anthropic
-
-from .agent import Agent
-from .config import Config, has_credentials, load_config
-from .permissions import Permissions
-from .prompt import build_system_prompt
-from .tools import ToolRegistry, build_registry
-from .tools.files import FileEditor
-from .tools.todo import TodoStore, format_todos
+from .app import App, build_app, run_turn
+from .config import has_credentials, load_config
+from .tools.todo import format_todos
 from .ui import TerminalUI
 
 SETUP_HELP = """\
@@ -34,20 +29,22 @@ HELP = """\
 /usage   查看本次运行的 token 用量
 /exit    退出"""
 
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage"}
 
-def handle_command(command: str, agent: Agent, todos: TodoStore, tools: ToolRegistry, ui: TerminalUI) -> bool:
+
+def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     """处理斜杠命令。返回 False 表示要退出程序。"""
     if command in ("/exit", "/quit"):
         return False
     if command == "/help":
         ui.plain(HELP)
     elif command == "/new":
-        agent.reset()
+        app.agent.reset()
         ui.info("已开始新对话。")
     elif command == "/todos":
-        ui.plain(format_todos(todos.items("pending")))
+        ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
-        for tool in tools:
+        for tool in app.tools:
             where = "本地执行" if tool.run else "服务器执行"
             description = tool.spec.get("description")
             # 自定义工具显示说明的第一句；Anthropic 定义的工具没有我们写的说明，显示它的类型
@@ -55,7 +52,7 @@ def handle_command(command: str, agent: Agent, todos: TodoStore, tools: ToolRegi
             ui.plain(f"{tool.name}  [{where}]")
             ui.info(f"    {summary}")
     elif command == "/usage":
-        usage = agent.usage
+        usage = app.agent.usage
         ui.plain(
             f"请求 {usage.requests} 次\n"
             f"输入：{usage.input_tokens} token（原价） + {usage.cache_read_tokens}（命中缓存） "
@@ -65,54 +62,10 @@ def handle_command(command: str, agent: Agent, todos: TodoStore, tools: ToolRegi
     return True
 
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage"}
-
-
-def run_turn(agent: Agent, ui: TerminalUI, text: str) -> None:
-    """跑一轮对话，并把各种 API 错误翻译成看得懂的提示。出错后程序不退出，可以接着聊。"""
-    try:
-        agent.run_turn(text)
-    except KeyboardInterrupt:
-        ui.info("已中断。")
-    except anthropic.AuthenticationError:
-        ui.error("API key 无效。请检查 .env 文件里的 ANTHROPIC_API_KEY。")
-    except anthropic.PermissionDeniedError as exc:
-        ui.error(f"这个 API key 没有权限执行该请求：{exc.message}")
-    except anthropic.NotFoundError:
-        ui.error(f"找不到模型 {agent.config.model}。请检查 HARNESS_MODEL 的设置。")
-    except anthropic.RateLimitError:
-        ui.error("请求太频繁，或者超出了账号的用量限制。请稍后再试。")
-    except anthropic.BadRequestError as exc:
-        ui.error(f"请求被 API 拒绝：{exc.message}")
-    except anthropic.APIStatusError as exc:
-        ui.error(f"API 出错（状态码 {exc.status_code}）：{exc.message}")
-    except anthropic.APIConnectionError:
-        ui.error("连接不上 Anthropic 的服务器，请检查网络。")
-
-
-def build_agent(config: Config, ui: TerminalUI) -> tuple[Agent, TodoStore, ToolRegistry]:
-    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
-    todos = TodoStore(config.todo_file)
-    tools = build_registry(config, files, todos)
-    agent = Agent(
-        client=anthropic.Anthropic(),
-        config=config,
-        tools=tools,
-        permissions=Permissions(files),
-        ui=ui,
-        system_prompt=build_system_prompt(config),
-    )
-    return agent, todos, tools
-
-
-def main() -> int:
-    config = load_config()
-    if not has_credentials():
-        print(SETUP_HELP.format(env_file=config.env_file))
-        return 1
-
+def run_terminal(config) -> int:
+    """终端界面的主循环：读一句、答一句。"""
     ui = TerminalUI(history_file=config.data_dir / "input_history")
-    agent, todos, tools = build_agent(config, ui)
+    app = build_app(config, ui)
     ui.banner(config)
 
     while True:
@@ -123,13 +76,32 @@ def main() -> int:
         if not text:
             continue
         if text in COMMANDS:
-            if not handle_command(text, agent, todos, tools, ui):
+            if not handle_command(text, app, ui):
                 break
             continue
-        run_turn(agent, ui, text)
+        run_turn(app.agent, ui, text)
 
     ui.info("再见。")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="harness", description="Harness 个人助手")
+    parser.add_argument("--web", action="store_true", help="使用浏览器里的图形界面，而不是终端界面")
+    parser.add_argument("--port", type=int, default=None, help="网页界面使用的端口（默认 8765，被占用时自动换一个）")
+    parser.add_argument("--no-browser", action="store_true", help="启动网页界面时不自动打开浏览器")
+    args = parser.parse_args(argv)
+
+    config = load_config()
+    if not has_credentials():
+        print(SETUP_HELP.format(env_file=config.env_file))
+        return 1
+
+    if args.web:
+        from .webui.server import run_web  # 用到时才导入，终端版不需要它
+
+        return run_web(config, port=args.port, open_browser=not args.no_browser)
+    return run_terminal(config)
 
 
 if __name__ == "__main__":

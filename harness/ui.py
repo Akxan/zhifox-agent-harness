@@ -1,7 +1,7 @@
 """终端界面：显示模型的输出和工具调用，读取用户输入，向用户请求确认。
 
-界面和循环是分开的。循环（agent.py）只调用这里的几个方法，
-所以把终端换成网页或聊天软件时，只需要重写这个文件。
+界面和循环是分开的。循环（agent.py）只调用界面的几个方法，并不关心界面长什么样。
+所以同一个循环可以接上不同的界面：这个文件是终端版，webui/ 目录里是网页版。
 """
 
 from __future__ import annotations
@@ -44,6 +44,30 @@ def describe_call(name: str, tool_input: object) -> str:
     if name == "run_command":
         return f"{name} $ {_short(str(tool_input.get('command')), 200)}"
     return f"{name} {_short(json.dumps(tool_input, ensure_ascii=False), 200)}"
+
+
+def block_notice(block: Any) -> tuple[str, str] | None:
+    """模型回复里不是逐字输出的那些内容块（联网搜索、压缩历史、换模型），各用一句话说明。
+
+    返回（级别，文字）。级别有四种："tool" 服务器工具开始执行，"result" 它的结果，
+    "error" 它失败了，"info" 其他提示。不需要显示的块返回 None。
+    终端界面和网页界面都用这个函数，所以两边显示的内容是一致的。
+    """
+    kind = block.type
+    if kind == "server_tool_use":
+        return "tool", describe_call(block.name, block.input)
+    if kind == "web_search_tool_result":
+        if isinstance(block.content, list):
+            return "result", f"找到 {len(block.content)} 条结果"
+        return "error", f"搜索失败：{getattr(block.content, 'error_code', '未知错误')}"
+    if kind == "web_fetch_tool_result":
+        error_code = getattr(block.content, "error_code", None)
+        return ("error", f"读取网页失败：{error_code}") if error_code else None
+    if kind == "compaction":
+        return "info", "对话已经很长，较早的内容被压缩成了摘要"
+    if kind == "fallback":
+        return "info", f"{block.from_.model} 拒绝了这个请求，已改由 {block.to.model} 继续"
+    return None
 
 
 class TerminalUI:
@@ -143,24 +167,21 @@ class TerminalUI:
             self._streaming = None
 
     def _block_finished(self, block: Any) -> None:
-        kind = block.type
-        if kind in ("thinking", "text"):
+        if block.type in ("thinking", "text"):
             self.end_stream()
-        elif kind == "server_tool_use":  # 服务器工具（联网搜索）开始执行
-            self._line(CYAN, f"🌐 {describe_call(block.name, block.input)}")
-        elif kind == "web_search_tool_result":
-            if isinstance(block.content, list):
-                self.info(f"   ↳ 找到 {len(block.content)} 条结果")
-            else:
-                self.error(f"   ↳ 搜索失败：{getattr(block.content, 'error_code', '未知错误')}")
-        elif kind == "web_fetch_tool_result":
-            error_code = getattr(block.content, "error_code", None)
-            if error_code:
-                self.error(f"   ↳ 读取网页失败：{error_code}")
-        elif kind == "compaction":
-            self.info("（对话已经很长，较早的内容被压缩成了摘要）")
-        elif kind == "fallback":
-            self.info(f"（{block.from_.model} 拒绝了这个请求，已改由 {block.to.model} 继续）")
+            return
+        notice = block_notice(block)
+        if notice is None:
+            return
+        level, text = notice
+        if level == "tool":
+            self._line(CYAN, f"🌐 {text}")
+        elif level == "result":
+            self.info(f"   ↳ {text}")
+        elif level == "error":
+            self.error(f"   ↳ {text}")
+        else:
+            self.info(f"（{text}）")
 
     # ---- 工具调用 ---------------------------------------------------------
 

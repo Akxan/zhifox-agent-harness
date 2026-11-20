@@ -11,7 +11,7 @@ from harness.permissions import Permissions
 from harness.tools.base import ToolError, check_input
 from harness.tools.files import FileEditor
 from harness.tools.memory import make_memory_tool
-from harness.tools.shell import make_shell_tool
+from harness.tools.shell import Shell, make_shell_tool
 from harness.tools.todo import TodoStore, format_todos, make_todo_tools
 
 FILE_TOOL = "str_replace_based_edit_tool"
@@ -197,7 +197,7 @@ def test_long_previews_are_shortened(editor):
 def test_shell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
     monkeypatch.setenv("HARMLESS", "visible")
-    tool = make_shell_tool(tmp_path)
+    tool = make_shell_tool(Shell(tmp_path))
 
     assert tool.run({"command": "pwd"}) == str(tmp_path.resolve())
     assert tool.run({"command": 'echo "[$ANTHROPIC_API_KEY] [$HARMLESS]"'}) == "[] [visible]"
@@ -207,14 +207,14 @@ def test_shell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
 
 
 def test_shell_timeout_kills_the_command(tmp_path):
-    tool = make_shell_tool(tmp_path)
+    tool = make_shell_tool(Shell(tmp_path))
     result = tool.run({"command": "echo started; sleep 30; echo finished", "timeout_seconds": 1})
     assert "started" in result and "finished" not in result
     assert "超过 1 秒" in result
 
 
 def test_shell_clips_long_output(tmp_path):
-    result = make_shell_tool(tmp_path).run({"command": "yes | head -n 50000"})
+    result = make_shell_tool(Shell(tmp_path)).run({"command": "yes | head -n 50000"})
     assert len(result) < 21_000
     assert "中间省略了" in result
 

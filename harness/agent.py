@@ -144,12 +144,8 @@ class Agent:
                     self.ui.info("回复达到了长度上限，被截断了。")
                 return  # 模型没有要调用的工具了：这一轮结束
 
-            truncated = response.stop_reason == "max_tokens"
-            results, interrupted = self._run_tools(tool_uses, truncated)
-            # 每个工具调用都必须有对应的结果，并且所有结果放在同一条消息里发回去
-            self.messages.append({"role": "user", "content": results})
-            if interrupted:
-                raise KeyboardInterrupt
+            # 执行工具，结果追加进历史，然后回到循环开头，让模型看到结果后决定下一步
+            self._run_tools(tool_uses, truncated=response.stop_reason == "max_tokens")
 
         self.ui.info(f"这一轮已经调用了 {self.config.max_steps} 次模型，先停在这里。输入“继续”可以接着做。")
 
@@ -206,29 +202,28 @@ class Agent:
 
     # ---- 执行工具 ---------------------------------------------------------
 
-    def _run_tools(self, tool_uses: list, truncated: bool) -> tuple[list[dict], bool]:
-        """依次执行模型要求的工具，返回（结果列表，是否被用户中断）。"""
-        results = []
-        interrupted = False
-        for block in tool_uses:
-            self.ui.tool_call(block.name, block.input)
-            if interrupted:
-                text, is_error = "用户中断了操作，这个工具没有执行。", True
-            elif truncated:
-                # 回复在生成工具参数的中途被截断，参数不完整，不能执行
-                text, is_error = "这次调用的参数在生成中途被截断，没有执行。请重新调用。", True
-            else:
-                try:
+    def _run_tools(self, tool_uses: list, truncated: bool) -> None:
+        """依次执行模型要求的工具，并把所有结果作为一条消息追加进历史。"""
+        results: list[dict] = []
+        try:
+            for block in tool_uses:
+                self.ui.tool_call(block.name, block.input)
+                if truncated:
+                    # 回复在生成工具参数的中途被截断，参数不完整，不能执行
+                    text, is_error = "这次调用的参数在生成中途被截断，没有执行。请重新调用。", True
+                else:
                     text, is_error = self._run_one(block)
-                except KeyboardInterrupt:
-                    interrupted = True
-                    text, is_error = "用户中断了这个操作。", True
-            self.ui.tool_result(text, is_error)
-            result = {"type": "tool_result", "tool_use_id": block.id, "content": text}
-            if is_error:
-                result["is_error"] = True
-            results.append(result)
-        return results, interrupted
+                results.append(_tool_result(block, text, is_error))
+                self.ui.tool_result(text, is_error)
+        finally:
+            # 每个工具调用都必须有对应的结果，并且所有结果放在同一条消息里，否则下一次请求会被 API 拒绝。
+            # 所以即使中途被打断（Ctrl-C 或界面上的"停止"），也要给没做完的调用补上一条结果，
+            # 再把消息追加进历史。写在 finally 里，保证无论怎样退出都会执行。
+            answered = {result["tool_use_id"] for result in results}
+            for block in tool_uses:
+                if block.id not in answered:
+                    results.append(_tool_result(block, "用户中断了操作，这个工具没有执行完。", True))
+            self.messages.append({"role": "user", "content": results})
 
     def _run_one(self, block: Any) -> tuple[str, bool]:
         """执行一次工具调用，返回（给模型看的结果，是否出错）。"""
@@ -250,6 +245,13 @@ class Agent:
             return str(exc), True
         except Exception as exc:  # noqa: BLE001 —— 故意捕获所有异常：工具里的 bug 不应该让整个程序退出
             return f"工具内部出错：{type(exc).__name__}: {exc}", True
+
+
+def _tool_result(block: Any, text: str, is_error: bool) -> dict:
+    result = {"type": "tool_result", "tool_use_id": block.id, "content": text}
+    if is_error:
+        result["is_error"] = True
+    return result
 
 
 def blocks_to_keep(content: list) -> list:
