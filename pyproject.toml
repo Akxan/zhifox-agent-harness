@@ -1,7 +1,7 @@
 [project]
 name = "harness-assistant"
 version = "0.1.0"
-description = "一个手写的 agent harness：运行在终端里的个人助手"
+description = "智狐：一个手写的 agent harness，运行在你自己电脑上的个人助手"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

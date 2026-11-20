@@ -6,6 +6,7 @@ import http.client
 import json
 import os
 import stat
+import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import pytest
 from fake_api import FakeAPI, reply, text, thinking, tool_use
 from fake_openai import FakeOpenAI, chat
 
+import harness.webui.server as server_module
 from harness.app import build_app
 from harness.conversations import ConversationStore
 from harness.search import MAX_QUERY_CHARS
@@ -109,7 +111,10 @@ def request(host: str, method: str, path: str, data: dict | None = None, headers
 def serve(make_config, monkeypatch):
     """启动一个网页服务器，后面连着两个假 API（Claude 的和 OpenAI 格式的），并让"浏览器"连上去。"""
     started = []
+    revealed: list = []
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # 默认只有 Claude 的 key 是设置好的
+    # 测试里绝不真的去打开访达：把"在文件管理器里显示"换成只记下路径
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", revealed.append)
 
     def serve(*replies, others=(), other_models=("deepseek-flash", "deepseek-v4-pro"), **config_overrides):
         api = FakeAPI(list(replies)).start()
@@ -130,7 +135,9 @@ def serve(make_config, monkeypatch):
         started.append((api, other_api, server, app))
         browser = Browser(url)
         browser.wait_synced()  # 等"浏览器"连上、把已有的事件收完再开始，之后发生的每个事件它都会原样收到
-        return SimpleNamespace(api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser)
+        return SimpleNamespace(
+            api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser, revealed=revealed
+        )
 
     yield serve
     for api, other_api, server, app in started:
@@ -175,7 +182,7 @@ def test_page_is_served_with_a_strict_content_policy(serve):
     status, page = request(s.browser.host, "GET", f"/?token={s.browser.token}")
 
     assert status == 200
-    assert "Harness 个人助手" in page["text"]
+    assert "<title>智狐</title>" in page["text"]
     assert "__NONCE__" not in page["text"]
     policy = page["headers"]["Content-Security-Policy"]
     nonce = policy.split("script-src 'nonce-")[1].split("'")[0]
@@ -1387,3 +1394,134 @@ def test_search_follows_renames_and_deletes(serve):
     # 删掉当前这一段也一样
     act(s, "/api/conversation/delete", {"id": second})
     assert search(s, "怎么保存") == [] and search(s, "草莓") == []
+
+
+# ---- 在文件管理器里显示会话的文件 ---------------------------------------------
+# 这是唯一一个"页面点一下，电脑上就启动一个程序"的接口，所以重点测它打开的只能是会话自己的文件。
+
+
+def test_revealing_a_conversation_shows_its_own_file(serve):
+    s = serve(reply(text("一")), reply(text("二")))
+    first = say(s, "第一段")["conversation"]
+    act(s, "/api/new")
+    second = say(s, "第二段")["conversation"]
+    folder = s.config.conversations_dir
+
+    # 页面只给编号，路径是服务器自己算出来的
+    assert s.browser.post("/api/conversation/reveal", {"id": first}) == (200, {"ok": True, "path": str(folder / f"{first}.json")})
+    assert s.browser.post("/api/conversation/reveal", {"id": second}) == (200, {"ok": True, "path": str(folder / f"{second}.json")})
+    # 编号为空：显示保存会话的那个文件夹
+    assert s.browser.post("/api/conversation/reveal", {"id": ""}) == (200, {"ok": True, "path": str(folder)})
+    assert s.revealed == [folder / f"{first}.json", folder / f"{second}.json", folder]
+    # 只是看一眼文件在哪儿：会话本身和列表都没有变化
+    assert listed(latest_state(s.browser)) == [(second, "第二段"), (first, "第一段")]
+
+
+def test_reveal_never_shows_anything_but_a_saved_conversation(serve):
+    s = serve(reply(text("一")))
+    first = say(s, "第一段")["conversation"]
+    (s.config.data_dir / "settings.json").write_text("{}", encoding="utf-8")  # 会话文件夹外面的一个文件
+    host, token = s.browser.host, s.browser.token
+
+    # 不是已保存会话的编号（包括想借编号拼出别处路径的）一律不认
+    for bad in ("20261120-140000-aaaaaa", "../settings", f"../conversations/{first}", "/etc/passwd", f"{first}.json", f"{first}/..", "."):
+        status, body = s.browser.post("/api/conversation/reveal", {"id": bad})
+        assert status == 409 and "不存在" in body["error"], bad
+    for malformed in ({}, {"id": 5}, {"id": None}, {"id": [first]}, {"path": "/etc/passwd"}):
+        assert s.browser.post("/api/conversation/reveal", malformed) == (400, {"error": "参数不正确"})
+    assert s.revealed == []
+
+    # 请求里多带一个路径也没用：服务器根本不看它
+    status, body = s.browser.post("/api/conversation/reveal", {"id": first, "path": "/etc/passwd", "file": "/etc/passwd"})
+    assert status == 200 and body["path"] == str(s.config.conversations_dir / f"{first}.json")
+    assert s.revealed == [s.config.conversations_dir / f"{first}.json"]
+
+    # 没带口令、或者是别的网站发起的请求：和其他接口一样被拒绝，什么都不会打开
+    assert request(host, "POST", "/api/conversation/reveal", {"id": first})[0] == 403
+    assert request(host, "POST", "/api/conversation/reveal", {"id": first}, {"X-Harness-Token": "wrong"})[0] == 403
+    evil = {"X-Harness-Token": token, "Origin": "http://evil.example"}
+    assert request(host, "POST", "/api/conversation/reveal", {"id": first}, evil)[0] == 403
+    assert len(s.revealed) == 1
+
+
+def test_reveal_explains_when_there_is_nothing_to_show(serve, monkeypatch):
+    command = tool_use("toolu_1", "run_command", {"command": "true"})
+    s = serve(reply(command, stop_reason="tool_use"), reply(text("好。")), reply(command, stop_reason="tool_use"), reply(text("好。")))
+
+    # 还没有保存过任何会话：连文件夹都还不存在
+    status, body = s.browser.post("/api/conversation/reveal", {"id": ""})
+    assert status == 409 and "还没有保存过会话" in body["error"]
+
+    # 第一轮还在进行的会话已经出现在列表里，但还没有写到磁盘上
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    current = latest_state(s.browser)["conversation"]
+    status, body = s.browser.post("/api/conversation/reveal", {"id": current})
+    assert status == 409 and "还没有保存" in body["error"]
+    assert s.revealed == []
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+    # 存过盘之后就可以了，而且对话进行中也能点：它只是看一眼，不拿对话的那把锁
+    s.browser.post("/api/message", {"text": "再跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    assert s.browser.post("/api/conversation/reveal", {"id": current})[0] == 200
+    assert s.revealed == [s.config.conversations_dir / f"{current}.json"]
+
+    # 文件管理器打不开时，把文件在哪儿告诉用户，让他自己去找
+    def broken(path):
+        raise OSError("找不到 open 这个命令")
+
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    status, body = s.browser.post("/api/conversation/reveal", {"id": current})
+    assert status == 409 and "找不到 open 这个命令" in body["error"] and f"{current}.json" in body["error"]
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+
+def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeProcess:
+        returncode = 0
+
+        def __init__(self, command, **options):
+            calls.append((command, options))
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(server_module.subprocess, "Popen", FakeProcess)
+    plain = tmp_path / "20261120-140000-aaaaaa.json"
+    tricky = tmp_path / "a b; rm -rf ~ $(whoami) `id`.json"  # 文件名里全是 shell 的特殊字符
+    for file in (plain, tricky):
+        file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(server_module.sys, "platform", "darwin")
+    server_module.reveal_in_file_manager(plain)
+    server_module.reveal_in_file_manager(tricky)
+    server_module.reveal_in_file_manager(tmp_path)
+    monkeypatch.setattr(server_module.sys, "platform", "linux")
+    server_module.reveal_in_file_manager(plain)
+    server_module.reveal_in_file_manager(tmp_path)
+
+    assert [command for command, _ in calls] == [
+        ["open", "-R", str(plain)],  # macOS：在访达里选中这个文件
+        ["open", "-R", str(tricky)],  # 整个路径是一个参数，里面的字符不会被当成命令
+        ["open", str(tmp_path)],  # 文件夹：直接打开
+        ["xdg-open", str(tmp_path)],  # Linux：打开文件所在的文件夹
+        ["xdg-open", str(tmp_path)],
+    ]
+    assert all(not options.get("shell") for _, options in calls)
+
+    # 命令报告失败时要让调用的人知道
+    FakeProcess.returncode = 1
+    with pytest.raises(OSError, match="退出码 1"):
+        server_module.reveal_in_file_manager(plain)
+
+    # 有的文件管理器会一直开着不退出：等不到它结束不算失败
+    def still_running(self, timeout=None):
+        raise subprocess.TimeoutExpired("xdg-open", timeout)
+
+    monkeypatch.setattr(FakeProcess, "wait", still_running)
+    server_module.reveal_in_file_manager(plain)

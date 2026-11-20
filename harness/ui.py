@@ -13,6 +13,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit import prompt as ask
 from prompt_toolkit.history import FileHistory
 
+from .config import APP_NAME
 from .display import describe_call, short
 
 RESET = "\033[0m"
@@ -62,7 +63,7 @@ class TerminalUI:
         self._line("", text)
 
     def banner(self, model: str, workspace: Path) -> None:
-        self.plain(self._paint(BOLD, "Harness 个人助手"))
+        self.plain(self._paint(BOLD, f"{APP_NAME} · 个人助手"))
         self.info(f"模型：{model}    工作目录：{workspace}")
         self.info("直接输入想说的话；/help 查看命令；Ctrl-C 中断当前回复；Ctrl-D 或 /exit 退出。")
 

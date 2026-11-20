@@ -168,6 +168,17 @@ def test_delete_removes_the_file(store):
     assert store.load(kept.id) == kept
 
 
+def test_file_of_points_at_saved_conversations_only(store):
+    saved = put(store, "存过的")
+    assert store.file_of(saved.id) == store.directory / f"{saved.id}.json"
+    assert store.file_of(saved.id).is_file()
+
+    unsaved = store.new("anthropic", "claude-opus-5-5")  # 只在内存里的新会话没有文件
+    for missing in (unsaved.id, "", ".", "../x", "20261120-140000-aaaaaa", f"../{saved.id}", f"{saved.id}.json", f"{saved.id}/.."):
+        with pytest.raises(ConversationError, match="不存在"):
+            store.file_of(missing)
+
+
 def test_list_survives_a_restart(store):
     first = put(store, "第一段", updated_at=100.0, messages=[{"role": "user", "content": "你好"}])
     second = put(store, "第二段", updated_at=200.0)

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import platform
 
-from .config import Config
+from .config import APP_NAME, Config
 
 _TEMPLATE = """\
-你是用户的个人助手，运行在用户自己的电脑上。用户通过打字和你对话。
+你叫{name}，是用户的个人助手，运行在用户自己的电脑上。用户通过打字和你对话。
+{name}是这个助手程序的名字，不是模型的名字。被问到你背后是哪家的哪个模型时，知道就如实回答，不知道就说不知道。
 
 # 环境
 
@@ -43,6 +44,7 @@ _WEB_LINE = "- 联网：用 web_search 搜索，用 web_fetch 读取网页。需
 
 def build_system_prompt(config: Config) -> str:
     return _TEMPLATE.format(
+        name=APP_NAME,
         workspace=config.workspace,
         system=f"{platform.system()} {platform.release()}",
         web_line=_WEB_LINE if config.web else "",

@@ -125,6 +125,12 @@ class ConversationStore:
         del self._summaries[conversation_id]
         self._index.remove(conversation_id)
 
+    def file_of(self, conversation_id: str) -> Path:
+        """一段保存过的会话在磁盘上的文件。"""
+        if conversation_id not in self._summaries:
+            raise ConversationError("这段会话不存在，可能已经被删除了。")
+        return self._path(conversation_id)
+
     def search(self, query: str) -> list[dict]:
         """在所有保存过的会话里搜索，标题和内容都找。
 

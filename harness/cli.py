@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from .app import App, build_app, run_turn
-from .config import Config, load_config
+from .config import APP_NAME, Config, load_config
 from .pricing import estimate
 from .providers import has_key
 from .tools.todo import format_todos
@@ -102,7 +102,7 @@ def run_terminal(config: Config) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="harness", description="Harness 个人助手")
+    parser = argparse.ArgumentParser(prog="harness", description=f"{APP_NAME}：运行在你自己电脑上的个人助手")
     parser.add_argument("--web", action="store_true", help="使用浏览器里的图形界面，而不是终端界面")
     parser.add_argument("--port", type=int, default=None, help="网页界面使用的端口（默认 8765，被占用时自动换一个）")
     parser.add_argument("--no-browser", action="store_true", help="启动网页界面时不自动打开浏览器")

@@ -11,6 +11,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# 这个助手给人看的名字。代码里的包名和命令仍然叫 harness（它讲的就是 harness 是怎么回事），
+# 只有显示给用户的地方用这个名字：终端的标题、网页、系统提示词。
+APP_NAME = "智狐"
+
 # 下面两个开关只对 Claude 生效，用的是 Anthropic API 的 beta 功能。
 # 如果你的账号不支持、每个请求都报 400，把对应的开关改成 False 即可。
 

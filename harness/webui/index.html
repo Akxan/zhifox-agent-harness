@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Harness 个人助手</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f6bff'/%3E%3Cstop offset='.55' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='url(%23g)' stroke-width='4' stroke-linecap='round' stroke-dasharray='52 17.2'/%3E%3Ccircle cx='16' cy='16' r='4.6' fill='url(%23g)'/%3E%3C/svg%3E">
+<title>智狐</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='fox-fur' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ffb23f'/%3E%3Cstop offset='1' stop-color='%23ff6238'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M5 3 L13 10.5 L16 9 L19 10.5 L27 3 L29.5 17 L16 29.5 L2.5 17 Z' fill='url(%23fox-fur)' stroke='url(%23fox-fur)' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M5.2 17.8 L12.6 19.4 L15 26.6 Z M26.8 17.8 L19.4 19.4 L17 26.6 Z' fill='%23fff'/%3E%3Ccircle cx='11.6' cy='16' r='1.25' fill='%232a1a12'/%3E%3Ccircle cx='20.4' cy='16' r='1.25' fill='%232a1a12'/%3E%3Cpath d='M14.3 26.2 L17.7 26.2 L16 28.6 Z' fill='%232a1a12' stroke='%232a1a12' stroke-width='.8' stroke-linejoin='round'/%3E%3C/svg%3E">
 <script nonce="__NONCE__">
 // 页面画出来之前就定好用浅色还是深色，免得先亮后暗地闪一下。
 // 默认是浅色；用户在页面上选过"深色"或"跟随系统"的话，按他选的来。
@@ -165,7 +165,9 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .nav { width: 272px; flex: none; display: flex; flex-direction: column; min-height: 0; }
 .nav-closed .nav { display: none; }
 .nav-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 46px; padding: 0 4px 0 12px; }
-.brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+.brand .mark { transition: transform .5s var(--spring); }
+.brand:hover .mark { transform: rotate(-10deg) scale(1.08); }  /* 鼠标移上去，小狐狸歪一下头 */
 .new-chat { position: relative; flex: none; display: flex; align-items: center; gap: 10px; margin: 4px 6px 8px; padding: 9px 12px; font-size: 14px; font-weight: 500; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: transform .15s var(--ease); }
 .new-chat .icon { transition: transform .4s var(--ease); }
 .new-chat:hover:not(:disabled) .icon { transform: rotate(90deg); }
@@ -201,7 +203,7 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .conv-meta { font-size: 11.5px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
 .conv:hover .conv-actions, .conv:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
-.conv:hover .conv-main, .conv:focus-within .conv-main { padding-right: 66px; }
+.conv:hover .conv-main, .conv:focus-within .conv-main { padding-right: 94px; }
 .busy .conv-actions { display: none; }
 .busy .conv:hover .conv-main, .busy .conv:focus-within .conv-main { padding-right: 12px; }
 .busy .conv:not(.active) .conv-main { cursor: not-allowed; }
@@ -211,7 +213,8 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .mini { flex: none; height: 26px; padding: 0 10px; font-size: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 7px; }
 .mini.danger { color: #fff; background: var(--danger); border-color: transparent; }
 .conv-empty { padding: 18px 12px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
-.nav-foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 14px 4px; font-size: 11.5px; color: var(--ink-3); }
+.nav-foot { flex: none; display: flex; align-items: center; gap: 7px; margin: 4px 6px 0; padding: 6px 8px; font-size: 11.5px; text-align: left; color: var(--ink-3); background: none; border: 0; border-radius: 8px; }
+.nav-foot:hover { color: var(--ink); background: var(--hover); }
 .nav-foot .icon { width: 13px; height: 13px; }
 
 /* ---- 中间那张"纸" --------------------------------------------------------
@@ -335,10 +338,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 /* "正在工作"：标志上那个环转起来，表示循环正在运行 */
 .working { display: flex; align-items: center; gap: 9px; height: 46px; font-size: 13px; color: var(--ink-3); opacity: 0; transition: opacity .2s ease; }
 .working.on { opacity: 1; }
-.working .mark { width: 16px; height: 16px; }
-.working.on .mark { animation: spin 1.5s linear infinite; }
+.loop { width: 16px; height: 16px; flex: none; }
+.working.on .loop { animation: spin 1.5s linear infinite; }
 .working.waiting { color: var(--warn); }
-.working.waiting .mark { animation-play-state: paused; }
+.working.waiting .loop { animation-play-state: paused; }
 .dots { display: inline-flex; gap: 3px; margin-left: -4px; }
 .dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .3; }
 .working.on .dots i { animation: dot 1.2s ease-in-out infinite; }
@@ -355,8 +358,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .hero-inner > * { animation: rise .7s var(--ease) backwards; }
 .hero-inner > :nth-child(2) { animation-delay: .06s; }
 .hero-inner > :nth-child(3) { animation-delay: .12s; }
-.hero-mark { width: 44px; height: 44px; margin-bottom: 18px; }
-.hero-mark .mark { width: 44px; height: 44px; animation: spin 24s linear infinite; }
+.hero-mark { width: 52px; height: 52px; margin-bottom: 16px; }
+.hero-mark .mark { width: 52px; height: 52px; }
 .hero h2 { margin: 0; font: 600 clamp(32px, 4.4vw, 52px)/1.18 var(--serif); letter-spacing: -.012em; }
 .hero h2 span { display: block; width: fit-content; max-width: 100%; }
 .hero h2 .hl { padding-bottom: .08em; color: transparent; -webkit-text-fill-color: transparent; background: var(--aurora-text); -webkit-background-clip: text; background-clip: text; }
@@ -525,11 +528,27 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     <linearGradient id="aurora" x1="0" y1="0" x2="1" y2="1">
       <stop class="s1" offset="0"/><stop class="s2" offset=".4"/><stop class="s3" offset=".75"/><stop class="s4" offset="1"/>
     </linearGradient>
+    <!--FOXDEFS-->
+    <linearGradient id="fox-fur" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffb23f"/>
+    <stop offset="1" stop-color="#ff6238"/>
+    </linearGradient>
+    <!--/FOXDEFS-->
   </defs>
-  <!-- 标志：中间的点是模型，外面那一圈是 harness。助手工作时这一圈会转起来 -->
-  <symbol id="i-mark" viewBox="0 0 32 32">
+  <!-- "正在工作"的标记：中间的点是模型，外面那一圈是 harness。助手工作时这一圈会转起来，表示循环正在运行 -->
+  <symbol id="i-loop" viewBox="0 0 32 32">
     <circle cx="16" cy="16" r="11" fill="none" stroke="url(#aurora)" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="52 17.2"/>
     <circle cx="16" cy="16" r="4.3" fill="url(#aurora)" stroke="none"/>
+  </symbol>
+  <!-- 标志：一只小狐狸。颜色直接写在图形上（和浏览器标签页上的小图标是同一幅画） -->
+  <symbol id="i-fox" viewBox="0 0 32 32">
+    <!--FOX-->
+    <path d="M5 3 L13 10.5 L16 9 L19 10.5 L27 3 L29.5 17 L16 29.5 L2.5 17 Z" fill="url(#fox-fur)" stroke="url(#fox-fur)" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M5.2 17.8 L12.6 19.4 L15 26.6 Z M26.8 17.8 L19.4 19.4 L17 26.6 Z" fill="#fff"/>
+    <circle cx="11.6" cy="16" r="1.25" fill="#2a1a12"/>
+    <circle cx="20.4" cy="16" r="1.25" fill="#2a1a12"/>
+    <path d="M14.3 26.2 L17.7 26.2 L16 28.6 Z" fill="#2a1a12" stroke="#2a1a12" stroke-width=".8" stroke-linejoin="round"/>
+    <!--/FOX-->
   </symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3"/></symbol>
@@ -568,7 +587,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 <div class="app">
   <aside id="nav" class="nav" aria-label="会话">
     <div class="nav-head">
-      <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg>Harness</span>
+      <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg>智狐</span>
       <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏"><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
     </div>
     <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>新对话</span></button>
@@ -581,7 +600,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       <div id="pill" class="conv-pill" aria-hidden="true"></div>
       <div id="conversation-rows"></div>
     </nav>
-    <div class="nav-foot"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="nav-count">会话只保存在这台电脑上</span></div>
+    <button id="open-folder" class="nav-foot" type="button"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="nav-count">会话只保存在这台电脑上</span></button>
   </aside>
 
   <main id="main" class="main">
@@ -607,14 +626,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <div id="chat" class="chat">
           <div id="empty" class="hero" hidden>
             <div class="hero-inner">
-              <div class="hero-mark"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg></div>
+              <div class="hero-mark"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg></div>
               <h2><span id="greeting">你好，</span><span class="hl">今天想做点什么？</span></h2>
               <p>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
             </div>
           </div>
           <div class="column">
             <div id="log" class="log"></div>
-            <div id="working" class="working"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+            <div id="working" class="working"><svg class="loop" aria-hidden="true"><use href="#i-loop"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
             <div id="bottom" class="bottom"></div>
           </div>
         </div>
@@ -1117,7 +1136,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       $('model-label').textContent = current.has_key ? current.label + ' · ' + event.model : '设置 API 密钥';
       $('model').classList.toggle('no-key', !current.has_key);
       $('title').textContent = event.title || '新对话';
-      document.title = (event.title ? event.title + ' · ' : '') + 'Harness 个人助手';
+      document.title = (event.title ? event.title + ' · ' : '') + '智狐';
       $('setup').hidden = current.has_key;
       $('cards').hidden = !current.has_key;
       $('setup-text').textContent = '还没有设置 ' + current.label + ' 的 API 密钥，填好之后就可以开始对话。';
@@ -1439,6 +1458,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   const KINDS = { user: '你', assistant: '助手', tool: '工具', thinking: '思考', result: '结果' };
+  const ON_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  const SHOW_FILE = ON_MAC ? '在访达中显示' : '在文件夹中显示';
+
+  // 请助手程序在系统的文件管理器里显示一段会话的文件（编号为空时显示保存会话的那个文件夹）。
+  // 页面只说"哪一段"，文件在哪儿由助手程序自己算，页面指定不了别的路径。
+  async function showFile(id) {
+    const reply = await call('/api/conversation/reveal', { id });
+    if (!reply.ok) { toast(reply.error); return; }
+    const parts = String(reply.data.path || '').split('/');
+    toast('已' + SHOW_FILE + '：' + (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/'));
+  }
 
   function renderConversations() {
     if (!state) return;
@@ -1578,6 +1608,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     });
 
     const actions = row.appendChild(el('div', 'conv-actions'));
+    const locate = actions.appendChild(iconButton('folder', SHOW_FILE));
+    locate.addEventListener('click', () => showFile(item.id));
     const rename = actions.appendChild(iconButton('edit', '重命名'));
     const remove = actions.appendChild(iconButton('trash', '删除'));
     rename.addEventListener('click', () => { deleting = null; renaming = { id: item.id, draft: item.title }; renderConversations(); });
@@ -1602,7 +1634,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (first) first.click();
     }
   });
-  $('search-key').textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
+  $('search-key').textContent = ON_MAC ? '⌘K' : 'Ctrl K';
+  $('open-folder').title = '打开保存会话的文件夹';
+  $('open-folder').addEventListener('click', () => showFile(''));
 
   // ---- 信息栏：费用、用量、待办、工具 --------------------------------------
 

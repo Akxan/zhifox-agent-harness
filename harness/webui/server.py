@@ -10,6 +10,7 @@
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
+  POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/model      用户换了模型
   POST /api/key        用户填写或删除了一家的 API key
@@ -30,6 +31,8 @@ from __future__ import annotations
 
 import json
 import secrets
+import subprocess
+import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,7 +40,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from ..app import App, build_app, run_turn
-from ..config import Config
+from ..config import APP_NAME, Config
 from ..conversations import ConversationError
 from ..pricing import estimate, price_of
 from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
@@ -52,6 +55,26 @@ KEEPALIVE_SECONDS = 15
 LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
 PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+
+
+def reveal_in_file_manager(path: Path) -> None:
+    """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
+
+    这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
+    路径只能是程序自己算出来的（见 WebApp.reveal_conversation，浏览器只能给会话编号，给不了路径）；
+    命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
+    """
+    if sys.platform == "darwin":
+        command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
+    else:
+        # Linux 上没有通用的"选中某个文件"的办法，退一步，打开它所在的文件夹
+        command = ["xdg-open", str(path if path.is_dir() else path.parent)]
+    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        if process.wait(timeout=5) != 0:
+            raise OSError(f"{command[0]} 没有成功（退出码 {process.returncode}）")
+    except subprocess.TimeoutExpired:
+        pass  # 有的文件管理器会一直开着不退出，那也算打开了，不用等它
 
 
 class WebApp:
@@ -226,6 +249,27 @@ class WebApp:
             self._turn.release()
         return ""
 
+    def reveal_conversation(self, conversation_id: str) -> tuple[str, str]:
+        """在文件管理器里显示一段会话的文件；编号为空时显示保存会话的那个文件夹。返回（失败原因，显示的路径）。
+
+        只是看一眼文件在哪儿，不改任何东西，所以不用拿对话的锁，对话进行中也可以点。
+        """
+        store, current = self.app.store, self.app.conversation
+        if conversation_id == current.id and not current.saved:
+            return "这段会话还没有保存：第一轮对话结束后才会写到磁盘上。", ""
+        try:
+            # 路径是由编号算出来的（编号的格式在 file_of 里检查过），浏览器没有办法指定别的路径
+            target = store.file_of(conversation_id) if conversation_id else store.directory
+        except ConversationError as exc:
+            return str(exc), ""
+        if not target.exists():
+            return "还没有保存过会话，文件夹还不存在。" if not conversation_id else "这段会话的文件已经不在了。", ""
+        try:
+            reveal_in_file_manager(target)
+        except OSError as exc:
+            return f"没能打开文件管理器（{exc}）。文件在：{target}", ""
+        return "", str(target)
+
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
@@ -352,6 +396,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._finish(web.open_conversation(conversation_id))
             elif action == "delete":
                 self._finish(web.delete_conversation(conversation_id))
+            elif action == "reveal":
+                error, shown = web.reveal_conversation(conversation_id)
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "path": shown})
             elif action == "rename" and isinstance(title, str) and 0 < len(title.strip()) <= 200:
                 self._finish(web.rename_conversation(conversation_id, title.strip()))
             else:
@@ -537,7 +587,7 @@ def run_web(config: Config, port: int | None = None, open_browser: bool = True) 
         print(f"无法在端口 {port} 上启动：{exc}")
         return 1
 
-    print("Harness 个人助手（网页界面）已启动。在浏览器里打开这个地址：\n")
+    print(f"{APP_NAME}（网页界面）已启动。在浏览器里打开这个地址：\n")
     print(f"    {url}\n")
     provider = app.provider
     print(f"模型：{provider.label} · {app.settings.model}    工作目录：{config.workspace}")
