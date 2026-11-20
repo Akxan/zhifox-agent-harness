@@ -13,16 +13,23 @@
   读取助手自己的数据目录里的文件    先问用户（即使它在工作目录里面。见 Permissions 的说明）
   创建、修改任何文件                先问用户
   执行任何 shell 命令               先问用户
+  调用 MCP 服务器的工具             先问用户（除非你把这个工具或整个服务器设成了"不用问"）
   联网搜索                          直接执行（在 Anthropic 的服务器上进行，不碰你的电脑）
 
 "先问用户"可以由用户自己放宽（见 MODES）。放宽的只是"问不问"：哪些操作需要确认、
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
+
+MCP 的工具是别人写的程序，它能做什么我们看不到（它说自己"只读"也没法验证），所以默认每次都问。
+你在"扩展 → MCP"里把某个工具设成"不用问"，它就和"全部自动允许"一样直接执行，在任何模式下都算数，
+对话里照样标着"自动允许"。这是你对一个具体工具做的决定，记在 data/mcp.json 里，重启后还在。
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from .i18n import k, t
 from .tools import files, shell
@@ -38,7 +45,7 @@ MODES = {
 
 
 class Permissions:
-    def __init__(self, editor: FileEditor, private: Iterable[Path] = ()):
+    def __init__(self, editor: FileEditor, private: Iterable[Path] = (), mcp: Any = None):
         """private 是助手自己的数据目录（保存下来的会话、设置、待办、记忆）。
 
         在项目目录里运行时，这个目录就在工作目录里面。如果把它当成普通的工作目录文件、读取时不用问，
@@ -48,6 +55,7 @@ class Permissions:
         """
         self.editor = editor
         self.private = [path.resolve() for path in private]
+        self.mcp = mcp  # MCP 服务器的管理者（mcp/manager.py）：认得出哪些工具是 MCP 的，记着哪些设成了"不用问"
         # 现在是哪种模式。每次启动都从"每次都问"开始，不记进设置文件：
         # 放开之后忘了关，比每次多点一下要危险得多。
         self.mode = "ask"
@@ -56,6 +64,9 @@ class Permissions:
         """一次需要确认的操作，在现在的模式下是不是可以不问就做。"""
         if self.mode == "all":
             return True
+        found = self.mcp.resolve(tool_name) if self.mcp is not None else None
+        if found is not None:
+            return self.mcp.trusted(*found)  # 你单独放开了这个 MCP 工具（见文件开头的说明）
         if self.mode == "edits":
             return self._edits_workspace_file(tool_name, tool_input)
         return False
@@ -82,7 +93,12 @@ class Permissions:
         返回一段文字  —— 必须先问用户。这段文字会显示给用户，说明助手想做什么。
         """
         if not isinstance(tool_input, dict):
-            return None  # 参数本身不合法，工具会直接报错，什么都不会执行
+            return None  # 参数本身不合法，工具会直接报错，什么都不会执行（MCP 的工具也是：还没联系服务器就退回去了）
+        found = self.mcp.resolve(tool_name) if self.mcp is not None else None
+        if found is not None:
+            # 参数整段给你看：MCP 的工具会把它们发给另一个程序（可能在网上），你要知道发出去的是什么
+            shown = json.dumps(tool_input, ensure_ascii=False, indent=2, default=str)
+            return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0], tool=found[1], args=_preview(shown, 40))
         if tool_name == shell.TOOL_NAME:
             return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:

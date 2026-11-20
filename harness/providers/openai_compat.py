@@ -55,11 +55,15 @@ class OpenAICompatBackend:
         self.model = model
         self.config = config
         self.vision, self.pdf = vision, pdf  # 这一家能不能收图片、PDF（见 providers/__init__.py 的 PROVIDERS）
+        self.use_tools(tools)
+        self._system = {"role": "system", "content": system_prompt}
+        self._messages: list[dict] = [self._system]
+
+    def use_tools(self, tools: ToolRegistry) -> None:
+        """换一套工具。和 Claude 一样，只在一段对话开始之前换（见 agent.py 的 on_start）。"""
         self._local_tools = [tool for tool in tools if tool.portable is not None and tool.run is not None]
         # 各家通用的"函数"格式的工具说明书
         self.tool_specs = [{"type": "function", "function": tool.portable} for tool in self._local_tools]
-        self._system = {"role": "system", "content": system_prompt}
-        self._messages: list[dict] = [self._system]
 
     # ---- 对话历史 ---------------------------------------------------------
 
@@ -109,10 +113,20 @@ class OpenAICompatBackend:
         self._messages.append({"role": "user", "content": content})
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
+        pictures = []
         for result in results:
             # 这套格式里没有"出错"标记，所以把它写在文字里，让模型知道
             text = f"[出错] {result.text}" if result.is_error else result.text
+            if result.images and not self.vision:
+                text += f"\n（结果里有 {len(result.images)} 张图片，{self.label} 看不了图片，没有交给它。）"
+            elif result.images:
+                pictures += result.images
             self._messages.append({"role": "tool", "tool_call_id": result.id, "content": text})
+        if pictures:
+            # 这套格式里，工具结果只能是文字。图片只能放在用户消息里，所以紧跟着结果追加一条，说明它们是哪儿来的
+            content: list[dict] = [{"type": "text", "text": "（上面的工具结果里的图片，按顺序排列，不是用户发的。）"}]
+            content += [{"type": "image_url", "image_url": {"url": f"data:{image.media_type};base64,{image.data}"}} for image in pictures]
+            self._messages.append({"role": "user", "content": content})
 
     def tool_names(self) -> list[tuple[str, bool]]:
         return [(tool.name, True) for tool in self._local_tools]

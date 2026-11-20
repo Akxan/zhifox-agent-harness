@@ -20,6 +20,8 @@ from .conversations import (
     make_title,
 )
 from .i18n import t
+from .mcp import McpConfig, McpManager
+from .mcp.bridge import PREFIX as MCP_PREFIX
 from .permissions import Permissions
 from .prompt import build_system_prompt
 from .providers import (
@@ -51,6 +53,7 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    mcp: McpManager  # 接入的 MCP 服务器（见 mcp/）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
 
     @property
@@ -124,10 +127,39 @@ class App:
         backend.model = conversation.model
         backend.restore(conversation.messages)
         self.agent.backend = backend
+        self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation
+
+    # ---- 工具 -------------------------------------------------------------
+
+    def fresh_tools(self) -> None:
+        """换上这段对话要用的工具：自己的工具，加上此刻已经连上的 MCP 服务器的工具。
+
+        MCP 的那部分是一张"快照"，这段对话从头到尾都用它（原因见 mcp/manager.py）。
+        新对话的第一条消息发出之前调用（agent.on_start），打开一段旧会话时也调用一次。
+        """
+        shot = self.mcp.snapshot()
+        self.mcp.active = shot
+        self.agent.use_tools(ToolRegistry([*self.tools, *shot.tools]))
+
+    def tool_names(self) -> list[tuple[str, bool]]:
+        """界面上"模型可以使用的工具"：（名字，是否在本地执行）。
+
+        对话已经开始了，就是这段对话实际在用的那一套。还没开始的话，列的是"现在发第一条消息会用上的"：
+        这时手里的还是上一段对话的快照，新连上的服务器还不在里面。
+        """
+        names = self.agent.backend.tool_names()
+        if self.agent.backend.export():
+            return names
+        own = [(name, local) for name, local in names if not name.startswith(MCP_PREFIX)]
+        return own + [(tool.name, True) for tool in self.mcp.snapshot().tools]
+
+    def close(self) -> None:
+        """程序退出前的收尾：关掉启动过的 MCP 服务器进程。"""
+        self.mcp.shutdown()
 
     def save_conversation(self, events: list) -> bool:
         """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。"""
@@ -208,7 +240,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         settings.provider, settings.model = "anthropic", "claude-opus-5-5"
     i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
 
-    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
+    # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序
+    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file, config.mcp_file])
     todos = TodoStore(config.todo_file)
     shell = Shell(config.workspace)
     tools = build_registry(config, files, todos, shell)
@@ -216,10 +249,11 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
 
     provider = PROVIDERS[settings.provider]
     backend = make_backend(provider, settings.model, config, tools, system_prompt, client_factory(provider))
-    permissions = Permissions(files, private=[config.data_dir])
+    mcp = McpManager(McpConfig(config.mcp_file))
+    permissions = Permissions(files, private=[config.data_dir], mcp=mcp)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     store = ConversationStore(config.conversations_dir)
-    return App(
+    app = App(
         config=config,
         settings=settings,
         agent=agent,
@@ -230,7 +264,11 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
+        mcp=mcp,
     )
+    agent.on_start = app.fresh_tools
+    mcp.start()  # 每个启用的服务器在自己的后台线程里连接，这里不等
+    return app
 
 
 def run_turn(agent: Agent, ui: Any, text: str, attachments: Sequence[Attachment] | None = None) -> None:

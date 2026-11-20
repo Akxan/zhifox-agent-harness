@@ -74,6 +74,10 @@ class Config:
     def conversations_dir(self) -> Path:
         return self.data_dir / "conversations"
 
+    @property
+    def mcp_file(self) -> Path:
+        return self.data_dir / "mcp.json"  # 接入的 MCP 服务器（见 mcp/config.py）
+
 
 def load_env_file(path: Path) -> None:
     """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""
