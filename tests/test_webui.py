@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
 import stat
 import subprocess
 import threading
@@ -33,6 +34,7 @@ from sample_files import (
 )
 
 import harness.webui.server as server_module
+from harness import memories
 from harness.app import build_app
 from harness.attachments import (
     MAX_IMAGE_BYTES,
@@ -1647,6 +1649,292 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
 
     monkeypatch.setattr(FakeProcess, "wait", still_running)
     server_module.reveal_in_file_manager(plain)
+
+
+# ---- 记忆 -----------------------------------------------------------------
+# 信息栏的"记忆"一栏：列出 data/memories/ 里的文件、点开看内容、删掉一条、在文件管理器里打开文件夹。
+# 浏览器送来的路径不能全信，所以重点测"出不了记忆文件夹"。
+
+GONE = "不存在"
+
+
+def memory_state(s) -> list[dict]:
+    """让服务器发一次新的状态（把"要不要每次都问"设成原样），返回里面的记忆列表。"""
+    return set_approval(s, "ask")["memories"]
+
+
+def write(path, text: str = "记着", data: bytes | None = None):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if data is None:
+        path.write_text(text, encoding="utf-8")
+    else:
+        path.write_bytes(data)
+    return path
+
+
+def test_memories_are_listed_in_the_state(serve):
+    s = serve()
+    root = s.config.memory_dir
+    assert root.is_dir()  # 记忆工具在组装的时候就把文件夹建好了
+    assert latest_state(s.browser)["memories"] == []  # 还没记过任何东西
+
+    write(root / "user.md", "喜欢简短的回答")
+    write(root / "projects" / "zhifox.md", "智狐")
+    write(root / "projects" / "deep" / "a.md", "a")
+    write(root / "Banana.md", "b")  # 大小写不同的名字照样按字母排，不是大写的全排在前面
+    # 隐藏的文件和文件夹不列：访达的 .DS_Store、记忆工具改文件时的临时文件、.git 之类
+    write(root / ".DS_Store", data=b"\x00\x01")
+    write(root / ".tmp-123-abc", "写了一半")
+    write(root / ".hidden" / "secret.md", "藏起来的")
+    # 指向文件夹外面的链接不列（文件和文件夹都是）
+    outside = s.config.data_dir.parent / "outside"
+    write(outside / "secret.txt", "外面的秘密")
+    os.symlink(outside / "secret.txt", root / "link.md")
+    os.symlink(outside, root / "linkdir")
+
+    items = memory_state(s)
+    assert [item["path"] for item in items] == ["Banana.md", "projects/deep/a.md", "projects/zhifox.md", "user.md"]
+    user = items[-1]
+    assert user["size"] == len("喜欢简短的回答".encode()) and user["modified"] == round((root / "user.md").stat().st_mtime, 3)
+    assert set(user) == {"path", "size", "modified"}  # 状态里只有名字、大小和时间，不带内容
+
+    # 文件夹整个不见了（比如你手动删了）：列表就是空的，不出错
+    shutil.rmtree(root)
+    assert memory_state(s) == []
+
+
+def test_a_memory_the_model_writes_shows_up_without_polling(serve):
+    s = serve(
+        reply(tool_use("toolu_1", "memory", {"command": "create", "path": "/memories/user.md", "file_text": "喜欢简短的回答"}), stop_reason="tool_use"),
+        reply(text("记住了。")),
+    )
+    s.browser.post("/api/message", {"text": "记住：我喜欢简短的回答"})
+    s.browser.wait_for("turn_end")
+    assert s.browser.of_type("confirm") == []  # 记忆只动助手自己的文件，不用问
+    states = s.browser.of_type("state")
+    assert states[0]["memories"] == []
+    # 这一轮还没结束、模型写完记忆之后再调用一次模型时发的那次状态里就有了：页面不用自己去轮询
+    during = next(state for state in states if state["usage"]["requests"] == 2)
+    assert during["id"] < s.browser.of_type("turn_end")[0]["id"]
+    assert [item["path"] for item in during["memories"]] == ["user.md"]
+    assert [item["path"] for item in states[-1]["memories"]] == ["user.md"]
+    assert states[-1]["memories"][0]["size"] == len("喜欢简短的回答".encode())
+    status, body = s.browser.post("/api/memory/read", {"path": "user.md"})
+    assert status == 200 and body["text"] == "喜欢简短的回答"
+
+
+def test_reading_a_memory(serve):
+    s = serve()
+    root = s.config.memory_dir
+    write(root / "projects" / "zhifox.md", "# 智狐\n标志是一只小狐狸。\n")
+    write(root / "empty.md", "")
+    write(root / "binary.md", data=b"abc\x00def")
+
+    status, body = s.browser.post("/api/memory/read", {"path": "projects/zhifox.md"})
+    assert status == 200
+    assert body == {
+        "ok": True,
+        "path": "projects/zhifox.md",
+        "text": "# 智狐\n标志是一只小狐狸。\n",
+        "size": len("# 智狐\n标志是一只小狐狸。\n".encode()),
+        "modified": round((root / "projects" / "zhifox.md").stat().st_mtime, 3),
+        "truncated": False,
+    }
+    status, body = s.browser.post("/api/memory/read", {"path": "empty.md"})
+    assert status == 200 and body["text"] == "" and body["size"] == 0 and body["truncated"] is False
+
+    # 太长的只读开头。截断的地方正好切在一个汉字中间：那半个字不要，也不变成"�"
+    limit = memories.MAX_READ_BYTES
+    long = "a" * (limit - 1) + "狐" + "b" * 100  # "狐" 占 3 个字节，从第 limit-1 个字节开始，跨过了截断的位置
+    write(root / "long.md", long)
+    status, body = s.browser.post("/api/memory/read", {"path": "long.md"})
+    assert status == 200 and body["truncated"] is True and body["size"] == len(long.encode())
+    assert body["text"] == "a" * (limit - 1) and "�" not in body["text"]
+
+    # 不是文本文件、不存在、是个文件夹：都说清楚原因，不返回内容
+    status, body = s.browser.post("/api/memory/read", {"path": "binary.md"})
+    assert status == 409 and "不是文本文件" in body["error"]
+    status, body = s.browser.post("/api/memory/read", {"path": "nope.md"})
+    assert status == 409 and GONE in body["error"]
+    status, body = s.browser.post("/api/memory/read", {"path": "projects"})
+    assert status == 409 and "不是一个文件" in body["error"]
+
+
+def test_deleting_a_memory(serve):
+    s = serve()
+    root = s.config.memory_dir
+    write(root / "user.md")
+    write(root / "projects" / "deep" / "a.md")
+    write(root / "notes" / "b.md")
+    write(root / "notes" / ".DS_Store", data=b"\x00")
+
+    assert s.browser.post("/api/memory/delete", {"path": "user.md"}) == OK
+    assert not (root / "user.md").exists()
+    # 删完服务器马上发一次状态，列表跟着变
+    assert [item["path"] for item in latest_state(s.browser)["memories"]] == ["notes/b.md", "projects/deep/a.md"]
+    status, body = s.browser.post("/api/memory/delete", {"path": "user.md"})
+    assert status == 409 and GONE in body["error"]  # 删过的不能再删
+
+    # 子文件夹里最后一个文件删掉之后，空了的子文件夹一层层跟着删掉，记忆文件夹本身留着
+    assert s.browser.post("/api/memory/delete", {"path": "projects/deep/a.md"}) == OK
+    assert not (root / "projects").exists() and root.is_dir()
+    # 文件夹里还有别的东西（哪怕只是 .DS_Store）：不替你删
+    assert s.browser.post("/api/memory/delete", {"path": "notes/b.md"}) == OK
+    assert (root / "notes" / ".DS_Store").exists()
+    assert latest_state(s.browser)["memories"] == [] and root.is_dir()
+
+
+def test_memory_paths_cannot_escape_the_memory_folder(serve):
+    s = serve()
+    root, data = s.config.memory_dir, s.config.data_dir
+    write(root / "user.md", "我的记忆")
+    write(root / "projects" / "zhifox.md")
+    write(root / ".DS_Store", data=b"\x00")
+    settings = write(data / "settings.json", "{}")
+    env = write(s.config.workspace / ".env", "ANTHROPIC_API_KEY=sk-secret")
+    outside = write(data.parent / "outside" / "secret.txt", "外面的秘密")
+    os.symlink(outside, root / "link.md")  # 记忆文件夹里一个指向外面的文件链接
+    os.symlink(outside.parent, root / "linkdir")  # 和一个指向外面的文件夹链接
+    host, token = s.browser.host, s.browser.token
+
+    bad_paths = [
+        "../settings.json", "../../work/.env", str(settings), str(env), str(outside), "/etc/passwd",
+        ".", "..", "", "a/../user.md", "projects/../user.md", "projects//zhifox.md", "./user.md", "projects/",
+        "/user.md", ".DS_Store", "x\\y", "..\\settings.json", "a\x00b", "user.md\x00", "9" * 5000,
+    ]
+    for action in ("read", "delete"):
+        for bad in bad_paths:
+            status, body = s.browser.post(f"/api/memory/{action}", {"path": bad})
+            assert status == 409 and GONE in body["error"], (action, bad, body)
+        for link in ("link.md", "linkdir/secret.txt"):
+            status, body = s.browser.post(f"/api/memory/{action}", {"path": link})
+            assert status == 409 and "链接" in body["error"], (action, link, body)
+            assert "外面的秘密" not in json.dumps(body, ensure_ascii=False)
+        # 路径根本不是一段文字，或者没给：参数不对
+        for malformed in ({"path": None}, {"path": 5}, {"path": ["user.md"]}, {"path": {"p": 1}}, {}):
+            assert s.browser.post(f"/api/memory/{action}", malformed) == (400, {"error": "参数不正确"})
+    assert s.browser.post("/api/memory/explode", {"path": "user.md"}) == (400, {"error": "参数不正确"})
+
+    # 没带口令、或者是别的网站发起的请求：和其他接口一样被拒绝
+    for action in ("read", "delete"):
+        assert request(host, "POST", f"/api/memory/{action}", {"path": "user.md"})[0] == 403
+        assert request(host, "POST", f"/api/memory/{action}", {"path": "user.md"}, {"X-Harness-Token": "wrong"})[0] == 403
+        evil = {"X-Harness-Token": token, "Origin": "http://evil.example"}
+        assert request(host, "POST", f"/api/memory/{action}", {"path": "user.md"}, evil)[0] == 403
+
+    # 外面的东西一样都没动：文件和内容都在，链接本身也还在，记忆也没被删
+    assert settings.read_text(encoding="utf-8") == "{}" and env.read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=sk-secret"
+    assert outside.read_text(encoding="utf-8") == "外面的秘密"
+    assert (root / "link.md").is_symlink() and (root / "linkdir").is_symlink()
+    assert (root / "user.md").read_text(encoding="utf-8") == "我的记忆" and (root / ".DS_Store").exists()
+    assert (root / "projects" / "zhifox.md").exists()
+
+
+def test_memories_cannot_be_deleted_during_a_turn(serve):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    write(s.config.memory_dir / "user.md", "喜欢简短的回答")
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")  # 这一轮卡在确认上
+
+    # 模型可能正在改这条记忆，所以这时不让删；查看只是读，可以
+    status, body = s.browser.post("/api/memory/delete", {"path": "user.md"})
+    assert status == 409 and "等当前这一轮对话结束" in body["error"]
+    assert (s.config.memory_dir / "user.md").exists()
+    status, body = s.browser.post("/api/memory/read", {"path": "user.md"})
+    assert status == 200 and body["text"] == "喜欢简短的回答"
+
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+    assert s.browser.post("/api/memory/delete", {"path": "user.md"}) == OK  # 结束之后就可以了
+    assert not (s.config.memory_dir / "user.md").exists()
+
+
+def test_revealing_the_memory_folder(serve, monkeypatch):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    root = s.config.memory_dir
+    host = s.browser.host
+
+    # 页面什么都不用给，打开哪个文件夹由服务器定；请求里多带一个路径也没用
+    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root)})
+    assert s.browser.post("/api/memory/reveal", {"path": "/etc/passwd", "id": "../.."}) == (200, {"ok": True, "path": str(root)})
+    assert s.revealed == [root, root]
+
+    # 文件夹不在了：先建一个空的（只有自己的账号能进），再打开
+    shutil.rmtree(root)
+    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root)})
+    assert root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert s.revealed == [root, root, root]
+
+    # 只是打开来看看，对话进行中也能点
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    assert s.browser.post("/api/memory/reveal", {})[0] == 200
+    assert len(s.revealed) == 4
+
+    # 文件管理器打不开时，把文件夹在哪儿告诉用户
+    def broken(path):
+        raise OSError("找不到 open 这个命令")
+
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    status, body = s.browser.post("/api/memory/reveal", {})
+    assert status == 409 and "找不到 open 这个命令" in body["error"] and str(root) in body["error"]
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+    # 没带口令、或者是别的网站发起的请求：什么都不会打开
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", s.revealed.append)
+    assert request(host, "POST", "/api/memory/reveal", {})[0] == 403
+    evil = {"X-Harness-Token": s.browser.token, "Origin": "http://evil.example"}
+    assert request(host, "POST", "/api/memory/reveal", {}, evil)[0] == 403
+    assert len(s.revealed) == 4
+
+
+def test_changes_made_outside_show_up_when_the_page_asks(serve):
+    # 你在访达里删了、改了记忆文件，程序不会知道。页面刚连上、或者切回窗口时来问一声，变了才发新的状态
+    s = serve()
+    root = s.config.memory_dir
+
+    def refresh(data: dict | None = None) -> dict | None:
+        """请服务器看一眼记忆文件夹。发了新的状态就返回它，没发返回 None。"""
+        last_id = s.ui.events_after(0, timeout=0)[-1]["id"]
+        assert s.browser.post("/api/memory/refresh", data or {}) == (200, {"ok": True})
+        newer = [event for event in s.ui.events_after(last_id, timeout=0) if event["type"] == "state"]
+        if not newer:
+            return None
+        while True:  # 等"浏览器"也收到它
+            state = s.browser.wait_for("state")
+            if state["id"] > last_id:
+                return state
+
+    assert refresh() is None  # 没变：什么都不发，切换多少次窗口，日志都不会变长
+
+    write(root / "在访达里加的.md", "手写的")
+    assert [item["path"] for item in refresh()["memories"]] == ["在访达里加的.md"]
+    assert refresh() is None  # 已经发过了，不再重复
+
+    (root / "在访达里加的.md").unlink()
+    assert refresh({"path": "../settings.json"})["memories"] == []  # 请求里带什么都不看
+    assert request(s.browser.host, "POST", "/api/memory/refresh", {})[0] == 403
+
+
+def test_listing_memories_directly(tmp_path, monkeypatch):
+    assert memories.list_files(tmp_path / "missing") == []  # 还不存在的文件夹就是空的
+    write(tmp_path / "not-a-folder", "x")
+    assert memories.list_files(tmp_path / "not-a-folder") == []
+
+    # 文件再多，也只列到上限为止，免得每次发状态都扫一大片
+    root = tmp_path / "memories"
+    monkeypatch.setattr(memories, "MAX_LISTED", 5)
+    for index in range(8):
+        write(root / f"{index}.md")
+    assert [item["path"] for item in memories.list_files(root)] == ["0.md", "1.md", "2.md", "3.md", "4.md"]
+
+    # 太深的子文件夹不往下找
+    monkeypatch.setattr(memories, "MAX_DEPTH", 2)
+    deep = tmp_path / "deep"
+    write(deep / "a" / "one.md")
+    write(deep / "a" / "b" / "two.md")
+    assert [item["path"] for item in memories.list_files(deep)] == ["a/one.md"]
 
 
 # ---- 自动允许 -------------------------------------------------------------

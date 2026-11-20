@@ -10,7 +10,8 @@
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
   - 页面每次刷新都重新从磁盘读，改完 index.html 刷新一下就能看到，不用重启。
-  - "在访达中显示"只把路径打印出来，不会真的弹出窗口。
+  - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
+  - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用；之后是几条凑数的回复。发什么消息都行，回复只看顺序。
@@ -160,6 +161,17 @@ root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 workspace = root / "work"
 workspace.mkdir(parents=True, exist_ok=True)
 (workspace / "notes.txt").write_text("第一行\n第二行\n", encoding="utf-8")
+# 全新的数据目录里先放几条编造的记忆，信息栏的"记忆"一栏才有东西可看、可删。全删掉就能看到空的样子；
+# 用 --data 接着用上次的目录时不再补，删掉的不会又冒出来
+memory_dir = root / "data" / "memories"
+if not (root / "data").exists():
+    for name, body in (
+        ("用户偏好.md", "# 用户偏好\n\n- 喜欢简短的回答，先给结论再解释\n- 用中文交流\n- 代码注释写“为什么”，不写“做了什么”\n"),
+        ("projects/zhifox.md", "# 智狐\n\n手写的 agent harness，正在学习 agent 的原理。\n\n- 仓库：zhifox-agent-harness\n- 每次改动都要提交并推送\n"),
+        ("projects/reading-list.md", "# 想读的\n\n1. Building effective agents\n2. 《程序员修炼之道》\n"),
+    ):
+        (memory_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (memory_dir / name).write_text(body, encoding="utf-8")
 config = Config(
     effort="medium",
     max_tokens=64000,

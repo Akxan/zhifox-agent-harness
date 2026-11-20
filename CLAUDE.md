@@ -87,6 +87,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/permissions.py` | 哪些操作要先问用户 |
 | `harness/conversations.py` | 会话的保存和读取 |
 | `harness/search.py` | 会话的全文搜索：内存里的索引，三档匹配（原样、相近的词、隔字） |
+| `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
+| `harness/memories.py` | 网页"记忆"一栏背后的部分：列出、查看、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -101,8 +103,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **网页界面的安全措施不能削弱**：只监听 `127.0.0.1`；所有请求校验 token、Host 和 Origin；
   页面不加载任何外部资源；模型和工具输出的文字只用 `textContent` 放进页面，不当作 HTML 解析；
   API key 不出现在发给浏览器的任何内容里。
-  服务器里只有一处会替页面启动系统程序：`/api/conversation/reveal`（在文件管理器里显示会话的文件）。
-  它只接受会话编号，路径由服务器算，命令用参数列表、不经过 shell。以后再加这类接口，照这三条办。
+  服务器里只有两处会替页面启动系统程序：`/api/conversation/reveal`（在文件管理器里显示会话的文件）和
+  `/api/memory/reveal`（打开记忆文件夹）。前者只接受会话编号，后者什么都不收；路径由服务器算，
+  命令用参数列表、不经过 shell。以后再加这类接口，照这三条办。
 - **事件流的约定不能破坏。** 浏览器刚连上时，服务器先补发日志里已有的事件（过时的"状态"只留最后一个），
   然后发一个名叫 `synced` 的标记（没有编号、不进日志），之后才是实时事件。页面靠这个标记，加上
   "`reset` 到下一个 `state` 之间算重放"，来决定哪些内容播放入场动画。
