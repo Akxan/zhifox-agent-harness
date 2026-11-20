@@ -543,6 +543,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .side-foot .icon { width: 13px; height: 13px; }
 /* 看一条记忆：和设置面板同一种对话框，正文是文件的原文。设置面板的样式写在后面，所以这里多带一个类名，才盖得过它 */
 .settings.memory-dialog { width: min(720px, calc(100vw - 32px)); }
+/* 扩展：比设置面板宽一些、高度固定（切换标签页时对话框不跟着内容忽大忽小） */
+.settings.extensions { width: min(860px, calc(100vw - 32px)); height: min(720px, calc(100vh - 48px)); }
+.extensions-head { min-width: 0; }
+.extensions-sub { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.tabs { flex: none; display: flex; gap: 4px; margin: 2px 22px 0; padding: 3px; background: var(--hover); border-radius: 12px; width: fit-content; max-width: calc(100% - 44px); }
+.tab { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; font-size: 13px; font-weight: 500; color: var(--ink-2); background: none; border: 0; border-radius: 9px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.tab .icon { width: 15px; height: 15px; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
+.tab-count { font-size: 11.5px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tab-count:empty { display: none; }
+.tab-panel { padding-top: 14px; }
+.tab-panel[hidden] { display: none; }
 .memory-dialog .settings-head { align-items: flex-start; gap: 12px; }
 .memory-head { min-width: 0; }
 .memory-head h2 { overflow-wrap: anywhere; }
@@ -739,6 +752,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M9 4.5a2 2 0 1 1 4 0V6h4v4h1.5a2 2 0 1 1 0 4H17v4h-4v-1.5a2 2 0 1 0-4 0V18H5v-4h1.5a2 2 0 1 0 0-4H5V6h4z"/></symbol>
+  <symbol id="i-skill" viewBox="0 0 24 24"><path d="M12 3.5l2.1 5 5.4.5-4.1 3.6 1.2 5.3L12 15.1l-4.6 2.8 1.2-5.3L4.5 9l5.4-.5z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5V8M15 3.5V8M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5v4"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 3.5v3M6.5 6.5h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM9.5 11.5v1M14.5 11.5v1M9.5 15.5h5"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5.5 12.5L12 19l6.5-6.5"/></symbol>
@@ -796,6 +813,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
+          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、Agent" aria-label="扩展：Skill、MCP、Agent" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
           <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
@@ -942,6 +960,25 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     </section>
   </div>
   <div id="settings-message" class="settings-message" role="status"></div>
+</dialog>
+
+<dialog id="extensions" class="settings extensions" aria-labelledby="extensions-title">
+  <div class="settings-head">
+    <div class="extensions-head">
+      <h2 id="extensions-title" data-i18n>扩展</h2>
+      <p class="extensions-sub" data-i18n>Skill 教助手做事的方法，MCP 给它接上外部的工具，Agent 是你定制的助手。</p>
+    </div>
+    <button id="close-extensions" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="扩展的种类" data-i18n-aria-label>
+    <button id="tab-skills" class="tab" type="button" role="tab" aria-controls="panel-skills" data-tab="skills"><svg class="icon" aria-hidden="true"><use href="#i-skill"/></svg><span data-i18n>Skill</span><span id="count-skills" class="tab-count"></span></button>
+    <button id="tab-mcp" class="tab" type="button" role="tab" aria-controls="panel-mcp" data-tab="mcp"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n>MCP</span><span id="count-mcp" class="tab-count"></span></button>
+    <button id="tab-agents" class="tab" type="button" role="tab" aria-controls="panel-agents" data-tab="agents"><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>Agent</span><span id="count-agents" class="tab-count"></span></button>
+  </div>
+  <div id="panel-skills" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-skills" tabindex="0"></div>
+  <div id="panel-mcp" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0" hidden></div>
+  <div id="panel-agents" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" hidden></div>
+  <div id="extensions-message" class="settings-message" role="status"></div>
 </dialog>
 
 <dialog id="memory-dialog" class="settings memory-dialog" aria-labelledby="memory-name" aria-describedby="memory-meta">
@@ -3194,6 +3231,48 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (path !== false && lost) focusMemory(path);
   });
 
+  // ---- 扩展：Skill、MCP、Agent -----------------------------------------------
+  // 一个对话框，三个标签页。这一节只管"壳"：打开、关上、切换标签页、记住上次看的是哪一页。
+  // 每一页里的内容由各自那一节画（见下面的 Skill、MCP、Agent 三节），它们通过 extensionTabs 挂上来：
+  //   extensionTabs.skills = { open() { …这一页被打开时调用，适合在这时去读列表… } }
+  // 切换标签页按的是 WAI-ARIA 的"标签页"模式：左右方向键在标签之间移动，Home / End 到头尾。
+
+  const extensionsDialog = $('extensions');
+  const TABS = ['skills', 'mcp', 'agents'];
+  const extensionTabs = {};
+  let extensionTab = 'skills';
+  try { if (TABS.includes(localStorage.getItem('harness.extensions-tab'))) extensionTab = localStorage.getItem('harness.extensions-tab'); } catch (_) { /* 隐私模式下读不了，用默认的 */ }
+
+  function showExtensionTab(name, focus) {
+    extensionTab = TABS.includes(name) ? name : 'skills';
+    try { localStorage.setItem('harness.extensions-tab', extensionTab); } catch (_) { /* 记不住也没关系 */ }
+    for (const tab of TABS) {
+      const button = $('tab-' + tab), on = tab === extensionTab;
+      button.setAttribute('aria-selected', on ? 'true' : 'false');
+      button.tabIndex = on ? 0 : -1;  // 标签页只有选中的那个在 Tab 键的顺序里，其余的用方向键去
+      $('panel-' + tab).hidden = !on;
+    }
+    $('extensions-message').textContent = '';
+    if (focus) $('tab-' + extensionTab).focus();
+    if (extensionsDialog.open && extensionTabs[extensionTab] && extensionTabs[extensionTab].open) extensionTabs[extensionTab].open();
+  }
+
+  function openExtensions(tab) {
+    if (!extensionsDialog.open) extensionsDialog.showModal();
+    showExtensionTab(tab || extensionTab, true);
+  }
+
+  for (const tab of TABS) $('tab-' + tab).addEventListener('click', () => showExtensionTab(tab, true));
+  $('extensions').querySelector('.tabs').addEventListener('keydown', (key) => {
+    const at = TABS.indexOf(extensionTab);
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: TABS.length - 1 }[key.key];
+    if (next === undefined) return;
+    key.preventDefault();
+    showExtensionTab(TABS[(next + TABS.length) % TABS.length], true);
+  });
+  $('extensions-open').addEventListener('click', () => openExtensions());
+  $('close-extensions').addEventListener('click', () => extensionsDialog.close());
+
   // ---- 语言 ----------------------------------------------------------------
   // 换语言不刷新页面：先请助手程序记下新的选择（下次打开、终端版都跟着用），它会发来新的状态，
   // 页面收到后在原地把文字换掉（见 applyLanguage）。正在进行的对话、滚动的位置、输入框里写了一半的话都不受影响。
@@ -3447,7 +3526,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
   // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-  for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog]) {
+  for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog]) {
     let pressedOutside = false;
     dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
     dialog.addEventListener('click', (click) => {
@@ -3473,11 +3552,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
     if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
       key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
-      if (settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open) return;
+      if (settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open) return;
       setNav(true, false);
       search.focus();
       search.select();
-    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open && !memoryDialog.open) {
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open && !memoryDialog.open && !extensionsDialog.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) { setNav(false, false); refocus($('nav-open'), nav); }
       if (overlaySide.matches && body.classList.contains('side-open')) { setSide(false, false); refocus($('side-toggle'), side); }
     }
