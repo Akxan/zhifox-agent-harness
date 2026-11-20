@@ -7,13 +7,19 @@
 <title>智狐</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='fox-fur' x1='16' y1='2' x2='16' y2='30' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f59e0b'/%3E%3Cstop offset='1' stop-color='%23f0532e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M16 29.5C12.8 29.1 6.4 26.4 2.5 21.6C3.4 19.8 4.2 17.8 4.6 15.8C3.6 11.6 3.5 6.3 4.7 3.3C5 2.5 6 2.3 6.6 2.8C10.2 5.9 12.6 9.4 13.6 12.4Q13.9 13.3 14.8 12.8Q15.4 12.5 16 12.5Q16.6 12.5 17.2 12.8Q18.1 13.3 18.4 12.4C19.4 9.4 21.8 5.9 25.4 2.8C26 2.3 27 2.5 27.3 3.3C28.5 6.3 28.4 11.6 27.4 15.8C27.8 17.8 28.6 19.8 29.5 21.6C25.6 26.4 19.2 29.1 16 29.5Z' fill='url(%23fox-fur)' stroke='url(%23fox-fur)' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M6.6 7.2C8.8 9 10.4 11.2 11.2 13Q8.8 13 6.8 14.4C5.8 12 5.9 9.4 6.6 7.2ZM25.4 7.2C23.2 9 21.6 11.2 20.8 13Q23.2 13 25.2 14.4C26.2 12 26.1 9.4 25.4 7.2Z' fill='%23ffd9a3' stroke='%23ffd9a3' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M16 28.3C11.7 27.5 7.5 25.1 4.4 21.9C6 19.9 10.2 19.4 12.6 20.4C14.2 21.1 15.4 22.6 16 24C16.6 22.6 17.8 21.1 19.4 20.4C21.8 19.4 26 19.9 27.6 21.9C24.5 25.1 20.3 27.5 16 28.3Z' fill='%23ffecd2'/%3E%3Cg fill='%232a1a2e'%3E%3Ccircle cx='10' cy='20' r='2.2'/%3E%3Ccircle cx='22' cy='20' r='2.2'/%3E%3Cpath d='M14.7 24.4H17.3L16 25.8Z' stroke='%232a1a2e' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/g%3E%3Cg fill='%23ffecd2'%3E%3Ccircle cx='10.8' cy='19.1' r='0.7'/%3E%3Ccircle cx='22.8' cy='19.1' r='0.7'/%3E%3C/g%3E%3C/svg%3E">
 <script nonce="__NONCE__">
-// 页面画出来之前就定好用浅色还是深色，免得先亮后暗地闪一下。
-// 默认是浅色；用户在页面上选过"深色"或"跟随系统"的话，按他选的来。
+// 页面画出来之前就定好用浅色还是深色、动画要不要减少，免得先亮后暗地闪一下，或者先播了一段动画。
+// 颜色默认是浅色，动效默认跟随系统的"减少动态效果"；用户在外观面板里另选过的话，按他选的来。
+// 算出来的结果写在 <html> 上（data-theme、data-motion），样式和脚本都只看这两个属性。
 (() => {
-  let choice = null;
-  try { choice = localStorage.getItem('harness.theme'); } catch (_) { /* 浏览器禁用了本地存储 */ }
-  const dark = choice === 'dark' || (choice === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  let theme = null, motion = null;
+  try {
+    theme = localStorage.getItem('harness.theme');
+    motion = localStorage.getItem('harness.motion');
+  } catch (_) { /* 浏览器禁用了本地存储 */ }
+  const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const calm = motion === 'reduce' || (motion !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.dataset.motion = calm ? 'reduce' : 'full';
 })();
 </script>
 <style nonce="__NONCE__">
@@ -21,7 +27,8 @@
      1. 会动的东西只改 transform（位移、缩放、旋转）和 opacity（透明度）。这两样浏览器可以在
         专门的合成线程上完成，不用重新排版和重画，所以再忙也不掉帧。
      2. 不用 backdrop-filter 之类每一帧都要重算的昂贵效果。
-     3. 系统开了"减少动态效果"时，所有动画都关掉（见文件末尾的 prefers-reduced-motion）。 */
+     3. 要减少动画时（系统开了"减少动态效果"，或者用户在外观面板里选了"减少"），所有动画都关掉
+        （见文件末尾的 data-motion）。 */
 
 /* ---- 颜色和字体 ---------------------------------------------------------- */
 :root {
@@ -504,6 +511,22 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .settings-message.bad { color: var(--err); }
 .settings-message.good { color: var(--ok); }
 
+/* ---- 外观面板：颜色和动效 ------------------------------------------------- */
+/* 点右上角的外观按钮，在按钮下面弹出来。它是一个 popover：浏览器把它放在所有内容的最上层，
+   不会被别的栏挡住、裁掉。位置由脚本按按钮的位置算好（见 placeAppearance）。 */
+.pop { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 16px)); margin: 0; padding: 14px 14px 12px; overflow: visible; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); transform-origin: 85% top; }
+.pop { animation: menu-in .26s var(--ease); }  /* 每次从隐藏变成显示，这段入场动画都会从头播一次 */
+@keyframes menu-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.pop h3 { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 64px; padding: 10px 4px 9px; font-size: 12px; line-height: 1.3; color: var(--ink-2); text-align: center; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; transition: transform .15s var(--ease); }
+.tile .icon { width: 18px; height: 18px; }
+.tile:hover { color: var(--ink); border-color: var(--ink-3); }
+.tile:active { transform: scale(.96); }
+.tile[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tile[aria-pressed="true"] .icon { color: var(--accent); }
+.pop-note { min-height: 2lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留两行的高度，换选项时面板不跳；pretty：末行不只剩一两个字 */
+
 /* ---- 浮在最上面的提示 ---------------------------------------------------- */
 .banner, .toast { position: fixed; z-index: 50; left: 16px; right: 16px; width: fit-content; margin: 0 auto; padding: 9px 16px; font-size: 13px; box-shadow: var(--shadow-2); }
 .banner { top: 14px; max-width: 640px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: drop .4s var(--ease); }
@@ -548,11 +571,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
 ::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after, ::backdrop { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
-  .aurora i { animation: none !important; }
-  .found::before { opacity: 1; }  /* 不播动画时，命中的那一块静静地亮着，直到脚本把它收掉 */
+/* 减少动画：用户在外观面板里选了"减少"，或者选的是"跟随系统"、而系统开着"减少动态效果"。
+   页面最前面那段脚本把结果写在 <html data-motion="reduce"> 上（和深浅色的做法一样），这里不再直接查
+   prefers-reduced-motion，否则用户选的"完整"就盖不过系统设置了。
+   所有动画和过渡都一闪而过，直接显示结束时的样子；本来就不动的东西不受影响。 */
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after, :root[data-motion="reduce"] ::backdrop {
+  animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
 }
+:root[data-motion="reduce"] .aurora i { animation: none !important; }
+:root[data-motion="reduce"] .found::before { opacity: 1; }  /* 不播动画时，命中的那一块静静地亮着，直到脚本把它收掉 */
 </style>
 </head>
 <body>
@@ -608,6 +635,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
   <symbol id="i-auto" viewBox="0 0 24 24"><path d="M4 5h16v11H4zM9 20h6M12 16v4"/></symbol>
+  <symbol id="i-calm" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM5 19.5h14"/></symbol>
+  <symbol id="i-motion" viewBox="0 0 24 24"><path d="M15.5 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3.5 9.5h5M2.5 12h5M3.5 14.5h5"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2a3 3 0 0 0 2 2L21 12l-5.2 1.8a3 3 0 0 0-2 2L12 21l-1.8-5.2a3 3 0 0 0-2-2L3 12l5.2-1.8a3 3 0 0 0 2-2z"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.3-2.9 8-7 9.5-4.1-1.5-7-5.2-7-9.5V6zM12 8.5v4M12 15.8v.01"/></symbol>
@@ -655,11 +684,26 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <div id="bar-actions" class="bar-actions">
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
-          <button id="theme" class="icon-button theme" type="button">
+          <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
             <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
             <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
             <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon"/></svg>
           </button>
+          <div id="appearance" class="pop" popover="manual" role="dialog" aria-label="外观和动效" data-i18n-aria-label hidden>
+            <h3 data-i18n>外观</h3>
+            <div class="tiles" role="group" aria-label="外观" data-i18n-aria-label>
+              <button class="tile" type="button" data-theme-pick="light"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span data-i18n>浅色</span></button>
+              <button class="tile" type="button" data-theme-pick="dark"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span data-i18n>深色</span></button>
+              <button class="tile" type="button" data-theme-pick="auto"><svg class="icon" aria-hidden="true"><use href="#i-auto"/></svg><span data-i18n>跟随系统</span></button>
+            </div>
+            <h3 data-i18n>动效</h3>
+            <div class="tiles" role="group" aria-label="动效" data-i18n-aria-label>
+              <button class="tile" type="button" data-motion-pick="auto"><svg class="icon" aria-hidden="true"><use href="#i-auto"/></svg><span data-i18n>跟随系统</span></button>
+              <button class="tile" type="button" data-motion-pick="reduce"><svg class="icon" aria-hidden="true"><use href="#i-calm"/></svg><span data-i18n>减少</span></button>
+              <button class="tile" type="button" data-motion-pick="full"><svg class="icon" aria-hidden="true"><use href="#i-motion"/></svg><span data-i18n>完整</span></button>
+            </div>
+            <p id="motion-note" class="pop-note"></p>
+          </div>
           <button id="side-toggle" class="icon-button" type="button" title="用量、待办和工具" aria-label="用量、待办和工具" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
         </div>
       </header>
@@ -984,12 +1028,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // 页面里所有会动的东西都只改 transform 和 opacity。浏览器可以把这两样交给专门的合成线程去做，
   // 不用重新排版，所以即使脚本正忙着处理模型不断吐出来的文字，动画也不会卡。
 
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');  // 系统设置里的"减少动态效果"
+  // 现在要不要减少动画：看 <html data-motion>。它综合了系统的"减少动态效果"和用户在外观面板里的选择
+  // （见"外观"一节的 applyMotion）。脚本里要判断的地方都问它，不要直接查 prefers-reduced-motion。
+  const calm = () => root.dataset.motion === 'reduce';
   const EASE = 'cubic-bezier(.2, .8, .2, 1)';
 
   // 播一次性的小动画。frames 里只写 transform 和 opacity。
   function play(node, frames, duration) {
-    if (reduceMotion.matches || !node.animate) return;
+    if (calm() || !node.animate) return;
     node.animate(frames, { duration, easing: EASE });
   }
 
@@ -997,7 +1043,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // 做法是先量好各部分的旧位置，改完布局再量新位置，然后用 transform 把它们"摆回"旧位置，
   // 再放手让它们回到原位（这个手法通常叫 FLIP）。布局只重算了一次，滑动的过程交给合成线程。
   function relayout(change) {
-    if (!body.classList.contains('ready') || reduceMotion.matches || !sheet.animate) { change(); return; }
+    if (!body.classList.contains('ready') || calm() || !sheet.animate) { change(); return; }
     const parts = [[sheet, 'box'], [viewport, 'center'], [composer, 'center'], [starters, 'center'],
                    [$('title'), 'left'], [$('bar-actions'), 'right']];
     const before = parts.map(([node]) => node.getBoundingClientRect());
@@ -1022,7 +1068,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // 换外观时让新旧两个画面交叉淡化。用的是浏览器自带的"视图过渡"：它给新旧画面各拍一张快照，
   // 在合成线程上淡入淡出，页面本身只换了一次颜色。浏览器不支持的话就直接换。
   function crossfade(update) {
-    if (!document.startViewTransition || reduceMotion.matches) { update(); return; }
+    if (!document.startViewTransition || calm()) { update(); return; }
     document.startViewTransition(update);
   }
 
@@ -1074,7 +1120,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   toBottom.addEventListener('click', () => {
     setStick(true);
-    chat.scrollTo({ top: chat.scrollHeight, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+    chat.scrollTo({ top: chat.scrollHeight, behavior: calm() ? 'auto' : 'smooth' });
   });
 
   // ---- 提示和请求 ----------------------------------------------------------
@@ -1583,39 +1629,123 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (overlaySide.matches) setSide(false, false);
   });
 
-  // ---- 外观：浅色、深色、跟随系统 ------------------------------------------
-  // 默认是浅色。点右上角的按钮在三种之间轮换，选择记在浏览器里。
+  // ---- 外观：颜色和动效 ----------------------------------------------------
+  // 点右上角的外观按钮，弹出一个小面板：上面一排选颜色（默认浅色），下面一排选动效（默认跟随系统）。
+  // 两样都记在浏览器里。页面最前面那段脚本在画出页面之前就按它们定好了，这里负责之后的切换。
+  //
+  // "动效"是给系统的"减少动态效果"开的一个口子：很多人不知道这个设置藏在系统的哪里，或者只想让这一个页面
+  // 安静些（选"减少"）；也有人系统里开着它，却想在这里看完整的动画（选"完整"）。
 
-  const THEMES = { light: k('浅色'), dark: k('深色'), auto: k('跟随系统') };
+  const THEMES = ['light', 'dark', 'auto'];
+  const MOTIONS = ['auto', 'reduce', 'full'];
   const systemDark = matchMedia('(prefers-color-scheme: dark)');
+  const systemCalm = matchMedia('(prefers-reduced-motion: reduce)');  // 系统设置里的"减少动态效果"
+  const themeButton = $('theme'), appearance = $('appearance');
   let theme = recall('harness.theme');
-  if (!(theme in THEMES)) theme = 'light';
+  if (!THEMES.includes(theme)) theme = 'light';
+  let motion = recall('harness.motion');
+  if (!MOTIONS.includes(motion)) motion = 'auto';
 
   function applyTheme() {
     root.dataset.theme = theme === 'dark' || (theme === 'auto' && systemDark.matches) ? 'dark' : 'light';
-    const button = $('theme');
-    button.dataset.mode = theme;
-    button.title = t('外观：{name}（点击切换）', { name: t(THEMES[theme]) });
-    button.setAttribute('aria-label', button.title);
+    themeButton.dataset.mode = theme;  // 按钮上显示太阳、月亮还是显示器
+    for (const tile of appearance.querySelectorAll('[data-theme-pick]')) {
+      tile.setAttribute('aria-pressed', String(tile.dataset.themePick === theme));
+    }
+  }
+
+  function applyMotion() {
+    root.dataset.motion = motion === 'reduce' || (motion === 'auto' && systemCalm.matches) ? 'reduce' : 'full';
+    for (const tile of appearance.querySelectorAll('[data-motion-pick]')) {
+      tile.setAttribute('aria-pressed', String(tile.dataset.motionPick === motion));
+    }
+    // 系统里这个开关各家叫法不同（macOS 是"减弱动态效果"，Windows 是"动画效果"），所以这里不点名
+    retext($('motion-note'), motion === 'reduce' ? k('不播放滑动、淡入和闪烁，内容直接出现。')
+      : motion === 'full' ? k('播放全部动画，即使系统设置要求减少动画。')
+      : systemCalm.matches ? k('你在系统设置里要求减少动画，所以这里的动画也减少了。')
+      : k('你的系统设置没有要求减少动画，所以动画完整播放。'));
   }
   applyTheme();
+  applyMotion();
 
-  function nextTheme() {
-    const names = Object.keys(THEMES);
-    theme = names[(names.indexOf(theme) + 1) % names.length];
+  function chooseTheme(name) {
+    if (name === theme) return;
+    theme = name;
     remember('harness.theme', theme);
     crossfade(applyTheme);
   }
-  $('theme').addEventListener('click', nextTheme);
-  // 交叉淡化的那一小会儿，浏览器把点击都算在整个页面头上，按钮自己收不到。
-  // 这时如果点的位置正好在外观按钮上，就当作点了它，连点两下才不会丢掉一下。
+
+  function chooseMotion(name) {
+    if (name === motion) return;
+    motion = name;
+    remember('harness.motion', motion);
+    applyMotion();  // 立刻生效：正在播的动画马上停在结束的样子，或者从现在起开始播
+  }
+
+  // 面板用浏览器的 popover 显示：它在所有内容的最上层，不会被两边的栏挡住或裁掉。
+  // 很旧的浏览器没有 popover，就当一个普通的浮层来显示和隐藏。
+  // 用的是 manual 模式：点外面、按 Esc 收起来都由下面自己处理（原因见 root 上的 click）。
+  const POPOVER = typeof appearance.showPopover === 'function';
+  if (POPOVER) appearance.hidden = false;
+  const appearanceOpen = () => (POPOVER ? appearance.matches(':popover-open') : !appearance.hidden);
+
+  // 放在外观按钮的正下方，右边和按钮对齐；窗口太窄时往左让一让，不超出屏幕
+  function placeAppearance() {
+    const box = themeButton.getBoundingClientRect();
+    const width = appearance.offsetWidth;
+    appearance.style.top = Math.round(box.bottom + 8) + 'px';
+    appearance.style.left = Math.round(Math.max(8, Math.min(box.right - width, root.clientWidth - 8 - width))) + 'px';
+  }
+
+  function openAppearance() {
+    if (POPOVER) appearance.showPopover(); else appearance.hidden = false;
+    placeAppearance();  // 显示出来才量得到宽度。这两步在同一帧里，画出来时已经在对的位置上
+    themeButton.setAttribute('aria-expanded', 'true');
+    // 焦点放到当前选中的那一格：用键盘打开的，可以直接用 Tab 和空格来选；用鼠标打开的，浏览器不会画出焦点框
+    appearance.querySelector('.tile[aria-pressed="true"]').focus();
+  }
+
+  function closeAppearance(refocus) {
+    if (!appearanceOpen()) return;
+    if (POPOVER) appearance.hidePopover(); else appearance.hidden = true;
+    themeButton.setAttribute('aria-expanded', 'false');
+    if (refocus) themeButton.focus();
+  }
+
+  themeButton.addEventListener('click', () => (appearanceOpen() ? closeAppearance(false) : openAppearance()));
+  for (const tile of appearance.querySelectorAll('[data-theme-pick]')) {
+    tile.addEventListener('click', () => chooseTheme(tile.dataset.themePick));
+  }
+  for (const tile of appearance.querySelectorAll('[data-motion-pick]')) {
+    tile.addEventListener('click', () => chooseMotion(tile.dataset.motionPick));
+  }
+
+  // 点在哪儿，按位置判断，不看"点中的是谁"：换颜色时的交叉淡化那一小会儿（约 0.3 秒），浏览器把所有点击
+  // 都算在整个页面（<html>）头上，按钮自己收不到。只看"点中的是谁"的话，点在面板里的那一下会被当成点在外面。
+  const inside = (node, point) => {
+    const box = node.getBoundingClientRect();
+    return point.clientX >= box.left && point.clientX <= box.right && point.clientY >= box.top && point.clientY <= box.bottom;
+  };
+  // 点面板外面的任何地方，面板就收起来（点外观按钮本身除外：那一下由按钮自己来开关）
+  document.addEventListener('pointerdown', (press) => {
+    if (appearanceOpen() && !inside(appearance, press) && !inside(themeButton, press)) closeAppearance(false);
+  });
+  // 用 Tab 离开了面板，也收起来
+  appearance.addEventListener('focusout', (leave) => {
+    const next = leave.relatedTarget;
+    if (next && !appearance.contains(next) && next !== themeButton) closeAppearance(false);
+  });
+  window.addEventListener('resize', () => { if (appearanceOpen()) placeAppearance(); });
+  // 交叉淡化期间点到页面头上的那一下：按位置找出本来点的是哪个按钮，替它点一下，连点两下才不会丢掉一下
   root.addEventListener('click', (click) => {
     if (click.target !== root) return;
-    const box = $('theme').getBoundingClientRect();
-    const inside = click.clientX >= box.left && click.clientX <= box.right && click.clientY >= box.top && click.clientY <= box.bottom;
-    if (inside) nextTheme();
+    const buttons = [themeButton, ...(appearanceOpen() ? appearance.querySelectorAll('.tile') : [])];
+    const hit = buttons.find((button) => inside(button, click));
+    if (hit) hit.click();
   });
+
   systemDark.addEventListener('change', () => { if (theme === 'auto') crossfade(applyTheme); });
+  systemCalm.addEventListener('change', applyMotion);  // 系统里开关"减少动态效果"，选"跟随系统"时马上跟着变
 
   // ---- 会话列表 ------------------------------------------------------------
 
@@ -1994,7 +2124,6 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     language = code;
     strings = (I18N.tables || {})[code] || {};
     translatePage();
-    applyTheme();       // 外观按钮的提示文字
     refreshStatus();    // 发送按钮、"正在工作"
     if (languageDialog.open) renderLanguageOptions();
   }
@@ -2228,6 +2357,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // ---- 键盘 ----------------------------------------------------------------
 
   document.addEventListener('keydown', (key) => {
+    if (key.key === 'Escape' && appearanceOpen()) {  // Esc 先收起外观面板，焦点回到外观按钮上
+      key.preventDefault();
+      closeAppearance(true);
+      return;
+    }
     const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
     if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
       key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
