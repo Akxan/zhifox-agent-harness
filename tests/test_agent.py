@@ -45,6 +45,8 @@ def test_plain_answer_sends_expected_request(start):
     (system,) = request["system"]
     assert system["cache_control"] == {"type": "ephemeral"}  # 系统提示词上有缓存标记
     assert "个人助手" in system["text"] and str(h.config.workspace) in system["text"]
+    # 名字只写"智狐"：英文回答里它曾经自己音译成 "Zhihu"，正好和另一个知名网站同名
+    assert "不要音译成拼音" in system["text"] and "智狐" in system["text"]
     # 联网工具带着每条消息的次数上限，由 API 强制执行
     web_tools = {tool["name"]: tool for tool in request["tools"] if tool["name"].startswith("web_")}
     assert web_tools["web_search"] == {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
