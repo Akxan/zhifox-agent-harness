@@ -27,47 +27,78 @@ from harness.webui.ui import MAX_RESULT_CHARS, WebUI, latest_state_only
 
 
 class Browser:
-    """扮演浏览器：一边在后台读事件流，一边发请求。"""
+    """扮演浏览器：一边在后台读事件流，一边发请求。
 
-    def __init__(self, url: str, last_event_id: int | None = None):
+    读事件流的方式和浏览器里的 EventSource 一样：每条消息由几行"字段: 值"组成，空行表示一条消息结束；
+    "id:" 行给出这条消息的编号，浏览器记住最后一个编号，断线重连时用 Last-Event-ID 请求头告诉服务器。
+    所以这里也记着 last_event_id，并且检查服务器有没有守约定（见 problems）。
+    """
+
+    def __init__(self, url: str, last_event_id: str | int | None = None):
         parts = urlsplit(url)
         self.host = parts.netloc
         self.token = parse_qs(parts.query)["token"][0]
         self.events: list[dict] = []
         self.synced_after: int | None = None  # 收到 synced 标记时，已经收到了多少个事件
+        self.last_event_id = None if last_event_id is None else str(last_event_id)  # 和 EventSource 的 lastEventId 一样
+        self.problems: list[str] = []  # 事件流不守约定的地方。后台线程里断言失败不会让测试失败，所以先记下来
         self._arrived = threading.Condition()
         self._checked = 0  # wait_for 已经看过的事件数
-        threading.Thread(target=self._listen, args=(last_event_id,), daemon=True).start()
+        threading.Thread(target=self._listen, daemon=True).start()
 
-    def _listen(self, last_event_id: int | None) -> None:
-        headers = {} if last_event_id is None else {"Last-Event-ID": str(last_event_id)}
+    def _listen(self) -> None:
+        headers = {} if self.last_event_id is None else {"Last-Event-ID": self.last_event_id}
         connection = http.client.HTTPConnection(self.host, timeout=30)
         connection.request("GET", f"/events?token={self.token}", headers=headers)
         try:
-            name = ""  # 这条消息的事件名。日志里的事件没有名字；有名字的是 synced 这样的标记
-            for line in connection.getresponse():
-                if line.startswith(b"event: "):
-                    name = line[7:].strip().decode()
-                elif line.startswith(b"data: "):
-                    with self._arrived:
-                        if name == "synced":
-                            self.synced_after = len(self.events)
-                        elif not name:
-                            self.events.append(json.loads(line[6:]))
-                        self._arrived.notify_all()
-                elif not line.strip():
-                    name = ""  # 空行是一条消息的结尾
+            response = connection.getresponse()
+            kind = response.getheader("Content-Type", "")
+            if not kind.startswith("text/event-stream"):
+                self.problems.append(f"事件流的 Content-Type 是 {kind!r}，浏览器的 EventSource 会直接拒收")
+            fields: dict[str, str] = {}
+            for raw in response:
+                line = raw.decode("utf-8").rstrip("\r\n")
+                if line.startswith(":"):
+                    continue  # 注释行（保持连接用的 keepalive）
+                if line:
+                    name, _, value = line.partition(":")
+                    fields[name] = value.removeprefix(" ")
+                    continue
+                if "data" in fields:  # 空行：一条消息结束，交给 _dispatch
+                    self._dispatch(fields)
+                fields = {}
         except OSError:
             pass  # 测试结束，服务器关了
+
+    def _dispatch(self, fields: dict[str, str]) -> None:
+        with self._arrived:
+            if "id" in fields:
+                self.last_event_id = fields["id"]
+            if fields.get("event") == "synced":
+                self.synced_after = len(self.events)
+                if "id" in fields:
+                    # 标记要是带着编号，浏览器会把它当成"最后收到的那一个"，下次重连时报给服务器一个日志里没有的编号
+                    self.problems.append(f"synced 标记带着编号 {fields['id']}")
+            elif "event" not in fields:
+                event = json.loads(fields["data"])
+                if fields.get("id") != str(event["id"]):
+                    self.problems.append(f"事件 {event['id']} 的 id 行是 {fields.get('id')!r}：断线重连时浏览器报不出正确的位置")
+                self.events.append(event)
+            self._arrived.notify_all()
+
+    def _check(self) -> None:
+        assert not self.problems, "事件流不符合约定：" + "；".join(self.problems)
 
     def wait_synced(self, timeout: float = 10) -> int:
         """等到服务器说"已有的事件补发完了"，返回在那之前收到了多少个事件。"""
         deadline = time.monotonic() + timeout
         with self._arrived:
             while self.synced_after is None:
+                self._check()
                 remaining = deadline - time.monotonic()
                 assert remaining > 0, f"没有等到 synced 标记；收到的是 {self.types()}"
                 self._arrived.wait(remaining)
+            self._check()
             return self.synced_after
 
     def wait_for(self, type: str, timeout: float = 10) -> dict:
@@ -75,6 +106,7 @@ class Browser:
         deadline = time.monotonic() + timeout
         with self._arrived:
             while True:
+                self._check()
                 while self._checked < len(self.events):
                     event = self.events[self._checked]
                     self._checked += 1
@@ -92,7 +124,9 @@ class Browser:
         return [event for event in self.events if event["type"] == type]
 
     def post(self, path: str, data: dict | None = None) -> tuple[int, dict]:
-        return request(self.host, "POST", path, data, {"X-Harness-Token": self.token})
+        # 和页面里的 fetch 发的一样：浏览器给同源的 POST 一律带上 Origin
+        headers = {"X-Harness-Token": self.token, "Origin": f"http://{self.host}", "Content-Type": "application/json"}
+        return request(self.host, "POST", path, data, headers)
 
 
 def request(host: str, method: str, path: str, data: dict | None = None, headers: dict | None = None):
@@ -171,10 +205,29 @@ def test_requests_without_the_token_are_rejected(serve):
     assert request(host, "POST", "/api/message", {"text": "hi"}, evil)[0] == 403
     # 口令正确，但访问时用的不是本机地址（DNS 重绑定攻击）
     assert request(host, "GET", f"/?token={token}", headers={"Host": "evil.example"})[0] == 403
+    # 冒充本机、但端口或协议不对的来源，也一样拒绝
+    port = host.split(":")[1]
+    for origin in (f"http://127.0.0.1:{int(port) + 1}", f"https://127.0.0.1:{port}", "http://127.0.0.1", "null"):
+        assert request(host, "POST", "/api/stop", {}, {"X-Harness-Token": token, "Origin": origin})[0] == 403, origin
 
     time.sleep(0.2)
     assert s.api.requests == []
     assert s.app.agent.messages == []
+
+
+def test_the_page_itself_is_allowed_in(serve):
+    # 真实页面发的每一个 POST 都带着 Origin（浏览器自动加的）。上面拒绝的都是别处来的，这里确认自己的能进来：
+    # 用 127.0.0.1 打开的页面，和用 localhost 打开的页面
+    s = serve(reply(text("不应该被调用")))
+    host, token = s.browser.host, s.browser.token
+    port = host.split(":")[1]
+    for name in ("127.0.0.1", "localhost"):
+        headers = {"X-Harness-Token": token, "Host": f"{name}:{port}", "Origin": f"http://{name}:{port}"}
+        assert request(host, "POST", "/api/stop", {}, headers) == (200, {"ok": True}), name
+        assert request(host, "GET", f"/?token={token}", headers={"Host": f"{name}:{port}"})[0] == 200
+    # 两边对不上（用 localhost 打开、请求却说来自 127.0.0.1）也算同一台电脑上的同一个程序，放行
+    headers = {"X-Harness-Token": token, "Host": f"localhost:{port}", "Origin": f"http://127.0.0.1:{port}"}
+    assert request(host, "POST", "/api/stop", {}, headers) == (200, {"ok": True})
 
 
 def test_page_is_served_with_a_strict_content_policy(serve):
@@ -417,6 +470,9 @@ def test_reloading_the_page_replays_the_conversation(serve):
     assert reloaded.events == [event for event in s.browser.events if event["type"] != "state" or event is latest]
     assert kinds(reloaded.events) == ["user", "turn_start", "thinking", "block_end", "text", "block_end", "state", "turn_end"]
 
+    # 每条事件的 id 行和它的编号一致（_dispatch 里检查），浏览器记住的是最后一条的编号
+    assert s.browser.last_event_id == str(s.browser.events[-1]["id"]) == reloaded.last_event_id
+
     resumed = Browser(s.url, last_event_id=6)  # 断线重连：只补发没收到的（其中过时的状态同样略去）
     resumed.wait_for("turn_end")
     assert [event["id"] for event in resumed.events] == [7, 8, 10, 11]
@@ -440,11 +496,12 @@ def test_the_stream_marks_where_the_backlog_ends(serve):
     late.wait_for("turn_end")  # 刚发生的这一轮的结尾
     assert kinds(late.events[backlog:])[:2] == ["user", "turn_start"]
     assert late.events[backlog]["text"] == "第二句"
-    # 标记本身不是日志里的事件：没有编号，也不会混进事件列表
-    assert all("id" in event and "type" in event for event in late.events)
+    # 标记本身不是日志里的事件：它不带编号（_dispatch 里检查），所以浏览器记住的仍是最后一个真实事件的编号
+    assert late.last_event_id == str(late.events[-1]["id"])
 
-    resumed = Browser(s.url, last_event_id=late.events[-1]["id"])  # 断线重连、没有落下任何事件：标记照样会发
-    assert resumed.wait_synced() == 0
+    # 断线重连、没有落下任何事件：用浏览器自己记住的编号去连，什么都不会重发，标记照样会发
+    resumed = Browser(s.url, last_event_id=late.last_event_id)
+    assert resumed.wait_synced() == 0 and resumed.events == []
 
 
 def test_the_log_does_not_pile_up_old_states():
@@ -791,12 +848,15 @@ def test_a_conversation_is_listed_at_once_and_saved_after_its_first_turn(serve):
 
 def test_each_new_conversation_gets_its_own_file_and_the_newest_is_listed_first(serve):
     s = serve(reply(text("一")), reply(text("二")), reply(text("三")))
-    first = say(s, "第一段")["conversation"]
+    said = say(s, "第一段")
+    first = said["conversation"]
     first_file = (s.config.conversations_dir / f"{first}.json").read_bytes()
+    assert said["usage"]["context"] > 0
 
     blank = act(s, "/api/new")
     # 新对话在说第一句话之前不进列表，也不写盘；第一段还在列表里
     assert blank["conversation"] != first and blank["title"] == ""
+    assert blank["usage"]["context"] == 0  # 侧栏的"当前对话占用的上下文"也从零开始，不留着上一段的数
     assert listed(blank) == [(first, "第一段")] and saved_ids(s.config) == [first]
 
     state = say(s, "第二段")
@@ -1004,10 +1064,12 @@ def test_deleting_conversations(serve):
     assert status == 409 and "不存在" in body["error"]  # 删过的不能再删
 
     # 删掉当前这一段：页面清空，换成一段全新的对话
+    assert s.app.agent.usage.context_tokens > 0
     assert s.browser.post("/api/conversation/delete", {"id": second}) == OK
     s.browser.wait_for("reset")
     state = s.browser.wait_for("state")
     assert state["conversations"] == [] and state["title"] == ""
+    assert state["usage"]["context"] == 0
     assert state["conversation"] not in (first, second)
     assert saved_ids(s.config) == [] and s.app.agent.messages == []
     late = Browser(s.url)  # 这时才打开页面的浏览器，看不到被删掉的内容
@@ -1018,6 +1080,32 @@ def test_deleting_conversations(serve):
     state = say(s, "第三段")
     assert [message["role"] for message in s.api.requests[-1]["messages"]] == ["user"]
     assert listed(state) == [(state["conversation"], "第三段")] and saved_ids(s.config) == [state["conversation"]]
+
+
+def test_new_and_deleted_conversations_start_clean_with_other_providers(serve, monkeypatch):
+    # 上面几条都是用 Claude 跑的。GPT、Gemini、DeepSeek 走的是另一个适配层，它清空历史的写法不一样
+    # （系统提示词是历史里的第一条，清空时要留着它），所以单独测一遍
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    s = serve(others=[chat("一。"), chat("二。"), chat("三。")])
+    act(s, "/api/model", {"provider": "deepseek", "model": "deepseek-flash"})
+    say(s, "第一段")
+    assert [message["role"] for message in s.other_api.requests[-1]["messages"]] == ["system", "user"]
+
+    def fresh_start(state: dict) -> None:
+        """这一段是从头开始的：请求里只有系统提示词和这一句，存下来的也只有这一问一答。"""
+        request = s.other_api.requests[-1]["messages"]
+        assert [message["role"] for message in request] == ["system", "user"]  # 上一段的历史不在
+        assert "个人助手" in request[0]["content"]  # 系统提示词还在
+        saved = saved_file(s.config, state["conversation"])
+        assert [message["role"] for message in saved["messages"]] == ["user", "assistant"]
+
+    act(s, "/api/new")
+    state = say(s, "第二段")
+    fresh_start(state)
+
+    # 删掉当前这一段，同样从头开始
+    act(s, "/api/conversation/delete", {"id": state["conversation"]})
+    fresh_start(say(s, "第三段"))
 
 
 def test_conversations_cannot_be_opened_renamed_or_deleted_during_a_turn(serve):

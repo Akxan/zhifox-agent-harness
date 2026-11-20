@@ -37,8 +37,10 @@ def test_half_an_emoji_is_replaced_and_everything_else_is_left_alone():
     # 完整的表情、普通的文字一个字都不动（包括本来就是"�"的）
     for text in ("", "你好 hello", "完整的表情 😀 和 👨‍👩‍👧", "已经是 � 的", "全角 ＡＢＣ 和换行\n\t"):
         assert clean_text(text) == text
-    # 被拆成两半、但两半都在的表情，合回成一个字符
-    assert clean_text("😀") == "😀"
+    # 被拆成两半、但两半都在的表情（比如从别处解析出来的 "\ud83d\ude00"），合回成一个字符；
+    # 同一段文字里另外有落单的半个时也一样，只换掉落单的那个
+    assert clean_text("\ud83d\ude00") == "😀"
+    assert clean_text(f"\ud83d\ude00 和 {HALF}") == "😀 和 �"
     # 洗过之后一定编码得出来
     clean_text(f"{HALF}a{HALF}{HALF}b").encode("utf-8")
 
@@ -109,13 +111,15 @@ def test_write_file_replaces_the_file_in_one_step(tmp_path, monkeypatch):
     def broken_replace(source, destination):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(os, "replace", broken_replace)
-    with pytest.raises(OSError, match="No space left"):
-        write_file(target, "写不进去的第四版")
+    # 临时的替身放在 context() 里，出了这一段就还原。不能用 monkeypatch.undo()：它会把 conftest.py 里
+    # 自动生效的隔离措施（清掉的 API key、代理设置、换掉的主目录）也一起撤掉
+    with monkeypatch.context() as patched:
+        patched.setattr(os, "replace", broken_replace)
+        with pytest.raises(OSError, match="No space left"):
+            write_file(target, "写不进去的第四版")
     assert target.read_text(encoding="utf-8") == "第三版"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["settings.json"]
     # 内容本身编码不了时也一样
-    monkeypatch.undo()
     with pytest.raises(UnicodeEncodeError):
         write_file(target, f"半个表情 {HALF}")
     assert target.read_text(encoding="utf-8") == "第三版"

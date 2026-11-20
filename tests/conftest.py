@@ -86,6 +86,10 @@ def isolated_environment(monkeypatch, tmp_path):
     # 请求都发往本机的假 API，不能被代理设置带到别处去
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
         monkeypatch.delenv(name, raising=False)
+    # 光清掉上面这些还不够：环境变量里没有代理时，macOS 上会改去读"系统设置"里的代理，
+    # 而且不会带上那边"忽略这些主机"的例外，连 127.0.0.1 也会被交给代理。NO_PROXY=* 让所有请求都直连
+    monkeypatch.setenv("NO_PROXY", "*")
+    monkeypatch.setenv("no_proxy", "*")
     # 测试看不到真实的 API key；测试里设置的 key 也会在测试结束后被清掉
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.setenv(name, "")
