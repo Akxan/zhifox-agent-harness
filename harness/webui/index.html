@@ -71,6 +71,11 @@
   --warn-line: #ebcf8f;
   --warn-dot: #d99a00;
   --scrim: rgba(22, 23, 27, .34);
+  --k-pdf: #b8262f;       /* 多媒体库里每一类文件的标记色：PDF、Word、Excel、PowerPoint、文本 */
+  --k-word: #2253b8;
+  --k-sheet: #0f6b3c;
+  --k-slide: #a8461a;
+  --k-text: #4a4d57;
   --shadow-1: 0 1px 2px rgba(22, 23, 27, .04), 0 6px 20px rgba(22, 23, 27, .05);
   --shadow-2: 0 2px 8px rgba(22, 23, 27, .06), 0 20px 56px rgba(22, 23, 27, .16);
   --glow: .3;
@@ -117,6 +122,11 @@
   --warn-line: #5a4718;
   --warn-dot: #f2c35b;
   --scrim: rgba(0, 0, 0, .58);
+  --k-pdf: #ff8f8f;
+  --k-word: #8db4ff;
+  --k-sheet: #6fd8a4;
+  --k-slide: #ffaa7a;
+  --k-text: #c3c5cd;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 20px rgba(0, 0, 0, .25);
   --shadow-2: 0 2px 8px rgba(0, 0, 0, .4), 0 20px 56px rgba(0, 0, 0, .55);
   --glow: .24;
@@ -521,16 +531,80 @@ a.md-image:hover { color: var(--ink); border-color: var(--line-3); }
 .msg-atts .att-open { width: auto; }
 .att-open img { transition: transform .25s var(--ease); }
 .att-open:hover img { transform: scale(1.04); }
-/* 看大图：图片按屏幕能放下的最大尺寸显示，下面一行是文件名和关闭按钮 */
-.viewer { max-width: 96vw; max-height: 94vh; padding: 0; overflow: visible; background: none; border: 0; }
-.viewer[open] { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: viewer-in .26s var(--ease); }
-.viewer::backdrop { background: rgba(8, 8, 12, .78); animation: fade .2s ease; }
-@keyframes viewer-in { from { opacity: 0; transform: scale(.94); } }
-.viewer img { display: block; max-width: 96vw; max-height: calc(94vh - 52px); object-fit: contain; background: #fff; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
-.viewer-bar { display: flex; align-items: center; gap: 8px; max-width: 96vw; color: #f4f4f6; font-size: 13px; }
-.viewer-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.viewer-bar .icon-button { color: #f4f4f6; }
-.viewer-bar .icon-button:hover { color: #fff; background: rgba(255, 255, 255, .14); }
+/* 对话里的文件卡片也能点开（PDF、Word、文本……），整张卡片就是按钮 */
+.att.file.openable { padding: 0; transition: border-color .15s ease; }
+.att.file.openable:hover { border-color: var(--line-3); }
+.att-open.att-file { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0 14px 0 10px; text-align: left; cursor: pointer; }
+.att-open.att-file > .icon { width: 20px; height: 20px; color: var(--accent); }
+
+/* ---- 查看器：对话里的缩略图和"多媒体"共用 ------------------------------------
+   铺满整个窗口的深色底（两套外观都是深色，看图时周围越暗越好）。中间是舞台：图片只靠 transform 放大、缩小、拖动；
+   文本和说明卡片跟着当前的外观走。不用 backdrop-filter：这块铺满全屏，每一帧都重算模糊太贵。 */
+.viewer { width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; color: #f2f2f5; background: rgba(9, 9, 13, .985); border: 0; }
+.viewer[open] {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "info tools close" "stage stage stage" "bottom bottom bottom"; animation: fade .22s ease;
+}
+.viewer::backdrop { background: transparent; }
+.viewer-info { grid-area: info; min-width: 0; padding: 12px 8px 10px 22px; }
+.viewer-name { margin: 0; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
+.viewer-meta { margin: 2px 0 0; overflow: hidden; font-size: 12.5px; color: rgba(242, 242, 245, .66); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.viewer-tools { grid-area: tools; display: flex; align-items: center; gap: 2px; padding: 0 2px; }
+.viewer-close { grid-area: close; align-self: center; margin: 0 12px 0 4px; }
+.viewer .icon-button { color: #f2f2f5; }
+.viewer .icon-button:hover:not(:disabled), .viewer-level:hover { color: #fff; background: rgba(255, 255, 255, .13); }
+.viewer .icon-button:disabled { opacity: .32; }
+.viewer .icon-button.done { color: #7ee2b8; }
+.viewer-tools .sep { width: 1px; height: 18px; margin: 0 6px; background: rgba(255, 255, 255, .16); }
+.viewer-zoom { display: flex; align-items: center; gap: 2px; }
+.viewer-zoom[hidden] + .sep { display: none; }
+.viewer-level { min-width: 56px; height: 32px; padding: 0 6px; font-size: 12.5px; color: #f2f2f5; font-variant-numeric: tabular-nums; background: none; border: 0; border-radius: 9px; }
+.viewer :focus-visible { outline-color: #b9adff; }
+.viewer-stage { grid-area: stage; position: relative; min-height: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.viewer-stage.zoomed { cursor: grab; }
+.viewer-stage.dragging { cursor: grabbing; }
+/* 图片按原始像素的大小摆在舞台正中，再用 transform 缩放和平移。拖动和捏合时（.live）不加过渡，跟着手走 */
+.viewer-image { position: absolute; left: 50%; top: 50%; max-width: none; background: #fff; border-radius: 3px; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); transform-origin: 50% 50%; -webkit-user-drag: none; }
+.viewer-image.smooth { transition: transform .2s var(--ease); }
+.viewer-stage.live .viewer-image { will-change: transform; }
+.viewer-text { position: absolute; top: 4px; bottom: 12px; left: max(16px, calc(50% - 470px)); right: max(16px, calc(50% - 470px)); margin: 0; padding: 18px 22px 22px; overflow: auto; font: 13px/1.7 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; background: var(--sheet); border-radius: 14px; box-shadow: 0 24px 80px rgba(0, 0, 0, .4); user-select: text; -webkit-user-select: text; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.viewer-text.waiting { color: var(--ink-3); }
+.viewer-banner { display: block; margin: -18px -22px 16px; padding: 10px 22px; font: 12.5px/1.55 var(--sans); color: var(--warn); background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); border-radius: 14px 14px 0 0; white-space: normal; }
+.viewer-card { position: absolute; left: 50%; top: 50%; display: grid; justify-items: center; gap: 6px; width: min(380px, calc(100vw - 32px)); padding: 28px 24px 22px; text-align: center; color: var(--ink); background: var(--sheet); border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); transform: translate(-50%, -50%); }
+.viewer-card .media-badge { width: 64px; height: 64px; margin-bottom: 8px; font-size: 14px; border-radius: 18px; }
+.viewer-card b { max-width: 100%; overflow: hidden; font-size: 15px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.viewer-card p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.viewer-card .row { justify-content: center; margin-top: 12px; }
+.viewer-card .button { display: inline-flex; align-items: center; gap: 7px; }
+.viewer-card .button .icon { width: 14px; height: 14px; }
+.viewer-spinner { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 2.5px solid rgba(255, 255, 255, .22); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; pointer-events: none; }
+.viewer-nav { position: absolute; top: 50%; z-index: 3; display: grid; place-items: center; width: 46px; height: 46px; margin-top: -23px; padding: 0; color: #f2f2f5; background: rgba(28, 28, 34, .72); border: 1px solid rgba(255, 255, 255, .12); border-radius: 50%; transition: transform .2s var(--ease), opacity .15s ease; }
+/* 深色的底、一圈细边：压在浅色的图片或者文字上也看得见 */
+.viewer-nav:hover:not(:disabled) { background: rgba(44, 44, 52, .9); transform: scale(1.06); }
+.viewer-nav:active:not(:disabled) { transform: scale(.92); }
+.viewer-nav:disabled { opacity: 0; pointer-events: none; }
+.viewer-nav .icon { width: 20px; height: 20px; }
+.viewer-nav.prev { left: 16px; }
+.viewer-nav.prev .icon { transform: rotate(180deg); }
+.viewer-nav.next { right: 16px; }
+.viewer-bottom { grid-area: bottom; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 8px 22px 12px; font-size: 12px; color: rgba(242, 242, 245, .6); }
+.viewer-count { flex: none; font-variant-numeric: tabular-nums; }
+.viewer-note { min-width: 0; max-width: 64ch; text-align: right; line-height: 1.5; }
+.viewer-status { min-width: 0; margin-left: auto; font-size: 12.5px; line-height: 1.5; color: #ffd27a; text-align: right; overflow-wrap: anywhere; animation: fade .2s ease; }
+.viewer-status:not([hidden]) + .viewer-note { display: none; }  /* 有话要说的时候，先不显示那句固定的说明 */
+@media (max-width: 760px) {
+  /* 手机上：上面一行只留名字和关闭，其余的按钮挪到最下面一排，拇指够得着 */
+  .viewer[open] { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "info close" "stage stage" "bottom bottom" "tools tools"; }
+  .viewer-info { padding-left: 16px; }
+  .viewer-close { margin-right: 8px; }
+  .viewer-tools { justify-content: space-around; padding: 4px 6px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(255, 255, 255, .08); }
+  .viewer-tools .sep, .viewer-level { display: none; }
+  .viewer-bottom { min-height: 0; padding: 6px 16px; }
+  .viewer-note { display: none; }
+  .viewer-nav { width: 38px; height: 38px; margin-top: -19px; }
+  .viewer-nav.prev { left: 8px; }
+  .viewer-nav.next { right: 8px; }
+}
 .send { position: relative; display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: var(--sunken); border: 0; border-radius: 50%; overflow: hidden; transition: transform .2s var(--ease); }
 .send::before, .send::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s ease; }
 .send::before { background: var(--aurora-solid); }
@@ -680,14 +754,92 @@ a.md-image:hover { color: var(--ink); border-color: var(--line-3); }
 .side-foot .icon { width: 13px; height: 13px; }
 /* 看一条记忆：和设置面板同一种对话框，正文是文件的原文。设置面板的样式写在后面，所以这里多带一个类名，才盖得过它 */
 .settings.memory-dialog { width: min(1040px, calc(100vw - 32px)); height: min(760px, calc(100vh - 48px)); }
-/* ---- 左边栏的"会话 / 任务" ---- */
+/* ---- 左边栏的"会话 / 任务 / 多媒体" ---- */
 .nav-tabs[hidden], .nav-tab[hidden] { display: none; }
 .nav-tabs { flex: none; display: flex; gap: 2px; margin: 0 6px 6px; padding: 3px; background: var(--hover); border-radius: 11px; }
-.nav-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: var(--ink-3); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+/* min-width: 0 加上文字的省略号：三个标签挤在 272 像素里，西班牙语的"Tareas programadas"放不下时缩成"Tareas progr…"，不把栏撑破 */
+.nav-tab { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 30px; padding: 0 6px; font-size: 13px; font-weight: 500; color: var(--ink-3); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.nav-tab > span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .nav-tab:hover { color: var(--ink); }
-.nav-tab[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
-.nav-badge { min-width: 17px; height: 17px; padding: 0 5px; font-size: 11px; line-height: 17px; font-weight: 600; color: #fff; background: var(--accent); border-radius: 9px; font-variant-numeric: tabular-nums; }
-body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
+.nav-tab[aria-selected="true"] { flex-shrink: 0; color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }  /* 选中的那个总是写全，挤的时候缩别的 */
+.nav-badge { flex: none; min-width: 17px; height: 17px; padding: 0 5px; font-size: 11px; line-height: 17px; font-weight: 600; color: #fff; background: var(--accent); border-radius: 9px; font-variant-numeric: tabular-nums; }
+/* 多媒体的个数只是告诉你有多少，不是"有事要你处理"，所以不用强调色的徽章，用一个安静的数字 */
+.nav-count { flex: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .nav > .search, body.media-tab .conversations { display: none; }
+
+/* ---- 多媒体 ----
+   类名都以 media- 开头：别的地方已经有 .file、.chip 这些名字，撞上了会套上别人的样式。
+   上面是搜索框和按种类筛选的一排按钮，下面按天分组：图片排成三列的方格（裁成正方形），文件一行一个。
+   每一项鼠标移上去（或者键盘移到上面）出现三个按钮：在访达中显示、定位到会话、下载，和会话、记忆的那一排一样；触屏上一直显示 */
+.media-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.media-view[hidden] { display: none; }
+.media-search { flex: none; }
+/* 放不下就折到第二行（英文、西班牙语的"文档""图片"长一些），不横着滚：藏起来的那一个没人看得见 */
+.media-filters { flex: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 6px 6px; }
+.media-filter { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--ink-2); background: none; border: 1px solid var(--line-2); border-radius: 999px; transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s var(--ease); }
+.media-filter:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.media-filter:active:not(:disabled) { transform: scale(.95); }
+.media-filter[aria-checked="true"] { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.media-filter:disabled { opacity: .4; }
+.media-filter-count { font-weight: 400; font-variant-numeric: tabular-nums; opacity: .72; }
+.media-list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.media-day-head { position: sticky; top: 0; z-index: 3; display: flex; margin: 0; justify-content: space-between; gap: 8px; padding: 12px 4px 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); background: var(--bg); }
+.media-day-head span:last-child { font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; list-style: none; }
+.media-tile { position: relative; aspect-ratio: 1; overflow: hidden; background: var(--sunken); border-radius: 10px; }
+.media-tile::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--line); pointer-events: none; }
+.media-tile-open { display: grid; place-items: center; width: 100%; height: 100%; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: inherit; cursor: zoom-in; }
+.media-tile-open:focus-visible { outline-offset: -2px; }
+.media-tile img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .45s var(--ease); }
+.media-tile:hover img { transform: scale(1.06); }
+.media-tile-open .icon { width: 22px; height: 22px; }
+/* 方格里的三个按钮压在图片下沿：一条从透明到深色的渐变垫在后面，白色的图标在任何图片上都看得清 */
+.media-tile-actions { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: flex; justify-content: center; gap: 1px; padding: 16px 1px 2px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .6)); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.media-tile:hover .media-tile-actions, .media-tile:focus-within .media-tile-actions { opacity: 1; pointer-events: auto; }
+.media-tile-actions .icon-button { color: #fff; }
+.media-tile-actions .icon-button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, .2); }
+.media-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
+.media-grid + .media-rows { margin-top: 8px; }
+.media-row { position: relative; display: flex; align-items: center; min-height: 52px; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+.media-row:hover, .media-row:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.media-row-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.media-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.media-name { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.media-meta { font-size: 11.5px; line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 按钮浮在文字上面：左边垫一段从透明渐变到卡片底色的底，名字被盖住的那一截淡出去，文字不用挪位置 */
+.media-row-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 26px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 12px 12px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.media-row:hover .media-row-actions, .media-row:focus-within .media-row-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) {  /* 触屏上没有"悬停"，按钮一直显示，所以一直给它们留好位置 */
+  .media-tile-actions, .media-row-actions { opacity: 1; pointer-events: auto; }
+  .media-row-actions { background: none; }
+  .media-words { padding-right: 82px; }
+}
+.media-missing .media-tile-open, .media-missing .media-row-open { opacity: .55; }
+/* 文件的标记：一块带颜色的小方块，写着 PDF、DOC、XLS…… */
+.media-badge { flex: none; display: grid; place-items: center; width: 34px; height: 34px; font: 650 9.5px/1 var(--sans); letter-spacing: .04em; color: var(--kind, var(--k-text)); background: color-mix(in srgb, var(--kind, var(--k-text)) 13%, transparent); border-radius: 9px; }
+.media-pdf { --kind: var(--k-pdf); }
+.media-word { --kind: var(--k-word); }
+.media-sheet { --kind: var(--k-sheet); }
+.media-slide { --kind: var(--k-slide); }
+.media-text { --kind: var(--k-text); }
+.media-more { display: block; width: calc(100% - 4px); height: 32px; margin: 10px 2px 0; color: var(--ink-2); }
+/* 空的时候：三张错开的小卡片，上面一层极光的颜色，说明这里会收些什么 */
+.media-empty { display: grid; justify-items: center; gap: 8px; padding: 30px 12px 18px; text-align: center; }
+.media-empty b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.media-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); text-wrap: pretty; }
+.media-art { position: relative; width: 112px; height: 80px; margin-bottom: 10px; }
+.media-art i { position: absolute; top: 10px; left: 32px; width: 48px; height: 60px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow-1); }
+.media-art i:nth-child(1) { transform: translateX(-26px) rotate(-12deg); }
+.media-art i:nth-child(3) { transform: translateX(26px) rotate(12deg); }
+.media-art i:nth-child(2) { z-index: 1; background: linear-gradient(150deg, color-mix(in srgb, var(--a1) 30%, var(--surface)), color-mix(in srgb, var(--a3) 26%, var(--surface))); }
+.media-empty.enter .media-art i:nth-child(1) { animation: fan-left .6s var(--ease) backwards; }
+.media-empty.enter .media-art i:nth-child(3) { animation: fan-right .6s var(--ease) backwards; }
+@keyframes fan-left { from { transform: none; } }
+@keyframes fan-right { from { transform: none; } }
+/* 正在读的时候：几块安静地闪着光的方格（光是一条斜着滑过去的渐变，只改 transform） */
+.media-skeleton { position: relative; overflow: hidden; aspect-ratio: 1; background: var(--hover); border-radius: 10px; }
+.media-skeleton::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, var(--hover) 50%, transparent 70%); transform: translateX(-100%); animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { to { transform: translateX(100%); } }
 .tasks-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .tasks-view[hidden] { display: none; }
 .task-new { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 8px 12px; font-size: 13px; color: var(--ink-2); text-align: left; background: none; border: 1px dashed var(--line-3); border-radius: 12px; transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
@@ -1285,6 +1437,10 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
+  <symbol id="i-locate" viewBox="0 0 24 24"><path d="M12 18.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M12 12.01v-.02"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3M8 11h6M11 8v6"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3M8 11h6"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5 5 5M15.5 9.5h.01"/></symbol>
 </svg>
 
 <div id="banner" class="banner" role="alert" hidden></div>
@@ -1299,9 +1455,10 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     </div>
     <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新对话</span></button>
     <button id="memory-open" class="nav-link" type="button" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><span data-i18n>记忆</span><span id="memory-count" class="nav-link-count"></span></button>
-    <div id="nav-tabs" class="nav-tabs" role="tablist" aria-label="会话和任务" data-i18n-aria-label hidden>
-      <button id="nav-tab-chats" class="nav-tab" type="button" role="tab" aria-selected="true" aria-controls="conversations"><span data-i18n>会话</span></button>
-      <button id="nav-tab-tasks" class="nav-tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" tabindex="-1" hidden><span data-i18n>任务</span><span id="tasks-badge" class="nav-badge" hidden></span></button>
+    <div id="nav-tabs" class="nav-tabs" role="tablist" aria-label="会话、任务和多媒体" data-i18n-aria-label hidden>
+      <button id="nav-tab-chats" class="nav-tab" type="button" role="tab" aria-selected="true" aria-controls="conversations" title="会话" data-i18n-title><span data-i18n>会话</span></button>
+      <button id="nav-tab-tasks" class="nav-tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" tabindex="-1" title="任务" data-i18n-title hidden><span data-i18n>任务</span><span id="tasks-badge" class="nav-badge" hidden></span></button>
+      <button id="nav-tab-media" class="nav-tab" type="button" role="tab" aria-selected="false" aria-controls="media-view" tabindex="-1" title="多媒体" data-i18n-title hidden><span data-i18n>多媒体</span><span id="media-count" class="nav-count" hidden></span></button>
     </div>
     <label class="search">
       <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
@@ -1317,6 +1474,14 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       <button id="task-new" class="task-new" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新建定时任务</span></button>
       <ul id="task-list" class="task-list" aria-label="定时任务" data-i18n-aria-label></ul>
       <div id="task-notify" class="task-notify" hidden></div>
+    </section>
+    <section id="media-view" class="media-view" role="tabpanel" aria-labelledby="nav-tab-media" hidden>
+      <label class="search media-search">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="media-search" type="search" maxlength="200" placeholder="搜索文件名和会话标题" aria-label="搜索文件名和会话标题" data-i18n-placeholder data-i18n-aria-label autocomplete="off" spellcheck="false">
+      </label>
+      <div id="media-filters" class="media-filters" role="radiogroup" aria-label="按种类筛选" data-i18n-aria-label></div>
+      <div id="media-list" class="media-list"></div>
     </section>
     <button id="open-folder" class="nav-foot" type="button"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="nav-count">会话只保存在这台电脑上</span></button>
   </aside>
@@ -1686,11 +1851,36 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   </div>
 </dialog>
 
-<dialog id="viewer" class="viewer" aria-label="查看图片" data-i18n-aria-label>
-  <img id="viewer-image" alt="">
-  <div class="viewer-bar">
-    <span id="viewer-name" class="viewer-name"></span>
-    <button id="close-viewer" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+<dialog id="viewer" class="viewer" aria-labelledby="viewer-name" aria-describedby="viewer-meta">
+  <div class="viewer-info">
+    <h2 id="viewer-name" class="viewer-name"></h2>
+    <p id="viewer-meta" class="viewer-meta"></p>
+  </div>
+  <div class="viewer-tools" role="toolbar" aria-label="查看和操作" data-i18n-aria-label>
+    <div id="viewer-zoom" class="viewer-zoom">
+      <button id="viewer-out" class="icon-button" type="button" title="缩小" aria-label="缩小" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-zoom-out"/></svg></button>
+      <button id="viewer-level" class="viewer-level" type="button" title="在适合屏幕和原始大小之间切换" data-i18n-title>100%</button>
+      <button id="viewer-in" class="icon-button" type="button" title="放大" aria-label="放大" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-zoom-in"/></svg></button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <button id="viewer-reveal" class="icon-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></button>
+    <button id="viewer-locate" class="icon-button" type="button" title="定位到会话" aria-label="定位到会话" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-locate"/></svg></button>
+    <button id="viewer-copy" class="icon-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+    <button id="viewer-download" class="icon-button" type="button" title="下载" aria-label="下载" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></button>
+  </div>
+  <button id="close-viewer" class="icon-button viewer-close" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  <div id="viewer-stage" class="viewer-stage">
+    <img id="viewer-image" class="viewer-image" alt="" draggable="false" hidden>
+    <pre id="viewer-text" class="viewer-text" tabindex="0" hidden></pre>
+    <div id="viewer-card" class="viewer-card" hidden></div>
+    <div id="viewer-spinner" class="viewer-spinner" hidden></div>
+    <button id="viewer-prev" class="viewer-nav prev" type="button" title="上一个" aria-label="上一个" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+    <button id="viewer-next" class="viewer-nav next" type="button" title="下一个" aria-label="下一个" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+  </div>
+  <div class="viewer-bottom">
+    <span id="viewer-count" class="viewer-count"></span>
+    <span id="viewer-status" class="viewer-status" role="status" hidden></span>
+    <span id="viewer-note" class="viewer-note"></span>
   </div>
 </dialog>
 
@@ -2103,6 +2293,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   let highlightTimer = 0;
 
   function reveal(target) {
+    if (target.media) { revealAttachment(target.media); return; }
     const find = (target.find || '').trim();
     const wanted = squash(find), loose = bare(find);
     if (!wanted || !FOUND_IN[target.kind]) return;
@@ -2145,6 +2336,24 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       setTimeout(() => node.classList.remove('found'), 2300);
       return;
     }
+  }
+
+  // 多媒体库的"定位到会话"：数到这段会话里的第 turn 排附件卡片、第 index 张，滚到屏幕靠上三分之一处，让它亮一下。
+  // 焦点也放到它上面，用键盘的人接着按回车就能再点开它
+  function revealAttachment([turn, index]) {
+    const row = log.querySelectorAll(':scope > .msg-atts')[turn];
+    if (!row) { toast(t('在这段会话里没有找到这个附件。')); return; }
+    const card = row.children[index] || row;
+    setStick(false);
+    const spot = card.getBoundingClientRect(), view = chat.getBoundingClientRect();
+    chat.scrollTop += spot.top - view.top - view.height / 3;
+    setStick(chat.scrollHeight - chat.scrollTop - chat.clientHeight < 4);
+    const button = card.querySelector('button');
+    if (button) button.focus({ preventScroll: true });
+    card.classList.remove('found');
+    void card.offsetWidth;  // 让浏览器先认下"没有这个类"，再加回去，动画才会重新播
+    card.classList.add('found');
+    setTimeout(() => card.classList.remove('found'), 2300);
   }
 
   function add(node) {
@@ -2322,6 +2531,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       renderTodos(event.todos);
       renderMemories(event.memories);
       renderTasks(event.tasks, event.reminders);
+      syncMediaTab(event.media);
       retext($('prompt-state'), event.prompt_custom ? k('（已改过）') : k('（内置的）'));
       renderUsage(event);
       renderSpend(event.spend);
@@ -2339,7 +2549,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 
     user(event) {
       const attachments = Array.isArray(event.attachments) ? event.attachments : [];
-      if (attachments.length) add(attachmentRow(attachments));
+      if (attachments.length) add(attachmentRow(attachments, event.at));
       if (event.text || !attachments.length) add(el('div', 'msg user', event.text));
     },
     // 重放旧会话时不在每一轮都刷新"正在工作"：一段 150 轮的会话会把 body.busy 来回切换 300 次，
@@ -2722,26 +2932,30 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     return el('span', 'att-size', formatSize(item.size));
   }
 
-  function attachmentCard(item, removable) {
-    const card = el('div', 'att ' + (item.kind === 'image' && item.thumb ? 'image' : 'file') + (item.loading ? ' busy-att' : ''));
+  // 一张附件卡片。open：点开它的时候做什么（打开查看器）；没有的话卡片只是显示，不能点
+  function attachmentCard(item, removable, open) {
+    const picture = item.kind === 'image' && item.thumb && THUMB_URL.test(item.thumb);
+    const card = el('div', 'att ' + (picture ? 'image' : 'file') + (item.loading ? ' busy-att' : '') + (open && !picture ? ' openable' : ''));
     card.title = item.name;
-    if (item.kind === 'image' && item.thumb && THUMB_URL.test(item.thumb)) {
-      const open = card.appendChild(el('button', 'att-open'));
-      open.type = 'button';
-      tattr(open, 'title', k('点击查看大图'));
-      const image = open.appendChild(el('img'));
+    if (picture) {
+      const button = card.appendChild(el('button', 'att-open'));
+      button.type = 'button';
+      tattr(button, 'title', k('点击查看大图'));
+      const image = button.appendChild(el('img'));
       image.alt = item.name;
       image.src = item.thumb;  // 只接受 data: 开头的图片（页面的安全策略也只允许这种）
-      open.appendChild(el('span', 'sr-only', item.name));  // 文件名：读屏软件读它，搜索跳转也靠它找到这张图
-      open.addEventListener('click', () => {
-        // 还没发出去的手里有原图；对话里的只有存下来的大图（旧会话里没有的话就用缩略图）
-        const full = item.data && item.media_type ? 'data:' + item.media_type + ';base64,' + item.data : '';
-        const shown = [full, item.preview, item.thumb].find((url) => url && (url === full || THUMB_URL.test(url)));
-        openViewer(shown, item.name);
-      });
+      button.appendChild(el('span', 'sr-only', item.name));  // 文件名：读屏软件读它，搜索跳转也靠它找到这张图
+      if (open) button.addEventListener('click', () => open(button));
+      else button.disabled = true;
     } else {
-      card.appendChild(icon(item.kind === 'image' ? 'bookmark' : 'file'));
-      const text = card.appendChild(el('span', 'att-text'));
+      // 文件卡片：能点开的（对话里的 PDF、Word、文本……）整张卡片就是一个按钮
+      const holder = open ? card.appendChild(el('button', 'att-open att-file')) : card;
+      if (open) {
+        holder.type = 'button';
+        holder.addEventListener('click', () => open(holder));
+      }
+      holder.appendChild(icon(item.kind === 'image' ? 'image' : 'file'));
+      const text = holder.appendChild(el('span', 'att-text'));
       text.appendChild(el('span', 'att-name', item.name));
       text.appendChild(sizeLabel(item));
     }
@@ -2760,39 +2974,62 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     return card;
   }
 
-  // 输入框上方那一排。fresh 是刚加进来的那一个：只有它播入场动画
+  // 输入框上方那一排。fresh 是刚加进来的那一个：只有它播入场动画。
+  // 还没发出去的图片点开看的是手里的原图（这时还没有存进多媒体库，所以不能定位、不能在访达中显示）
   function renderTray(fresh) {
     tray.hidden = !pending.length;
+    const pictures = () => pending.filter((item) => item.kind === 'image' && item.data && !item.loading).map((item) => ({
+      id: '', name: item.name, kind: 'image', size: item.size, media_type: item.media_type, thumb: item.thumb, preview: item.preview,
+      local: { data: item.data }, original: true, available: true, download: item.name,
+    }));
     tray.replaceChildren(...pending.map((item) => {
-      const card = attachmentCard(item, !item.loading);
+      const open = item.kind === 'image' && item.data ? (button) => {
+        const list = pictures();
+        openViewer(list, Math.max(0, list.findIndex((other) => other.local.data === item.data)), button);
+      } : null;
+      const card = attachmentCard(item, !item.loading, open);
       if (item.id === fresh) card.classList.add('enter');
       return card;
     }));
   }
 
-  // 对话里：一条用户消息带的附件，排在消息上方。来自助手程序的记录（可能是旧会话里存下的），每一项都先检查
-  function attachmentRow(list) {
+  // 对话里：一条用户消息带的附件，排在消息上方。来自助手程序的记录（可能是旧会话里存下的），每一项都先检查。
+  // 每一张都能点开，在查看器里左右翻的是这一条消息里的附件。at：这条消息是什么时候发的（旧会话里没有）
+  const rowItems = new WeakMap();  // 一排附件卡片 → 这一排的附件概要
+  function attachmentRow(list, at) {
     const row = el('div', 'msg-atts');
+    const shown = [];
     for (const item of list) {
-      if (!item || typeof item !== 'object') continue;
+      if (!item || typeof item !== 'object') continue;  // 和助手程序那边（attachments.from_saved）一样只数合格的，"第几张"两边才对得上
       const kind = ['image', 'pdf', 'text'].includes(item.kind) ? item.kind : 'text';
       const thumb = typeof item.thumb === 'string' ? item.thumb : '', preview = typeof item.preview === 'string' ? item.preview : '';
-      row.appendChild(attachmentCard({ kind, name: String(item.name || ''), size: Number(item.size) || 0, thumb, preview }, false));
+      const summary = { kind, name: String(item.name || ''), size: Number(item.size) || 0, thumb, preview, sha256: typeof item.sha256 === 'string' ? item.sha256 : '' };
+      const index = shown.length;
+      shown.push(summary);
+      row.appendChild(attachmentCard(summary, false, (button) => openViewer(messageItems(row), index, button)));
     }
+    rowItems.set(row, { shown, at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
     return row;
   }
 
-  // 看大图：一个铺满屏幕的对话框。Esc、点图片外面、点 × 都能关
-  const viewer = $('viewer');
-  function openViewer(url, name) {
-    if (!url) return;
-    $('viewer-image').src = url;
-    $('viewer-image').alt = name;
-    $('viewer-name').textContent = name;
-    viewer.showModal();
+  // 一排附件卡片在查看器里的样子。编号是"会话/第几排/第几张"，和多媒体库里的一样（见 harness/media.py），
+  // 所以点开以后能向助手程序要原件、能定位、能在访达中显示
+  function messageItems(row) {
+    const { shown, at } = rowItems.get(row) || { shown: [], at: 0 };
+    const turn = [...log.querySelectorAll(':scope > .msg-atts')].indexOf(row);
+    const conversation = state ? state.conversation : '';
+    return shown.map((summary, index) => {
+      const office = OFFICE_LABEL[extension(summary.name)];
+      const kind = summary.kind === 'text' && office ? 'document' : summary.kind;
+      return {
+        id: conversation && turn >= 0 ? conversation + '/' + turn + '/' + index : '',
+        name: summary.name, kind, size: summary.size, chars: summary.kind === 'text', media_type: '',
+        thumb: summary.thumb, preview: summary.preview,
+        original: Boolean(summary.sha256), available: true,
+        conversation, conversation_title: state && state.title ? state.title : t('新对话'), at, turn, index,
+      };
+    });
   }
-  $('close-viewer').addEventListener('click', () => viewer.close());
-  viewer.addEventListener('close', () => { $('viewer-image').removeAttribute('src'); });  // 关掉就放开这张图占的内存
 
   $('attach').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
@@ -2832,6 +3069,570 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     dragDepth = 0;
     composer.classList.remove('dropping');
     addFiles([...drag.dataTransfer.files]);
+  });
+
+  // ---- 查看器：放大、缩小、拖动、下载、复制、定位 ----------------------------
+  // 对话里的附件、输入框上方还没发出去的图片、左边栏的"多媒体"，点开都是这一个查看器。
+  //   图片    放大缩小（按钮、⌘/Ctrl 加 + − 0、触控板捏合或 ⌘/Ctrl 加滚轮、手机上两指捏合）；放大以后拖动、滚轮平移；
+  //           双击在"适合屏幕"和"原始大小"之间切换。全靠改 transform，浏览器在合成线程上完成，不重新排版。
+  //   文本    等宽字体显示全文，可以复制。
+  //   其余    PDF、Word、Excel、PowerPoint：一张说明卡片，可以下载。页面的安全策略不允许嵌入 PDF（见 server.py 的 CSP：
+  //           default-src 'none' 连 <iframe>、<embed> 都拦下了），所以不在这里打开。
+  // ←/→ 翻到上一个、下一个：从多媒体库点开的，翻的是当前筛选下的那些；从对话里点开的，翻的是这一条消息里的附件。
+  //
+  // 原图要从助手程序取（/api/media/file），再变成 data: 地址放进 <img>：页面的安全策略只允许 data: 图片，
+  // blob: 地址的图片会被拦下。等原图的时候先显示手头的预览图，到了再换上，看的位置不变。
+  // 下载用的是 blob: 地址：它不是图片、也不是请求，只是交给浏览器存成文件，安全策略管不着它。
+
+  const viewer = $('viewer'), viewerImage = $('viewer-image'), viewerStage = $('viewer-stage');
+  const viewerText = $('viewer-text'), viewerCard = $('viewer-card');
+  const ZOOM_STEP = 1.25;
+  let looking = null;       // 在看的是哪一组里的第几个：{list, at, opener, more, text, locating}。more：多媒体库还有下一页时，取下一页
+  let lookSeq = 0;          // 每换一项加一。回来得晚的、已经不在看的那一项的内容，靠它认出来、丢掉
+  const view = { width: 0, height: 0, fit: 1, scale: 1, x: 0, y: 0, original: false };  // 图片的原始大小、缩放和平移
+  let fetched = new Map();  // 这次打开查看器以来取过的内容（编号 → {blob, name}），来回翻不用重取。关上就放掉
+
+  const viewerItem = () => (looking ? looking.list[looking.at] : null);
+
+  // 出了错、做完了一件事要告诉你：查看器开着的时候写在它下面那一行里（浮在页面上的提示会被查看器挡住），关着的时候照常弹出来
+  let viewerSayTimer = 0;
+  function notify(text) {
+    if (!viewer.open) { toast(text); return; }
+    const box = $('viewer-status');
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(viewerSayTimer);
+    viewerSayTimer = setTimeout(() => { box.hidden = true; }, Math.min(9000, Math.max(3500, text.length * 120)));
+  }
+  const onMac = () => /Mac|iPhone|iPad/.test(navigator.platform);
+  const revealLabel = () => (onMac() ? k('在访达中显示') : k('在文件夹中显示'));
+
+  // 这一项在查看器里怎么显示：图片、文字，还是一张说明卡片
+  function viewKind(item) {
+    if (item.available === false) return 'card';
+    if (item.kind === 'image') return 'image';
+    if (item.kind === 'text' || (item.kind === 'document' && !item.original)) return 'text';  // 旧会话里的 Word 这些只剩文字
+    return 'card';
+  }
+
+  // 文件的标记：一块带颜色的小方块，写着 PDF、DOC、XLS……（这几个是格式的缩写，各种语言都这样写，不翻译）
+  function mediaBadge(item) {
+    const ext = extension(item.name);
+    const office = OFFICE_LABEL[ext];
+    const [tone, label] = item.kind === 'pdf' ? ['pdf', 'PDF']
+      : office === 'Word' ? ['word', 'DOC'] : office === 'Excel' ? ['sheet', 'XLS'] : office === 'PowerPoint' ? ['slide', 'PPT']
+      : ['text', (ext || 'txt').slice(0, 4).toUpperCase()];
+    if (item.kind === 'image') return el('span', 'media-badge media-text', 'IMG');
+    return el('span', 'media-badge media-' + tone, label);
+  }
+
+  // 种类的说法：PDF、Word…；旧会话里的 Word 只剩文字，说明一下
+  function kindLabel(item) {
+    if (item.kind === 'pdf') return 'PDF';
+    if (item.kind === 'document') {
+      const office = OFFICE_LABEL[extension(item.name)] || 'Office';
+      return item.original ? office : t('{type} · 只有文字', { type: office });
+    }
+    if (item.kind === 'text') return t('文本');
+    return t('图片');
+  }
+
+  const sizeText = (item) => (item.chars ? t('{n} 字', { n: Number(item.size).toLocaleString(LOCALES[language]) }) : formatSize(Number(item.size) || 0));
+
+  function labelViewer() {
+    const mod = onMac() ? '⌘' : 'Ctrl+';
+    for (const [id, label, keys] of [['viewer-out', k('缩小'), mod + '−'], ['viewer-in', k('放大'), mod + '+'], ['viewer-level', k('在适合屏幕和原始大小之间切换'), mod + '0'],
+                                       ['viewer-prev', k('上一个'), '←'], ['viewer-next', k('下一个'), '→'], ['close-viewer', k('关闭'), 'Esc']]) {
+      $(id).title = t(label) + ' (' + keys + ')';
+    }
+  }
+
+  function openViewer(list, at, opener, more) {
+    if (!list.length) return;
+    looking = { list, at: Math.min(Math.max(0, at), list.length - 1), opener: opener || document.activeElement, more: more || null, text: '', locating: false };
+    labelViewer();
+    if (!viewer.open) viewer.showModal();
+    $('close-viewer').focus({ preventScroll: true });
+    showItem(0);
+  }
+
+  // 名字、信息、按钮能不能点、右下角的说明。换语言时也重画这里（见 applyLanguage）
+  function drawViewerChrome() {
+    const item = viewerItem();
+    if (!item) return;
+    const shown = viewKind(item);
+    $('viewer-name').textContent = item.name;
+    const dimensions = shown === 'image' && view.original && view.width ? view.width + ' × ' + view.height : '';
+    const parts = [kindLabel(item), sizeText(item), dimensions, item.conversation_title || '', item.at ? momentText(item.at) : ''];
+    $('viewer-meta').textContent = parts.filter(Boolean).join(' · ');
+    $('viewer-zoom').hidden = shown !== 'image';
+    const copy = $('viewer-copy');
+    copy.hidden = shown === 'card';
+    const copyLabel = shown === 'text' ? k('复制文字') : k('复制图片');
+    tattr(copy, 'title', copyLabel);
+    tattr(copy, 'aria-label', copyLabel);
+    copy.disabled = shown === 'image' ? !(view.original && view.width) : !looking.text;
+    const reveal = $('viewer-reveal');
+    reveal.hidden = !item.id;
+    reveal.disabled = !item.original;
+    tattr(reveal, 'title', item.original ? revealLabel() : k('这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。'));
+    tattr(reveal, 'aria-label', revealLabel());
+    $('viewer-locate').hidden = !item.conversation;
+    $('viewer-download').disabled = item.available === false;
+    const total = looking.list.length, more = Boolean(looking.more && looking.more.ready());
+    $('viewer-count').textContent = total > 1 || more ? (looking.at + 1) + ' / ' + total + (more ? '+' : '') : '';
+    $('viewer-prev').disabled = looking.at <= 0;
+    $('viewer-next').disabled = looking.at >= total - 1 && !more;
+    // 附件是对话记录的一部分（对话历史只往后加，不改前面的），所以没有"删除这一个"的按钮，在这里说清楚
+    retext($('viewer-note'), item.id ? k('附件不能单独删除：它是对话记录的一部分。删除它所在的会话时，原件会一起删除（别的会话也用到的除外）。')
+      : k('还没有发出去。发出去以后，它会存进多媒体库。'));
+  }
+
+  // 换到 looking.at 那一项。direction：从哪边滑进来（1 是下一个，-1 是上一个，0 是刚打开）
+  async function showItem(direction) {
+    const item = viewerItem();
+    if (!item) return;
+    const mine = ++lookSeq;
+    looking.text = '';
+    view.width = view.height = 0;
+    view.original = false;
+    viewerImage.hidden = viewerText.hidden = viewerCard.hidden = true;
+    viewerImage.removeAttribute('src');
+    viewerImage.classList.remove('smooth');
+    $('viewer-spinner').hidden = true;
+    viewerStage.classList.remove('zoomed');
+    drawViewerChrome();
+    const shown = viewKind(item);
+    const target = shown === 'image' ? viewerImage : shown === 'text' ? viewerText : viewerCard;
+    if (direction) play(target, [{ opacity: 0, translate: (direction * 28) + 'px 0' }, { opacity: 1, translate: '0 0' }], 260);
+    if (shown === 'image') await showImage(item, mine);
+    else if (shown === 'text') await showText(item, mine);
+    else showCard(item, item.available === false ? t('这个文件的内容没有保存下来。') : '');
+  }
+
+  async function showImage(item, mine) {
+    // 先放手头有的：还没发出去的是原图；对话里的有存下来的大图（旧会话里没有的话是缩略图）
+    const quick = item.local ? 'data:' + item.media_type + ';base64,' + item.local.data
+      : [item.preview, item.thumb].find((url) => typeof url === 'string' && url && THUMB_URL.test(url));
+    viewerImage.alt = item.name;
+    viewerImage.hidden = false;
+    if (quick) await placeImage(quick, Boolean(item.local), mine);
+    if (item.local || !item.id) {
+      if (!quick) showCard(item, t('这个文件的内容没有保存下来。'));
+      return;
+    }
+    $('viewer-spinner').hidden = false;
+    try {
+      const got = await fetchItem(item);
+      if (mine !== lookSeq) return;
+      if (!got.url) got.url = await readDataUrl(got.blob);
+      if (mine !== lookSeq) return;
+      await placeImage(got.url, true, mine);
+    } catch (problem) {
+      if (mine !== lookSeq) return;
+      if (quick) notify(t('原图取不到（{error}），这里显示的是预览图。', { error: problem.message || String(problem) }));
+      else { viewerImage.hidden = true; showCard(item, problem.message || String(problem)); }
+    } finally {
+      if (mine === lookSeq) $('viewer-spinner').hidden = true;
+    }
+  }
+
+  // 把一张图放上舞台。从预览图换成原图时，看的位置和大小不变：按两张图的宽度之比换算缩放
+  async function placeImage(url, original, mine) {
+    viewerImage.src = url;
+    try { await viewerImage.decode(); } catch (_) { return; }  // 解不出来（图片坏了）：留着原来的样子
+    if (mine !== lookSeq) return;
+    const before = view.width ? { width: view.width, scale: view.scale, fitted: Math.abs(view.scale - view.fit) < 0.001 } : null;
+    view.width = viewerImage.naturalWidth;
+    view.height = viewerImage.naturalHeight;
+    view.original = original;
+    Object.assign(viewerImage.style, { width: view.width + 'px', height: view.height + 'px', marginLeft: -view.width / 2 + 'px', marginTop: -view.height / 2 + 'px' });
+    view.fit = fitScale();
+    if (!before || before.fitted) { view.scale = view.fit; view.x = view.y = 0; }
+    else view.scale = before.scale * before.width / view.width;
+    applyView(false);
+    drawViewerChrome();
+  }
+
+  // "适合屏幕"是多大：整张图放得下，四周留一点边；左右翻页的按钮压在两边，再多留一些。
+  // 原图不放大到超过 100%（小截图放大了只会糊）；预览图可以放大，先占好原图大概的位置
+  function fitScale() {
+    const margin = viewerStage.clientWidth < 600 ? 24 : looking && looking.list.length > 1 ? 136 : 48;
+    const room = Math.min((viewerStage.clientWidth - margin) / view.width, (viewerStage.clientHeight - 24) / view.height);
+    return Math.max(0.01, view.original ? Math.min(1, room) : room);
+  }
+  const minScale = () => Math.min(view.fit, 1);
+  const maxScale = () => Math.max(8, view.fit * 4);
+
+  // 把缩放和平移写到图片上。图片比舞台小的那一边居中；比舞台大的那一边最多拖到边缘对齐，不会被拖出视野
+  function applyView(animate) {
+    const spareX = Math.max(0, (view.width * view.scale - viewerStage.clientWidth) / 2);
+    const spareY = Math.max(0, (view.height * view.scale - viewerStage.clientHeight) / 2);
+    view.x = Math.min(spareX, Math.max(-spareX, view.x));
+    view.y = Math.min(spareY, Math.max(-spareY, view.y));
+    viewerImage.classList.toggle('smooth', Boolean(animate));
+    viewerImage.style.transform = 'translate(' + view.x + 'px, ' + view.y + 'px) scale(' + view.scale + ')';
+    viewerStage.classList.toggle('zoomed', spareX > 0 || spareY > 0);
+    $('viewer-level').textContent = view.original ? Math.round(view.scale * 100) + '%' : '…';
+    $('viewer-out').disabled = view.scale <= minScale() + 1e-6;
+    $('viewer-in').disabled = view.scale >= maxScale() - 1e-6;
+  }
+
+  let zoomSayTimer = 0;
+  function sayZoom() {  // 读屏软件：停下来以后报一次现在的大小，不是每一帧都报
+    clearTimeout(zoomSayTimer);
+    zoomSayTimer = setTimeout(() => announce(t('缩放到 {n}%', { n: Math.round(view.scale * 100) })), 350);
+  }
+
+  // 以某一点为中心缩放（point 是相对舞台中心的位置；不给就是中心）：缩放前后，这一点下面的像素不动
+  function zoomAt(next, point, animate) {
+    if (!view.width) return;
+    const scale = Math.min(maxScale(), Math.max(minScale(), next));
+    const [px, py] = point || [0, 0];
+    const ratio = scale / view.scale;
+    view.x = px - (px - view.x) * ratio;
+    view.y = py - (py - view.y) * ratio;
+    view.scale = scale;
+    applyView(animate);
+    sayZoom();
+  }
+
+  // 按一下放大或缩小 1.25 倍。路过"适合屏幕"和 100% 时停一下：这两个大小最常用
+  function zoomStep(up) {
+    let next = view.scale * (up ? ZOOM_STEP : 1 / ZOOM_STEP);
+    for (const stop of [view.fit, 1]) {
+      if ((view.scale < stop - 1e-6 && next > stop) || (view.scale > stop + 1e-6 && next < stop)) next = stop;
+    }
+    zoomAt(next, null, true);
+  }
+
+  // 双击、点百分比、⌘0：在"适合屏幕"和"原始大小"之间切换（图片本来就不比屏幕大时，切到两倍）
+  function toggleZoom(point) {
+    if (Math.abs(view.scale - view.fit) < 0.001) zoomAt(view.fit >= 0.999 ? 2 : 1, point, true);
+    else zoomAt(view.fit, null, true);
+  }
+
+  const fromCenter = (event) => {
+    const box = viewerStage.getBoundingClientRect();
+    return [event.clientX - box.left - box.width / 2, event.clientY - box.top - box.height / 2];
+  };
+
+  // 拖动和捏合用的是 pointer 事件：鼠标、触控笔、手指一套写法。两个手指按着就是捏合
+  const touches = new Map();
+  let gesture = null, moved = false;
+
+  function beginGesture() {
+    const points = [...touches.values()];
+    viewerStage.classList.toggle('live', points.length > 0);
+    viewerStage.classList.toggle('dragging', points.length === 1 && viewerStage.classList.contains('zoomed'));
+    if (!points.length) { gesture = null; return; }
+    // 起点要另外记一份：points 里的是跟着手指一起变的那一个，拿它当起点，算出来的位移永远是 0
+    const center = points.length > 1 ? { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 } : { x: points[0].x, y: points[0].y };
+    const distance = points.length > 1 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0;
+    gesture = { center, distance, scale: view.scale, x: view.x, y: view.y, box: viewerStage.getBoundingClientRect() };
+  }
+
+  viewerStage.addEventListener('pointerdown', (press) => {
+    moved = false;
+    if (viewerImage.hidden || !view.width || press.target.closest('.viewer-nav')) return;
+    if (press.pointerType === 'mouse' && press.button !== 0) return;
+    viewerStage.setPointerCapture(press.pointerId);
+    touches.set(press.pointerId, { x: press.clientX, y: press.clientY, startX: press.clientX, startY: press.clientY });
+    beginGesture();
+  });
+  viewerStage.addEventListener('pointermove', (move) => {
+    if (!gesture || !touches.has(move.pointerId)) return;
+    Object.assign(touches.get(move.pointerId), { x: move.clientX, y: move.clientY });
+    const points = [...touches.values()];
+    if (points.length > 1 && gesture.distance) {
+      const center = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+      const scale = Math.min(maxScale(), Math.max(minScale(), gesture.scale * Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) / gesture.distance));
+      const px = gesture.center.x - gesture.box.left - gesture.box.width / 2, py = gesture.center.y - gesture.box.top - gesture.box.height / 2;
+      const ratio = scale / gesture.scale;
+      view.scale = scale;
+      view.x = px - (px - gesture.x) * ratio + (center.x - gesture.center.x);
+      view.y = py - (py - gesture.y) * ratio + (center.y - gesture.center.y);
+      moved = true;
+    } else {
+      const dx = move.clientX - gesture.center.x, dy = move.clientY - gesture.center.y;
+      if (Math.hypot(dx, dy) > 4) moved = true;
+      view.x = gesture.x + dx;
+      view.y = gesture.y + dy;
+    }
+    applyView(false);
+  });
+  function endPointer(release) {
+    const point = touches.get(release.pointerId);
+    if (!point) return;
+    touches.delete(release.pointerId);
+    const pinched = gesture && gesture.distance;
+    // 没放大的时候，用一个手指左右划：翻到上一个、下一个（手机上最顺手的翻法）
+    const dx = point.x - point.startX, dy = point.y - point.startY;
+    if (!touches.size && !pinched && release.pointerType !== 'mouse' && !viewerStage.classList.contains('zoomed') && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      step(dx < 0 ? 1 : -1);
+    }
+    beginGesture();
+    if (pinched && touches.size < 2) sayZoom();
+  }
+  viewerStage.addEventListener('pointerup', endPointer);
+  viewerStage.addEventListener('pointercancel', endPointer);
+
+  // 滚轮：⌘/Ctrl 加滚轮，或者触控板上的捏合（浏览器把它报成按着 Ctrl 的滚轮）是缩放；放大以后，普通的滚轮是平移
+  viewerStage.addEventListener('wheel', (wheel) => {
+    if (viewerImage.hidden || !view.width) return;
+    wheel.preventDefault();  // 不让浏览器把整个页面缩放或滚动
+    const unit = wheel.deltaMode === 1 ? 16 : wheel.deltaMode === 2 ? viewerStage.clientHeight : 1;
+    if (wheel.ctrlKey || wheel.metaKey) {
+      zoomAt(view.scale * Math.exp(-wheel.deltaY * unit * 0.0075), fromCenter(wheel), false);
+    } else if (viewerStage.classList.contains('zoomed')) {
+      view.x -= wheel.deltaX * unit;
+      view.y -= wheel.deltaY * unit;
+      applyView(false);
+    }
+  }, { passive: false });
+
+  viewerImage.addEventListener('dblclick', (click) => toggleZoom(fromCenter(click)));
+  // 点图片外面的空白处关掉（拖动结束时松开的那一下不算）
+  viewerStage.addEventListener('click', (click) => {
+    if (moved) { moved = false; return; }
+    if (click.target === viewerStage) viewer.close();
+  });
+
+  window.addEventListener('resize', () => {
+    if (!viewer.open || viewerImage.hidden || !view.width) return;
+    const fitted = Math.abs(view.scale - view.fit) < 0.001;
+    view.fit = fitScale();
+    if (fitted) view.scale = view.fit;
+    applyView(false);
+  });
+
+  async function showText(item, mine) {
+    viewerText.hidden = false;
+    viewerText.scrollTop = 0;
+    viewerText.classList.add('waiting');
+    retext(viewerText, k('读取中…'));
+    try {
+      const got = item.local && typeof item.local.text === 'string' ? { text: item.local.text } : await fetchItem(item);
+      if (mine !== lookSeq) return;
+      if (typeof got.text !== 'string') got.text = await got.blob.text();
+      if (mine !== lookSeq) return;
+      delete viewerText.dataset.i18n;
+      viewerText.classList.remove('waiting');
+      viewerText.replaceChildren();
+      if (item.kind === 'document' && !item.original) {
+        viewerText.appendChild(tel('span', 'viewer-banner', k('原文件没有保存下来（这条消息发在有多媒体库之前），这里是当时从里面取出的文字。下载得到的也是这些文字。')));
+      }
+      viewerText.appendChild(document.createTextNode(got.text));  // 文字原样放进去，里面写着 HTML 也只是文字
+      looking.text = got.text;
+      drawViewerChrome();
+    } catch (problem) {
+      if (mine !== lookSeq) return;
+      viewerText.hidden = true;
+      showCard(item, problem.message || String(problem));
+    }
+  }
+
+  // PDF 和 Office 文件（以及取不到内容的）：一张说明卡片，下面是下载和定位
+  function showCard(item, problem) {
+    const nodes = [mediaBadge(item), el('b', null, item.name), el('p', null, [kindLabel(item), sizeText(item)].join(' · '))];
+    if (problem) nodes.push(el('p', null, problem));
+    else if (item.kind === 'pdf') nodes.push(tel('p', null, k('页面的安全策略不允许在这里打开 PDF。下载以后，用系统自带的阅读器查看。')));
+    else if (item.kind === 'document') nodes.push(tel('p', null, k('Word、Excel 和 PowerPoint 文件要下载以后，用对应的软件打开。')));
+    const row = el('div', 'row');
+    if (item.available !== false && !problem) {
+      const save = row.appendChild(el('button', 'button primary'));
+      save.type = 'button';
+      save.append(icon('download'), tel('span', null, k('下载')));
+      save.addEventListener('click', () => downloadItem(item, save));
+    }
+    if (item.conversation) {
+      const go = row.appendChild(el('button', 'button'));
+      go.type = 'button';
+      go.append(icon('locate'), tel('span', null, k('定位到会话')));
+      go.addEventListener('click', () => locateItem(item));
+    }
+    if (row.childElementCount) nodes.push(row);
+    viewerCard.replaceChildren(...nodes);
+    viewerCard.hidden = false;
+  }
+
+  // 向助手程序要一个附件的内容。还没发出去的，内容就在手里
+  async function fetchItem(item) {
+    if (item.local) {
+      if (typeof item.local.text === 'string') return { blob: new Blob([item.local.text], { type: 'text/plain' }), name: item.name };
+      return { blob: blobFrom(item.local.data, item.media_type), name: item.download || item.name };
+    }
+    if (fetched.has(item.id)) return fetched.get(item.id);
+    let response;
+    try {
+      response = await fetch('/api/media/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
+        body: JSON.stringify({ id: item.id }),
+      });
+    } catch (_) {
+      throw new Error(t('连接不上助手程序'));
+    }
+    if (!response.ok) {
+      const reply = await response.json().catch(() => ({}));
+      if (response.status === 403 && !reply.error) throw new Error(t('链接无效或已经过期。请使用终端里显示的完整地址重新打开。'));
+      throw new Error(reply.error || t('请求失败（{status}）', { status: response.status }));
+    }
+    const blob = await response.blob();
+    // 文件名以助手程序给的为准（比如旧会话里的 Word 下载下来是 .docx.txt）
+    let name = item.download || item.name;
+    const given = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') || '');
+    if (given) { try { name = decodeURIComponent(given[1]); } catch (_) { /* 编码不对就用原来的名字 */ } }
+    const got = { blob, name };
+    fetched.set(item.id, got);
+    while (fetched.size > 6) fetched.delete(fetched.keys().next().value);  // 只留最近的几个，大图很占内存
+    return got;
+  }
+
+  function blobFrom(base64, type) {
+    const raw = atob(base64);
+    const bytes = new Uint8Array(raw.length);
+    for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+    return new Blob([bytes], { type });
+  }
+
+  // 存成文件：做一个指向这份内容的 blob: 地址，点一下带 download 的链接。查看器开着的时候链接放在查看器里面：
+  // 模态对话框外面的东西都是"惰性"的（inert），放在外面的话这一下可能点不动
+  function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const link = el('a');
+    link.href = url;
+    link.download = name;
+    link.hidden = true;
+    (viewer.open ? viewer : body).appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);  // 浏览器开始存了就用不着了；留一分钟，慢的电脑也来得及
+  }
+
+  async function downloadItem(item, button) {
+    if (!item || item.available === false) return;
+    if (button) button.disabled = true;
+    try {
+      const got = await fetchItem(item);
+      saveBlob(got.blob, got.name || item.name);
+      announce(t('开始下载 {name}', { name: got.name || item.name }));
+    } catch (problem) {
+      notify(problem.message || String(problem));
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function flashDone(button, iconName) {
+    button.classList.add('done');
+    button.replaceChildren(icon('check'));
+    setTimeout(() => { button.classList.remove('done'); button.replaceChildren(icon(iconName)); }, 1400);
+  }
+
+  // 复制图片：剪贴板只收 PNG，所以把正在看的这张画到画布上、存成 PNG 再放进去
+  async function copyItem(button) {
+    const item = viewerItem();
+    if (!item) return;
+    try {
+      if (viewKind(item) === 'text') {
+        await navigator.clipboard.writeText(looking.text || '');
+        announce(t('已复制文字'));
+      } else {
+        if (!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem) { notify(t('这个浏览器不支持复制图片。')); return; }
+        const canvas = drawScaled(viewerImage, view.width, view.height, false);
+        // 交给剪贴板的是一个"还在生成的 PNG"：生成要一点时间，先把这一下点击算在剪贴板头上，浏览器才肯放行
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': toBlob(canvas, 'image/png') })]);
+        announce(t('已复制图片'));
+      }
+      flashDone(button, 'copy');
+    } catch (_) {
+      notify(t('复制失败：浏览器没有允许访问剪贴板。'));
+    }
+  }
+
+  async function revealItem(item) {
+    if (!item || !item.id) return;
+    const reply = await call('/api/media/reveal', { id: item.id });
+    if (!reply.ok) { notify(reply.error); return; }
+    const parts = String(reply.data.path || '').split('/');
+    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
+    notify(onMac() ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
+  }
+
+  // 定位到会话：打开这个附件所在的会话，滚到那一排附件、让那一张亮一下（见 reveal）。
+  // 正在进行一轮的时候不能换会话（和点会话列表一样）；就是当前这一段的话，直接滚过去
+  async function locateItem(item) {
+    if (!item || !item.conversation) return;
+    const target = { id: item.conversation, media: [item.turn, item.index] };
+    if (state && item.conversation === state.conversation) {
+      if (looking) looking.locating = true;
+      if (viewer.open) viewer.close();
+      if (overlayNav.matches) setNav(false, false);
+      reveal(target);
+      return;
+    }
+    if (busy) { notify(t(BUSY_HINT)); return; }
+    // 先关上查看器再去打开会话：打开以后对话区重画、那一张卡片要拿到焦点，查看器还开着的话它外面的东西都是惰性的，焦点放不过去
+    if (looking) looking.locating = true;
+    if (viewer.open) viewer.close();
+    if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，跳过去以后收起来
+    jump = target;  // 打开之后滚到那一张（见 settle）
+    const reply = await call('/api/conversation/open', { id: item.conversation });
+    if (!reply.ok) { jump = null; toast(reply.error); }
+  }
+
+  async function step(delta) {
+    if (!looking) return;
+    const next = looking.at + delta;
+    if (next >= looking.list.length && looking.more && looking.more.ready()) await looking.more();  // 多媒体库：取下一页再翻
+    if (!looking || next < 0 || next >= looking.list.length) return;
+    looking.at = next;
+    showItem(delta);
+  }
+
+  $('viewer-prev').addEventListener('click', () => step(-1));
+  $('viewer-next').addEventListener('click', () => step(1));
+  $('viewer-in').addEventListener('click', () => zoomStep(true));
+  $('viewer-out').addEventListener('click', () => zoomStep(false));
+  $('viewer-level').addEventListener('click', () => toggleZoom(null));
+  $('viewer-copy').addEventListener('click', () => copyItem($('viewer-copy')));
+  $('viewer-download').addEventListener('click', () => downloadItem(viewerItem(), $('viewer-download')));
+  $('viewer-reveal').addEventListener('click', () => revealItem(viewerItem()));
+  $('viewer-locate').addEventListener('click', () => locateItem(viewerItem()));
+  $('close-viewer').addEventListener('click', () => viewer.close());
+
+  viewer.addEventListener('keydown', (key) => {
+    if (key.key === 'ArrowLeft' || key.key === 'ArrowRight') {
+      key.preventDefault();
+      step(key.key === 'ArrowRight' ? 1 : -1);
+      return;
+    }
+    if (viewerImage.hidden || !view.width) return;  // 下面这几个键只管图片；看文字时 ⌘+ 照常放大整个页面
+    if (key.key === '+' || key.key === '=') { key.preventDefault(); zoomStep(true); }
+    else if (key.key === '-' || key.key === '_' || key.key === '−') { key.preventDefault(); zoomStep(false); }
+    else if (key.key === '0') { key.preventDefault(); toggleZoom(null); }
+  });
+
+  viewer.addEventListener('close', () => {
+    lookSeq += 1;  // 还在路上的内容不要了
+    clearTimeout(zoomSayTimer);
+    viewerImage.removeAttribute('src');  // 放开图片和文字占的内存
+    viewerText.textContent = '';
+    viewerCard.replaceChildren();
+    clearTimeout(viewerSayTimer);
+    $('viewer-status').hidden = true;
+    fetched = new Map();
+    touches.clear();
+    gesture = null;
+    const was = looking;
+    looking = null;
+    if (!was || was.locating) return;  // 定位到会话：焦点交给对话里的那张卡片
+    // 焦点回到点开它的那一项。那一项要是在这期间重画过（多媒体库刷新了），换成新画出来的那一个
+    const item = was.list[was.at];
+    const again = item && item.id ? $('media-list').querySelector('[data-media="' + CSS.escape(item.id) + '"]') : null;
+    const opener = was.opener && was.opener.isConnected ? was.opener : again;
+    if (opener) opener.focus({ preventScroll: true });
   });
 
   // ---- 发送消息 ------------------------------------------------------------
@@ -4565,8 +5366,12 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   let tasks = [], reminders = [];
   let tasksDrawn = '', remindersDrawn = '', detailDrawn = '';
   let knownReminders = null, knownWaits = null;  // 上一次画的时候有哪些提醒、哪些等你确认的操作。新出现的才弹通知
-  let navTab = 'chats';
-  try { if (localStorage.getItem('harness.nav-tab') === 'tasks') navTab = 'tasks'; } catch (_) { /* 记不住就用默认的 */ }
+  // 左边栏的标签：会话、任务、多媒体。navTab 是现在显示的那个；navChosen 是你上次选的那个。
+  // 两个分开记：任务和多媒体的标签要等助手程序发来第一份状态才出现，刚打开页面时只能先显示"会话"，
+  // 等你上次选的那个标签出现了再换过去（见 syncNavTabs）。只有你自己点的才记下来
+  const NAV_TABS = ['chats', 'tasks', 'media'];
+  let navTab = 'chats', navChosen = 'chats';
+  try { if (NAV_TABS.includes(localStorage.getItem('harness.nav-tab'))) navChosen = localStorage.getItem('harness.nav-tab'); } catch (_) { /* 记不住就用默认的 */ }
   let removingTask = null, focusCancelTask = false;  // 正在原地确认删除的任务
   let detailId = null, detailConfirm = false, detailMessage = '';  // 详情框里看的是哪一个
   let editing = null;  // 编辑框：{id, kind, type, days, base, armed, saving}
@@ -4653,37 +5458,46 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     return t('正在准备……');
   }
 
-  // ---- 左边栏的两个标签 ----
+  // ---- 左边栏的标签 ----
 
-  // 哪几个标签能用：助手程序发来的状态里带着任务（state.tasks），"任务"标签才出现。
-  // 只剩"会话"一个的时候，整条标签栏都藏起来
+  // 哪几个标签能用：助手程序发来的状态里带着任务（state.tasks），"任务"标签才出现；带着多媒体（state.media），
+  // "多媒体"标签才出现。只剩"会话"一个的时候，整条标签栏都藏起来
+  const shownTabs = () => NAV_TABS.filter((name) => !$('nav-tab-' + name).hidden);
   function syncNavTabs() {
-    const visible = [...document.querySelectorAll('#nav-tabs [role="tab"]')].filter((tab) => !tab.hidden);
+    const visible = shownTabs();
     $('nav-tabs').hidden = visible.length < 2;
-    if (navTab === 'tasks' && $('nav-tab-tasks').hidden) setNavTab('chats');
+    if (!visible.includes(navTab)) setNavTab('chats');
+    else if (navChosen !== navTab && visible.includes(navChosen)) setNavTab(navChosen);
   }
 
-  function setNavTab(name, focus) {
-    navTab = name === 'tasks' && !$('nav-tab-tasks').hidden ? 'tasks' : 'chats';
-    try { localStorage.setItem('harness.nav-tab', navTab); } catch (_) { /* 记不住也没关系 */ }
-    const onTasks = navTab === 'tasks';
-    body.classList.toggle('tasks-tab', onTasks);
-    $('tasks-view').hidden = !onTasks;
-    for (const [id, on] of [['nav-tab-chats', !onTasks], ['nav-tab-tasks', onTasks]]) {
-      $(id).setAttribute('aria-selected', on ? 'true' : 'false');
-      $(id).tabIndex = on ? 0 : -1;
+  // chosen：是你自己点的（记下来，下次打开还是它）
+  function setNavTab(name, focus, chosen) {
+    navTab = NAV_TABS.includes(name) && !$('nav-tab-' + name).hidden ? name : 'chats';
+    if (chosen) {
+      navChosen = navTab;
+      try { localStorage.setItem('harness.nav-tab', navTab); } catch (_) { /* 记不住也没关系 */ }
     }
-    if (focus) $(onTasks ? 'nav-tab-tasks' : 'nav-tab-chats').focus();
-    if (onTasks) { tasksDrawn = ''; renderTasks(tasks, reminders); }
+    for (const tab of NAV_TABS) {
+      const on = tab === navTab;
+      $('nav-tab-' + tab).setAttribute('aria-selected', on ? 'true' : 'false');
+      $('nav-tab-' + tab).tabIndex = on ? 0 : -1;  // 标签页只有选中的那个在 Tab 键的顺序里，其余的用方向键去
+      if (tab !== 'chats') body.classList.toggle(tab + '-tab', on);  // 样式靠它藏起会话的搜索框和列表
+    }
+    $('tasks-view').hidden = navTab !== 'tasks';
+    $('media-view').hidden = navTab !== 'media';
+    if (focus) $('nav-tab-' + navTab).focus();
+    if (navTab === 'tasks') { tasksDrawn = ''; renderTasks(tasks, reminders); }
+    if (navTab === 'media') showMediaTab();
     syncTaskTimer();
   }
 
-  $('nav-tab-chats').addEventListener('click', () => setNavTab('chats', true));
-  $('nav-tab-tasks').addEventListener('click', () => setNavTab('tasks', true));
+  for (const tab of NAV_TABS) $('nav-tab-' + tab).addEventListener('click', () => setNavTab(tab, true, true));
   document.querySelector('.nav-tabs').addEventListener('keydown', (key) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key.key)) return;
+    const visible = shownTabs(), at = visible.indexOf(navTab);
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: visible.length - 1 }[key.key];
+    if (next === undefined) return;
     key.preventDefault();
-    setNavTab(key.key === 'Home' ? 'chats' : key.key === 'End' ? 'tasks' : navTab === 'tasks' ? 'chats' : 'tasks', true);
+    setNavTab(visible[(next + visible.length) % visible.length], true, true);
   });
 
   // ---- 列表 ----
@@ -5076,7 +5890,7 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     const reply = await call('/api/conversation/open', { id });
     if (!reply.ok) { toast(reply.error); return; }
     taskDetail.close();
-    setNavTab('chats');
+    setNavTab('chats', false, true);
     if (overlayNav.matches) setNav(false, false);
   }
 
@@ -5306,6 +6120,335 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
   $('task-new').addEventListener('click', () => openEditor(null));
   setNavTab(navTab);
   syncNavTabs();
+
+  // ---- 多媒体 --------------------------------------------------------------
+  // 左边栏的第三个标签：所有会话里发过的截图、图片、PDF、Word / Excel / PowerPoint 和文本文件（助手程序那边见 media.py）。
+  // 列表由助手程序排好、筛好，一页一页地取（/api/media/list）：附件多了以后，页面不用一次拿着几千张缩略图。
+  // 什么时候重取：状态里的 media.version 变了（发了新附件、删了会话、改了标题），而这一栏正开着；
+  // 没开着就记一笔"过时了"，等打开时再取。页面不轮询。
+  // 每一项鼠标移上去出现三个按钮：在访达中显示、定位到会话、下载（和会话、记忆的那一排一样）。没有删除：
+  // 附件是对话记录的一部分，删掉它所在的会话时才一起删（查看器里有这句说明）。
+
+  const MEDIA_FILTERS = [['all', k('所有')], ['image', k('图片')], ['pdf', 'PDF'], ['document', k('文档')], ['text', k('文本')]];
+  const MEDIA_PAGE = 60;
+  const mediaList = $('media-list'), mediaSearch = $('media-search'), mediaFilters = $('media-filters');
+  // items：取回来的那些（助手程序给的顺序，最新的在前）；ordered：画出来的顺序（每天里先是图片、再是文件），查看器按它左右翻
+  const library = { items: [], ordered: [], counts: null, next: null, kind: 'all', query: '', loading: false, error: '', version: null, stale: true, seq: 0, seen: null };
+  let mediaDrawn = '', mediaTimer = 0;
+
+  // 筛选按钮只建一次，之后只改上面的数字和选中的状态：重画会把焦点弄丢
+  for (const [kind, label] of MEDIA_FILTERS) {
+    const chip = mediaFilters.appendChild(el('button', 'media-filter'));
+    chip.type = 'button';
+    chip.setAttribute('role', 'radio');
+    chip.dataset.kind = kind;
+    chip.appendChild(kind === 'pdf' ? el('span', null, label) : tel('span', null, label));
+    chip.appendChild(el('span', 'media-filter-count'));
+    chip.addEventListener('click', () => chooseMediaKind(kind, false));
+  }
+  // 方向键在几个筛选按钮之间移动（WAI-ARIA 的单选按钮组）
+  mediaFilters.addEventListener('keydown', (key) => {
+    const chips = [...mediaFilters.children].filter((chip) => !chip.disabled);
+    const at = chips.findIndex((chip) => chip.dataset.kind === library.kind);
+    const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: chips.length - 1 }[key.key];
+    if (next === undefined || !chips.length) return;
+    key.preventDefault();
+    chooseMediaKind(chips[(next + chips.length) % chips.length].dataset.kind, true);
+  });
+
+  function drawMediaFilters() {
+    for (const chip of mediaFilters.children) {
+      const kind = chip.dataset.kind, on = kind === library.kind;
+      const count = library.counts ? Number(library.counts[kind]) || 0 : null;
+      chip.setAttribute('aria-checked', String(on));
+      chip.tabIndex = on ? 0 : -1;
+      chip.lastChild.textContent = count === null ? '' : count > 999 ? '999+' : String(count);
+      chip.disabled = count === 0 && !on && kind !== 'all';  // 一个都没有的类别点了也是空的
+    }
+  }
+
+  function chooseMediaKind(kind, focus) {
+    if (kind !== library.kind) {
+      library.kind = kind;
+      drawMediaFilters();
+      loadMedia(true, true);
+    }
+    if (focus) mediaFilters.querySelector('[data-kind="' + kind + '"]').focus();
+  }
+
+  // 状态里的 media：{count, version}。助手程序是旧版本、状态里没有它时，这个标签不出现
+  function syncMediaTab(info) {
+    const supported = Boolean(info) && typeof info === 'object';
+    if (supported) {
+      const count = Number(info.count) || 0;
+      $('media-count').hidden = !count;
+      $('media-count').textContent = count > 999 ? '999+' : count ? String(count) : '';
+      if (info.version !== library.version) {
+        library.version = info.version;
+        library.stale = true;
+        if (navTab === 'media' && !$('nav-tab-media').hidden) loadMedia(true);
+      }
+    }
+    if ($('nav-tab-media').hidden === supported) {
+      $('nav-tab-media').hidden = !supported;
+      syncNavTabs();  // 上次选的就是"多媒体"的话，这时换过去（见 setNavTab）
+    }
+  }
+
+  function showMediaTab() {
+    mediaDrawn = '';
+    drawMediaFilters();
+    if (library.stale || !library.counts) loadMedia(true); else drawMedia();
+  }
+
+  // 取一页。fresh：从头取（重取时把已经看到的那么多一起取回来，列表不会缩回第一页，滚动的位置也不跳）；
+  // restart：换了筛选或搜索词，只要第一页。返回有没有取到新的
+  async function loadMedia(fresh, restart) {
+    if (!fresh && (library.loading || library.next === null)) return false;
+    const mine = ++library.seq;
+    const cursor = fresh ? 0 : library.next;
+    const limit = fresh && !restart ? Math.min(500, Math.max(MEDIA_PAGE, library.items.length)) : MEDIA_PAGE;
+    library.loading = true;
+    library.stale = false;
+    if (fresh && !library.items.length) drawMedia();  // 第一次：先画出"正在读"的样子
+    else if (!fresh) drawMedia();
+    const reply = await call('/api/media/list', { kind: library.kind, query: library.query.trim(), cursor, limit });
+    if (mine !== library.seq) return false;  // 这期间又换了筛选或搜索词，这次的结果已经过时了
+    library.loading = false;
+    if (!reply.ok) {
+      library.error = reply.error;
+      library.stale = true;  // 下次打开这一栏再试一次
+      drawMedia();
+      return false;
+    }
+    library.error = '';
+    const items = (Array.isArray(reply.data.items) ? reply.data.items : []).filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string');
+    if (fresh) library.items = items; else library.items.push(...items);
+    library.counts = reply.data.counts && typeof reply.data.counts === 'object' ? reply.data.counts : null;
+    library.next = Number.isInteger(reply.data.next) ? reply.data.next : null;
+    drawMediaFilters();
+    drawMedia();
+    return items.length > 0;
+  }
+
+  // 按哪一天分组："今天""昨天"，再早的写日期和星期
+  function dayLabel(seconds) {
+    const date = new Date(seconds * 1000), now = new Date();
+    const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY);
+    if (days <= 0) return t('今天');
+    if (days === 1) return t('昨天');
+    const options = { month: 'long', day: 'numeric', weekday: 'short' };
+    if (date.getFullYear() !== now.getFullYear()) options.year = 'numeric';
+    return date.toLocaleDateString(LOCALES[language], options);
+  }
+
+  function drawMedia() {
+    if (navTab !== 'media') return;  // 看不见就不画，换到这个标签时再画
+    const print = JSON.stringify([library.items.map((item) => [item.id, item.conversation_title, item.original, item.available, item.size, item.thumb ? item.thumb.length : 0]),
+      library.loading && !library.items.length, library.loading && library.next !== null, library.error, library.query, library.kind, library.counts, library.next, language, startOfDay(new Date())]);
+    if (print === mediaDrawn) return;
+    mediaDrawn = print;
+    // 重画之前记下焦点在哪一项的哪个按钮上，画完放回去（比如正用键盘在列表里走着，来了一个新附件）
+    const active = document.activeElement;
+    const focused = active && mediaList.contains(active) && active.dataset.media ? [active.dataset.media, active.dataset.action || ''] : null;
+    const first = library.seen === null;  // 列表第一次出现：前几项依次浮现。之后只有新来的那几项浮现
+    const seen = library.seen || new Set();
+    let staggered = 0;
+    const entering = (node, id) => {
+      if (first && staggered < 12) {
+        node.classList.add('enter');
+        node.style.animationDelay = staggered * 22 + 'ms';
+        staggered += 1;
+      } else if (!first && !seen.has(id)) node.classList.add('enter');
+      seen.add(id);
+      return node;
+    };
+
+    const nodes = [];
+    library.ordered = [];
+    if (!library.items.length) nodes.push(mediaEmpty());
+    else {
+      const days = new Map();
+      for (const item of library.items) {
+        const key = startOfDay(new Date((Number(item.at) || 0) * 1000));
+        if (!days.has(key)) days.set(key, { at: Number(item.at) || 0, pictures: [], files: [] });
+        days.get(key)[item.kind === 'image' ? 'pictures' : 'files'].push(item);
+      }
+      for (const day of days.values()) {
+        const group = el('section', 'media-day');
+        const head = group.appendChild(el('h3', 'media-day-head'));
+        head.appendChild(el('span', null, dayLabel(day.at)));
+        if (day.pictures.length) {
+          const grid = group.appendChild(el('ul', 'media-grid'));
+          for (const item of day.pictures) grid.appendChild(entering(mediaTile(item), item.id));
+        }
+        if (day.files.length) {
+          const rows = group.appendChild(el('ul', 'media-rows'));
+          for (const item of day.files) rows.appendChild(entering(mediaRow(item), item.id));
+        }
+        library.ordered.push(...day.pictures, ...day.files);
+        nodes.push(group);
+      }
+      if (library.next !== null) {
+        // 还有下一页：滚到这里自动取（IntersectionObserver）；浏览器不支持的话，点这个按钮取
+        const more = el('button', 'media-more mini');
+        more.type = 'button';
+        retext(more, library.loading ? k('读取中…') : k('显示更多'));
+        more.addEventListener('click', () => loadMedia(false));
+        nodes.push(more);
+      }
+    }
+    if (library.items.length) library.seen = seen;  // 第一次真正画出附件时才算"出现过"，前面的"正在读"不算
+    mediaList.replaceChildren(...nodes);
+    if (mediaObserver) {
+      mediaObserver.disconnect();
+      const more = mediaList.querySelector('.media-more');
+      if (more) mediaObserver.observe(more);
+    }
+    if (focused) {
+      const again = mediaList.querySelector('[data-media="' + CSS.escape(focused[0]) + '"]' + (focused[1] ? '[data-action="' + focused[1] + '"]' : ':not([data-action])'));
+      if (again) again.focus({ preventScroll: true });
+    }
+  }
+
+  const mediaObserver = 'IntersectionObserver' in window
+    ? new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMedia(false); }, { root: mediaList, rootMargin: '0px 0px 320px 0px' })
+    : null;
+
+  // 空的时候说什么：正在读、出错了、一个附件都没有、搜不到、这一类没有
+  function mediaEmpty() {
+    if (library.loading && !library.error) {
+      const grid = el('div', 'media-grid');
+      grid.setAttribute('aria-hidden', 'true');
+      for (let index = 0; index < 6; index += 1) grid.appendChild(el('div', 'media-skeleton'));
+      const box = el('div', 'media-loading');
+      box.append(el('div', 'media-day-head', ''), grid, tel('span', 'sr-only', k('读取中…')));
+      return box;
+    }
+    const box = el('div', 'media-empty');
+    if (library.error) {
+      box.appendChild(tel('b', null, k('多媒体库没能读出来')));
+      box.appendChild(el('p', null, library.error));
+      const retry = box.appendChild(tel('button', 'mini', k('重试')));
+      retry.type = 'button';
+      retry.addEventListener('click', () => loadMedia(true));
+      return box;
+    }
+    const query = library.query.trim();
+    if (!query && library.kind === 'all') {
+      const art = box.appendChild(el('div', 'media-art'));
+      art.setAttribute('aria-hidden', 'true');
+      art.append(el('i'), el('i'), el('i'));
+      box.appendChild(tel('b', null, k('还没有附件')));
+      box.appendChild(tel('p', null, k('你在任何一段会话里发过的截图、图片、PDF、Word / Excel / PowerPoint 和文本文件，都会收在这里：可以放大看、下载，也能一键回到当初发它的那条消息。')));
+      box.appendChild(tel('p', null, k('在输入框里粘贴截图，或者点回形针添加文件，发出去以后就会出现在这里。')));
+      if (body.classList.contains('ready')) box.classList.add('enter');
+      return box;
+    }
+    if (query) {
+      box.appendChild(tel('p', null, k('没有找到名字或会话标题里有“{query}”的文件。'), { query }));
+      return box;
+    }
+    const none = { image: k('还没有发过图片。'), pdf: k('还没有发过 PDF。'), document: k('还没有发过 Word、Excel 或 PowerPoint 文件。'), text: k('还没有发过文本或代码文件。') };
+    box.appendChild(tel('p', null, none[library.kind]));
+    return box;
+  }
+
+  function mediaTile(item) {
+    const tile = el('li', 'media-tile' + (item.available === false ? ' media-missing' : ''));
+    const open = tile.appendChild(el('button', 'media-tile-open'));
+    open.type = 'button';
+    open.dataset.media = item.id;
+    open.title = item.name;
+    open.setAttribute('aria-label', t('{name}，来自“{title}”', { name: item.name, title: item.conversation_title || t('新对话') }));
+    if (typeof item.thumb === 'string' && THUMB_URL.test(item.thumb)) {
+      const image = open.appendChild(el('img'));
+      image.alt = '';
+      image.decoding = 'async';
+      image.src = item.thumb;  // 只接受 data: 开头的图片（页面的安全策略也只允许这种）
+    } else {
+      open.appendChild(icon('image'));  // 旧会话里没有缩略图的
+    }
+    open.addEventListener('click', () => openFromLibrary(item.id, open));
+    tile.appendChild(mediaActions(item, 'media-tile-actions'));
+    return tile;
+  }
+
+  function mediaRow(item) {
+    const row = el('li', 'media-row' + (item.available === false ? ' media-missing' : ''));
+    const open = row.appendChild(el('button', 'media-row-open'));
+    open.type = 'button';
+    open.dataset.media = item.id;
+    open.title = item.name;
+    open.appendChild(mediaBadge(item));
+    const words = open.appendChild(el('span', 'media-words'));
+    words.appendChild(el('span', 'media-name', item.name));
+    const size = item.available === false ? t('内容没有保存下来') : sizeText(item);
+    words.appendChild(el('span', 'media-meta', [kindLabel(item), size, item.conversation_title || t('新对话')].join(' · ')));
+    open.addEventListener('click', () => openFromLibrary(item.id, open));
+    row.appendChild(mediaActions(item, 'media-row-actions'));
+    return row;
+  }
+
+  // 一项右边（方格是下沿）的三个按钮：在访达中显示、定位到会话、下载。没有原件的（旧会话里的）不能在访达中显示
+  function mediaActions(item, className) {
+    const box = el('div', className);
+    const reveal = box.appendChild(iconButton('folder', revealLabel()));
+    if (!item.original) {
+      reveal.disabled = true;
+      tattr(reveal, 'title', k('这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。'));
+    }
+    const go = box.appendChild(iconButton('locate', k('定位到会话')));
+    const save = box.appendChild(iconButton('download', k('下载')));
+    save.disabled = item.available === false;
+    for (const [button, action] of [[reveal, 'reveal'], [go, 'locate'], [save, 'download']]) {
+      button.dataset.media = item.id;
+      button.dataset.action = action;
+    }
+    reveal.addEventListener('click', () => revealItem(item));
+    go.addEventListener('click', () => locateItem(item));
+    save.addEventListener('click', () => downloadItem(item, save));
+    return box;
+  }
+
+  // 从多媒体库点开：左右翻的是画出来的顺序；翻到最后一个、还有下一页时，先取下一页
+  function openFromLibrary(id, opener) {
+    const at = library.ordered.findIndex((item) => item.id === id);
+    if (at < 0) return;
+    const more = async () => {
+      const current = viewerItem();
+      await loadMedia(false);
+      if (looking && looking.list !== library.ordered) {
+        looking.list = library.ordered;  // 新的一页可能插进同一天的方格里，按"正在看的那一项"重新找到位置
+        looking.at = Math.max(0, library.ordered.findIndex((item) => current && item.id === current.id));
+      }
+    };
+    more.ready = () => library.next !== null && !library.loading;
+    openViewer(library.ordered, at, opener, more);
+  }
+
+  // 搜索：文件名和会话标题。敲字的时候稍等一下再发，输入法组字的时候不发
+  function queueMediaSearch() {
+    clearTimeout(mediaTimer);
+    mediaTimer = setTimeout(() => {
+      if (library.query === mediaSearch.value) return;
+      library.query = mediaSearch.value;
+      loadMedia(true, true);
+    }, 180);
+  }
+  mediaSearch.addEventListener('input', (typed) => { if (!typed.isComposing) queueMediaSearch(); });
+  mediaSearch.addEventListener('compositionend', queueMediaSearch);
+  mediaSearch.addEventListener('keydown', (key) => {
+    if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+    if (key.key === 'Escape') {  // Esc：先清空搜索词，再按一次离开搜索框
+      key.preventDefault();
+      if (mediaSearch.value) { mediaSearch.value = ''; queueMediaSearch(); } else mediaSearch.blur();
+    } else if (key.key === 'Enter') {  // 回车：打开第一项
+      key.preventDefault();
+      const first = mediaList.querySelector('[data-media]:not([data-action])');
+      if (first) first.click();
+    }
+  });
 
   // ---- 提示词 --------------------------------------------------------------
   // 设置里的"编辑提示词"：改系统提示词（告诉模型它是谁、怎么做事的那段话）。改的是模板，里面可以写占位符，
@@ -6540,6 +7683,9 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
     refreshStatus();    // 发送按钮、"正在工作"
     renderTray();       // 附件卡片上"移除 某某"的提示
     if (languageDialog.open) renderLanguageOptions();
+    drawMediaFilters(); // 多媒体：筛选按钮上的字、日期、每一项的说明（"指纹"里带着语言，一定会重画）
+    drawMedia();
+    if (viewer.open) { labelViewer(); drawViewerChrome(); }  // 查看器：按钮的说明（带着快捷键）、上面的信息
   }
 
   $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮
@@ -6790,13 +7936,15 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
       // 搜的是所有会话，当前这一段也在里面，比浏览器自带的"在页面里查找"管用。但浏览器那个不该就此没了：
       // 光标已经在搜索框里时再按一次 ⌘F，或者开着对话框的时候，就不拦，交给浏览器
       const dialogOpen = settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open || taskEditor.open || taskDetail.open || promptDialog.open || spendDialog.open;
-      if (letter === 'f' && (dialogOpen || document.activeElement === search)) return;
+      if (letter === 'f' && (dialogOpen || document.activeElement === search || document.activeElement === $('media-search'))) return;
       key.preventDefault();
       if (dialogOpen) return;
-      if (navTab === 'tasks') setNavTab('chats');  // 搜索框在"会话"标签里
       setNav(true, false);
-      search.focus();
-      search.select();
+      // 在"多媒体"里就搜多媒体（文件名和会话标题）；在"任务"里换回"会话"再搜，搜索框在那儿
+      const box = navTab === 'media' ? $('media-search') : search;
+      if (navTab === 'tasks') setNavTab('chats', false, true);
+      box.focus();
+      box.select();
     } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open && !memoryDialog.open && !extensionsDialog.open && !taskEditor.open && !taskDetail.open && !promptDialog.open && !spendDialog.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) { setNav(false, false); refocus($('nav-open'), nav); }
       if (overlaySide.matches && body.classList.contains('side-open')) { setSide(false, false); refocus($('side-toggle'), side); }

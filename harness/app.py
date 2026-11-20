@@ -23,6 +23,7 @@ from .i18n import t
 from .ledger import Ledger
 from .mcp import McpConfig, McpManager
 from .mcp.bridge import PREFIX as MCP_PREFIX
+from .media import MediaStore
 from .permissions import Permissions
 from .prompt import build_system_prompt, reset_template, save_template
 from .providers import (
@@ -56,6 +57,7 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
     ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
     mcp: McpManager  # 接入的 MCP 服务器（见 mcp/）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
@@ -353,6 +355,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
+        media=MediaStore(config.media_dir),
         ledger=ledger,
         mcp=mcp,
     )

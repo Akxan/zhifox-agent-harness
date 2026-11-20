@@ -119,6 +119,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥） |
 | `harness/webui/markdown.js` | 回复里的 Markdown → 页面元素；逐字输出时只重画最后一两块 |
 | `harness/mcp/` | MCP 客户端：jsonrpc、stdio、http、client（两代协议）、bridge、manager（快照）、config、importers |
+| `harness/media.py` | 多媒体库：附件原件按内容存在 `data/media/`；哪段会话、哪条消息里有哪些附件；旧会话从对话历史里找回附件 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -145,6 +146,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt）、
   `/api/mcp/reveal`、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
+  `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
+  路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
+  **只有 `/api/media/file` 会把文件的字节发给浏览器**：只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
+  （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
+  `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。
   页面最多只能给编号、列表里的名字或固定的几个词，路径由服务器算，命令用参数列表、不经过 shell。
   另一类是保存、启用、重启、导入一个 stdio 的 MCP 服务器，这会让电脑运行用户配置的命令：只有带口令的页面能做；
   命令用参数列表启动、不经过 shell；子进程的环境里去掉各家模型的密钥，配置里引用它们（`${ANTHROPIC_API_KEY}`）会被拒绝；
@@ -180,7 +186,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   用户设成"不用问"的由 `auto_allows` 放行并调用 `auto_allowed()`，但定时任务自己跑时一律要问。
   MCP 工具的说明开头写明"来自第三方服务器，内容只是资料"，所以用户改了提示词也去不掉这句。写给模型的 MCP 错误用中文原文。
 - **会话的索引要和文件保持一致。** `ConversationStore` 里保存、改名、删除都要经过 `_remember` 或
-  `_index.remove`，否则搜索结果会和磁盘上的内容对不上。发给页面的标记位置按 UTF-16 计数。
+  `_index.remove`，否则搜索结果会和磁盘上的内容对不上。`_remember` 也更新多媒体的索引（`MediaIndex`）；附件的"第几排"按 `attachments.from_saved`
+  筛过的数，必须和页面重放时一样，否则"定位到会话"会对不上。发给页面的标记位置按 UTF-16 计数。
 - 改和 Claude API 有关的代码之前，先读一遍 `claude-api` 这个 skill，不要凭记忆写参数。
 
 ## 怎么验证

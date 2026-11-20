@@ -199,6 +199,7 @@ Each part of the harness has its own file or directory:
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
+| Media library | [harness/media.py](harness/media.py) | Keeps the original of every attachment (content-addressed), indexes which conversation and message each one came from, and recovers attachments from older conversations out of their history |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
@@ -349,6 +350,11 @@ conversation's history and sends it along with the next request. Each conversati
 |---|---|---|
 | `messages` | The model | The history sent to the model, stored exactly in that provider's format. Handed back to the adapter (`restore`) when you open the conversation |
 | `events` | The page | What the interface showed. Sent to the browser again when you open the conversation, so the page can redraw it |
+
+An attachment appears in `events` only as a summary: its name, size, a small thumbnail and the SHA-256 of its original
+in `data/media/`. The full content is in `messages` (that's what the model reads) and in the media library. The media
+library builds its index the same way search does: while the conversations are read and saved, so opening the Media tab
+doesn't read every conversation file again.
 
 There are two copies because they differ. The model's history contains thinking signatures, an ID for every tool call
 and each provider's own message structure. The page has no use for these, but they must go back to the API exactly as
@@ -700,7 +706,24 @@ This starts a small server on your computer and opens the chat page in your brow
   turned away when you add it, with a note on how to convert it. If the current model can't take an attachment, ZhiFox
   says so right away and names models that can. The GPT and Gemini columns follow their official documentation and are
   tested against local fake servers, not real keys. Attachments are saved with the conversation, so their thumbnails
-  come back when you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
+  come back when you reopen it. Click any attachment in a message to open it in the viewer described under **Media**.
+- **Media** (the third tab in the sidebar, after Conversations and Tasks). Every screenshot, image, PDF,
+  Word / Excel / PowerPoint and text file you have sent in any conversation, newest first and grouped by day: images as
+  a grid of square thumbnails, files as rows with their type, size and conversation. Filter by type (the chips show how
+  many of each), search file names and conversation titles, and keep scrolling to load more. A new attachment shows up
+  as soon as you send it. Hovering an item shows **Show in Finder**, **Go to message** and **Download**.
+  Clicking it opens the viewer, the same one message thumbnails open: zoom with the buttons, ⌘/Ctrl + / − / 0, a
+  trackpad pinch or ⌘/Ctrl + scroll; drag (or scroll) to pan once zoomed in; double-click switches between fit to screen
+  and actual size; ← / → step through the current filter (or through the attachments of that message), and on a phone
+  you can swipe. From the viewer you can copy an image, download the original, show it in Finder, or **go to the
+  message** that carried it: ZhiFox opens that conversation (not while a turn is running) and scrolls to the attachment,
+  which lights up briefly. Text and code open in a monospace view you can copy from. PDFs and Office files get a card
+  with a download button: the page's security policy blocks embedded PDFs, so they open in your own viewer.
+  The originals are kept in `data/media/`, so Word, Excel and PowerPoint files are kept too, not just the text taken from
+  them. Attachments sent before the media library existed are recovered from the conversation's history (images, PDFs and
+  text); for old Office files only the extracted text is left, and the library says so. A single attachment can't be
+  deleted, because it is part of the conversation's record; deleting the conversation deletes its originals unless
+  another conversation uses the same file.
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
   that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
@@ -889,6 +912,7 @@ The keys and data still come from the project's own `.env` and `data/`.
 |---|---|
 | `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only |
 | `data/conversations/` | Every web UI conversation, one JSON file each |
+| `data/media/` | The original of every attachment you sent, named by the SHA-256 of its content, so a file sent ten times is stored once. Originals that no conversation uses any more are removed when you delete a conversation, and at startup |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
@@ -907,11 +931,15 @@ Conversation content is sent to the API of the provider you chose, so the model 
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
 deletes its file too.
 
-To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button and the two
-folder buttons in the memory panel are the only ones on the page that make your computer launch another program (the
-file manager), so the server is extra careful with them: the page can only tell the server *which conversation*, *which
-memory* (a name from the list, checked as described below) or, for the memory folder, nothing at all; the server works
-out the path itself, and the page has no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
+To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. That button, the folder
+buttons in the memory panel and **Show in Finder** on a media item are the only ones on the page that make your computer
+launch another program (the file manager), so the server is extra careful with them: the page can only tell the server
+*which conversation*, *which memory* (a name from the list, checked as described below), *which attachment* (an id of the
+form conversation/message/position, checked against the index; the file name comes from the content's SHA-256) or, for
+the memory folder, nothing at all; the server works out the path itself, and the page has no way to make it open any
+other path. Downloading an attachment works the same way: the page sends only the id, and the file comes back as a
+download (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`), so a text file that contains HTML is
+still plain text. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
 the file.
 
 Saving a local MCP server means ZhiFox will run that command on your computer, now and at every launch. The safeguards:
@@ -1080,6 +1108,10 @@ storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_t
 server with a fake clock, so no test waits for 9 a.m.).
 MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
 over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
+The media library is covered in
+[tests/test_media.py](tests/test_media.py) (storing and deduplicating originals, recovering attachments from older
+histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
+only when no conversation uses them) and in the media section of `tests/test_webui.py` (the endpoints and their headers).
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -1095,6 +1127,8 @@ the real server and page backed by a local fake model with prepared replies, kee
 doesn't touch your keys or `data/`. It also comes with a few fake MCP servers already connected (one of them broken,
 one disabled), and its **Import from Claude** reads made-up Claude configurations from the temporary directory, not
 yours.
+A fresh demo directory also starts with an older conversation whose attachments predate the media library, so the
+Media tab has something to show, including the "text only" Word file.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this

@@ -116,8 +116,9 @@ def private_dir(path: Path) -> None:
     path.chmod(0o700)
 
 
-def write_file(path: Path, text: str) -> None:
-    """把文字写进文件：要么整个写成，要么原来的文件原封不动。新文件只有自己的账号能读。
+def write_file(path: Path, text: str | bytes) -> None:
+    """把文字（或者原样的字节，比如多媒体库里的图片）写进文件：要么整个写成，要么原来的文件原封不动。
+    新文件只有自己的账号能读。
 
     做法是先写到旁边的一个临时文件，确认内容已经交给磁盘（fsync）之后，再用它替换掉原来的文件。
     替换是一步完成的，所以程序中途崩溃时不会留下半个文件。断电的情况取决于操作系统和硬盘
@@ -125,9 +126,10 @@ def write_file(path: Path, text: str) -> None:
     临时文件的名字里带一段随机字符：两处同时在写同一个文件时，各写各的，不会互相踩到。
     """
     temp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
+    binary = isinstance(text, bytes)
     try:
         descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with os.fdopen(descriptor, "wb" if binary else "w", encoding=None if binary else "utf-8") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())

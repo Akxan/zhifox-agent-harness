@@ -113,6 +113,11 @@ class Config:
         return self.data_dir / "conversations"
 
     @property
+    def media_dir(self) -> Path:
+        """多媒体库：发过的附件的原件，一个文件一份（见 media.py）。"""
+        return self.data_dir / "media"
+
+    @property
     def mcp_file(self) -> Path:
         return self.data_dir / "mcp.json"  # 接入的 MCP 服务器（见 mcp/config.py）
 

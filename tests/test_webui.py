@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 import os
@@ -10,8 +11,9 @@ import stat
 import subprocess
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import anthropic
 import openai
@@ -27,6 +29,7 @@ from sample_files import (
     THUMB,
     b64,
     document,
+    docx,
     image,
     pdf,
     text_file,
@@ -46,6 +49,8 @@ from harness.attachments import (
 )
 from harness.conversations import ConversationStore
 from harness.documents import NOTE as NOTE_OFFICE
+from harness.documents import extract_text
+from harness.media import MAX_PAGE, OFFICE_TYPES
 from harness.search import MAX_QUERY_CHARS
 from harness.webui.server import (
     LARGE_CONTEXT_TOKENS,
@@ -2282,6 +2287,11 @@ def send_files(s, *attachments, text: str = "看看这些") -> tuple[int, dict]:
     return s.browser.post("/api/message", {"text": text, "attachments": list(attachments)})
 
 
+def sha(content: bytes) -> str:
+    """附件的原件在多媒体库里的编号：内容的 SHA-256（见 harness/media.py）。"""
+    return hashlib.sha256(content).hexdigest()
+
+
 def test_attachments_are_checked_before_anything_is_sent(serve):
     s = serve()
     png_header = b"\x89PNG\r\n\x1a\n"
@@ -2324,19 +2334,27 @@ def test_a_message_with_attachments_from_the_page_to_the_model_and_back(serve):
     s = serve(reply(text("一张截图、一张照片、一份报告和一些笔记。")), reply(text("另一段。")))
     photo = image("拍的照片.png", data=b64(JPEG_BYTES), thumb=THUMB)  # 扩展名说是 PNG，内容其实是 JPEG
     notes = text_file("C:\\Users\\me\\笔记.md")  # 带着路径的名字
+    before = time.time()
     status, _ = send_files(s, image("季度报表截图.png", thumb=THUMB), photo, pdf(thumb=THUMB), notes, text="  ")
     assert status == 200
     s.browser.wait_for("turn_end")
 
-    # 页面收到的是概要：名字、类型、大小、预览图，没有内容本身
+    # 页面收到的是概要：名字、类型、大小、预览图、原件在多媒体库里的编号（内容的 SHA-256），没有内容本身
     (user,) = s.browser.of_type("user")
     assert user["text"] == ""
     assert user["attachments"] == [
-        {"kind": "image", "name": "季度报表截图.png", "media_type": "image/png", "size": len(PNG_BYTES), "thumb": THUMB},
-        {"kind": "image", "name": "拍的照片.png", "media_type": "image/jpeg", "size": len(JPEG_BYTES), "thumb": THUMB},
-        {"kind": "pdf", "name": "报告.pdf", "media_type": "application/pdf", "size": len(PDF_BYTES)},  # PDF 不要预览图
-        {"kind": "text", "name": "笔记.md", "media_type": "text/plain", "size": len("第一行\n第二行")},  # 路径去掉了
+        {"kind": "image", "name": "季度报表截图.png", "media_type": "image/png", "size": len(PNG_BYTES), "thumb": THUMB,
+         "sha256": sha(PNG_BYTES)},
+        {"kind": "image", "name": "拍的照片.png", "media_type": "image/jpeg", "size": len(JPEG_BYTES), "thumb": THUMB,
+         "sha256": sha(JPEG_BYTES)},
+        # PDF 不要预览图
+        {"kind": "pdf", "name": "报告.pdf", "media_type": "application/pdf", "size": len(PDF_BYTES), "sha256": sha(PDF_BYTES)},
+        # 路径去掉了；文本文件的编号按 UTF-8 的文字算
+        {"kind": "text", "name": "笔记.md", "media_type": "text/plain", "size": len("第一行\n第二行"),
+         "sha256": sha("第一行\n第二行".encode())},
     ]
+    # 什么时候发的（秒）：多媒体库按它排序
+    assert before - 0.001 <= user["at"] <= time.time()
     # 发给模型的是完整的内容，而且以文件的真实格式为准：说的格式和实际的对不上，API 会拒绝整个请求
     content = s.api.requests[0]["messages"][0]["content"]
     assert [block["type"] for block in content] == ["image", "image", "document", "text", "text"]
@@ -2352,7 +2370,7 @@ def test_a_message_with_attachments_from_the_page_to_the_model_and_back(serve):
     # 存下来的会话：事件里只有概要，完整的内容只在对话历史里
     saved = saved_file(s.config, first)
     assert saved["title"] == "季度报表截图.png"
-    assert saved["events"][0] == {"type": "user", "text": "", "attachments": user["attachments"]}
+    assert saved["events"][0] == {"type": "user", "text": "", "attachments": user["attachments"], "at": user["at"]}
     assert PNG not in json.dumps(saved["events"]) and PNG in json.dumps(saved["messages"])
 
     # 刷新页面：附件跟着用户的话一起重放
@@ -2407,11 +2425,15 @@ def test_bad_thumbnails_are_dropped_and_the_message_still_goes(serve):
 def test_an_office_file_reaches_the_model_as_text_and_the_page_as_a_file(serve):
     s = serve(reply(text("预算是 1284.5。")))
     sheet = '<row r="1"><c r="A1" t="inlineStr"><is><t>预算</t></is></c><c r="B1"><v>1284.5</v></c></row>'
-    assert send_files(s, document("预算.xlsx", xlsx([("第一季度", sheet)])), text="多少钱？")[0] == 200
+    workbook = xlsx([("第一季度", sheet)])
+    assert send_files(s, document("预算.xlsx", workbook), text="多少钱？")[0] == 200
     s.browser.wait_for("turn_end")
     words = "## 工作表：第一季度\n预算\t1284.5"
     (user,) = s.browser.of_type("user")
-    assert user["attachments"] == [{"kind": "text", "name": "预算.xlsx", "media_type": "text/plain", "size": len(words)}]
+    # 大小是取出的文字的字数；编号却是原样的 Excel 文件的：多媒体库里存的、能下载回来的是原件
+    assert user["attachments"] == [
+        {"kind": "text", "name": "预算.xlsx", "media_type": "text/plain", "size": len(words), "sha256": sha(workbook)}
+    ]
     content = s.api.requests[0]["messages"][0]["content"]
     assert content[0] == {"type": "text", "text": f'<attachment name="预算.xlsx" note="{NOTE_OFFICE}">\n{words}\n</attachment>'}
     # 读不了的说清楚原因，一轮都不开始
@@ -2480,6 +2502,500 @@ def test_each_provider_says_what_it_can_take_and_the_rest_is_refused(serve, monk
     s.browser.wait_for("turn_end")
     (request,) = s.other_api.requests
     assert request["model"] == "gpt-6-luna" and request["messages"][1]["content"][0]["type"] == "text"
+
+
+# ---- 多媒体 -----------------------------------------------------------------
+# 原件怎样存、索引怎样建、旧会话怎样找回内容、列表怎样筛选和排序，在 test_media.py 里测。这里测接口：
+# 发出去的附件能不能在多媒体库里看到、下载回来的是不是原样的内容、响应头够不够安全，以及删会话时原件跟着走。
+
+NO_MEDIA = {"ok": True, "items": [], "counts": {"all": 0, "image": 0, "pdf": 0, "document": 0, "text": 0}, "next": None}
+REPORT = docx("<w:p><w:r><w:t>本周完成了多媒体库</w:t></w:r></w:p>")  # 一份最小的 Word 文件
+
+
+def media_list(s, **query) -> dict:
+    """多媒体库的一页（见 /api/media/list）。"""
+    status, body = s.browser.post("/api/media/list", query)
+    assert status == 200 and body["ok"] is True, body
+    return body
+
+
+def media_file(s, media_id: str) -> tuple[int, dict, bytes]:
+    """下载一个附件，返回（状态码，响应头，原样的字节）。
+
+    回答的是图片、PDF、Word 这些原样的字节，不能当成文字解码，所以不走 request()。
+    """
+    connection = http.client.HTTPConnection(s.browser.host, timeout=10)
+    headers = {"X-Harness-Token": s.browser.token, "Origin": f"http://{s.browser.host}", "Content-Type": "application/json"}
+    connection.request("POST", "/api/media/file", body=json.dumps({"id": media_id}), headers=headers)
+    response = connection.getresponse()
+    content = response.read()
+    connection.close()
+    return response.status, dict(response.getheaders()), content
+
+
+def media_dir(s):
+    return s.config.data_dir / "media"
+
+
+def downloaded_name(headers: dict) -> str:
+    """响应头里给浏览器的文件名：RFC 5987 的 filename*=UTF-8''…（百分号编码），浏览器优先用它。"""
+    return unquote(headers["Content-Disposition"].split("filename*=UTF-8''", 1)[1])
+
+
+def test_sent_attachments_are_kept_as_originals_and_listed_newest_first(serve):
+    s = serve(reply(text("看到了。")), reply(text("这张也看到了。")))
+    sent = send_files(s, image(thumb=THUMB), pdf(), text_file("代码.py", "print('你好')"), document("周报.docx", REPORT), text="第一段")
+    assert sent[0] == 200
+    s.browser.wait_for("turn_end")
+    first = latest_state(s.browser)["conversation"]
+    act(s, "/api/new")
+    assert send_files(s, image("拍的照片.heic", data=b64(JPEG_BYTES)), text="第二段")[0] == 200
+    s.browser.wait_for("turn_end")
+    second = latest_state(s.browser)["conversation"]
+
+    # 原件存在 data/media/ 下，文件名是内容的 SHA-256；和会话一样，只有自己的账号能读
+    originals = {PNG_BYTES: "png", PDF_BYTES: "pdf", "print('你好')".encode(): "txt", REPORT: "docx", JPEG_BYTES: "jpg"}
+    assert sorted(path.name for path in media_dir(s).iterdir()) == sorted(f"{sha(c)}.{ext}" for c, ext in originals.items())
+    for content, ext in originals.items():
+        path = media_dir(s) / f"{sha(content)}.{ext}"
+        assert path.read_bytes() == content and stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(media_dir(s).stat().st_mode) == 0o700
+
+    # 两段会话里的都在：最新的在前，同一条消息里的按原来的顺序
+    body = media_list(s)
+    assert [(item["id"], item["conversation_title"], item["kind"], item["name"]) for item in body["items"]] == [
+        (f"{second}/0/0", "第二段", "image", "拍的照片.heic"),
+        (f"{first}/0/0", "第一段", "image", "截图.png"),
+        (f"{first}/0/1", "第一段", "pdf", "报告.pdf"),
+        (f"{first}/0/2", "第一段", "text", "代码.py"),
+        (f"{first}/0/3", "第一段", "document", "周报.docx"),
+    ]
+    assert body["counts"] == {"all": 5, "image": 2, "pdf": 1, "document": 1, "text": 1} and body["next"] is None
+    assert all(item["original"] and item["available"] for item in body["items"])
+    photo, shot, _, _, word = body["items"]
+    assert photo["at"] == s.browser.of_type("user")[-1]["at"] > shot["at"]
+    assert (photo["media_type"], photo["download"]) == ("image/jpeg", "拍的照片.jpg")  # 页面发的是 JPEG
+    assert shot["thumb"] == THUMB and shot["size"] == len(PNG_BYTES)
+    assert (word["media_type"], word["size"], word["download"]) == (OFFICE_TYPES["docx"], len(REPORT), "周报.docx")
+
+    # 按种类筛、按名字和标题找、一页一页地取
+    assert [item["name"] for item in media_list(s, kind="image")["items"]] == ["拍的照片.heic", "截图.png"]
+    found = media_list(s, query="第一段 周报")
+    assert [item["name"] for item in found["items"]] == ["周报.docx"] and found["counts"]["all"] == 1
+    page = media_list(s, limit=2)
+    assert page["next"] == 2 and page["counts"] == body["counts"]
+    rest = media_list(s, cursor=page["next"], limit=10)
+    assert page["items"] + rest["items"] == body["items"] and rest["next"] is None
+
+
+def test_downloads_are_the_exact_bytes_with_headers_that_keep_them_inert(serve):
+    s = serve(reply(text("收到。")))
+    page = '<script>alert("x")</script><h1>不是网页</h1>'
+    odd_name = '季度 报告;"终".docx'  # 中文、空格、分号、引号：都不能把响应头弄坏
+    assert send_files(s, image(), pdf(), text_file("页面.html", page), document(odd_name, REPORT), text="下载")[0] == 200
+    s.browser.wait_for("turn_end")
+    items = {item["name"]: item for item in media_list(s)["items"]}
+
+    expected = {
+        "截图.png": (PNG_BYTES, "image/png"),
+        "报告.pdf": (PDF_BYTES, "application/pdf"),
+        # 文本一律按纯文本给：里面写着 HTML，浏览器也不会把它当成网页运行
+        "页面.html": (page.encode(), "text/plain; charset=utf-8"),
+        odd_name: (REPORT, OFFICE_TYPES["docx"]),  # Word 的原件，不是取出的文字
+    }
+    for name, (content, content_type) in expected.items():
+        status, headers, body = media_file(s, items[name]["id"])
+        assert status == 200 and body == content, name
+        assert headers["Content-Type"] == content_type and headers["Content-Length"] == str(len(content))
+        assert headers["X-Content-Type-Options"] == "nosniff"  # 不按内容去猜类型
+        assert headers["Content-Security-Policy"] == "default-src 'none'; sandbox"  # 万一被直接打开，也什么都不运行
+        assert headers["Cache-Control"] == "no-store"
+        # 当成下载的文件；中文名按 RFC 5987 编码，整个响应头只有 ASCII
+        assert headers["Content-Disposition"].startswith('attachment; filename="') and headers["Content-Disposition"].isascii()
+        assert downloaded_name(headers) == name
+
+
+def test_the_state_says_when_the_media_library_changed(serve):
+    # 状态里的 media 只有个数和一个"版本"。版本变了，开着的多媒体一栏才重新取列表：页面不用轮询
+    s = serve(reply(text("看到了。")), reply(text("嗯。")), reply(text("一")), reply(text("二")))
+    start = latest_state(s.browser)["media"]
+    assert start["count"] == 0
+
+    assert send_files(s, image(), text="看图")[0] == 200
+    s.browser.wait_for("turn_start")
+    started = s.browser.wait_for("state")  # 这一轮刚开始时的状态：附件已经算进去了，不用等这一轮结束
+    assert started["media"]["count"] == 1 and started["media"]["version"] != start["version"]
+    s.browser.wait_for("turn_end")
+    after = latest_state(s.browser)["media"]
+    assert after["count"] == 1
+
+    # 接着聊、不带附件：库里没变，版本也不变
+    assert say(s, "接着说")["media"] == after
+    # 新对话：库里还是那一个（它在保存过的会话里）
+    assert act(s, "/api/new")["media"]["count"] == 1
+    chatting = say(s, "只是聊天")["media"]
+    assert chatting["count"] == 1
+    # 一段没有附件的会话又聊了一轮：库里什么都没变，版本也不该变
+    assert say(s, "再聊一句")["media"] == chatting
+
+
+def test_attachments_are_listed_while_the_first_turn_is_still_going(serve):
+    # 当前这一段以内存为准：第一轮还没结束、会话还没写盘时，刚发的附件就已经在库里了
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("跑完了。")))
+    assert send_files(s, text_file("步骤.md", "先跑 true"), text="照着做")[0] == 200
+    confirm = s.browser.wait_for("confirm")
+    conversation = latest_state(s.browser)["conversation"]
+    assert not s.config.conversations_dir.exists()
+
+    (item,) = media_list(s)["items"]
+    assert (item["conversation"], item["conversation_title"], item["name"], item["original"]) == (conversation, "照着做", "步骤.md", True)
+    status, _, content = media_file(s, item["id"])
+    assert status == 200 and content == "先跑 true".encode()
+
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+    assert saved_ids(s.config) == [conversation]
+    assert media_list(s)["items"] == [item]  # 存盘之后还是同一项：编号没变，页面上的链接还能用
+
+
+def test_attachments_of_a_failed_first_message_can_still_be_found(serve):
+    s = serve()  # 没有预设回复：假 API 返回 500，第一轮就失败了
+    assert send_files(s, image(), text="看看这张")[0] == 200
+    s.browser.wait_for("turn_end")
+    state = latest_state(s.browser)
+    assert state["conversations"] == [] and not s.config.conversations_dir.exists()  # 没有留下会话
+
+    # 可是页面上那条消息还在，上面的附件也在：多媒体库里找得到它，原件也下载得到
+    assert state["media"]["count"] == 1
+    (item,) = media_list(s)["items"]
+    assert (item["conversation"], item["conversation_title"]) == (state["conversation"], "新对话")
+    assert item["original"] and item["available"]
+    status, _, content = media_file(s, item["id"])
+    assert status == 200 and content == PNG_BYTES
+
+
+def test_a_message_still_goes_when_its_originals_cannot_be_kept(serve):
+    s = serve(reply(text("看到了。")))
+    s.config.data_dir.mkdir(parents=True, exist_ok=True)
+    media_dir(s).write_text("这里本该是个目录", encoding="utf-8")  # 让存原件失败
+
+    assert send_files(s, image(), text="看图")[0] == 200
+    s.browser.wait_for("turn_end")
+    notice = s.browser.of_type("notice")[0]
+    assert notice["level"] == "error" and "附件的原件没能存进多媒体库" in notice["text"]
+    assert s.api.requests[0]["messages"][0]["content"][0]["source"]["data"] == PNG  # 模型照样看到了这张图
+    assert "sha256" not in s.browser.of_type("user")[0]["attachments"][0]
+
+    # 原件没存上，就和旧会话一样，从对话历史里取
+    (item,) = media_list(s)["items"]
+    assert (item["original"], item["available"]) == (False, True)
+    status, _, content = media_file(s, item["id"])
+    assert status == 200 and content == PNG_BYTES
+
+
+def test_media_ids_that_do_not_name_an_attachment_are_refused(serve, monkeypatch):
+    s = serve(reply(text("收到。")))
+    assert send_files(s, image(), text="一张图")[0] == 200
+    s.browser.wait_for("turn_end")
+    conversation = latest_state(s.browser)["conversation"]
+    secret = s.config.data_dir.parent / "secret.txt"
+    secret.write_text("不该被读到", encoding="utf-8")
+    # 记下服务器读了哪些文件：编号不对的请求，一个文件都不该读
+    reads: list[Path] = []
+    read_bytes = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda path: reads.append(path) or read_bytes(path))
+
+    malformed = (400, {"error": "参数不正确"})
+    bad_ids = (
+        "", "../../etc/passwd", "x/0/0", str(secret), f"../{conversation}/0/0", f"{conversation}/../../../secret.txt",
+        f"{conversation}/00/0", f"{conversation}/0/0/0", f"{conversation}/0", f"{conversation}/0/0\n", f"{conversation}.json",
+        None, 5, True, [f"{conversation}/0/0"], {"id": f"{conversation}/0/0"},
+    )
+    for bad in bad_ids:
+        assert s.browser.post("/api/media/file", {"id": bad}) == malformed, bad
+    assert s.browser.post("/api/media/file", {}) == malformed  # 没有给编号
+    # 格式对、但没有这个附件：会话不存在，或者那一排、那一张不存在
+    gone = (409, {"error": "找不到这个文件了：它所在的会话可能已经被删除。"})
+    for missing in (f"{MISSING}/0/0", f"{conversation}/1/0", f"{conversation}/0/1"):
+        assert s.browser.post("/api/media/file", {"id": missing}) == gone, missing
+    assert reads == []
+
+    status, _, content = media_file(s, f"{conversation}/0/0")
+    assert status == 200 and content == PNG_BYTES
+    assert reads == [media_dir(s) / f"{sha(PNG_BYTES)}.png"]  # 读的只是多媒体库里的那一个原件
+
+
+def test_bad_media_list_requests_are_refused(serve):
+    s = serve()
+    malformed = (400, {"error": "参数不正确"})
+    for bad in (
+        {"kind": "video"}, {"kind": 5}, {"kind": ["image"]}, {"kind": None},
+        {"query": 5}, {"query": None}, {"query": "x" * (MAX_QUERY_CHARS + 1)},
+        {"cursor": -1}, {"cursor": "0"}, {"cursor": 1.0}, {"cursor": True}, {"cursor": None},
+        {"limit": 0}, {"limit": MAX_PAGE + 1}, {"limit": True}, {"limit": 2.5}, {"limit": None},
+    ):
+        assert s.browser.post("/api/media/list", bad) == malformed, bad
+    # 边界上的值可以；什么都不给就是第一页、全部种类
+    assert media_list(s) == NO_MEDIA
+    assert media_list(s, kind="text", query="x" * MAX_QUERY_CHARS, cursor=10**9, limit=MAX_PAGE) == NO_MEDIA
+    assert media_list(s, limit=1, query="   ") == NO_MEDIA
+
+
+def test_the_media_library_needs_the_token_like_every_other_request(serve):
+    s = serve(reply(text("收到。")))
+    assert send_files(s, image(), text="一张图")[0] == 200
+    s.browser.wait_for("turn_end")
+    conversation = latest_state(s.browser)["conversation"]
+    host, token = s.browser.host, s.browser.token
+    for path, body in (("/api/media/list", {}), ("/api/media/file", {"id": f"{conversation}/0/0"})):
+        assert request(host, "POST", path, body)[0] == 403
+        assert request(host, "POST", path, body, {"X-Harness-Token": "wrong"})[0] == 403
+        assert request(host, "POST", f"{path}?token={token}", body)[0] == 403  # 口令必须放在请求头里
+        assert request(host, "POST", path, body, {"X-Harness-Token": token, "Origin": "http://evil.example"})[0] == 403
+        assert request(host, "POST", path, body, {"X-Harness-Token": token, "Host": "evil.example"})[0] == 403
+        assert request(host, "GET", f"{path}?token={token}")[0] == 404  # 只能用 POST
+
+
+def legacy(s, conversation: str) -> dict:
+    """把一段会话改回有多媒体库之前的样子：概要里没有原件的编号和发送时间，原件也不在了。返回改过的内容。"""
+    path = s.config.conversations_dir / f"{conversation}.json"
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    for event in saved["events"]:
+        event.pop("at", None)
+        for item in event.get("attachments", []):
+            item.pop("sha256", None)
+    first = next(event for event in saved["events"] if event.get("attachments"))
+    first["attachments"][0]["sha256"] = "../../../etc/passwd"  # 改坏的编号：和没有一样
+    path.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+    shutil.rmtree(media_dir(s))
+    return saved
+
+
+def test_attachments_from_before_the_media_library_are_served_from_the_history(serve):
+    s = serve(reply(text("收到。")))
+    sent = send_files(s, image("照片.heic", data=b64(JPEG_BYTES)), pdf(), text_file(), document("周报.docx", REPORT), text="旧会话")
+    assert sent[0] == 200
+    s.browser.wait_for("turn_end")
+    conversation = latest_state(s.browser)["conversation"]
+    saved = legacy(s, conversation)
+
+    restarted = serve()  # 同一个数据目录：相当于把程序关掉再打开，从磁盘上读回这段会话
+    words = extract_text("周报.docx", REPORT)
+    expected = [
+        # （名字，Content-Type，下载用的名字，内容）
+        ("照片.heic", "image/jpeg", "照片.jpg", JPEG_BYTES),
+        ("报告.pdf", "application/pdf", "报告.pdf", PDF_BYTES),
+        ("笔记.md", "text/plain; charset=utf-8", "笔记.md", "第一行\n第二行".encode()),
+        ("周报.docx", "text/plain; charset=utf-8", "周报.docx.txt", words.encode()),  # Word 的原件不在了，只剩当时取出的文字
+    ]
+
+    def check(server) -> None:
+        items = media_list(server)["items"]
+        assert [(item["name"], item["download"]) for item in items] == [(name, download) for name, _, download, _ in expected]
+        assert all(not item["original"] and item["available"] for item in items)
+        assert all(item["at"] == saved["created_at"] for item in items)  # 没记时间的，算在会话开始的时候
+        for item, (name, content_type, download, content) in zip(items, expected):
+            status, headers, body = media_file(server, item["id"])
+            assert (status, body) == (200, content), name
+            assert headers["Content-Type"] == content_type and downloaded_name(headers) == download
+
+    check(restarted)
+    # 打开它、它成了当前会话之后也一样：这时内容从内存里的历史取
+    open_conversation(restarted, conversation)
+    check(restarted)
+
+
+def test_old_attachments_in_the_openai_format_are_found_too(serve, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    s = serve(others=[chat("收到。")])
+    act(s, "/api/model", {"provider": "openai", "model": "gpt-6-luna"})
+    assert send_files(s, image(), pdf(), text_file(), text="旧会话")[0] == 200
+    s.browser.wait_for("turn_end")
+    conversation = latest_state(s.browser)["conversation"]
+    legacy(s, conversation)
+
+    restarted = serve()
+    expected = [PNG_BYTES, PDF_BYTES, "第一行\n第二行".encode()]
+
+    def downloaded(server) -> list[bytes]:
+        items = media_list(server)["items"]
+        assert all(item["available"] for item in items)
+        return [media_file(server, item["id"])[2] for item in items]
+
+    assert downloaded(restarted) == expected  # 存在文件里的历史：不含系统提示词
+    open_conversation(restarted, conversation)
+    assert downloaded(restarted) == expected  # 内存里的历史：第一条是系统提示词，位置要跟着对
+
+
+# 在文件管理器里显示一个附件的原件（/api/media/reveal）。和显示会话的文件一样（见上面"在文件管理器里显示会话的文件"）：
+# 页面只给附件的编号，路径由服务器算（编号 → 索引里的条目 → 内容的 SHA-256 → data/media/ 下的那个文件）。
+# 测试里不会真的打开访达：serve 把 reveal_in_file_manager 换成了只记下路径（s.revealed）。
+
+
+def test_revealing_an_attachment_shows_its_original_in_the_media_folder(serve):
+    s = serve(reply(text("一")), reply(text("二")))
+    assert send_files(s, image(), document("周报.docx", REPORT), text="第一段")[0] == 200
+    s.browser.wait_for("turn_end")
+    first = latest_state(s.browser)["conversation"]
+    act(s, "/api/new")
+    assert send_files(s, pdf(), image("同一张.png"), text="第二段")[0] == 200
+    s.browser.wait_for("turn_end")
+    second = latest_state(s.browser)["conversation"]
+    png = s.config.media_dir / f"{sha(PNG_BYTES)}.png"
+    word = s.config.media_dir / f"{sha(REPORT)}.docx"
+    listing_before = media_list(s)
+
+    assert s.browser.post("/api/media/reveal", {"id": f"{first}/0/0"}) == (200, {"ok": True, "path": str(png)})
+    assert s.browser.post("/api/media/reveal", {"id": f"{first}/0/1"}) == (200, {"ok": True, "path": str(word)})
+    # 两段会话里的同一张图是同一个原件（文件名由内容定，不由发的时候的名字定）
+    assert s.browser.post("/api/media/reveal", {"id": f"{second}/0/1"}) == (200, {"ok": True, "path": str(png)})
+    # 请求里多带一个路径也没用：服务器根本不看它
+    status, body = s.browser.post("/api/media/reveal", {"id": f"{second}/0/0", "path": "/etc/passwd", "file": "/etc/passwd"})
+    assert status == 200 and body["path"] == str(s.config.media_dir / f"{sha(PDF_BYTES)}.pdf")
+
+    assert s.revealed == [png, word, png, s.config.media_dir / f"{sha(PDF_BYTES)}.pdf"]
+    assert all(path.parent == s.config.media_dir and path.is_file() for path in s.revealed)
+    # 只是看一眼文件在哪儿：库里的内容和会话都没有变化
+    assert media_list(s) == listing_before
+    assert listed(latest_state(s.browser)) == [(second, "第二段"), (first, "第一段")]
+
+
+def test_reveal_never_shows_anything_but_a_stored_original(serve):
+    s = serve(reply(text("收到。")))
+    assert send_files(s, image(), text="旧会话")[0] == 200
+    s.browser.wait_for("turn_end")
+    old = latest_state(s.browser)["conversation"]
+    legacy(s, old)  # 改回有多媒体库之前的样子：内容只在会话文件里，没有单独的原件
+    restarted = serve(reply(text("看到了。")))
+    assert send_files(restarted, pdf(), text="新会话")[0] == 200
+    restarted.browser.wait_for("turn_end")
+    new = latest_state(restarted.browser)["conversation"]
+    host, token = restarted.browser.host, restarted.browser.token
+
+    # 没有单独存下原件的旧附件：说清楚为什么，什么都不打开（它照样能在多媒体库里看、能下载，见上面的测试）
+    status, body = restarted.browser.post("/api/media/reveal", {"id": f"{old}/0/0"})
+    assert status == 409 and "没有单独存下原件" in body["error"]
+
+    # 编号的格式不对（包括想借着它摸到别处去的）：不去找；格式对、但没有这个附件：找不到
+    stored = str(restarted.config.media_dir / f"{sha(PDF_BYTES)}.pdf")
+    malformed = (400, {"error": "参数不正确"})
+    for bad in ("", "../../etc/passwd", "x/0/0", stored, f"../{new}/0/0", f"{new}/../../../settings.json",
+                f"{new}/00/0", f"{new}/0/0/0", f"{new}/0", f"{new}/0/0\n", None, 5, True, [f"{new}/0/0"], {"id": f"{new}/0/0"}):
+        assert restarted.browser.post("/api/media/reveal", {"id": bad}) == malformed, bad
+    assert restarted.browser.post("/api/media/reveal", {}) == malformed
+    assert restarted.browser.post("/api/media/reveal", {"path": stored}) == malformed  # 只给路径也不行
+    gone = (409, {"error": "找不到这个文件了：它所在的会话可能已经被删除。"})
+    for missing in (f"{MISSING}/0/0", f"{new}/1/0", f"{new}/0/1"):
+        assert restarted.browser.post("/api/media/reveal", {"id": missing}) == gone, missing
+
+    # 记着编号、原件却已经不在了（被手动删掉）：和旧附件一样，说清楚，不去打开一个不存在的文件
+    Path(stored).unlink()
+    status, body = restarted.browser.post("/api/media/reveal", {"id": f"{new}/0/0"})
+    assert status == 409 and "没有单独存下原件" in body["error"]
+
+    # 没带口令、或者是别的网站发起的请求：和其他接口一样被拒绝
+    for headers in ({}, {"X-Harness-Token": "wrong"}, {"X-Harness-Token": token, "Origin": "http://evil.example"}):
+        assert request(host, "POST", "/api/media/reveal", {"id": f"{new}/0/0"}, headers)[0] == 403
+    assert request(host, "POST", f"/api/media/reveal?token={token}", {"id": f"{new}/0/0"})[0] == 403
+    assert restarted.revealed == []
+
+
+def test_revealing_an_attachment_works_during_a_turn_and_says_where_the_file_is(serve, monkeypatch):
+    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"), reply(text("好。")))
+    assert send_files(s, image(), text="跑一下")[0] == 200
+    confirm = s.browser.wait_for("confirm")
+    current = latest_state(s.browser)["conversation"]
+    png = s.config.media_dir / f"{sha(PNG_BYTES)}.png"
+
+    # 第一轮还在进行、会话还没写盘：原件已经存好了，可以显示。它只是看一眼，不拿对话的那把锁
+    assert s.browser.post("/api/media/reveal", {"id": f"{current}/0/0"}) == (200, {"ok": True, "path": str(png)})
+    assert s.revealed == [png]
+
+    # 文件管理器打不开时，把文件在哪儿告诉用户，让他自己去找
+    def broken(path):
+        raise OSError("找不到 open 这个命令")
+
+    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    status, body = s.browser.post("/api/media/reveal", {"id": f"{current}/0/0"})
+    assert status == 409 and "找不到 open 这个命令" in body["error"] and str(png) in body["error"]
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+
+def test_an_original_is_removed_once_no_conversation_uses_it(serve):
+    s = serve(reply(text("一")), reply(text("二")))
+    assert send_files(s, image(), text="第一段")[0] == 200
+    s.browser.wait_for("turn_end")
+    first = latest_state(s.browser)["conversation"]
+    act(s, "/api/new")
+    assert send_files(s, image("同一张.png"), pdf(), text="第二段")[0] == 200  # 同样的内容，换了个名字
+    s.browser.wait_for("turn_end")
+    second = latest_state(s.browser)["conversation"]
+    png, pdf_file = media_dir(s) / f"{sha(PNG_BYTES)}.png", media_dir(s) / f"{sha(PDF_BYTES)}.pdf"
+
+    # 删掉第一段：那张图第二段也在用，留着
+    act(s, "/api/conversation/delete", {"id": first})
+    assert png.exists() and pdf_file.exists()
+    assert [item["id"] for item in media_list(s)["items"]] == [f"{second}/0/0", f"{second}/0/1"]
+    assert s.browser.post("/api/media/file", {"id": f"{first}/0/0"})[0] == 409  # 删掉的会话里的附件找不到了
+
+    # 再删掉第二段（就是当前这一段）：没有会话再用它们了，原件也删掉
+    act(s, "/api/conversation/delete", {"id": second})
+    assert list(media_dir(s).iterdir()) == []
+    assert media_list(s) == NO_MEDIA
+
+
+def test_an_original_still_shown_in_the_current_conversation_is_kept(serve):
+    s = serve(reply(text("一")))
+    assert send_files(s, image(), text="第一段")[0] == 200
+    s.browser.wait_for("turn_end")
+    first = latest_state(s.browser)["conversation"]
+    act(s, "/api/new")
+    assert send_files(s, image(), text="没聊成")[0] == 200  # 没有预设回复了：这一轮失败，会话没有存下来
+    s.browser.wait_for("turn_end")
+
+    # 删掉第一段：页面上正开着的这一段还显示着同一张图，原件要留着
+    act(s, "/api/conversation/delete", {"id": first})
+    assert (media_dir(s) / f"{sha(PNG_BYTES)}.png").exists()
+    (item,) = media_list(s)["items"]
+    assert media_file(s, item["id"])[2] == PNG_BYTES
+
+
+def test_deleting_a_conversation_that_was_never_saved_removes_its_originals(serve):
+    s = serve(reply(text("看到了。")))
+    s.config.data_dir.mkdir(parents=True, exist_ok=True)
+    s.config.conversations_dir.write_text("这里本该是个目录", encoding="utf-8")  # 让存盘失败
+    assert send_files(s, image(), text="存不上的一段")[0] == 200
+    s.browser.wait_for("turn_end")
+    state = latest_state(s.browser)
+    conversation = state["conversation"]
+    assert listed(state) == [(conversation, "存不上的一段")]  # 没存上，可还在列表里
+    png = media_dir(s) / f"{sha(PNG_BYTES)}.png"
+    assert png.exists() and [item["conversation"] for item in media_list(s)["items"]] == [conversation]
+
+    act(s, "/api/conversation/delete", {"id": conversation})
+    assert not png.exists() and media_list(s) == NO_MEDIA
+
+
+def test_the_startup_sweep_keeps_what_a_damaged_conversation_mentions(serve):
+    s = serve(reply(text("收到。")))
+    assert send_files(s, pdf(), text="要留着的")[0] == 200
+    s.browser.wait_for("turn_end")
+    damaged = latest_state(s.browser)["conversation"]
+    act(s, "/api/new")
+    # 一轮刚开始就失败了：原件存上了，会话却没有存下来（和上次运行到一半就退出了一样），没有人再用这张图
+    assert send_files(s, image(), text="没聊成")[0] == 200
+    s.browser.wait_for("turn_end")
+    leftover = media_dir(s) / f"{sha(PDF_BYTES)}.pdf.1a2b3c4d.tmp"  # 上次存到一半留下的临时文件
+    leftover.write_bytes(b"half")
+    # 那段保存过的会话的文件坏了：读不出来，可里面还提到那份 PDF。也许修好了还要用，所以 PDF 留着
+    path = s.config.conversations_dir / f"{damaged}.json"
+    path.write_text("坏了" + path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    restarted = serve()  # 重新启动：先清一遍没人用的原件
+    assert sorted(item.name for item in media_dir(s).iterdir()) == [f"{sha(PDF_BYTES)}.pdf"]
+    assert media_list(restarted) == NO_MEDIA  # 坏了的会话和会话列表里一样不列出来
+    assert latest_state(restarted.browser)["media"]["count"] == 0
 
 
 # ---- 提示词 -----------------------------------------------------------------

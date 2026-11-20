@@ -10,6 +10,8 @@
            适配层只用到这里的 Attachment 和 wrap_text，不用自己再检查。
   概要     界面上显示附件不需要它的全部内容，只要名字、大小和一张小预览图（summary）。
            概要会写进事件和保存的会话里；完整的内容只在对话历史（messages）里，搜索和页面都碰不到。
+           发出去之前，原件另外存一份到多媒体库（见 media.py），概要里记着它的编号（sha256），
+           以后在"多媒体"里能看、能下载，Word、Excel、PowerPoint 的原件也不会丢。
 
 为什么大小卡在这几个数：
   - 图片：Claude 的 API 规定每张图片的 base64 不超过 10 MB。base64 是"每 3 个字节写成 4 个字符"，
@@ -24,7 +26,7 @@ import base64
 import binascii
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import documents
 from .i18n import t
@@ -46,6 +48,8 @@ TEXT_TYPE = "text/plain"  # 文本文件的类型浏览器说了不算（.py、.
 # 预览图只能是这几种图片的 data: 地址。它会被页面放进 <img src>，所以格式卡死：不是 data: 开头、
 # 或者夹着 base64 以外的字符的，一律不要（不报错，只是不显示预览）
 _THUMB = re.compile(r"data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}")
+# 原件在多媒体库里的编号：内容的 SHA-256，64 个十六进制字符（见 media.py）
+HASH = re.compile(r"[0-9a-f]{64}")
 
 # 文件开头的几个字节（"魔数"）能看出它真正是什么格式。扩展名改过的文件很常见（.png 其实是 JPEG），
 # 而 API 发现"说的格式"和"实际的格式"对不上会直接拒绝整个请求，所以以文件内容为准
@@ -74,6 +78,9 @@ class Attachment:
     thumb: str = ""  # 图片的小预览（data: 地址），只给页面看，不发给模型
     preview: str = ""  # 点开看的大图（data: 地址）。完整的原图只在发给模型的历史里，页面拿不到，所以另存一张
     note: str = ""  # 交给模型时附在文件名旁边的说明，比如"这是从 Word 里取出的文字"（见 wrap_text）
+    sha256: str = ""  # 原件存进多媒体库之后的编号（见 media.MediaStore.keep）
+    # Word、Excel、PowerPoint 的原始文件。交给模型的只是取出的文字（text），原件只留到存进多媒体库为止
+    original: bytes = field(default=b"", repr=False, compare=False)
 
     def summary(self) -> dict:
         """界面上显示这个附件要用的那几项。不含内容本身。"""
@@ -82,6 +89,8 @@ class Attachment:
             shown["thumb"] = self.thumb
         if self.preview:
             shown["preview"] = self.preview
+        if self.sha256:
+            shown["sha256"] = self.sha256
         return shown
 
 
@@ -152,7 +161,7 @@ def _parse_document(name: str, data: object) -> Attachment:
         text = clean_text(documents.extract_text(name, content))
     except documents.DocumentError as exc:
         raise AttachmentError(str(exc)) from exc
-    return Attachment("text", name, TEXT_TYPE, len(text), text=text, note=documents.NOTE)
+    return Attachment("text", name, TEXT_TYPE, len(text), text=text, note=documents.NOTE, original=content)
 
 
 def _decode(name: str, data: object) -> bytes:
@@ -229,11 +238,13 @@ def _escape(value: str) -> str:
     return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def from_saved(value: object) -> list[dict]:
+def from_saved(value: object, previews: bool = True) -> list[dict]:
     """保存的会话里记着的附件概要，整理成可以重放给页面的样子。不合格的项去掉。
 
     会话文件是普通的 JSON，可能被改坏或被人动过。预览图会放进页面的 <img src>，名字会显示出来，
     所以和浏览器送来的一样，每一项都重新查一遍，只留认识的几个字段。
+    previews 为 False 时不要点开看的大图（多媒体库的索引用不到它，它又是最长的一项，查一遍要花时间）。
+    哪些项留下、哪些去掉，和 previews 无关：多媒体库靠"第几项"在对话里找到对应的那张卡片，两边必须数得一样。
     """
     if not isinstance(value, list):
         return []
@@ -246,8 +257,11 @@ def from_saved(value: object) -> list[dict]:
             continue
         entry = {"kind": item["kind"], "name": name, "media_type": media_type[:100], "size": size}
         if item["kind"] == "image":
-            for field, limit in (("thumb", MAX_THUMB_CHARS), ("preview", MAX_PREVIEW_CHARS)):
-                if value := valid_thumb(item.get(field), limit):
-                    entry[field] = value
+            fields = (("thumb", MAX_THUMB_CHARS), ("preview", MAX_PREVIEW_CHARS)) if previews else (("thumb", MAX_THUMB_CHARS),)
+            for name_of_field, limit in fields:
+                if value := valid_thumb(item.get(name_of_field), limit):
+                    entry[name_of_field] = value
+        if isinstance(item.get("sha256"), str) and HASH.fullmatch(item["sha256"]):
+            entry["sha256"] = item["sha256"]
         shown.append(entry)
     return shown

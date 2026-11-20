@@ -17,6 +17,7 @@ answer_confirm / request_stop。
 from __future__ import annotations
 
 import threading
+import time
 from bisect import bisect_right
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -180,6 +181,12 @@ class WebUI:
         if open_turns > 0:
             self.publish("turn_end")  # 保存的内容停在一轮中间：补上结尾，免得页面以为还在进行
 
+    def user_events(self) -> list[dict]:
+        """当前会话里用户发的每一条消息（日志里的事件本身，不复制）。多媒体库靠它列出当前这段会话里的附件：
+        这段会话可能还没存进文件（第一轮还没结束，或者存盘失败了），文件里的就不全。"""
+        with self._changed:
+            return [event for event in self._events if event["type"] == "user"]
+
     def hint(self, text: str, level: str = "info") -> None:
         """一句只显示、不保存的提示。"""
         self.publish("notice", level=level, transient=True, **said(text))
@@ -190,9 +197,10 @@ class WebUI:
         with self._changed:
             self._stop_requested = False
             self._drop_stale_states()
-        # 附件只放概要（名字、大小、小预览图）：事件会存进会话文件、每次刷新都要重发，放不下几十 MB 的原件。
-        # 原件在对话历史里，发给模型用
-        extra = {"attachments": [item.summary() for item in attachments]} if attachments else {}
+        # 附件只放概要（名字、大小、小预览图、原件的编号）：事件会存进会话文件、每次刷新都要重发，放不下几十 MB 的原件。
+        # 原件在多媒体库里（见 media.py），也在对话历史里（发给模型用）。
+        # at：什么时候发的，多媒体库按它排序、分组（"今天""昨天"）
+        extra = {"attachments": [item.summary() for item in attachments], "at": round(time.time(), 3)} if attachments else {}
         self.publish("user", text=user_text, **extra)
         self.publish("turn_start")
 
