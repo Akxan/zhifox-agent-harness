@@ -107,8 +107,10 @@ class Agent:
                     self.ui.info(t("模型拒绝了这个请求，这一轮对话已撤销。可以换个说法再试。"))
                 return
 
-            if step.status == "paused":
-                continue  # 服务器端的工具（联网搜索）还没做完，原样再请求一次让它接着做
+            if step.status in ("paused", "compacted"):
+                # paused：服务器端的工具（联网搜索）还没做完，原样再请求一次让它接着做。
+                # compacted：适配层刚把较早的对话压缩成了摘要（那次调用的用量上面已经记下），现在才发真正的请求
+                continue
 
             if not step.tool_calls:
                 if step.truncated:

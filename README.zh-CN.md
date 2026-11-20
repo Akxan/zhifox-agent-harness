@@ -201,6 +201,7 @@ uv run --project "/这个项目的完整路径" harness
 | 工具 | [harness/tools/](harness/tools/) | 模型不能执行操作。工具替它执行，再把结果告诉它 |
 | 模型适配层 | [harness/providers/](harness/providers/) | 各家 API 的格式不一样。适配层把差别包起来，循环不用关心背后是哪一家 |
 | 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
+| 压缩历史 | [harness/providers/compaction.py](harness/providers/compaction.py) | 历史每轮整段重发，越聊越贵，最后超出模型的上限。GPT、Gemini、DeepSeek 的对话太长时，请模型把较早的部分写成摘要（Claude 由 API 自己压缩） |
 | 会话存档 | [harness/conversations.py](harness/conversations.py) | 程序关掉后内存里的对话历史就没了。把它存成文件，下次读回来就能接着聊 |
 | 会话搜索 | [harness/search.py](harness/search.py) | 会话多了以后找不到。把每段会话里的文字放进内存，按标题和内容搜，允许不完全一样 |
 | 附件 | [harness/attachments.py](harness/attachments.py)、[harness/documents.py](harness/documents.py) | 模型只收几种文件。每个附件发出去之前都检查一遍，Word、Excel、PowerPoint 先变成文字 |
@@ -324,6 +325,7 @@ harness 看到后去执行，再把结果作为一条新消息放回历史里：
 有一条规矩贯穿始终：**历史只在末尾追加，前面的内容从不修改**。
 原因写在 [harness/providers/claude.py](harness/providers/claude.py) 里 `AnthropicBackend.__init__` 的注释中，简单说就是改了前面会让缓存失效（变贵），
 还会让模型之前的思考内容无法通过 API 的校验（请求被拒绝）。
+唯一的例外是 GPT、Gemini、DeepSeek 的对话太长时的压缩，见[对话太长了怎么办](#对话太长了怎么办压缩历史)。
 
 ### 一个循环，多家模型
 
@@ -347,10 +349,44 @@ GPT、Gemini、DeepSeek 都支持这套格式，只是服务器地址不同，�
 | 工具调用 | 回复里的一个"内容块" | 助手消息上的 `tool_calls` 字段，参数是一段 JSON 文本 |
 | 工具结果 | 所有结果合在一条消息里 | 每个结果单独一条消息 |
 | 联网搜索 | 有，在 Anthropic 的服务器上执行 | 没有 |
-| 对话太长时 | 自动把较早的内容压缩成摘要 | 不处理 |
+| 对话太长时 | 由 API 在服务器上把较早的内容压缩成摘要 | 由智狐请模型写摘要，换掉较早的内容（见下一节） |
 | 缓存 | 由我们在请求里标记 | 各家自动处理 |
 
 要接入另一家支持 OpenAI 格式的厂商，在 [harness/providers/\_\_init\_\_.py](harness/providers/__init__.py) 的 `PROVIDERS` 里加一项就够了。
+
+### 对话太长了怎么办：压缩历史
+
+每一轮都要把整段历史重发一遍，所以对话越长，每一轮越贵；长到超过模型一次能读的上限（上下文窗口），
+请求就会被拒绝，这段对话就聊不下去了。办法是压缩：把较早的内容换成一份摘要，只留最近几轮的原文。
+
+Claude 的压缩由 Anthropic 的 API 在服务器上完成（请求里带着 `context_management`，见 [claude.py](harness/providers/claude.py)），
+我们这边的历史仍然只追加。OpenAI 格式的接口没有这个功能，所以 GPT、Gemini、DeepSeek 的压缩由智狐自己做，
+代码在 [harness/providers/compaction.py](harness/providers/compaction.py)：
+
+1. **什么时候压缩。** 每次请求回来，用量里写着这一次输入和输出一共多少 token，也就是这段对话现在占了多大的上下文。
+   它超过模型上限的 70%，下一次请求之前就先压缩。剩下的 30% 要装得下下一条消息、工具的结果和模型的回复。
+2. **切在哪里。** 切口只落在两轮之间，也就是你的某一条消息前面。工具调用和它的结果总在同一轮里，所以永远在切口的同一边，
+   历史里不会出现"有调用、没结果"的情况（API 会拒绝这样的请求）。最近两轮（正在进行的这一轮也算）原样保留。
+3. **请谁写摘要。** 就是正在对话的那个模型。切口之前的那一段原样发过去，末尾加一条指令请它写摘要（指令写在 `compaction.py` 里）。
+   原样发是为了命中缓存：这一段之前每一轮都发过，开头一字不差，按低得多的缓存价计费。
+   这次调用的用量和平时一样记下来，算进估算的费用里。
+4. **换成什么。** 系统提示词，一条装着摘要的用户消息和一条助手的确认（这样历史仍然是你一句、它一句；有的模型不接受连着两条用户消息），
+   再接上最近几轮的原文。被压缩的那一段里如果有附件，原件不再保留，只留一句话说你发过哪些文件。
+   之后又太长时再压缩一次，上一份摘要会被合进新的摘要里。
+
+这是"历史只在末尾追加"这条规矩唯一的例外，所以边界划得很清楚：只有 OpenAI 格式的适配层这样做；
+只换切口之前的部分，系统提示词和最近几轮一个字不动；只在两次请求之间做。历史因此变短了，`mark` 记下的位置也跟着换算，
+出错时撤回这一轮，撤掉的仍然正好是这一轮。代价是一次缓存失效：压缩之后的第一次请求开头变了，要按原价付一次，
+之后新的开头又会被缓存起来。换来的是历史不再无限变长。
+
+界面上会出现两句提示：一句说正在请模型写摘要，做完后另一句告诉你之后每一轮大约少发多少 token。
+写摘要失败了（比如网络断了、服务器太忙），提示里会说明原因，这一轮照常进行，下一轮再试。
+保存的会话里，`messages`（发给模型的那一份）是压缩过的，重新打开时接着摘要聊；`events`（页面上显示过的那一份）一点不少，
+所以重放和搜索看到的仍然是完整的对话。
+
+能调的数都在 [harness/config.py](harness/config.py) 里：`ENABLE_OPENAI_COMPACTION`（改成 `False` 就不压缩）、
+`CONTEXT_WINDOWS`（各个模型的上限，DeepSeek 的两个模型是 100 万 token）、`DEFAULT_CONTEXT_WINDOW`
+（不在表里的模型按 12.8 万 token 算，宁可早一点压缩）、`COMPACTION_THRESHOLD`（0.7）、`COMPACTION_KEEP_TURNS`（2）。
 
 ### 会话是怎么保存和恢复的
 
@@ -543,7 +579,7 @@ API 按 token 计费（一个汉字大约 1 到 2 个 token）。因为每次请
 - **缓存**：重复发送的部分命中缓存后便宜很多（Claude 约为原价的二十分之一）。
   缓存只保留几分钟，所以隔了一阵再接着聊一段很长的旧会话时，第一条消息要按整段历史的原价计费。
   打开超过 3 万 token 的旧会话时，页面会提示一下。
-- **自动压缩**：和 Claude 的对话特别长时，较早的内容会被压缩成摘要。
+- **自动压缩**：对话特别长时，较早的内容会被压缩成摘要，之后每一轮少发很多 token。Claude 由 API 自己压缩；GPT、Gemini、DeepSeek 由智狐请同一个模型写摘要，这次调用也算进估算的费用（见[对话太长了怎么办](#对话太长了怎么办压缩历史)）。
 - **附件**：图片按大小计费，每 28×28 像素算一个 token，一张满尺寸的截图最多约 4800 个 token（用 Opus 5.5 约 2 美分）；
   PDF 每页大约 1500 到 3000 个 token；Word、Excel、PowerPoint 按取出来的文字计费。附件和其他历史一样，每一轮都会重新发给模型，靠缓存才便宜。
 - 随时可以点"停止"，或者用"新对话"把历史清零。
@@ -620,7 +656,7 @@ uv run pytest
 是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
-会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)。
+会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)。
 
 页面本身（`index.html` 里的样式和脚本）没有自动化测试，每次改动后是在真实的浏览器里对着假服务器手动操作检查的。
 
@@ -634,7 +670,10 @@ uv run pytest
 
 - 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
 - GPT 和 Gemini 没有用真实的密钥实测过（见上面"支持的模型"）。
-- 用 GPT、Gemini、DeepSeek 时没有联网搜索，对话太长时也不会自动压缩。
+- 用 GPT、Gemini、DeepSeek 时没有联网搜索。
+- GPT、Gemini、DeepSeek 的压缩是智狐自己做的，还没有用真实的密钥测过。摘要难免丢掉细节；切口只能落在两轮之间，
+  所以一轮对话自己就超出模型的上限时（比如一轮里读了很多大文件）压缩不了；不在 `config.py` 表里的模型一律按 12.8 万 token 的上限算，
+  上限更大的模型会压缩得早一些。打开一段旧会话后，要等第一次请求量出它有多大，才知道要不要压缩。
 - 附件只能在网页界面里发，终端界面不行。GPT 和 Gemini 看图片、GPT 读 PDF 没有用真实的密钥测过；Gemini 和 DeepSeek 读不了 PDF。
 - GPT 走的是 Chat Completions 接口。OpenAI 的个别新模型如果只支持它的另一套接口，在这里用不了。
 - Claude 的模型只列出程序适配过的三个，Anthropic 的其他模型接受的参数不完全一样。
