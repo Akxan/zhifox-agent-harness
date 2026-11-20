@@ -20,6 +20,8 @@
   POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / Claude Code 安装（见 skills_api.py）
   POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
+  POST /api/mcp/...    MCP 服务器：查看详情、添加或编辑、删除、启用停用、重启、改"问不问你"、
+                       从 Claude Desktop / Claude Code 导入、粘贴 JSON（见 WebApp 的"MCP"一节）
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
@@ -75,6 +77,8 @@ from ..budget import valid_budget
 from ..config import APP_NAME, LEDGER_CHART_DAYS, MAX_PROMPT_CHARS, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
+from ..mcp import ConfigError
+from ..mcp import importers as mcp_imports
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
 from ..pricing import estimate, price_of
@@ -87,7 +91,7 @@ from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
-from .ui import WebUI, latest_state_only
+from .ui import WebUI, latest_state_only, said
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
@@ -154,7 +158,9 @@ class WebApp:
         # 定时任务：到时间了自己跑一轮（和你的对话轮流用 self._turn），或者弹出一条提醒。见 scheduler.py
         self.tasks = Scheduler(self, self._turn)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
+        ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
+        app.mcp.on_change = self.publish_state  # MCP 服务器连上了、断开了、工具变了，页面上跟着变
         if app.tasks.problem:
             ui.hint(app.tasks.problem, level="error")  # 任务文件读不出来：说一声，原来的文件留在哪儿
         self.publish_state()
@@ -220,7 +226,8 @@ class WebApp:
             cost=round(cost, 4),
             unpriced=unpriced,
             spend=self.app.spending(),  # 今天、本月花了多少，预算超了没有（这些记在账本里，重启也不会清零）
-            tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
+            tools=[{"name": name, "local": local} for name, local in self.app.tool_names()],
+            mcp=self._mcp_state(),
             approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
@@ -228,6 +235,22 @@ class WebApp:
             tasks=tasks,
             reminders=reminders,
         )
+
+    def _mcp_state(self) -> dict:
+        """MCP 服务器的概况。密钥只有名字和最后几位（见 mcp/config.py 的 display），工具的详情点开时另外取。"""
+        mcp = self.app.mcp
+        started = bool(self.app.agent.backend.export())  # 这段对话发过消息了没有：发过了，工具就定下来了
+        servers = mcp.status(started)
+        for item in servers:
+            item["error"] = said(item["error"]) if item["error"] else None
+        problem = mcp.config.problem
+        return {
+            "servers": servers,
+            "problem": said(problem) if problem else None,
+            "file": str(mcp.config.path),
+            "started": started,
+            "dropped": mcp.active.dropped if started else 0,
+        }
 
     def _models(self, provider_id: str) -> list[str]:
         """一家可以选择的模型：同步到的列表；Claude 在同步之前先用内置的几个。"""
@@ -569,6 +592,80 @@ class WebApp:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=folder), ""
         return "", str(folder)
 
+    # ---- MCP --------------------------------------------------------------
+    # 这些操作不拿对话的锁：对话进行中也可以添加、停用、重启服务器。正在进行的这段对话用的是开始时拍下的
+    # 快照（见 mcp/manager.py），不受影响；快照里的服务器被停掉了，调用它的工具会得到一个说清楚原因的错误。
+    #
+    # 保存一个 stdio 服务器，就是让这台电脑去运行你填的那个命令。所以守这几条：只有带着口令的这个页面能做；
+    # 命令用参数列表启动、不经过 shell；模型没有任何工具能添加或修改服务器（mcp.json 文件工具也碰不了）。
+
+    def mcp_detail(self, name: str) -> tuple[str, dict]:
+        try:
+            return "", self.app.mcp.detail(name)
+        except ConfigError as exc:
+            return str(exc), {}
+
+    def mcp_change(self, action, *args) -> str:
+        """改 MCP 的配置（保存、删除、启用、重启、改"问不问"）。成功返回空字符串，否则返回原因。"""
+        try:
+            action(*args)
+        except ConfigError as exc:
+            return str(exc)
+        except OSError as exc:
+            return t("保存配置文件失败：{error}", error=exc)
+        return ""
+
+    def mcp_scan(self) -> list[dict]:
+        """去读 Claude Desktop 和 Claude Code 的配置，列出可以导入的服务器（密钥遮住）。只在你点了"导入"时才读。"""
+        found = mcp_imports.sources(self.app.config.workspace)
+        listed = mcp_imports.preview(found, self.app.mcp.config)
+        for source in listed:
+            source["label"] = t(source["label"])
+        return listed
+
+    def mcp_import(self, picks: list[tuple[str, str]]) -> tuple[str, list[str], list[str]]:
+        """导入勾选的那些。配置的内容在这里重新从文件里读，页面只给了"哪个来源的哪个名字"。"""
+        found = {source.id: source for source in mcp_imports.sources(self.app.config.workspace)}
+        added, skipped = [], []
+        for source_id in dict.fromkeys(source for source, _ in picks):
+            source = found.get(source_id)
+            names = [name for source, name in picks if source == source_id]
+            if source is None or not source.servers:
+                skipped += [t("没有找到“{name}”。", name=name) for name in names]
+                continue
+            try:
+                more, missed = mcp_imports.apply(self.app.mcp.config, source.servers, names)
+            except (ConfigError, OSError) as exc:
+                return str(exc), added, skipped
+            added, skipped = added + more, skipped + missed
+        self.app.mcp.sync(restart=frozenset(added))
+        return "", added, skipped
+
+    def mcp_paste(self, text: str, names: list[str] | None) -> tuple[str, dict]:
+        """粘贴的 JSON：names 为 None 时只是看看里面有什么；给了 names 就把这几个加进来。"""
+        try:
+            servers = mcp_imports.parse_pasted(text)
+            if names is None:
+                listed = mcp_imports.preview([mcp_imports.Source("paste", "", Path(), servers, True)], self.app.mcp.config)
+                return "", {"servers": listed[0]["servers"]}
+            added, skipped = mcp_imports.apply(self.app.mcp.config, servers, names)
+        except (ConfigError, OSError) as exc:
+            return str(exc), {}
+        self.app.mcp.sync(restart=frozenset(added))
+        return "", {"added": added, "skipped": skipped}
+
+    def mcp_reveal(self) -> tuple[str, str]:
+        """在文件管理器里显示 mcp.json（还没有的话打开数据目录）。路径是程序自己定的，浏览器什么都指定不了。"""
+        target = self.app.config.mcp_file
+        if not target.exists():
+            target = self.app.config.data_dir
+            private_dir(target)
+        try:
+            reveal_in_file_manager(target)
+        except OSError as exc:
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
+        return "", str(target)
+
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
@@ -818,6 +915,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/skill/"):
             status, payload = web.skills.route(path.removeprefix("/api/skill/"), body)
             self._send_json(status, payload)
+        elif path.startswith("/api/mcp/"):
+            self._route_mcp(path.removeprefix("/api/mcp/"), body)
         elif path == "/api/prompt":
             self._send_json(200, {"ok": True, **web.prompt_info()})
         elif path in ("/api/prompt/save", "/api/prompt/reset"):
@@ -937,6 +1036,63 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json(404, {"error": "not found"})
 
+    def _route_mcp(self, action: str, body: dict) -> None:
+        web = self.server.web
+        mcp = web.app.mcp
+        name = body.get("name")
+        bad = lambda: self._send_json(400, {"error": t("参数不正确")})
+        if action == "refresh":  # 页面打开了 MCP 这一页：配置文件被你手动改过的话，照着新的同步
+            mcp.refresh()
+            self._send_json(200, {"ok": True})
+        elif action == "scan":
+            self._send_json(200, {"ok": True, "sources": web.mcp_scan()})
+        elif action == "reveal":
+            error, shown = web.mcp_reveal()
+            self._answer(error, path=shown)
+        elif action == "import":
+            picks = body.get("picks")
+            if not isinstance(picks, list) or not picks or len(picks) > 200 or not all(
+                isinstance(pick, dict) and isinstance(pick.get("source"), str) and isinstance(pick.get("name"), str) for pick in picks
+            ):
+                bad()
+                return
+            error, added, skipped = web.mcp_import([(pick["source"], pick["name"]) for pick in picks])
+            self._answer(error, added=added, skipped=skipped)
+        elif action == "paste":
+            text, names = body.get("text"), body.get("names")
+            if not isinstance(text, str) or not (names is None or (isinstance(names, list) and all(isinstance(item, str) for item in names))):
+                bad()
+                return
+            error, data = web.mcp_paste(text, names)
+            self._answer(error, **data)
+        elif action == "save":
+            original, form = body.get("original"), body.get("server")
+            if not (original is None or isinstance(original, str)) or not isinstance(form, dict):
+                bad()
+                return
+            self._finish(web.mcp_change(mcp.save, form, original))
+        elif not isinstance(name, str):
+            bad()
+        elif action == "detail":
+            error, detail = web.mcp_detail(name)
+            self._answer(error, server=detail)
+        elif action == "delete":
+            self._finish(web.mcp_change(mcp.remove, name))
+        elif action == "restart":
+            self._finish(web.mcp_change(mcp.restart, name))
+        elif action == "enable" and isinstance(body.get("enabled"), bool):
+            self._finish(web.mcp_change(mcp.set_enabled, name, body["enabled"]))
+        elif action == "approval" and body.get("approval") in ("ask", "auto") and (body.get("tool") is None or isinstance(body.get("tool"), str)):
+            self._finish(web.mcp_change(mcp.set_approval, name, body.get("tool"), body["approval"]))
+        else:
+            bad()
+
+    def _answer(self, error: str, **data: object) -> None:
+        """和 _finish 一样的约定，成功时带上 data。"""
+        if error:
+            self._send_json(409, {"error": error})
+        else:
+            self._send_json(200, {"ok": True, **data})
     def _route_task(self, web: WebApp, action: str, body: dict) -> None:
         """定时任务的几个操作。参数不对回答 400，现在做不了（任务不存在、已经在运行……）回答 409。"""
         tasks, task_id = web.tasks, body.get("id")
@@ -973,6 +1129,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
         except TaskRefused as exc:
+            # 做不了，常常是因为页面看到的已经过时了：任务文件可能被别的程序改过（终端版、重启前的旧进程），
+            # 而页面只在有改动时才收到新状态。所以先把最新的状态发过去，页面上那一行才不会一直留着、怎么删都删不掉
+            web.publish_state()
             self._send_json(409, {"error": i18n.message_of(exc)})
         except TaskError as exc:
             self._send_json(400, {"error": i18n.message_of(exc)})
@@ -1205,10 +1364,12 @@ def shut_down(server: Server, app: App) -> None:
     server.web.tasks.close()
     server.web.stop()
     app.shell.kill_running()
+    app.mcp.cancel_running()
     # stop() 只是通知这一轮尽快收尾，收尾（包括存盘）是在另一个线程里做的。不等它的话，程序一退出那个线程就没了：
     # 这一轮里助手已经做过的事（执行过的命令、改过的文件）在保存的会话里不留一点记录。
     # 模型一直没有输出时等不到它停下，所以只等有限的几秒。
     server.web.wait_idle(SHUTDOWN_WAIT_SECONDS)
+    app.close()  # 关掉 MCP 服务器的进程
     server.server_close()
 
 

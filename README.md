@@ -62,6 +62,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   edit, rename or delete any memory, or show its file in Finder.
 - ✍️ **Your own system prompt.** Edit the built-in prompt in Settings, with placeholders and a preview of exactly what
   the model receives; changes apply from the next conversation.
+- 🧩 **MCP, written by hand.** Connect any [Model Context Protocol](https://modelcontextprotocol.io) server, local
+  (stdio) or remote (Streamable HTTP), and its tools become the model's tools. The client speaks both the current
+  stateless protocol (2026-07-28) and the older handshake-based one; every call asks you first unless you mark that
+  tool "don't ask", and servers already set up in Claude Desktop or Claude Code can be imported in one click.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
@@ -199,6 +203,7 @@ Each part of the harness has its own file or directory:
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
+| MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that takes turns with you and pauses for approval, and the tools that set one up from a sentence |
@@ -533,6 +538,70 @@ Claude learned the specs of the second kind during training, so for Claude a one
 providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them; the code
 that runs is the same. Tools of the third kind live on Anthropic's servers, so other providers' models can't use them.
 
+A fourth kind arrives through MCP: the spec is written by whoever made the MCP server, and the tool runs in their
+program, on your computer or on a remote service. Every provider can use them.
+
+### MCP: tools written by someone else
+
+The tools above are part of this program. [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open
+protocol for everything else: anyone can package a set of tools (GitHub, a database, a browser…) as an *MCP server*, and
+any assistant that speaks MCP, a *client*, can connect to it and hand those tools to its model. ZhiFox is a client,
+written by hand in [harness/mcp/](harness/mcp/) without the official SDK, one file per concern:
+
+| File | What it does |
+|---|---|
+| [jsonrpc.py](harness/mcp/jsonrpc.py) | The envelope: requests, replies and notifications (JSON-RPC 2.0), and waiting for a reply with a timeout |
+| [stdio.py](harness/mcp/stdio.py) | Local servers: start the program, one JSON message per line on its stdin and stdout, keep its stderr as a log |
+| [http.py](harness/mcp/http.py) | Remote servers: every message is an HTTP POST, and the reply is JSON or a stream of server-sent events |
+| [client.py](harness/mcp/client.py) | The protocol itself: find out which generation the server speaks, list its tools page by page, call them |
+| [bridge.py](harness/mcp/bridge.py) | MCP tool ↔ ZhiFox tool: names, parameter schemas and results |
+| [manager.py](harness/mcp/manager.py) | Starting, stopping and restarting servers, their status, and the per-conversation snapshot |
+| [config.py](harness/mcp/config.py), [importers.py](harness/mcp/importers.py) | `data/mcp.json`, hiding secrets from the page, importing from Claude Desktop and Claude Code |
+
+A call travels like this:
+
+```
+model: "call mcp__github__search_issues with {...}"
+  └─► agent.py        like any other tool: the permission check (asks you by default), then run it
+        └─► manager.py      find the connection to the github server
+              └─► client.py      wrap it in a tools/call request
+                    └─► stdio.py / http.py   write it to the server's stdin, or POST it to its URL
+                    ◄── the server's reply
+        ◄── bridge.py       turn the text and images in the reply into the result the model sees
+```
+
+**Two generations of the protocol.** Up to version 2025-11-25, a connection began with a handshake: the client sent
+`initialize` with the version it supports, the server answered with the version and capabilities it chose, the client
+confirmed with `notifications/initialized`, and that agreement held for the whole connection. Since 2026-07-28 MCP is
+*stateless*: there is no handshake, and every request carries its protocol version, the client's name and its
+capabilities in `params._meta`, so the server can handle any request on its own. Servers of both kinds are in use, so
+ZhiFox speaks both. It first asks `server/discover` the new way. An answer, or an error only new servers use (such as
+"unsupported version"), means a new server. Any other error, or silence, means an old one, and ZhiFox falls back to the
+handshake. Some local servers start slowly (`npx` downloads the package the first time), so after a few seconds of
+silence ZhiFox sends `initialize` as well and goes with whichever succeeds first.
+
+**Tools are frozen for a conversation.** Every request starts with the tool specs, and Claude caches requests by their
+beginning: change one tool halfway through a conversation and the cache for the whole conversation is lost, and Claude's
+earlier thinking no longer matches what came before it. MCP servers, though, connect, disconnect and change their tools
+whenever they like. So when a conversation sends its first message, ZhiFox takes a snapshot of the tools of the servers
+connected at that moment, and the conversation keeps that snapshot to the end. A server that connects or changes later
+is used from the next conversation, and its row in the MCP tab says **Next conversation** until then. If a server in the
+snapshot goes away, calling its tool returns an error that says so, and the model tries something else.
+
+**Translating names, schemas and results.** Providers accept tool names of at most 64 characters made of letters,
+digits, `_` and `-`, and two servers may both have a tool called `search`. ZhiFox names each one
+`mcp__<server>__<tool>`, replaces other characters with `_`, and shortens long names with a short hash so they stay
+unique. Each description starts by saying which server the tool comes from. Parameter schemas pass through, minus what
+providers reject: Claude refuses `anyOf` at the top level, and Gemini refuses `$ref` and `$schema`, so for the
+OpenAI-format providers references are expanded in place. In results, text goes to the model, images go to it as images
+when the model can see them, embedded resources become text, a structured result is written out as JSON when the server
+sent no text, and `isError` marks the result as failed so the model can correct itself.
+
+**Stop, timeouts and crashes.** **Stop** cancels the call in progress: on stdio ZhiFox sends `notifications/cancelled`;
+over HTTP it hangs up that request (and also sends the notification to old servers). A call that takes longer than
+5 minutes is cancelled the same way (change it per server with `"timeout": seconds` in `data/mcp.json`). A local server
+that crashes is restarted automatically, at most 3 times in 10 minutes. When a server announces that its tool list
+changed (`notifications/tools/list_changed`), ZhiFox fetches the list again in the background.
 ### Skills
 
 A model knows a little about everything but nothing about how *you* want a particular kind of task done. Repeating the
@@ -619,6 +688,13 @@ or `hooks`, are kept in the file untouched.
 | Creating or changing any file | Asks you first, and shows what will be written |
 | Running any shell command | Asks you first, and shows the full command |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
+| Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
+
+An MCP tool is someone else's program. ZhiFox can't see what it does, and what it says about itself ("read-only")
+isn't verified, so every call asks by default. In **Extensions → MCP** you can mark one tool, or a whole server, as
+**don't ask**. That is your decision about one specific tool, so it is saved in `data/mcp.json` and applies in every
+mode, and those calls are still marked **Allowed automatically** in the conversation. The one exception is a scheduled
+task running on its own: like everything else that would ask, an MCP call then waits for your approval.
 
 Reading `data/` always asks because otherwise the model could quietly read every past conversation and send it to the
 provider you're using now, whether because you asked "what files are in this folder?" or because a web page misled it.
@@ -758,6 +834,18 @@ This starts a small server on your computer and opens the chat page in your brow
   Everything is shown to you before it's installed, with a reminder that the assistant follows a skill's instructions,
   so you should install only from sources you trust. Changes take effect from your next message. Like memory edits,
   changing, deleting or installing a skill waits until the current turn ends.
+- **Extensions → MCP** (the puzzle-piece button at the top right). The MCP servers ZhiFox connects to, each with its
+  status (connecting, connected, failed with the reason and the last line the server printed, or disabled), its
+  number of tools and an on/off switch. Hovering over a row (or moving to it with Tab) shows **Restart** and the same
+  three buttons as a conversation row: **Show in Finder** (`data/mcp.json`), **Edit** and **Delete** (confirmed in
+  place). Click a server to see how it's connected, which protocol generation it speaks, every tool with its
+  description and a **don't ask** switch, and its log. **Add server** opens a form: a local program (command, one
+  argument per line, working folder, environment variables) or a URL (with headers such as `Authorization`).
+  Secret values are typed into password fields, and afterwards the page shows only their last 4 characters; leave one
+  blank when editing to keep it. **Paste JSON** takes a configuration copied from Claude Desktop, Claude Code, Cursor
+  or VS Code, and **Import from Claude** lists the servers configured in Claude Desktop and Claude Code (read only when
+  you open that page) so you can tick the ones to copy. Changes apply from the next conversation (see
+  [MCP](#mcp-tools-written-by-someone-else)).
 - **Appearance and motion** (the sun/moon button at the top right). A small panel with two rows:
   - **Appearance:** Light by default. You can switch to Dark, or to Match system.
   - **Motion:** follows your system setting by default (on macOS, System Settings → Accessibility → Display → Reduce
@@ -868,6 +956,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/tools` | Show the tools the model can use |
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
+| `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
@@ -900,6 +989,7 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat or scheduled task, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
+| `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
@@ -913,13 +1003,24 @@ Conversation content is sent to the API of the provider you chose, so the model 
 deletes its file too.
 
 To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. The **Show in Finder**
-buttons (on conversations, memories, tasks, to-dos, the prompt and skills, plus the memory and skill folder buttons)
+buttons (on conversations, memories, tasks, to-dos, the prompt, MCP servers and skills, plus the memory and skill
+folder buttons)
 are the only ones on the page that make your computer launch another program (the file manager), so the server is
 extra careful with them: the page can only tell the server *which conversation*, *which memory* (a name from the list,
 checked as described below), *which skill* (a single folder name that must exist inside `data/skills/`), which of the
-assistant's own data files (`tasks`, `todos` or `prompt`), or, for the memory and skill folders, nothing at all; the
+assistant's own data files (`tasks`, `todos` or `prompt`), or, for the memory and skill folders and `data/mcp.json`,
+nothing at all; the
 server works out the path itself, and the page has no way to make it open any other path. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
 the file.
+
+Saving a local MCP server means ZhiFox will run that command on your computer, now and at every launch. The safeguards:
+only the page holding this run's token can save one; the command is started from an argument list, never through a
+shell, so nothing in an argument is treated as part of a command; the model has no tool that adds or changes servers,
+and its file tool can't touch `data/mcp.json` in any mode; the programs don't receive your model API keys, and a
+configuration that tries to pass one on (`${ANTHROPIC_API_KEY}`) is refused; the values of environment variables and
+headers never reach the browser, only their last 4 characters; and Claude's configuration files are read only when you
+open the import page, and only the servers you tick are copied. Arguments of an MCP tool call go to that server, which
+may be on the internet, so check them on the approval card.
 
 Reading, editing and deleting a memory from the info panel are guarded the same way. The page sends back the name it was shown
 (such as `projects/zhifox.md`), and the server walks from the memory folder down to that file one step at a time. It
@@ -1075,9 +1176,11 @@ half-written last line, merging old entries), the export in [tests/test_export.p
 ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). Scheduled
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
-server with a fake clock, so no test waits for 9 a.m.). Skills (the frontmatter parser, hostile archives, downloads
-against a local HTTPS server, how the list reaches the model without changing the start of the request) are in
-[tests/test_skills.py](tests/test_skills.py).
+server with a fake clock, so no test waits for 9 a.m.).
+MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
+over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
+Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
+without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -1090,8 +1193,9 @@ by hand in a real browser against the fake servers.
 
 To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
 the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
-doesn't touch your keys or `data/`. It comes with a few made-up skills, and its **Import from Claude Code** looks at a
-fake `~/.claude/skills` inside that temporary directory.
+doesn't touch your keys or `data/`. It also comes with a few fake MCP servers already connected (one of them broken,
+one disabled) and a few made-up skills, and its **Import from Claude** (MCP) and **Import from Claude Code** (skills)
+read made-up Claude configurations and a fake `~/.claude/skills` from the temporary directory, not yours.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
@@ -1132,6 +1236,12 @@ page.
   (`$ARGUMENTS`, `$0`), `!` command blocks, `context: fork`, `hooks` and other Claude Code-only fields are kept in the
   file but ignored. Installing from a URL works only for public https links up to 20 MB, so for a private GitHub
   repository, download it and use Upload.
+- MCP: only tools are supported, not MCP resources or prompts. OAuth sign-in for remote servers isn't supported; servers
+  that accept a token work with an `Authorization: Bearer …` header. The deprecated HTTP+SSE transport isn't supported.
+  A tool that needs to ask you something mid-call (elicitation) fails with an explanation, and ZhiFox never lets a
+  server use its model (sampling). Images returned by MCP tools go to the model but aren't shown in the page.
+  The instructions a server writes for the model are shown to you but not given to the model. A server that connects
+  or changes during a conversation is used from the next one. Tested against fake servers only, not real third-party ones.
 - **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
   still thinking and has produced nothing, it won't stop immediately.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
@@ -1144,8 +1254,7 @@ page.
 - Let the terminal UI save and open conversations too.
 - Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
 - Add a locally run search tool for models that don't support web search.
-- Connect calendars, email and other external services through MCP.
-- Tick off to-dos directly in the web sidebar.
+- MCP resources and prompts, and OAuth sign-in for remote MCP servers.
 - Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
@@ -1163,8 +1272,9 @@ file. Use it to learn how an LLM agent works, or as a starting point you underst
 
 Only what the model needs to answer. Your messages, the conversation history and tool results (for example, the contents
 of a file the assistant reads) go to the API of the provider you chose; with Claude, web searches also run on Anthropic's
-servers. Saved conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded
-anywhere else. The web UI's server accepts connections from your own machine only. See
+servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. Saved
+conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
+The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
 
 ### Which models does it support?
