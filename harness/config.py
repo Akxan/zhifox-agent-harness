@@ -74,6 +74,11 @@ class Config:
     def conversations_dir(self) -> Path:
         return self.data_dir / "conversations"
 
+    @property
+    def media_dir(self) -> Path:
+        """多媒体库：发过的附件的原件，一个文件一份（见 media.py）。"""
+        return self.data_dir / "media"
+
 
 def load_env_file(path: Path) -> None:
     """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""

@@ -16,6 +16,9 @@
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
+  POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
+  POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
+  POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
@@ -44,18 +47,20 @@ import subprocess
 import sys
 import threading
 import webbrowser
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import i18n, memories
+from .. import i18n, media, memories
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
 from ..config import APP_NAME, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
+from ..media import Entry, MediaError
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
 from ..pricing import estimate, price_of
@@ -83,8 +88,9 @@ def reveal_in_file_manager(path: Path) -> None:
     """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
-    路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories 和 show_memory：浏览器只能给
-    会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹），或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
+    路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory 和 reveal_media：浏览器只能给
+    会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、附件的编号（查过格式，文件名由内容的
+    SHA-256 定），或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
     if sys.platform == "darwin":
         command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
@@ -122,9 +128,13 @@ class WebApp:
         self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
         self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
+        self._live: tuple[object, tuple[Entry, ...]] = (None, ())  # 当前会话里的附件，和算它时的依据（见 _live_media）
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         self.publish_state()
+        # 上次运行时一轮做到一半就退出了（存了原件、会话却没来得及存盘），留下没人用的原件：启动时清一遍。
+        # 这时还没有开始接受请求，不会有哪一轮正在存新的原件
+        self._collect_media(None)
 
     def publish_state(self) -> None:
         """把页面要显示的状态（当前模型、各家的情况、待办、用量、费用）作为一个事件发给浏览器。
@@ -169,6 +179,8 @@ class WebApp:
             # 记忆文件夹里有哪些文件（只有名字、大小和修改时间，内容要看时另外读）。每次发状态都重新看一遍文件夹，
             # 所以模型在这一轮里记下或删掉的，下一次刷新状态时页面上就跟着变了，页面不用自己去轮询
             memories=self._memories_shown,
+            # 多媒体库里一共有多少个附件，和一个"版本"。版本变了，开着的多媒体一栏就重新取一次列表；页面不用轮询
+            media=self._media_state(),
             usage={
                 "requests": usage.requests,
                 "input": usage.input_tokens,
@@ -209,6 +221,7 @@ class WebApp:
     def _run_turn(self, text: str, attachments: list[Attachment]) -> None:
         try:
             self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
+            attachments = self._keep_originals(attachments)  # 原件存进多媒体库，概要里记上编号
             self.app.name_conversation(text, attachments)  # 新会话用第一句话当标题（没写字的话用第一个附件的名字）
             self.ui.begin_turn(text, attachments)
             self.publish_state()  # 让新会话马上出现在列表里
@@ -340,6 +353,10 @@ class WebApp:
         if not self._turn.acquire(blocking=False):
             return t(self.BUSY)
         try:
+            # 这段会话用过的原件。删完以后，别的会话不再用的就从多媒体库里删掉
+            used = self.app.store.media().hashes(conversation_id)
+            if conversation_id == self.app.conversation.id:
+                used |= {entry.sha256 for entry in self._live_media() if entry.sha256}
             try:
                 was_current = self.app.delete_conversation(conversation_id)
             except ConversationError as exc:
@@ -347,6 +364,7 @@ class WebApp:
             if was_current:
                 self._left()  # 删的就是当前这一段：它有没有存上都无所谓了
                 self.ui.reset()
+            self._collect_media(used)
             self.publish_state()
         finally:
             self._turn.release()
@@ -372,6 +390,93 @@ class WebApp:
         except OSError as exc:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
+
+    # ---- 多媒体 ------------------------------------------------------------
+    # 多媒体库的条目来自两处：保存过的会话（ConversationStore 维护的索引），和当前这一段（内存里的界面事件）。
+    # 当前这一段以内存为准：它可能还没存盘，或者刚发的附件还没来得及存进文件。
+
+    def _keep_originals(self, attachments: list[Attachment]) -> list[Attachment]:
+        """把附件的原件存进多媒体库。存不成也照样发这条消息，只是提醒一句。"""
+        if not attachments:
+            return attachments
+        kept, problem = self.app.media.keep(attachments)
+        if problem:
+            self.ui.hint(t("附件的原件没能存进多媒体库（{error}）。消息照常发送，只是以后在多媒体里下载不到原件。", error=problem), level="error")
+        return kept
+
+    def _live_media(self) -> tuple[Entry, ...]:
+        """当前会话里的附件。每发一次状态都要用（数一共有多少个），所以记着上一次算的结果：
+        只有换了会话、有了新消息、历史变长了（旧附件的内容可能要从历史里找）时才重算。"""
+        current, events = self.app.conversation, self.ui.user_events()
+        messages = self.app.agent.backend.messages
+        key = (current.id, current.created_at, tuple(event["id"] for event in events), len(messages))
+        cached_key, cached = self._live
+        if key != cached_key:
+            cached = tuple(media.entries_of(events, messages, current.created_at))
+            self._live = (key, cached)
+        return cached
+
+    def _media_sources(self) -> list[tuple[str, str, tuple[Entry, ...]]]:
+        """（会话编号，标题，附件）：保存过的会话，当前这一段换成内存里的样子。"""
+        current = self.app.conversation
+        sources = [(cid, title, entries) for cid, (title, entries) in self.app.store.media().snapshot().items() if cid != current.id]
+        live = self._live_media()
+        if live:
+            sources.append((current.id, current.title, live))
+        return sources
+
+    def _media_state(self) -> dict:
+        index, current, live = self.app.store.media(), self.app.conversation, self._live_media()
+        saved = sum(len(entries) for cid, (_, entries) in index.snapshot().items() if cid != current.id)
+        # 版本由这几样拼成：保存过的会话变了、换了当前会话、当前会话里多了附件、当前会话改了标题，都会让它变
+        version = f"{index.version}.{current.id}.{len(live)}.{zlib.crc32(current.title.encode('utf-8', 'replace')):08x}"
+        return {"count": saved + len(live), "version": version}
+
+    def media_list(self, kind: str, query: str, cursor: int, limit: int) -> dict:
+        """多媒体库的一页（见 media.listing）。只是读，对话进行中也可以看。"""
+        return media.listing(self._media_sources(), self.app.media.stored(), kind, query, cursor, limit)
+
+    def media_file(self, media_id: str) -> tuple[str, tuple[bytes, str, str] | None]:
+        """一个附件的内容：（失败的原因，（字节，类型，文件名））。"""
+        try:
+            conversation_id, entry = media.find(self._media_sources(), media_id)
+            if conversation_id == self.app.conversation.id:
+                messages = lambda: self.app.agent.backend.messages  # 当前这一段：历史就在内存里
+            else:
+                messages = lambda: self.app.store.load(conversation_id).messages  # 真要用到才读文件
+            return "", media.content_of(entry, self.app.media, messages)
+        except (MediaError, ConversationError) as exc:
+            return str(exc), None
+
+    def reveal_media(self, media_id: str) -> tuple[str, str]:
+        """在文件管理器里显示一个附件的原件。返回（失败原因，显示的路径）。
+
+        浏览器只给编号（格式在路由里查过）。原件的路径由服务器自己算：编号 → 索引里的条目 → 内容的 SHA-256 →
+        data/media/ 下的那个文件。和 reveal_conversation 一样只是看一眼，不改任何东西，所以不拿对话的锁。
+        """
+        try:
+            _, entry = media.find(self._media_sources(), media_id)
+        except MediaError as exc:
+            return str(exc), ""
+        target = self.app.media.find(entry.sha256) if entry.sha256 else None
+        if target is None:
+            return t("这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。"), ""
+        try:
+            reveal_in_file_manager(target)
+        except OSError as exc:
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
+        return "", str(target)
+
+    def _collect_media(self, candidates: set[str] | None) -> None:
+        """删掉没有会话再用的原件（见 MediaStore.collect）。删不掉只是多占点地方，不影响别的，所以不报错。"""
+        store = self.app.store
+        used = store.media().hashes() | {entry.sha256 for entry in self._live_media() if entry.sha256}
+        try:
+            # 读不出来的会话文件不在索引里，它们提到的原件也要留着
+            unreadable = [path for path in store.directory.glob("*.json") if not store.exists(path.stem)] if store.directory.is_dir() else []
+            self.app.media.collect(used, candidates, unreadable)
+        except OSError:
+            pass
 
     # ---- 记忆 --------------------------------------------------------------
 
@@ -678,6 +783,38 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, **memories.read(web.app.config.memory_dir, relative)})
                 except MemoryFileError as exc:
                     self._send_json(409, {"error": str(exc)})
+        elif path == "/api/media/list":
+            asked = _media_query(body)
+            if asked is None:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                # 只是读：内存里的索引，加上看一眼原件的目录。对话进行中也可以看
+                self._send_json(200, {"ok": True, **web.media_list(*asked)})
+        elif path == "/api/media/file":
+            media_id = body.get("id")
+            # 编号只能是"会话编号/第几排/第几张"：拼不出任何路径（读哪个文件由服务器自己定，见 media.py）
+            if not isinstance(media_id, str) or not media.ID.fullmatch(media_id):
+                self._send_json(400, {"error": t("参数不正确")})
+                return
+            error, found = web.media_file(media_id)
+            if error or found is None:
+                self._send_json(409, {"error": error})
+                return
+            content, content_type, name = found
+            # 让浏览器当成下载的文件（attachment），不按内容去猜类型（nosniff 在 _send 里），
+            # 万一被直接打开，也不运行里面的任何东西（sandbox）
+            headers = {"Content-Disposition": media.disposition(name), "Content-Security-Policy": "default-src 'none'; sandbox"}
+            self._send(200, content_type, content, headers)
+        elif path == "/api/media/reveal":
+            media_id = body.get("id")
+            if not isinstance(media_id, str) or not media.ID.fullmatch(media_id):
+                self._send_json(400, {"error": t("参数不正确")})
+                return
+            error, shown = web.reveal_media(media_id)
+            if error:
+                self._send_json(409, {"error": error})
+            else:
+                self._send_json(200, {"ok": True, "path": shown})
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
@@ -868,6 +1005,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+
+def _media_query(body: dict) -> tuple[str, str, int, int] | None:
+    """多媒体库的一次查询：（种类，搜索词，从第几个开始，要几个）。参数不对返回 None。"""
+    kind, query, cursor, limit = body.get("kind", "all"), body.get("query", ""), body.get("cursor", 0), body.get("limit", media.PAGE_SIZE)
+    if kind not in ("all", *media.KINDS) or not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
+        return None
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in (cursor, limit)):
+        return None
+    if cursor < 0 or not 0 < limit <= media.MAX_PAGE:
+        return None
+    return kind, query.strip(), cursor, limit
 
 
 def _valid_price(price: object) -> bool:

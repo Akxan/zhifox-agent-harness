@@ -20,6 +20,7 @@ from .conversations import (
     make_title,
 )
 from .i18n import t
+from .media import MediaStore
 from .permissions import Permissions
 from .prompt import build_system_prompt
 from .providers import (
@@ -51,6 +52,7 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
 
     @property
@@ -230,6 +232,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         client_factory=client_factory,
         store=store,
         conversation=store.new(settings.provider, settings.model),
+        media=MediaStore(config.media_dir),
     )
 
 

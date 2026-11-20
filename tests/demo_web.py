@@ -172,6 +172,60 @@ if not (root / "data").exists():
     ):
         (memory_dir / name).parent.mkdir(parents=True, exist_ok=True)
         (memory_dir / name).write_text(body, encoding="utf-8")
+    # 一段"有多媒体库之前"的旧会话：附件的概要里没有原件的编号，内容只在对话历史里。
+    # 左边栏的"多媒体"里能看到它们：图片、PDF、文本照样能看、能下载；Word 只剩当时取出的文字
+    import base64
+    import struct
+    import zlib
+
+    from harness.attachments import Attachment as Item
+    from harness.attachments import wrap_text
+    from harness.documents import NOTE
+
+    def gradient_png(width: int, height: int) -> bytes:
+        """画一张渐变色的 PNG（不用任何图片库：PNG 就是几段带校验和的数据块）。"""
+        rows = b"".join(
+            b"\x00" + bytes(channel for x in range(width) for channel in (80 + x * 140 // width, 90 + y * 120 // height, 230 - x * 60 // width))
+            for y in range(height)
+        )
+
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+        header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+    picture = gradient_png(640, 400)
+    thumb = "data:image/png;base64," + base64.b64encode(gradient_png(240, 150)).decode()
+    paper = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+    notes = Item("text", "旧笔记.md", "text/plain", 12, text="# 旧笔记\n\n第一行。")
+    report = Item("text", "旧周报.docx", "text/plain", 18, text="# 周报\n\n本周完成了三件事。", note=NOTE)
+    old = time.time() - 3 * 86400
+    legacy = {
+        "id": time.strftime("%Y%m%d-%H%M%S", time.localtime(old)) + "-01d01d",
+        "provider": "anthropic", "model": "claude-opus-5-5", "title": "旧会话里的附件", "created_at": old, "updated_at": old,
+        "context_tokens": 0, "version": 1,
+        "events": [
+            {"type": "user", "text": "看看这几个文件", "attachments": [
+                {"kind": "image", "name": "旧截图.png", "media_type": "image/png", "size": len(picture), "thumb": thumb},
+                {"kind": "pdf", "name": "旧报告.pdf", "media_type": "application/pdf", "size": len(paper)},
+                {"kind": "text", "name": notes.name, "media_type": "text/plain", "size": len(notes.text)},
+                {"kind": "text", "name": report.name, "media_type": "text/plain", "size": len(report.text)},
+            ]},
+            {"type": "turn_start"}, {"type": "text", "text": "收到四个文件。"}, {"type": "turn_end"},
+        ],
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64.b64encode(picture).decode()}},
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": base64.b64encode(paper).decode()}, "title": "旧报告.pdf"},
+                {"type": "text", "text": wrap_text(notes)}, {"type": "text", "text": wrap_text(report)},
+                {"type": "text", "text": "<context>当时的时间</context>"}, {"type": "text", "text": "看看这几个文件"},
+            ]},
+            {"role": "assistant", "content": [{"type": "text", "text": "收到四个文件。"}]},
+        ],
+    }
+    (root / "data" / "conversations").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "conversations" / f"{legacy['id']}.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
 config = Config(
     effort="medium",
     max_tokens=64000,

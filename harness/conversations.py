@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .i18n import t
+from .media import MediaIndex, entries_of
 from .safe import clean, private_dir, to_json, write_file
 from .search import SearchIndex
 
@@ -77,6 +78,8 @@ class ConversationStore:
         self._summaries: dict[str, dict] = {}
         # 搜索要看正文。同样是把可以搜的文字抽出来放在内存里（见 search.py），之后跟着保存和删除更新。
         self._index = SearchIndex()
+        # 多媒体库：每段会话里有哪些附件（见 media.py）。和搜索索引一样，读入、保存、删除时跟着更新
+        self._media = MediaIndex()
         # 扫描要把每个会话文件都读一遍，会话多了并不便宜，所以等到第一次真的要用列表或搜索时才做（见 _load）。
         # 终端界面不保存也不打开会话，它就永远不用付这个代价。
         self._loaded = False
@@ -168,6 +171,7 @@ class ConversationStore:
             leftover.unlink(missing_ok=True)
         del self._summaries[conversation_id]
         self._index.remove(conversation_id)
+        self._media.remove(conversation_id)
 
     def file_of(self, conversation_id: str) -> Path:
         """一段保存过的会话在磁盘上的文件。"""
@@ -191,10 +195,17 @@ class ConversationStore:
             results.append({**summary, **item, "title": item["title"] or summary["title"]})
         return results
 
+    def media(self) -> MediaIndex:
+        """所有保存过的会话里的附件（多媒体库用）。"""
+        self._load()
+        return self._media
+
     def _remember(self, conversation: Conversation) -> None:
-        """把一段会话记进内存里的两份目录：列表用的基本信息，和搜索用的文字。"""
+        """把一段会话记进内存里的三份目录：列表用的基本信息、搜索用的文字、多媒体库用的附件。"""
         self._summaries[conversation.id] = conversation.summary()
         self._index.put(conversation.id, conversation.title, conversation.events, conversation.updated_at)
+        entries = entries_of(conversation.events, conversation.messages, conversation.created_at)
+        self._media.put(conversation.id, conversation.title, entries)
 
     def _path(self, conversation_id: str) -> Path:
         if not _ID_PATTERN.fullmatch(conversation_id):
