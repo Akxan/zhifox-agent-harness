@@ -513,11 +513,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
 /* ---- 外观面板：颜色和动效 ------------------------------------------------- */
 /* 点右上角的外观按钮，在按钮下面弹出来。它是一个 popover：浏览器把它放在所有内容的最上层，
-   不会被别的栏挡住、裁掉。位置由脚本按按钮的位置算好（见 placeAppearance）。 */
-.pop { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 16px)); margin: 0; padding: 14px 14px 12px; overflow: visible; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); transform-origin: 85% top; }
-.pop { animation: menu-in .26s var(--ease); }  /* 每次从隐藏变成显示，这段入场动画都会从头播一次 */
+   不会被别的栏挡住、裁掉。位置由脚本按按钮的位置算好（见 placeAppearance）。
+   类名叫 flyout 而不是 pop：pop 已经是工具卡片上状态圆点"弹一下"的动画类，两个撞在一起，圆点会套上面板的样式。 */
+.flyout { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 16px)); margin: 0; padding: 14px 14px 12px; overflow: visible; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); transform-origin: 85% top; }
+.flyout { animation: menu-in .26s var(--ease); }  /* 每次从隐藏变成显示，这段入场动画都会从头播一次 */
 @keyframes menu-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
-.pop h3 { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.flyout h3 { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 64px; padding: 10px 4px 9px; font-size: 12px; line-height: 1.3; color: var(--ink-2); text-align: center; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; transition: transform .15s var(--ease); }
 .tile .icon { width: 18px; height: 18px; }
@@ -525,7 +526,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .tile:active { transform: scale(.96); }
 .tile[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .tile[aria-pressed="true"] .icon { color: var(--accent); }
-.pop-note { min-height: 2lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留两行的高度，换选项时面板不跳；pretty：末行不只剩一两个字 */
+.flyout-note { min-height: 2lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留两行的高度，换选项时面板不跳；pretty：末行不只剩一两个字 */
 
 /* ---- 浮在最上面的提示 ---------------------------------------------------- */
 .banner, .toast { position: fixed; z-index: 50; left: 16px; right: 16px; width: fit-content; margin: 0 auto; padding: 9px 16px; font-size: 13px; box-shadow: var(--shadow-2); }
@@ -689,7 +690,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
             <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
             <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon"/></svg>
           </button>
-          <div id="appearance" class="pop" popover="manual" role="dialog" aria-label="外观和动效" data-i18n-aria-label hidden>
+          <div id="appearance" class="flyout" popover="manual" role="dialog" aria-label="外观和动效" data-i18n-aria-label hidden>
             <h3 data-i18n>外观</h3>
             <div class="tiles" role="group" aria-label="外观" data-i18n-aria-label>
               <button class="tile" type="button" data-theme-pick="light"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span data-i18n>浅色</span></button>
@@ -702,7 +703,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
               <button class="tile" type="button" data-motion-pick="reduce"><svg class="icon" aria-hidden="true"><use href="#i-calm"/></svg><span data-i18n>减少</span></button>
               <button class="tile" type="button" data-motion-pick="full"><svg class="icon" aria-hidden="true"><use href="#i-motion"/></svg><span data-i18n>完整</span></button>
             </div>
-            <p id="motion-note" class="pop-note"></p>
+            <p id="motion-note" class="flyout-note"></p>
           </div>
           <button id="side-toggle" class="icon-button" type="button" title="用量、待办和工具" aria-label="用量、待办和工具" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
         </div>
