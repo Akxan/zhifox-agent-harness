@@ -962,6 +962,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
         except TaskRefused as exc:
+            # 做不了，常常是因为页面看到的已经过时了：任务文件可能被别的程序改过（终端版、重启前的旧进程），
+            # 而页面只在有改动时才收到新状态。所以先把最新的状态发过去，页面上那一行才不会一直留着、怎么删都删不掉
+            web.publish_state()
             self._send_json(409, {"error": i18n.message_of(exc)})
         except TaskError as exc:
             self._send_json(400, {"error": i18n.message_of(exc)})

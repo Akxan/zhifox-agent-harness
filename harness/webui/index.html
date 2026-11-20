@@ -707,6 +707,9 @@ body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
 .task-title { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-meta { font-size: 11.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .task-last { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 上次运行的时间、补跑、花费：只占一行，放不下就在末尾省略（不然悬停时右边让出位置，这几个字会被挤成一条窄竖条） */
+.task-last > span:last-child { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-last .chip { flex: none; }
 .chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--hover); border-radius: 6px; white-space: nowrap; }
 .chip.done { color: var(--ok, #1a7f37); background: color-mix(in srgb, var(--ok, #1a7f37) 12%, transparent); }
 .chip.failed, .chip.missed { color: var(--err); background: var(--err-soft); }
