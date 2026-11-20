@@ -15,6 +15,8 @@
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
+  POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
+  POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
@@ -55,10 +57,11 @@ from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
 from .. import i18n, memories
+from .. import prompt as prompts
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
-from ..config import APP_NAME, Config
+from ..config import APP_NAME, MAX_PROMPT_CHARS, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
 from ..memories import MemoryConflict, MemoryFileError
@@ -183,6 +186,7 @@ class WebApp:
             # 记忆文件夹里有哪些文件（只有名字、大小和修改时间，内容要看时另外读）。每次发状态都重新看一遍文件夹，
             # 所以模型在这一轮里记下或删掉的，下一次刷新状态时页面上就跟着变了，页面不用自己去轮询
             memories=self._memories_shown,
+            prompt_custom=prompts.load_template(config) != prompts.DEFAULT_TEMPLATE,  # 提示词改过没有（设置里显示）
             usage={
                 "requests": usage.requests,
                 "input": usage.input_tokens,
@@ -450,6 +454,39 @@ class WebApp:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
 
+    # ---- 提示词 ------------------------------------------------------------
+
+    def prompt_info(self) -> dict:
+        config = self.app.config
+        template = prompts.load_template(config)
+        web = config.web and self.app.provider.web  # 预览按现在选的这一家来填"能不能联网"
+        return {
+            "text": template,
+            "default": prompts.DEFAULT_TEMPLATE,
+            "custom": template != prompts.DEFAULT_TEMPLATE,
+            "preview": prompts.render(template, config, web),
+            "placeholders": [{"name": name, "value": value} for name, value in prompts.placeholder_values(config, web).items()],
+        }
+
+    def save_prompt(self, text: str | None) -> tuple[str, bool]:
+        """保存（None 表示恢复内置的）提示词。返回（失败原因，当前这段是不是也用上了）。
+
+        和改设置一样拿对话的锁：当前这段还没开始聊的话，要换掉它的适配层，不能和正在进行的一轮撞上。
+        """
+        if not self._turn.acquire(blocking=False):
+            return self._busy(), False
+        try:
+            try:
+                applied = self.app.set_prompt(text)
+            except prompts.PromptError as exc:
+                return str(exc), False
+            except OSError as exc:
+                return t("没能保存提示词：{error}", error=exc.strerror or exc), False
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return "", applied
+
     def refresh_memories(self) -> None:
         """页面刚连上、或者回到前台时问一声：记忆文件夹在这期间有没有变。
 
@@ -705,6 +742,26 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, **memories.read(web.app.config.memory_dir, relative)})
                 except MemoryFileError as exc:
                     self._send_json(409, {"error": str(exc)})
+        elif path == "/api/prompt":
+            self._send_json(200, {"ok": True, **web.prompt_info()})
+        elif path in ("/api/prompt/save", "/api/prompt/reset"):
+            text = body.get("text") if path.endswith("save") else None
+            if path.endswith("save") and not isinstance(text, str):
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                error, applied = web.save_prompt(text)
+                if error:
+                    self._send_json(409, {"error": error})
+                else:
+                    self._send_json(200, {"ok": True, "applied": applied})
+        elif path == "/api/prompt/preview":
+            # 还没保存的模板换上占位符是什么样子。只是算一下，不改任何东西
+            text = body.get("text")
+            if not isinstance(text, str) or len(text) > MAX_PROMPT_CHARS:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                config = web.app.config
+                self._send_json(200, {"ok": True, "preview": prompts.render(text, config, config.web and web.app.provider.web)})
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:

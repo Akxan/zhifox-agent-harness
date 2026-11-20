@@ -104,7 +104,11 @@ uv run harness --web
   当前的模型收不了的附件，加的时候就会提示，并说可以换成哪几家。GPT 和 Gemini 两列是对照官方文档写的，用本地的假服务器测过，
   没有用真实的密钥测过。附件存在这段会话里，打开旧会话时缩略图还在。点缩略图可以看大图（Esc 或点图片外面关闭）。
 - 设置（右上角显示当前模型的按钮）：填写或删除各家的 API 密钥、同步每家可用的模型列表、选择和切换模型、
-  填写模型的价格。
+  填写模型的价格，以及**编辑提示词**（告诉助手"你是谁、怎么做事"的那段话）。编辑框里可以预览实际发给模型的内容，
+  下面列着可以用的占位符（比如 `{name}`、`{workspace}`），发送之前换成实际的值，别的花括号原样保留。
+  改过的版本存在 `data/prompt.md`（也可以直接打开这个文件改），从下一段新对话开始生效：一段对话里途中换提示词，
+  Claude 的缓存会失效、之前的思考内容也通不过校验；还没开始聊的这一段会马上换上。"恢复默认"回到内置的版本，
+  程序升级后想用新的内置提示词，也是点它。
 - 信息栏（右上角最右边的按钮展开或收起）：估算费用、四类 token 各占多少、未完成的待办、
   模型可以使用的工具。每调用一次模型就更新一次。
 - 记忆（固定在会话栏顶部，后面是条数；点开是左右两栏的窗口：左边是列表，可以按名字搜，右边是选中的那一条；
@@ -248,7 +252,7 @@ uv run --project "/这个项目的完整路径" harness
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
 | 记忆一栏 | [harness/memories.py](harness/memories.py) | 你看不到助手记住了什么。网页界面把记忆文件列出来、可以打开看、改、删，浏览器送来的路径出不了记忆文件夹 |
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你轮流用工具并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
-| 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里 |
+| 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
 | 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |

@@ -34,7 +34,7 @@ from sample_files import (
 )
 
 import harness.webui.server as server_module
-from harness import memories
+from harness import memories, prompt
 from harness.app import build_app
 from harness.attachments import (
     MAX_IMAGE_BYTES,
@@ -2477,3 +2477,36 @@ def test_each_provider_says_what_it_can_take_and_the_rest_is_refused(serve, monk
     s.browser.wait_for("turn_end")
     (request,) = s.other_api.requests
     assert request["model"] == "gpt-6-luna" and request["messages"][1]["content"][0]["type"] == "text"
+
+
+# ---- 提示词 -----------------------------------------------------------------
+
+
+def test_prompt_endpoints(serve):
+    s = serve(reply(text("好。")))
+    status, body = s.browser.post("/api/prompt", {})
+    assert status == 200 and body["text"] == body["default"] == prompt.DEFAULT_TEMPLATE and body["custom"] is False
+    assert "web_search" in body["preview"] and "{name}" not in body["preview"]
+    assert {item["name"] for item in body["placeholders"]} == set(prompt.PLACEHOLDERS)
+
+    # 预览还没保存的
+    assert s.browser.post("/api/prompt/preview", {"text": "我是{name}"}) == (200, {"ok": True, "preview": "我是智狐"})
+    assert s.browser.post("/api/prompt/preview", {"text": 5})[0] == 400
+
+    # 保存：还没聊，这一段马上用上；状态里标着"改过了"
+    assert s.browser.post("/api/prompt/save", {"text": "我是{name}"}) == (200, {"ok": True, "applied": True})
+    deadline = time.monotonic() + 5  # 状态走的是事件流，可能比请求的回答晚一点到
+    while not latest_state(s.browser)["prompt_custom"] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert latest_state(s.browser)["prompt_custom"] is True
+    assert s.browser.post("/api/prompt", {})[1]["custom"] is True
+    s.browser.post("/api/message", {"text": "你好"})
+    s.browser.wait_for("turn_end")
+    assert s.api.requests[0]["system"][0]["text"] == "我是智狐"
+    # 已经聊过了：恢复默认从下一段开始
+    assert s.browser.post("/api/prompt/reset", {}) == (200, {"ok": True, "applied": False})
+    assert not s.config.prompt_file.exists()
+    # 存不了的说清楚原因
+    status, body = s.browser.post("/api/prompt/save", {"text": " "})
+    assert status == 409 and "不能是空的" in body["error"]
+    assert s.browser.post("/api/prompt/save", {})[0] == 400

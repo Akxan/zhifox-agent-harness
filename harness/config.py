@@ -41,6 +41,11 @@ ENABLE_COMPACTION = True
 ENABLE_THINKING_DROP = True
 
 
+# 用户自己写的提示词最长多少个字符。提示词每一轮都要发给模型（命中缓存时便宜，但第一次和缓存过期后按原价），
+# 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
+MAX_PROMPT_CHARS = 20_000
+
+
 @dataclass(frozen=True)
 class Config:
     effort: str  # Claude 思考的力度：low / medium / high / xhigh / max
@@ -73,6 +78,10 @@ class Config:
     @property
     def settings_file(self) -> Path:
         return self.data_dir / "settings.json"
+
+    @property
+    def prompt_file(self) -> Path:
+        return self.data_dir / "prompt.md"  # 用户改过的提示词（见 prompt.py）
 
     @property
     def conversations_dir(self) -> Path:

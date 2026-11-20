@@ -187,7 +187,7 @@ Each part of the harness has its own file or directory:
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that takes turns with you and pauses for approval, and the tools that set one up from a sentence |
-| System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
+| System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
@@ -528,7 +528,13 @@ This starts a small server on your computer and opens the chat page in your brow
   tested against local fake servers, not real keys. Attachments are saved with the conversation, so their thumbnails
   come back when you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
-  each provider's model list, choose and switch models, and enter model prices.
+  each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
+  that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
+  and a list of placeholders such as `{name}` and `{workspace}` that are filled in before sending; other braces are left
+  alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
+  conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
+  a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
+  is also the way to pick up a newer built-in version after an upgrade.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
   updates after every model call.
