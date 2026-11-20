@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .i18n import t
 from .safe import clean, private_dir, to_json, write_file
 from .search import SearchIndex
 
@@ -54,7 +55,7 @@ class Conversation:
         """会话列表里要显示的那几项，不含正文。"""
         return {
             "id": self.id,
-            "title": self.title or "新对话",
+            "title": self.title or t("新对话"),
             "provider": self.provider,
             "model": self.model,
             "updated_at": self.updated_at,
@@ -115,7 +116,7 @@ class ConversationStore:
     def load(self, conversation_id: str) -> Conversation:
         self._load()
         if conversation_id not in self._summaries:
-            raise ConversationError("这段会话不存在，可能已经被删除了。")
+            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
         return self._read(conversation_id)
 
     def save(self, conversation: Conversation, touch: bool = True) -> None:
@@ -152,7 +153,7 @@ class ConversationStore:
     def delete(self, conversation_id: str) -> None:
         self._load()
         if conversation_id not in self._summaries:
-            raise ConversationError("这段会话不存在，可能已经被删除了。")
+            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
         path = self._path(conversation_id)
         path.unlink(missing_ok=True)
         # 以前某次保存到一半失败的话，旁边可能留着这段会话的临时文件，里面也是它的内容：一起删掉
@@ -165,7 +166,7 @@ class ConversationStore:
         """一段保存过的会话在磁盘上的文件。"""
         self._load()
         if conversation_id not in self._summaries:
-            raise ConversationError("这段会话不存在，可能已经被删除了。")
+            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
         return self._path(conversation_id)
 
     def search(self, query: str) -> list[dict]:
@@ -190,7 +191,7 @@ class ConversationStore:
 
     def _path(self, conversation_id: str) -> Path:
         if not _ID_PATTERN.fullmatch(conversation_id):
-            raise ConversationError("会话编号的格式不对。")
+            raise ConversationError(t("会话编号的格式不对。"))
         return self.directory / f"{conversation_id}.json"
 
     def _read(self, conversation_id: str) -> Conversation:
@@ -216,12 +217,12 @@ class ConversationStore:
             )
         except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:
             # RecursionError：嵌套了上千层的 JSON。不接住的话，一个这样的文件就能让整个程序启动不了
-            raise ConversationError("这段会话的文件读不出来，可能已经损坏。") from exc
+            raise ConversationError(t("这段会话的文件读不出来，可能已经损坏。")) from exc
         # 文件是普通的 JSON，可能被手动改过。这几项的类型只要有一项不对，就当作损坏的文件处理，
         # 免得后面的代码和页面拿到意料之外的东西（比如标题是个数字，页面拿它当文字用就会出错）。
         texts_ok = all(isinstance(value, str) for value in (conversation.provider, conversation.model, conversation.title))
         lists_ok = isinstance(conversation.messages, list) and isinstance(conversation.events, list)
         times_ok = math.isfinite(conversation.created_at) and math.isfinite(conversation.updated_at)
         if not (texts_ok and lists_ok and times_ok):
-            raise ConversationError("这段会话的文件读不出来，可能已经损坏。")
+            raise ConversationError(t("这段会话的文件读不出来，可能已经损坏。"))
         return conversation

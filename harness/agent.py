@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Protocol
 
 from .config import Config
+from .i18n import t
 from .permissions import Permissions
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
@@ -95,8 +96,10 @@ class Agent:
             if step.status == "refused":
                 # 被拒绝的内容留在历史里的话，后面多半还会被拒，所以整轮撤销
                 self.backend.rollback(start)
-                reason = f"（类别：{step.note}）" if step.note else ""
-                self.ui.info(f"模型拒绝了这个请求{reason}，这一轮对话已撤销。可以换个说法再试。")
+                if step.note:
+                    self.ui.info(t("模型拒绝了这个请求（类别：{category}），这一轮对话已撤销。可以换个说法再试。", category=step.note))
+                else:
+                    self.ui.info(t("模型拒绝了这个请求，这一轮对话已撤销。可以换个说法再试。"))
                 return
 
             if step.status == "paused":
@@ -104,13 +107,13 @@ class Agent:
 
             if not step.tool_calls:
                 if step.truncated:
-                    self.ui.info("回复达到了长度上限，被截断了。")
+                    self.ui.info(t("回复达到了长度上限，被截断了。"))
                 return  # 模型没有要调用的工具了：这一轮结束
 
             # 执行工具，结果追加进历史，然后回到循环开头，让模型看到结果后决定下一步
             self._run_tools(step)
 
-        self.ui.info(f"这一轮已经调用了 {self.config.max_steps} 次模型，先停在这里。输入“继续”可以接着做。")
+        self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
 
     def _record(self, usage: Usage) -> None:
         self.usage.add(usage)

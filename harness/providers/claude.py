@@ -23,6 +23,7 @@ from ..config import (
     Config,
 )
 from ..display import describe_call
+from ..i18n import t
 from ..safe import clean, has_bad_number, tame
 from ..tools import ToolRegistry
 from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage
@@ -158,14 +159,15 @@ class AnthropicBackend:
             except ValueError as exc:
                 # 极少数情况下，模型生成的工具参数不是合法的 JSON，SDK 解析不了。重新请求一次即可。
                 if attempt == attempts:
-                    raise ProviderError(f"模型连续 {attempts} 次返回了解析不了的内容，这一轮没有完成（{exc}）。可以再试一次。") from exc
-                ui.info("模型返回的工具参数格式有误，正在重试……")
+                    message = t("模型连续 {n} 次返回了解析不了的内容，这一轮没有完成（{error}）。可以再试一次。", n=attempts, error=exc)
+                    raise ProviderError(message) from exc
+                ui.info(t("模型返回的工具参数格式有误，正在重试……"))
             except anthropic.APIError as exc:
                 raise ProviderError(_explain(exc, self.model)) from exc
             except transport.HTTPError as exc:
                 # 连上了、也开始收回复了，但中途断了（网络抖动、电脑休眠、代理超时）。
                 # 已经显示出来的半截内容不算数：这一步没有走完，循环会把它撤掉。
-                raise ProviderError("和 Anthropic 的连接中断了，这一轮没有完成。请检查网络后再试一次。") from exc
+                raise ProviderError(t("和 Anthropic 的连接中断了，这一轮没有完成。请检查网络后再试一次。")) from exc
             finally:
                 ui.end_stream()
         raise AssertionError("unreachable")
@@ -254,20 +256,20 @@ def _usage(response: Any) -> Usage:
 def _explain(exc: anthropic.APIError, model: str) -> str:
     """把 API 的错误翻译成看得懂的提示。"""
     if isinstance(exc, anthropic.AuthenticationError):
-        return "Claude 的 API key 无效，请在设置里重新填写。"
+        return t("Claude 的 API key 无效，请在设置里重新填写。")
     if isinstance(exc, anthropic.PermissionDeniedError):
-        return f"这个 API key 没有权限执行该请求：{exc.message}"
+        return t("这个 API key 没有权限执行该请求：{error}", error=exc.message)
     if isinstance(exc, anthropic.NotFoundError):
-        return f"找不到模型 {model}，请换一个模型。"
+        return t("找不到模型 {model}，请换一个模型。", model=model)
     if isinstance(exc, anthropic.RateLimitError):
-        return "请求太频繁，或者超出了账号的用量限制。请稍后再试。"
+        return t("请求太频繁，或者超出了账号的用量限制。请稍后再试。")
     if isinstance(exc, anthropic.BadRequestError):
-        return f"请求被 API 拒绝：{exc.message}"
+        return t("请求被 API 拒绝：{error}", error=exc.message)
     if isinstance(exc, anthropic.APIStatusError):
-        return f"API 出错（状态码 {exc.status_code}）：{exc.message}"
+        return t("API 出错（状态码 {status}）：{error}", status=exc.status_code, error=exc.message)
     if isinstance(exc, anthropic.APIConnectionError):
-        return "连接不上 Anthropic 的服务器，请检查网络。"
-    return f"调用 Claude 失败：{exc}"
+        return t("连接不上 Anthropic 的服务器，请检查网络。")
+    return t("调用 Claude 失败：{error}", error=exc)
 
 
 def block_notice(block: Any) -> tuple[str, str] | None:
@@ -281,20 +283,21 @@ def block_notice(block: Any) -> tuple[str, str] | None:
         return "tool", describe_call(block.name, block.input)
     if kind == "web_search_tool_result":
         if isinstance(block.content, list):
-            return "result", f"找到 {len(block.content)} 条结果"
-        code = getattr(block.content, "error_code", "未知错误")
+            count = len(block.content)
+            return "result", t("找到 1 条结果") if count == 1 else t("找到 {n} 条结果", n=count)
+        code = getattr(block.content, "error_code", None) or "unknown"
         if code == "max_uses_exceeded":
-            return "info", "这条消息的搜索次数已经用完，助手会根据已有的信息回答"
-        return "error", f"搜索失败：{code}"
+            return "info", t("这条消息的搜索次数已经用完，助手会根据已有的信息回答")
+        return "error", t("搜索失败：{code}", code=code)
     if kind == "web_fetch_tool_result":
         code = getattr(block.content, "error_code", None)
         if code == "max_uses_exceeded":
-            return "info", "这条消息读取网页的次数已经用完"
-        return ("error", f"读取网页失败：{code}") if code else None
+            return "info", t("这条消息读取网页的次数已经用完")
+        return ("error", t("读取网页失败：{code}", code=code)) if code else None
     if kind == "compaction":
-        return "info", "对话已经很长，较早的内容被压缩成了摘要"
+        return "info", t("对话已经很长，较早的内容被压缩成了摘要")
     if kind == "fallback":
-        return "info", f"{block.from_.model} 拒绝了这个请求，已改由 {block.to.model} 继续"
+        return "info", t("{rejected} 拒绝了这个请求，已改由 {fallback} 继续", rejected=block.from_.model, fallback=block.to.model)
     return None
 
 

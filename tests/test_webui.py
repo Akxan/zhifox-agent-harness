@@ -778,7 +778,13 @@ def test_a_conversation_is_listed_at_once_and_saved_after_its_first_turn(serve):
     assert saved["messages"] == s.app.agent.messages
     assert [message["role"] for message in saved["messages"]] == ["user", "assistant", "user", "assistant"]
     assert kinds(saved["events"]) == ["user", "turn_start", "tool_call", "confirm", "tool_result", "text", "block_end"]
-    assert saved["events"][3] == {"type": "confirm", "description": confirm["description"], "outcome": "allowed"}
+    assert saved["events"][3] == {
+        "type": "confirm",
+        "description": confirm["description"],
+        "key": confirm["key"],  # 原文和填进去的值也存着：以后换了语言再打开，页面能把这句话换成新的语言
+        "values": confirm["values"],
+        "outcome": "allowed",
+    }
     assert after["conversation"] == conversation_id
     assert after["conversations"] == [{**item, "updated_at": saved["updated_at"]}]
 
@@ -1578,7 +1584,7 @@ def test_the_approval_mode_is_forgotten_when_the_program_restarts(serve):
 
     # 设置文件里没有这一项：放开之后忘了关，比每次多点一下危险得多，所以故意不记
     saved = json.loads(s.config.settings_file.read_text(encoding="utf-8"))
-    assert set(saved) == {"provider", "model", "models", "prices"}
+    assert set(saved) == {"provider", "model", "models", "prices", "language"}
     restarted = serve()  # 同一个数据目录：相当于把程序关掉再打开
     assert latest_state(restarted.browser)["approval"] == "ask"
     assert restarted.app.agent.permissions.mode == "ask"
@@ -1672,3 +1678,70 @@ def test_edits_mode_in_the_page_still_asks_before_running_commands(serve):
         "user", "turn_start", "tool_call", "auto_allowed", "tool_result",
         "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "turn_end",
     ]
+
+
+# ---- 界面语言 -------------------------------------------------------------------
+# 换语言不刷新页面：服务器记下新的选择、发一次新的状态，页面在原地把文字换掉。
+# 服务器发给页面的话（提示、确认卡片上的说明）除了译好的文字，还带着原文和填进去的值，页面换语言时照着它们重译。
+
+
+def page_language(s) -> dict:
+    """页面里塞进去的那份翻译数据。"""
+    page = request(s.browser.host, "GET", f"/?token={s.browser.token}")[1]["text"]
+    return json.loads(page.split('<script type="application/json" id="i18n">')[1].split("</script>")[0])
+
+
+def test_switching_the_language_keeps_the_page_and_is_remembered(serve, make_config):
+    s = serve(reply(text("一")))
+    assert latest_state(s.browser)["language"] == "zh"
+    data = page_language(s)
+    assert data["language"] == "zh" and set(data["tables"]) == {"en", "es"}
+    assert data["tables"]["en"]["新对话"] == "New chat"
+
+    say(s, "第一句")
+    resets = len(s.browser.of_type("reset"))
+    state = act(s, "/api/language", {"language": "en"})
+    assert state["language"] == "en"
+    assert len(s.browser.of_type("reset")) == resets  # 没有清空页面：对话原样留着，只是换了语言
+    assert json.loads(s.config.settings_file.read_text(encoding="utf-8"))["language"] == "en"
+    assert page_language(s)["language"] == "en"  # 之后打开的页面直接就是英文
+
+    for bad in ({"language": "fr"}, {"language": 5}, {}):
+        assert s.browser.post("/api/language", bad) == (400, {"error": "Invalid parameters"})  # 出错提示也已经是英文了
+
+    # 重启之后还是英文
+    app = build_app(s.config, WebUI())
+    assert app.settings.language == "en"
+
+
+def test_messages_from_the_program_carry_their_original_text(serve, monkeypatch):
+    s = serve(
+        reply(tool_use("toolu_1", "run_command", {"command": "ls {x}"}), stop_reason="tool_use"),
+        reply(text("好。")),
+        others=[chat("嗨。")],
+    )
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    s.browser.post("/api/message", {"text": "跑一下"})
+    confirm = s.browser.wait_for("confirm")
+    # 确认卡片：页面显示译好的文字，同时知道原文和填进去的值；值里的花括号原样保留，不会被当成要填的空
+    assert confirm["description"] == "执行命令：\n\n    $ ls {x}"
+    assert confirm["key"] == "执行命令：\n\n    $ {command}" and confirm["values"] == {"command": "ls {x}"}
+    s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
+    s.browser.wait_for("turn_end")
+
+    # 换成英文以后，程序新发出的提示是英文的，也带着原文
+    act(s, "/api/language", {"language": "en"})
+    act(s, "/api/model", {"provider": "deepseek", "model": "deepseek-flash"})
+    notice = [event for event in s.browser.of_type("notice") if event.get("key", "").startswith("已换成")][-1]
+    assert notice["text"] == "Switched to DeepSeek · deepseek-flash. It's a different provider, so a new conversation starts."
+    assert notice["key"] == "已换成 {provider} · {model}。换了一家，开始新对话。"
+    assert notice["values"] == {"provider": "DeepSeek", "model": "deepseek-flash"}
+
+    # 保存下来的会话里也留着原文：以后换了语言再打开，页面照样能把这些话换成新的语言
+    first = next(item for item in latest_state(s.browser)["conversations"] if item["title"] == "跑一下")
+    saved = saved_file(s.config, first["id"])
+    (entry,) = [event for event in saved["events"] if event["type"] == "confirm"]
+    assert entry["key"] == "执行命令：\n\n    $ {command}" and entry["values"] == {"command": "ls {x}"}
+    replayed, _ = open_conversation(s, first["id"])
+    (card,) = [event for event in replayed if event["type"] == "confirm"]
+    assert card["key"] == entry["key"] and card["values"] == entry["values"]

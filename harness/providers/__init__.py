@@ -15,6 +15,7 @@ import anthropic
 import openai
 
 from ..config import Config
+from ..i18n import t
 from ..tools import ToolRegistry
 from .base import Backend, ProviderError
 from .claude import AnthropicBackend
@@ -101,10 +102,10 @@ def list_models(provider: Provider, client: Any) -> list[str]:
         ids = [model.id.removeprefix("models/") for model in client.models.list()]
     except (anthropic.APIError, openai.APIError) as exc:
         if isinstance(exc, (anthropic.AuthenticationError, openai.AuthenticationError)):
-            raise ProviderError(f"{provider.label} 的 API key 无效。") from exc
+            raise ProviderError(t("{provider} 的 API key 无效。", provider=provider.label)) from exc
         if isinstance(exc, (anthropic.APIConnectionError, openai.APIConnectionError)):
-            raise ProviderError(f"连接不上 {provider.label} 的服务器，请检查网络。") from exc
-        raise ProviderError(f"获取 {provider.label} 的模型列表失败：{exc}") from exc
+            raise ProviderError(t("连接不上 {provider} 的服务器，请检查网络。", provider=provider.label)) from exc
+        raise ProviderError(t("获取 {provider} 的模型列表失败：{error}", provider=provider.label, error=exc)) from exc
 
     if provider.kind == "anthropic":
         available = [model for model in CLAUDE_MODELS if model in ids]

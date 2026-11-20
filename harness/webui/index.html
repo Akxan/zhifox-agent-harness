@@ -428,7 +428,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 12px 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .side section { padding: 14px 12px; }
 .side h2 { display: flex; justify-content: space-between; margin: 0 0 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
-.side h2 span { font-weight: 400; letter-spacing: 0; }
+.side h2 .sub { font-weight: 400; letter-spacing: 0; }
 .side ul { margin: 0; padding: 0; list-style: none; }
 .side .cost-card { position: relative; margin: 0 0 4px; padding: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); }
 .cost-card::before { content: ""; position: absolute; right: -50px; top: -70px; width: 190px; height: 190px; border-radius: 50%; background: radial-gradient(closest-side, var(--a2), transparent); opacity: .18; pointer-events: none; }
@@ -488,6 +488,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .tag.set { color: var(--ok); background: var(--ok-soft); }
 /* 选"要不要先问你"的小面板：三个选项，一个一行 */
 .approval-dialog { width: min(540px, calc(100vw - 32px)); }
+#language-options .option b { font-size: 15px; }
 .options { display: grid; gap: 8px; }
 .option { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 12px 44px 13px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 14px; transition: transform .15s var(--ease); }
 .option:hover { border-color: var(--ink-3); }
@@ -625,18 +626,18 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <div class="app">
-  <aside id="nav" class="nav" aria-label="会话">
+  <aside id="nav" class="nav" aria-label="会话" data-i18n-aria-label>
     <div class="nav-head">
-      <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg>智狐</span>
-      <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏"><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
+      <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg><span data-i18n>智狐</span></span>
+      <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
     </div>
-    <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>新对话</span></button>
+    <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新对话</span></button>
     <label class="search">
       <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-      <input id="search" type="search" maxlength="200" placeholder="搜索标题和内容" aria-label="搜索会话的标题和内容" autocomplete="off" spellcheck="false">
+      <input id="search" type="search" maxlength="200" placeholder="搜索标题和内容" aria-label="搜索会话的标题和内容" data-i18n-placeholder data-i18n-aria-label autocomplete="off" spellcheck="false">
       <kbd id="search-key"></kbd>
     </label>
-    <nav id="conversations" class="conversations" aria-label="会话列表">
+    <nav id="conversations" class="conversations" aria-label="会话列表" data-i18n-aria-label>
       <div id="pill" class="conv-pill" aria-hidden="true"></div>
       <div id="conversation-rows"></div>
     </nav>
@@ -648,17 +649,18 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="stage">
       <header class="bar">
-        <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
-        <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+        <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
+        <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
-          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥"><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+          <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
           <button id="theme" class="icon-button theme" type="button">
             <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
             <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
             <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon"/></svg>
           </button>
-          <button id="side-toggle" class="icon-button" type="button" title="用量、待办和工具" aria-label="用量、待办和工具"><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
+          <button id="side-toggle" class="icon-button" type="button" title="用量、待办和工具" aria-label="用量、待办和工具" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
         </div>
       </header>
 
@@ -667,8 +669,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
           <div id="empty" class="hero" hidden>
             <div class="hero-inner">
               <div class="hero-mark"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg></div>
-              <h2><span id="greeting">你好，</span><span class="hl">今天想做点什么？</span></h2>
-              <p>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
+              <h2><span id="greeting" data-i18n>你好，</span><span class="hl" data-i18n>今天想做点什么？</span></h2>
+              <p data-i18n>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
             </div>
           </div>
           <div class="column">
@@ -679,19 +681,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       </div>
 
       <div id="composer" class="composer">
-        <button id="to-bottom" class="to-bottom" type="button" title="回到最新的内容" aria-label="回到最新的内容" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
+        <button id="to-bottom" class="to-bottom" type="button" title="回到最新的内容" aria-label="回到最新的内容" data-i18n-title data-i18n-aria-label tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
         <form id="form">
           <div class="box">
-            <textarea id="input" rows="1" placeholder="给助手发消息" aria-label="消息" autofocus></textarea>
+            <textarea id="input" rows="1" placeholder="给助手发消息" aria-label="消息" data-i18n-placeholder data-i18n-aria-label autofocus></textarea>
             <button id="send" class="send" type="submit" title="发送" aria-label="发送" disabled>
               <svg class="icon i-send" aria-hidden="true"><use href="#i-up"/></svg>
               <svg class="icon i-stop" aria-hidden="true"><use href="#i-stop"/></svg>
             </button>
           </div>
           <div class="foot">
-            <button id="approval" class="approval" type="button" title="助手动手之前要不要先问你" hidden><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="approval-label">每次确认</span></button>
-            <span class="keys">Enter 发送 · Shift + Enter 换行</span>
-            <button id="foot-cost" type="button" title="查看用量明细">本次运行估算 $0.0000</button>
+            <button id="approval" class="approval" type="button" title="助手动手之前要不要先问你" data-i18n-title hidden><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="approval-label">每次确认</span></button>
+            <span class="keys" data-i18n>Enter 发送 · Shift + Enter 换行</span>
+            <button id="foot-cost" type="button" title="查看用量明细" data-i18n-title>本次运行估算 $0.0000</button>
           </div>
         </form>
       </div>
@@ -701,43 +703,43 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
           <div id="setup" class="setup" hidden>
             <svg class="icon" aria-hidden="true"><use href="#i-key"/></svg>
             <p id="setup-text"></p>
-            <button id="setup-open" class="button primary" type="button">去设置</button>
+            <button id="setup-open" class="button primary" type="button" data-i18n>去设置</button>
           </div>
           <div id="cards" class="cards">
-            <button class="starter" type="button" data-prompt="提醒我周五下午交报告"><svg class="icon" aria-hidden="true"><use href="#i-todo"/></svg><b>安排一件事</b><span>提醒我周五下午交报告</span></button>
-            <button class="starter" type="button" data-prompt="记住：我喜欢简短的回答"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><b>让我记住</b><span>记住：我喜欢简短的回答</span></button>
-            <button class="starter" type="button" data-prompt="这个目录里有哪些文件？"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><b>看看这个目录</b><span>这个目录里有哪些文件？</span></button>
-            <button class="starter" type="button" data-prompt="我有哪些待办？"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><b>查看待办</b><span>我有哪些待办？</span></button>
+            <button class="starter" type="button" data-prompt="提醒我周五下午交报告"><svg class="icon" aria-hidden="true"><use href="#i-todo"/></svg><b data-i18n>安排一件事</b><span data-i18n>提醒我周五下午交报告</span></button>
+            <button class="starter" type="button" data-prompt="记住：我喜欢简短的回答"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><b data-i18n>让我记住</b><span data-i18n>记住：我喜欢简短的回答</span></button>
+            <button class="starter" type="button" data-prompt="这个目录里有哪些文件？"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><b data-i18n>看看这个目录</b><span data-i18n>这个目录里有哪些文件？</span></button>
+            <button class="starter" type="button" data-prompt="我有哪些待办？"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><b data-i18n>查看待办</b><span data-i18n>我有哪些待办？</span></button>
           </div>
         </div>
       </div>
     </div>
   </main>
 
-  <aside id="side" class="side" aria-label="用量、待办和工具">
+  <aside id="side" class="side" aria-label="用量、待办和工具" data-i18n-aria-label>
     <div class="side-scroll">
       <section class="cost-card">
-        <h2>估算费用<span>本次运行</span></h2>
+        <h2><span data-i18n>估算费用</span><span class="sub" data-i18n>本次运行</span></h2>
         <div id="cost" class="cost-figure">$0.0000</div>
         <p id="cost-note" class="fine"></p>
       </section>
       <section>
-        <h2>Token 用量</h2>
+        <h2 data-i18n>Token 用量</h2>
         <div id="mix" class="mix" aria-hidden="true"><i class="k4"></i><i class="k3"></i><i class="k2"></i><i class="k1"></i></div>
         <dl id="usage" class="usage"></dl>
         <dl id="usage-more" class="usage more"></dl>
       </section>
       <section>
-        <h2>未完成的待办</h2>
+        <h2 data-i18n>未完成的待办</h2>
         <ul id="todos"></ul>
       </section>
       <section>
-        <h2>模型可以使用的工具</h2>
+        <h2 data-i18n>模型可以使用的工具</h2>
         <ul id="tools" class="tool-chips"></ul>
-        <div class="legend"><span><i class="dot"></i>在这台电脑上执行</span><span id="legend-remote"><i class="dot remote"></i>在厂商的服务器上执行</span></div>
+        <div class="legend"><span><i class="dot"></i><span data-i18n>在这台电脑上执行</span></span><span id="legend-remote"><i class="dot remote"></i><span data-i18n>在厂商的服务器上执行</span></span></div>
       </section>
       <section>
-        <h2>工作目录</h2>
+        <h2 data-i18n>工作目录</h2>
         <div id="workspace" class="path"></div>
       </section>
     </div>
@@ -747,26 +749,26 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
 <dialog id="settings" class="settings" aria-labelledby="settings-title">
   <div class="settings-head">
-    <h2 id="settings-title">设置</h2>
-    <button id="close-settings" class="icon-button" type="button" title="关闭" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2 id="settings-title" data-i18n>设置</h2>
+    <button id="close-settings" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
   <div class="settings-body">
     <section>
-      <h3>当前模型</h3>
+      <h3 data-i18n>当前模型</h3>
       <div class="row">
-        <select id="pick-provider" class="field" aria-label="厂商"></select>
-        <select id="pick-model" class="field" aria-label="模型"></select>
-        <button id="apply-model" class="button primary" type="button">使用这个模型</button>
+        <select id="pick-provider" class="field" aria-label="厂商" data-i18n-aria-label></select>
+        <select id="pick-model" class="field" aria-label="模型" data-i18n-aria-label></select>
+        <button id="apply-model" class="button primary" type="button" data-i18n>使用这个模型</button>
       </div>
-      <p class="hint">同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
+      <p class="hint" data-i18n>同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
     </section>
     <section>
-      <h3>API 密钥</h3>
+      <h3 data-i18n>API 密钥</h3>
       <div id="keys"></div>
-      <p class="hint">密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
+      <p class="hint" data-i18n>密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
     </section>
     <section>
-      <h3>价格 <small>用来估算费用，单位：美元 / 每百万 token</small></h3>
+      <h3><span data-i18n>价格</span> <small data-i18n>用来估算费用，单位：美元 / 每百万 token</small></h3>
       <div id="price" class="row"></div>
       <p id="price-note" class="hint"></p>
     </section>
@@ -776,25 +778,39 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
 <dialog id="approval-dialog" class="settings approval-dialog" aria-labelledby="approval-title">
   <div class="settings-head">
-    <h2 id="approval-title">助手动手之前，要不要先问你</h2>
-    <button id="close-approval" class="icon-button" type="button" title="关闭" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2 id="approval-title" data-i18n>助手动手之前，要不要先问你</h2>
+    <button id="close-approval" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
   <div class="settings-body">
     <div id="approval-options" class="options">
-      <button class="option" type="button" data-mode="ask"><b>每次确认</b><span>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-      <button class="option" type="button" data-mode="edits"><b>自动允许改文件</b><span>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-      <button class="option" type="button" data-mode="all"><b>全部自动允许</b><span>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      <button class="option" type="button" data-mode="ask"><b data-i18n>每次确认</b><span data-i18n>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      <button class="option" type="button" data-mode="edits"><b data-i18n>自动允许改文件</b><span data-i18n>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      <button class="option" type="button" data-mode="all"><b data-i18n>全部自动允许</b><span data-i18n>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
     </div>
     <div id="approval-warning" class="warning" hidden>
-      <p><b>开启之前请知道：</b>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件。只在你信任手头的任务、并且会盯着它的时候开启。</p>
+      <p><b data-i18n>开启之前请知道：</b><span data-i18n>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件。只在你信任手头的任务、并且会盯着它的时候开启。</span></p>
       <div class="row">
-        <button id="approval-confirm" class="button danger" type="button">我明白风险，开启</button>
-        <button id="approval-cancel" class="button" type="button">取消</button>
+        <button id="approval-confirm" class="button danger" type="button" data-i18n>我明白风险，开启</button>
+        <button id="approval-cancel" class="button" type="button" data-i18n>取消</button>
       </div>
     </div>
-    <p class="hint">不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
+    <p class="hint" data-i18n>不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
   </div>
 </dialog>
+
+<dialog id="language-dialog" class="settings approval-dialog" aria-labelledby="language-title">
+  <div class="settings-head">
+    <h2 id="language-title">语言 · Language · Idioma</h2>
+    <button id="close-language" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body">
+    <div id="language-options" class="options"></div>
+    <p class="hint" data-i18n>换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。</p>
+  </div>
+</dialog>
+
+<!-- 翻译表：助手程序在发出页面时把它填进来（harness/i18n.py 是唯一的一份）。这是一段数据，不是脚本，不会被执行 -->
+<script type="application/json" id="i18n">__I18N__</script>
 
 <script nonce="__NONCE__">
 // 这个页面做的事情很少：
@@ -812,6 +828,67 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   const root = document.documentElement, body = document.body;
   // 界面要等第一批内容画好才淡入。万一脚本中途出错，也要让界面显示出来，不能留下一个空白页
   window.addEventListener('error', () => body.classList.add('ready'));
+
+  // ---- 多语言 --------------------------------------------------------------
+  // 界面上的每一句话都用中文写在它出现的地方，外面包一层 t('…')。界面语言不是中文时，t 去翻译表里查
+  // 这句话的译文，查不到就照原样显示中文。句子里会变的部分写成 {名字}，比如 t('找到 {n} 段会话', { n: 3 })。
+  //
+  // 换语言不刷新页面：已经画在页面上的每一句话都记着自己的"原文"（放在 data-i18n 里），
+  // 换语言时照着原文重新查一遍、就地换掉，滚动位置和正在进行的对话都不受影响。
+  // 所以凡是要留在页面上的文字，都用下面的 tel() / tattr() 来创建，它们会把原文记下来。
+
+  const I18N = (() => { try { return JSON.parse($('i18n').textContent); } catch (_) { return {}; } })();
+  const LOCALES = { zh: 'zh-CN', en: 'en', es: 'es' };  // 日期和数字的写法跟着界面语言走
+  let language = I18N.language in LOCALES ? I18N.language : 'zh';
+  let strings = (I18N.tables || {})[language] || {};
+
+  const k = (text) => text;  // 只是做个记号：这是一句以后会交给 t() 的原文（检查"有没有漏翻译"的测试靠它找到这些句子）
+
+  function t(text, values) {
+    if (typeof text !== 'string') return text === undefined || text === null ? '' : String(text);
+    const out = strings[text] || text;
+    if (!values) return out;
+    return out.replace(/\{(\w+)\}/g, (whole, name) => (Object.hasOwn(values, name) ? String(values[name]) : whole));
+  }
+
+  // 创建一个带文字的元素，并记下原文（和句子里会变的部分）
+  function tel(tag, className, text, values) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    return retext(node, text, values);
+  }
+
+  // 给已有的元素换一句话（同样记下原文）
+  function retext(node, text, values) {
+    node.dataset.i18n = text;
+    if (values) node.dataset.i18nValues = JSON.stringify(values); else delete node.dataset.i18nValues;
+    node.textContent = t(text, values);
+    return node;
+  }
+
+  // 设置 title、placeholder、aria-label 这类属性上的文字（同样记下原文）
+  const ATTRIBUTES = { title: 'i18nTitle', placeholder: 'i18nPlaceholder', 'aria-label': 'i18nAriaLabel' };
+  function tattr(node, name, text) {
+    node.dataset[ATTRIBUTES[name]] = text;
+    node.setAttribute(name, t(text));
+    return node;
+  }
+
+  // 把页面上所有记着原文的地方按当前语言重写一遍。刚打开页面时做一次，每次换语言再做一次。
+  function translatePage() {
+    root.lang = LOCALES[language];
+    for (const node of document.querySelectorAll('[data-i18n]')) {
+      if (!node.dataset.i18n) node.dataset.i18n = node.textContent.trim();  // 第一次：写在页面里的中文就是原文
+      node.textContent = t(node.dataset.i18n, node.dataset.i18nValues ? JSON.parse(node.dataset.i18nValues) : undefined);
+    }
+    for (const [name, key] of Object.entries(ATTRIBUTES)) {
+      for (const node of document.querySelectorAll('[data-i18n-' + name + ']')) {
+        if (!node.dataset[key]) node.dataset[key] = node.getAttribute(name) || '';
+        node.setAttribute(name, t(node.dataset[key]));
+      }
+    }
+  }
+  translatePage();
   const nav = $('nav'), side = $('side'), main = $('main'), sheet = $('sheet'), viewport = $('viewport');
   const chat = $('chat'), log = $('log'), empty = $('empty'), starters = $('starters'), working = $('working');
   const composer = $('composer'), input = $('input'), sendButton = $('send'), toBottom = $('to-bottom');
@@ -836,7 +913,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   let jump = null;           // 从搜索结果打开一段会话后，要滚到的那处命中：{id, kind, find}
   const isLive = () => synced && !replaying;
 
-  const BUSY_HINT = '请先等这一轮对话结束，或者点“停止”。';
+  const BUSY_HINT = k('请先等这一轮对话结束，或者点“停止”。');
 
   // ---- 小工具 --------------------------------------------------------------
 
@@ -860,8 +937,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function iconButton(name, label) {
     const button = el('button', 'icon-button small');
     button.type = 'button';
-    button.title = label;
-    button.setAttribute('aria-label', label);
+    tattr(button, 'title', label);
+    tattr(button, 'aria-label', label);
     button.appendChild(icon(name));
     return button;
   }
@@ -1011,8 +1088,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     toastTimer = setTimeout(() => box.classList.remove('show'), Math.min(8000, Math.max(2600, text.length * 130)));
   }
 
-  function showBanner(text) {
-    banner.textContent = text;
+  function showBanner(text) {  // text 是原文，这样横幅挂着的时候换语言，它也跟着换
+    retext(banner, text);
     banner.hidden = false;
   }
 
@@ -1028,13 +1105,13 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (response.ok) banner.hidden = true;  // 请求通了，说明助手程序还在，之前"连接不上"的提示可以收起来
       return {
         ok: response.ok,
-        error: response.ok ? '' : reply.error || '请求失败（' + response.status + '）',
+        error: response.ok ? '' : reply.error || t('请求失败（{status}）', { status: response.status }),
         warning: reply.warning || '',
         data: reply,
       };
     } catch (_) {
-      showBanner('连接不上助手程序。它可能已经退出，请回到终端重新运行。');
-      return { ok: false, error: '连接不上助手程序', warning: '', data: {} };
+      showBanner(k('连接不上助手程序。它可能已经退出，请回到终端重新运行。'));
+      return { ok: false, error: t('连接不上助手程序'), warning: '', data: {} };
     }
   }
 
@@ -1046,23 +1123,24 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   function refreshStatus() {
-    const label = busy ? '停止' : '发送';
+    const label = busy ? k('停止') : k('发送');
     sendButton.classList.toggle('stop', busy);
     sendButton.disabled = !busy && !input.value.trim();
-    sendButton.title = label;
-    sendButton.setAttribute('aria-label', label);
+    tattr(sendButton, 'title', label);
+    tattr(sendButton, 'aria-label', label);
     newButton.disabled = $('new-compact').disabled = busy;
     body.classList.toggle('busy', busy);
     working.classList.toggle('on', busy);
     working.classList.toggle('waiting', busy && !stopping && confirms.size > 0);
-    $('working-text').textContent = !busy ? '' : stopping ? '正在停止' : confirms.size ? '等待你确认' : '助手正在工作';
+    if (busy) retext($('working-text'), stopping ? k('正在停止') : confirms.size ? k('等待你确认') : k('助手正在工作'));
+    else { delete $('working-text').dataset.i18n; $('working-text').textContent = ''; }
   }
 
   // ---- 空白页和收尾 --------------------------------------------------------
 
   function greeting() {
     const hour = new Date().getHours();
-    return (hour < 5 ? '夜深了' : hour < 11 ? '早上好' : hour < 13 ? '中午好' : hour < 18 ? '下午好' : hour < 23 ? '晚上好' : '夜深了') + '，';
+    return hour < 5 ? k('夜深了，') : hour < 11 ? k('早上好，') : hour < 13 ? k('中午好，') : hour < 18 ? k('下午好，') : hour < 23 ? k('晚上好，') : k('夜深了，');
   }
 
   // 对话里还没有实质内容时，页面是"空白页"的样子：问候语和输入框摆在中间。
@@ -1070,7 +1148,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function setFresh(fresh) {
     if (main.classList.contains('fresh') === fresh) return;
     const apply = () => {
-      if (fresh) $('greeting').textContent = greeting();
+      if (fresh) retext($('greeting'), greeting());
       main.classList.toggle('fresh', fresh);
       empty.hidden = starters.hidden = !fresh;
     };
@@ -1183,10 +1261,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     try {
       await navigator.clipboard.writeText(text);
       button.replaceChildren(icon('check'));
-      button.title = '已复制';
-      setTimeout(() => { button.replaceChildren(icon('copy')); button.title = '复制'; }, 1400);
+      tattr(button, 'title', k('已复制'));
+      setTimeout(() => { button.replaceChildren(icon('copy')); tattr(button, 'title', k('复制')); }, 1400);
     } catch (_) {
-      toast('复制失败：浏览器没有允许访问剪贴板。');
+      toast(t('复制失败：浏览器没有允许访问剪贴板。'));
     }
   }
 
@@ -1197,7 +1275,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     block.box.classList.toggle('streaming', on);
     if (block.kind === 'thinking') {
       block.box.open = on;  // 思考完就折叠起来，想看可以再点开
-      block.label.textContent = on ? '正在思考' : '思考过程';
+      retext(block.label, on ? k('正在思考') : k('思考过程'));
     }
   }
 
@@ -1209,7 +1287,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         box = el('details', 'thinking');
         const summary = box.appendChild(el('summary'));
         summary.appendChild(icon('spark', 'spark'));
-        label = summary.appendChild(el('span', null, '思考过程'));
+        label = summary.appendChild(tel('span', null, k('思考过程')));
         summary.appendChild(icon('chevron', 'chev'));
         holder = box.appendChild(el('div', 'thinking-body'));
       } else {
@@ -1220,7 +1298,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       block = { kind, box, holder, label, node: holder.appendChild(document.createTextNode('')), text: '' };
       if (kind === 'text') {
         const record = block;
-        const button = box.appendChild(el('div', 'msg-actions')).appendChild(iconButton('copy', '复制'));
+        const button = box.appendChild(el('div', 'msg-actions')).appendChild(iconButton('copy', k('复制')));
         button.addEventListener('click', () => copy(record.text.trim(), button));
       }
       if (isLive()) setStreaming(true);
@@ -1248,7 +1326,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     status.className = 'status ' + kind + (isLive() ? ' pop' : '');
     status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'));
     card.classList.toggle('failed', kind === 'failed');
-    outcome.textContent = kind === 'ok' ? '' : text;  // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开
+    // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开。"没有执行完"是页面自己的话，要能跟着换语言
+    if (kind === 'stopped' && text) retext(outcome, text); else outcome.textContent = kind === 'ok' ? '' : text;
     toolCard = null;
   }
 
@@ -1265,16 +1344,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
     state(event) {
       state = event;
+      if (event.language in LOCALES && event.language !== language) applyLanguage(event.language);
       const current = event.providers.find((provider) => provider.id === event.provider);
       $('workspace').textContent = event.workspace;
       // 还没有密钥时，右上角这个按钮直接写明要做什么（服务器的提示里说的"右上角的设置"就是它）
-      $('model-label').textContent = current.has_key ? current.label + ' · ' + event.model : '设置 API 密钥';
+      $('model-label').textContent = current.has_key ? current.label + ' · ' + event.model : t('设置 API 密钥');
       $('model').classList.toggle('no-key', !current.has_key);
-      $('title').textContent = event.title || '新对话';
-      document.title = (event.title ? event.title + ' · ' : '') + '智狐';
+      $('title').textContent = event.title || t('新对话');
+      document.title = (event.title ? event.title + ' · ' : '') + t('智狐');
       $('setup').hidden = current.has_key;
       $('cards').hidden = !current.has_key;
-      $('setup-text').textContent = '还没有设置 ' + current.label + ' 的 API 密钥，填好之后就可以开始对话。';
+      $('setup-text').textContent = t('还没有设置 {provider} 的 API 密钥，填好之后就可以开始对话。', { provider: current.label });
 
       renderConversations();
       renderTodos(event.todos);
@@ -1294,7 +1374,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
     turn_end() {
       endBlock();
-      if (toolCard) finishTool('stopped', '没有执行完');  // 这一轮结束时工具还没给出结果（比如被中断了）
+      if (toolCard) finishTool('stopped', k('没有执行完'));  // 这一轮结束时工具还没给出结果（比如被中断了）
       busy = stopping = false;
       refreshStatus();
     },
@@ -1308,7 +1388,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const node = el('div', 'notice ' + event.level);
       if (event.level === 'error') node.appendChild(icon('alert'));
       if (event.level === 'tool') node.appendChild(icon('globe'));
-      node.appendChild(el('span', null, String(event.text)));
+      // 助手程序给了原文（key）的提示，换语言时也能跟着换；没给的（比如旧的会话记录）照原样显示
+      node.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.text)));
       add(node);
     },
 
@@ -1325,7 +1406,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const outcome = summary.appendChild(el('span', 'tool-outcome'));
       summary.appendChild(icon('chevron', 'chev'));
       const details = card.appendChild(el('div', 'tool-body'));
-      details.appendChild(el('div', 'label', '参数'));
+      details.appendChild(tel('div', 'label', k('参数')));
       details.appendChild(el('pre', null, JSON.stringify(event.input, null, 2)));
       add(card);
       toolCard = { card, status, outcome, details, summary };
@@ -1334,13 +1415,13 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出
     auto_allowed() {
       if (!toolCard || toolCard.summary.querySelector('.auto-tag')) return;
-      toolCard.summary.insertBefore(el('span', 'auto-tag', '自动允许'), toolCard.summary.lastChild);
+      toolCard.summary.insertBefore(tel('span', 'auto-tag', k('自动允许')), toolCard.summary.lastChild);
     },
 
     tool_result(event) {
       // 对应的那次调用没画出来（比如那条事件坏了）：结果也要让人看到，不能悄悄丢掉
-      if (!toolCard) handlers.tool_call({ name: '', summary: '工具结果（对应的调用没能显示）', input: null });
-      toolCard.details.appendChild(el('div', 'label', '结果'));
+      if (!toolCard) handlers.tool_call({ name: '', summary: t('工具结果（对应的调用没能显示）'), input: null });
+      toolCard.details.appendChild(tel('div', 'label', k('结果')));
       toolCard.details.appendChild(el('pre', null, event.text));
       finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
     },
@@ -1350,18 +1431,21 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const card = el('div', 'confirm');
       const head = card.appendChild(el('div', 'confirm-head'));
       head.appendChild(icon('shield'));
-      const heading = head.appendChild(el('span', null, '需要你确认'));
-      card.appendChild(el('pre', null, '助手想要' + event.description.trimEnd()));
+      const heading = head.appendChild(tel('span', null, k('需要你确认')));
+      // 说明分两截：前半句是页面的话，后半句是助手程序给的。程序给了原文（key）的话，换语言时它也能跟着换
+      const what = card.appendChild(el('pre'));
+      what.appendChild(tel('span', null, k('助手想要')));
+      what.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.description).trimEnd()));
       const actions = card.appendChild(el('div', 'confirm-actions'));
-      const allow = actions.appendChild(el('button', 'button primary', '允许'));
-      const deny = actions.appendChild(el('button', 'button', '拒绝'));
+      const allow = actions.appendChild(tel('button', 'button primary', k('允许')));
+      const deny = actions.appendChild(tel('button', 'button', k('拒绝')));
       const reason = actions.appendChild(el('input', 'field reason'));
       allow.type = deny.type = 'button';
       reason.type = 'text';
-      reason.placeholder = '拒绝时可以告诉助手原因（可选）';
-      reason.setAttribute('aria-label', '拒绝的原因');
+      tattr(reason, 'placeholder', k('拒绝时可以告诉助手原因（可选）'));
+      tattr(reason, 'aria-label', k('拒绝的原因'));
       if (!$('approval').hidden) {  // 助手程序支持"自动允许"时，在这里放一个直达的入口
-        const fewer = actions.appendChild(el('button', 'link', '不想每次都问？'));
+        const fewer = actions.appendChild(tel('button', 'link', k('不想每次都问？')));
         fewer.type = 'button';
         fewer.addEventListener('click', openApproval);
       }
@@ -1388,9 +1472,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (!pending) return;
       const outcome = el('span', 'outcome' + (event.allowed ? ' allowed' : event.stopped ? '' : ' denied'));
       outcome.appendChild(icon(event.allowed ? 'check' : event.stopped ? 'minus' : 'x'));
-      outcome.appendChild(document.createTextNode(event.allowed ? '已允许' : event.stopped ? '已中断' : '已拒绝'));
+      outcome.appendChild(tel('span', null, event.allowed ? k('已允许') : event.stopped ? k('已中断') : k('已拒绝')));
       pending.actions.replaceChildren(outcome);
-      pending.heading.textContent = '需要确认的操作';
+      retext(pending.heading, k('需要确认的操作'));
       pending.card.classList.add('done');
       pending.card.classList.remove('alert');
       confirms.delete(event.confirm);
@@ -1443,7 +1527,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   input.addEventListener('input', () => { resizeInput(); refreshStatus(); });
 
   function startNew() {
-    if (busy) { toast(BUSY_HINT); return; }
+    if (busy) { toast(t(BUSY_HINT)); return; }
     post('/api/new');
     if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，点完就收起来
     input.focus();
@@ -1453,7 +1537,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   for (const card of document.querySelectorAll('.starter')) {
     card.addEventListener('click', () => {  // 只是把例子填进输入框，发不发由用户决定
-      input.value = card.dataset.prompt;
+      input.value = t(card.dataset.prompt);
       resizeInput();
       refreshStatus();
       input.focus();
@@ -1502,7 +1586,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   // ---- 外观：浅色、深色、跟随系统 ------------------------------------------
   // 默认是浅色。点右上角的按钮在三种之间轮换，选择记在浏览器里。
 
-  const THEMES = { light: '浅色', dark: '深色', auto: '跟随系统' };
+  const THEMES = { light: k('浅色'), dark: k('深色'), auto: k('跟随系统') };
   const systemDark = matchMedia('(prefers-color-scheme: dark)');
   let theme = recall('harness.theme');
   if (!(theme in THEMES)) theme = 'light';
@@ -1511,7 +1595,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     root.dataset.theme = theme === 'dark' || (theme === 'auto' && systemDark.matches) ? 'dark' : 'light';
     const button = $('theme');
     button.dataset.mode = theme;
-    button.title = '外观：' + THEMES[theme] + '（点击切换）';
+    button.title = t('外观：{name}（点击切换）', { name: t(THEMES[theme]) });
     button.setAttribute('aria-label', button.title);
   }
   applyTheme();
@@ -1551,19 +1635,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   function groupOf(seconds) {
     const days = Math.round((startOfDay(new Date()) - startOfDay(new Date(seconds * 1000))) / DAY);
-    if (days <= 0) return '今天';
-    if (days === 1) return '昨天';
-    if (days < 7) return '最近 7 天';
-    if (days < 30) return '最近 30 天';
-    return '更早';
+    if (days <= 0) return t('今天');
+    if (days === 1) return t('昨天');
+    if (days < 7) return t('最近 7 天');
+    if (days < 30) return t('最近 30 天');
+    return t('更早');
   }
 
   function timeLabel(seconds) {
     const date = new Date(seconds * 1000), now = new Date();
     const pad = (number) => String(number).padStart(2, '0');
     if (startOfDay(date) === startOfDay(now)) return pad(date.getHours()) + ':' + pad(date.getMinutes());
-    if (date.getFullYear() === now.getFullYear()) return (date.getMonth() + 1) + '月' + date.getDate() + '日';
-    return date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate();
+    // 日期交给浏览器按界面语言去写：中文是"11月20日"，英文是"Nov 20"，西班牙语是"20 nov"
+    if (date.getFullYear() === now.getFullYear()) return date.toLocaleDateString(LOCALES[language], { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(LOCALES[language], { year: 'numeric', month: 'numeric', day: 'numeric' });
   }
 
   // 把一段文字放进节点里，marks 指出的那几处（[[起, 止], ...]，由服务器算好）标出来。
@@ -1618,9 +1703,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     pill.classList.add('on');
   }
 
-  const KINDS = { user: '你', assistant: '助手', tool: '工具', thinking: '思考', result: '结果' };
+  const KINDS = { user: k('你'), assistant: k('助手'), tool: k('工具'), thinking: k('思考'), result: k('结果') };
   const ON_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-  const SHOW_FILE = ON_MAC ? '在访达中显示' : '在文件夹中显示';
+  const SHOW_FILE = ON_MAC ? k('在访达中显示') : k('在文件夹中显示');
 
   // 请助手程序在系统的文件管理器里显示一段会话的文件（编号为空时显示保存会话的那个文件夹）。
   // 页面只说"哪一段"，文件在哪儿由助手程序自己算，页面指定不了别的路径。
@@ -1628,7 +1713,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const reply = await call('/api/conversation/reveal', { id });
     if (!reply.ok) { toast(reply.error); return; }
     const parts = String(reply.data.path || '').split('/');
-    toast('已' + SHOW_FILE + '：' + (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/'));
+    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
+    toast(ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
   }
 
   function renderConversations() {
@@ -1644,7 +1730,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
     // 状态隔一会儿就会更新一次（比如用量变了），列表多半没变。没变就不重画，
     // 免得鼠标正悬在某一行上、或者正在改名时，那一行被换成新的。
-    const print = JSON.stringify([list, state.conversation, query, found && found.stamp, renaming && renaming.id, deleting, startOfDay(new Date())]);
+    const print = JSON.stringify([list, state.conversation, query, found && found.stamp, renaming && renaming.id, deleting, startOfDay(new Date()), language]);
     if (print === drawn) return;
     drawn = print;
 
@@ -1670,9 +1756,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         if (name !== group) nodes.push(el('div', 'conv-group', group = name));
         addRow(item);
       }
-      if (!all.length) nodes.push(el('div', 'conv-empty', '还没有保存的会话。发出第一条消息后，它会出现在这里，下次打开还能接着聊。'));
+      if (!all.length) nodes.push(el('div', 'conv-empty', t('还没有保存的会话。发出第一条消息后，它会出现在这里，下次打开还能接着聊。')));
     } else if (!found) {
-      nodes.push(el('div', 'conv-group', '正在搜索……'));
+      nodes.push(el('div', 'conv-group', t('正在搜索……')));
     } else if (found.error) {
       nodes.push(el('div', 'conv-empty', found.error));
     } else {
@@ -1680,16 +1766,17 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const known = new Set(all.map((item) => item.id));
       const results = found.results.filter((item) => known.has(item.id));  // 刚被删掉的不再显示
       const exact = results.filter((item) => item.exact), near = results.filter((item) => !item.exact);
-      if (exact.length) nodes.push(el('div', 'conv-group', '找到 ' + exact.length + ' 段会话'));
+      if (exact.length) nodes.push(el('div', 'conv-group', exact.length === 1 ? t('找到 1 段会话') : t('找到 {n} 段会话', { n: exact.length })));
       exact.forEach(addRow);
-      if (near.length) nodes.push(el('div', 'conv-group', exact.length ? '相近的结果' : '没有完全对得上的，这些比较接近'));
+      if (near.length) nodes.push(el('div', 'conv-group', exact.length ? t('相近的结果') : t('没有完全对得上的，这些比较接近')));
       near.forEach(addRow);
-      if (!results.length) nodes.push(el('div', 'conv-empty', '没有找到相关的会话。可以换个说法，或者只输入其中的几个字；多个关键词用空格隔开。'));
-      if (found.results.length >= 50) nodes.push(el('div', 'conv-empty', '只显示最相关的 50 段。'));
+      if (!results.length) nodes.push(el('div', 'conv-empty', t('没有找到相关的会话。可以换个说法，或者只输入其中的几个字；多个关键词用空格隔开。')));
+      if (found.results.length >= 50) nodes.push(el('div', 'conv-empty', t('只显示最相关的 50 段。')));
     }
     if (count) listShown = true;
     rows.replaceChildren(...nodes);
-    $('nav-count').textContent = all.length ? all.length + ' 段会话 · 只保存在这台电脑上' : '会话只保存在这台电脑上';
+    $('nav-count').textContent = !all.length ? t('会话只保存在这台电脑上')
+      : all.length === 1 ? t('1 段会话 · 只保存在这台电脑上') : t('{n} 段会话 · 只保存在这台电脑上', { n: all.length });
     placePill();
 
     const editor = rows.querySelector('.conv-edit');
@@ -1711,9 +1798,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     // 删除前先在原地确认一下，不弹对话框
     if (deleting === item.id) {
       const box = row.appendChild(el('div', 'conv-confirm'));
-      box.appendChild(el('span', null, '删除这段会话？'));
-      const yes = box.appendChild(el('button', 'mini danger', '删除'));
-      const no = box.appendChild(el('button', 'mini cancel', '取消'));
+      box.appendChild(el('span', null, t('删除这段会话？')));
+      const yes = box.appendChild(el('button', 'mini danger', t('删除')));
+      const no = box.appendChild(el('button', 'mini cancel', t('取消')));
       yes.type = no.type = 'button';
       yes.addEventListener('click', async () => {
         deleting = null;
@@ -1730,7 +1817,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       editor.type = 'text';
       editor.maxLength = 40;  // 标题最长保留 40 个字（服务器那边也是这样截的）
       editor.value = renaming.draft;
-      editor.setAttribute('aria-label', '会话标题');
+      editor.setAttribute('aria-label', t('会话标题'));
       const finish = async (save) => {
         if (!renaming || renaming.id !== item.id) return;  // 回车和失去焦点可能各触发一次，只处理第一次
         const title = renaming.draft.trim();
@@ -1756,7 +1843,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const hit = item.snippet;
     if (hit) {  // 搜索结果：第二行是命中的那段文字，前面标明是谁说的
       const line = open.appendChild(el('span', 'conv-snippet'));
-      line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] || ''));
+      line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] ? t(KINDS[hit.kind]) : ''));
       paint(line, hit.text, hit.marks);
     } else {
       open.appendChild(el('span', 'conv-meta', item.model + ' · ' + timeLabel(item.updated_at)));
@@ -1764,7 +1851,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     open.addEventListener('click', () => {
       const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
       if (isCurrent) { if (target) reveal(target); return; }
-      if (busy) { toast(BUSY_HINT); return; }
+      if (busy) { toast(t(BUSY_HINT)); return; }
       jump = target;  // 打开之后滚到命中的位置（见 settle）
       post('/api/conversation/open', { id: item.id });
       if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，选完就收起来
@@ -1773,8 +1860,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const actions = row.appendChild(el('div', 'conv-actions'));
     const locate = actions.appendChild(iconButton('folder', SHOW_FILE));
     locate.addEventListener('click', () => showFile(item.id));
-    const rename = actions.appendChild(iconButton('edit', '重命名'));
-    const remove = actions.appendChild(iconButton('trash', '删除'));
+    const rename = actions.appendChild(iconButton('edit', k('重命名')));
+    const remove = actions.appendChild(iconButton('trash', k('删除')));
     rename.classList.add('idle-only');  // 助手工作时这两个按钮藏起来（服务器这时也不让改）
     remove.classList.add('idle-only');
     rename.addEventListener('click', () => { deleting = null; renaming = { id: item.id, draft: item.title }; renderConversations(); });
@@ -1800,28 +1887,28 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     }
   });
   $('search-key').textContent = ON_MAC ? '⌘K' : 'Ctrl K';
-  $('open-folder').title = '打开保存会话的文件夹';
+  tattr($('open-folder'), 'title', k('打开保存会话的文件夹'));
   $('open-folder').addEventListener('click', () => showFile(''));
 
   // ---- 信息栏：费用、用量、待办、工具 --------------------------------------
 
   const usageCells = {};
   for (const [list, key, name, swatch] of [
-    ['usage', 'input', '输入 · 原价', 'k1'], ['usage', 'cache_read', '输入 · 命中缓存', 'k2'],
-    ['usage', 'cache_write', '输入 · 写入缓存', 'k3'], ['usage', 'output', '输出', 'k4'],
-    ['usage-more', 'context', '当前对话占用的上下文'], ['usage-more', 'requests', '请求次数'],
-    ['usage-more', 'searches', '联网搜索次数'],
+    ['usage', 'input', k('输入 · 原价'), 'k1'], ['usage', 'cache_read', k('输入 · 命中缓存'), 'k2'],
+    ['usage', 'cache_write', k('输入 · 写入缓存'), 'k3'], ['usage', 'output', k('输出'), 'k4'],
+    ['usage-more', 'context', k('当前对话占用的上下文')], ['usage-more', 'requests', k('请求次数')],
+    ['usage-more', 'searches', k('联网搜索次数')],
   ]) {
     const term = $(list).appendChild(el('dt'));
     if (swatch) term.appendChild(el('i', 'swatch ' + swatch));
-    term.appendChild(document.createTextNode(name));
+    term.appendChild(tel('span', null, name));
     usageCells[key] = $(list).appendChild(el('dd', null, '0'));
   }
   const mixBars = [...$('mix').children].reverse();  // 页面上是从下往上叠的，这里按 输入、命中缓存、写入缓存、输出 的顺序
 
   function renderUsage(event) {
     const usage = event.usage;
-    for (const key of Object.keys(usageCells)) usageCells[key].textContent = usage[key].toLocaleString();
+    for (const key of Object.keys(usageCells)) usageCells[key].textContent = usage[key].toLocaleString(LOCALES[language]);
 
     const parts = [usage.input, usage.cache_read, usage.cache_write, usage.output];
     const total = parts.reduce((sum, value) => sum + value, 0);
@@ -1836,16 +1923,16 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       $('cost').textContent = cost;
       if (isLive()) play($('cost'), [{ opacity: .4, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 320);
     }
-    $('foot-cost').textContent = '本次运行估算 ' + cost;
+    $('foot-cost').textContent = t('本次运行估算 {cost}', { cost });
     $('cost-note').textContent = event.unpriced.length
-      ? '没有计入 ' + event.unpriced.join('、') + '：还没有设置价格，可以在“设置”里填写。'
-      : '按公开价格估算，实际以各家的账单为准。';
+      ? t('没有计入 {models}：还没有设置价格，可以在“设置”里填写。', { models: event.unpriced.join(t('、')) })
+      : t('按公开价格估算，实际以各家的账单为准。');
   }
 
   let knownTodos = null, todosDrawn = '', toolsDrawn = '';
 
   function renderTodos(todos) {
-    const print = JSON.stringify(todos);
+    const print = JSON.stringify([todos, language]);
     if (print === todosDrawn) return;
     todosDrawn = print;
     const fresh = knownTodos && isLive() ? todos.filter((item) => !knownTodos.has(item.id)).map((item) => item.id) : [];
@@ -1857,16 +1944,16 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (item.due) row.appendChild(el('span', 'due', item.due));
       return row;
     });
-    $('todos').replaceChildren(...(items.length ? items : [el('li', 'none', '没有未完成的待办')]));
+    $('todos').replaceChildren(...(items.length ? items : [el('li', 'none', t('没有未完成的待办'))]));
   }
 
   function renderTools(tools) {
-    const print = JSON.stringify(tools);
+    const print = JSON.stringify([tools, language]);
     if (print === toolsDrawn) return;
     toolsDrawn = print;
     $('tools').replaceChildren(...tools.map((tool) => {
       const chip = el('li', 'tool-chip' + (tool.local ? '' : ' remote'));
-      chip.title = tool.local ? '在这台电脑上执行' : '在厂商的服务器上执行';
+      chip.title = tool.local ? t('在这台电脑上执行') : t('在厂商的服务器上执行');
       chip.appendChild(el('i', 'dot'));
       chip.appendChild(el('span', null, tool.name));
       return chip;
@@ -1874,11 +1961,53 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     $('legend-remote').hidden = tools.every((tool) => tool.local);
   }
 
+  // ---- 语言 ----------------------------------------------------------------
+  // 换语言不刷新页面：先请助手程序记下新的选择（下次打开、终端版都跟着用），它会发来新的状态，
+  // 页面收到后在原地把文字换掉（见 applyLanguage）。正在进行的对话、滚动的位置、输入框里写了一半的话都不受影响。
+
+  const languageDialog = $('language-dialog');
+  const LANGUAGE_NAMES = { zh: '中文', en: 'English', es: 'Español' };  // 每种语言都用它自己的文字写，谁都认得出自己的那一个
+
+  function renderLanguageOptions() {
+    $('language-options').replaceChildren(...Object.keys(LANGUAGE_NAMES).map((code) => {
+      const option = el('button', 'option' + (code === language ? ' current' : ''));
+      option.type = 'button';
+      option.lang = LOCALES[code];
+      option.setAttribute('aria-pressed', String(code === language));
+      option.appendChild(el('b', null, LANGUAGE_NAMES[code]));
+      option.appendChild(icon('check'));
+      option.addEventListener('click', () => chooseLanguage(code));
+      return option;
+    }));
+  }
+
+  async function chooseLanguage(code) {
+    languageDialog.close();
+    if (code === language) return;
+    const reply = await call('/api/language', { language: code });
+    if (!reply.ok) toast(reply.error);  // 成功的话，接下来收到的状态里就是新的语言，在那里换（见 handlers.state）
+  }
+
+  // 在原地换成另一种语言。已经画在页面上、记着原文的文字就地重写；按状态画出来的部分（会话列表、用量、
+  // 待办、设置面板……）由紧接着的 handlers.state 重画，它们的"指纹"里都带着语言，所以一定会重画。
+  function applyLanguage(code) {
+    language = code;
+    strings = (I18N.tables || {})[code] || {};
+    translatePage();
+    applyTheme();       // 外观按钮的提示文字
+    refreshStatus();    // 发送按钮、"正在工作"
+    if (languageDialog.open) renderLanguageOptions();
+  }
+
+  $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮
+  $('language').addEventListener('click', () => { renderLanguageOptions(); languageDialog.showModal(); });
+  $('close-language').addEventListener('click', () => languageDialog.close());
+
   // ---- 要不要先问你 --------------------------------------------------------
   // 助手改文件、执行命令之前默认每次都问。这里可以放开一部分或者全部。
   // 现在是哪一档由助手程序说了算（它在状态里告诉页面），页面只负责显示和提出修改。
 
-  const APPROVAL = { ask: '每次确认', edits: '自动允许改文件', all: '全部自动允许' };
+  const APPROVAL = { ask: k('每次确认'), edits: k('自动允许改文件'), all: k('全部自动允许') };
   const approvalDialog = $('approval-dialog');
   let approval = 'ask';
 
@@ -1888,7 +2017,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (button.hidden) return;
     approval = mode;
     button.className = 'approval ' + mode;
-    $('approval-label').textContent = APPROVAL[mode];
+    retext($('approval-label'), APPROVAL[mode]);
     for (const option of document.querySelectorAll('#approval-options .option')) {
       option.classList.toggle('current', option.dataset.mode === mode);
       option.setAttribute('aria-pressed', String(option.dataset.mode === mode));
@@ -1904,7 +2033,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const reply = await call('/api/approval', { mode });
     if (!reply.ok) { toast(reply.error); return; }
     approvalDialog.close();
-    toast(mode === 'ask' ? '已恢复为每次确认。' : '已开启：' + APPROVAL[mode] + '。重启程序后会恢复为每次确认。');
+    toast(mode === 'ask' ? t('已恢复为每次确认。') : t('已开启：{mode}。重启程序后会恢复为每次确认。', { mode: t(APPROVAL[mode]) }));
   }
 
   $('approval').addEventListener('click', openApproval);
@@ -1939,7 +2068,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       return option;
     });
     if (!options.length) {
-      const none = el('option', null, provider.has_key ? '（先点下面的“同步模型”）' : '（先填写这一家的 API 密钥）');
+      const none = el('option', null, provider.has_key ? t('（先点下面的“同步模型”）') : t('（先填写这一家的 API 密钥）'));
       none.value = '';
       options.push(none);
     }
@@ -1950,7 +2079,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // 把最新的状态画到设置面板上。面板开着的时候状态可能更新，所以要保留用户正在输入的内容和焦点。
   function renderSettings() {
-    const print = JSON.stringify([state.providers, state.price, state.provider, state.model]);
+    const print = JSON.stringify([state.providers, state.price, state.provider, state.model, language]);
     if (settings.dataset.ready && print === settingsDrawn) return;  // 和面板有关的内容没变，不用重画
     settingsDrawn = print;
 
@@ -1962,7 +2091,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     settings.dataset.ready = '1';
 
     pickProvider.replaceChildren(...state.providers.map((provider) => {
-      const option = el('option', null, provider.label + (provider.has_key ? '' : '（未设置密钥）'));
+      const option = el('option', null, provider.has_key ? provider.label : t('{provider}（未设置密钥）', { provider: provider.label }));
       option.value = provider.id;
       return option;
     }));
@@ -1974,9 +2103,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const head = row.appendChild(el('div', 'key-head'));
       head.appendChild(el('strong', null, provider.label));
       head.appendChild(el('span', 'tag' + (provider.has_key ? ' set' : ''),
-        provider.has_key ? '已设置 ' + (provider.key_hint || '') : '未设置'));
-      if (provider.models.length) head.appendChild(el('span', 'tag', provider.models.length + ' 个模型'));
-      const link = head.appendChild(el('a', null, '去申请'));
+        provider.has_key ? t('已设置 {hint}', { hint: provider.key_hint || '' }) : t('未设置')));
+      const models = provider.models.length;
+      if (models) head.appendChild(el('span', 'tag', models === 1 ? t('1 个模型') : t('{n} 个模型', { n: models })));
+      const link = head.appendChild(el('a', null, t('去申请')));
       link.href = provider.key_page;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
@@ -1987,32 +2117,32 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       field.type = 'password';
       field.autocomplete = 'off';
       field.spellcheck = false;
-      field.placeholder = provider.has_key ? '粘贴新的 API 密钥可以替换' : '粘贴 API 密钥';
-      field.setAttribute('aria-label', provider.label + ' 的 API 密钥');
+      field.placeholder = provider.has_key ? t('粘贴新的 API 密钥可以替换') : t('粘贴 API 密钥');
+      field.setAttribute('aria-label', t('{provider} 的 API 密钥', { provider: provider.label }));
       field.dataset.keep = 'key-' + provider.id;
       field.value = typed[field.dataset.keep] || '';
-      const save = controls.appendChild(el('button', 'button primary', '保存'));
-      const sync = controls.appendChild(el('button', 'button', '同步模型'));
-      const remove = controls.appendChild(el('button', 'button', '删除'));
+      const save = controls.appendChild(el('button', 'button primary', t('保存')));
+      const sync = controls.appendChild(el('button', 'button', t('同步模型')));
+      const remove = controls.appendChild(el('button', 'button', t('删除')));
       save.type = sync.type = remove.type = 'button';
       sync.disabled = remove.disabled = !provider.has_key;
 
       save.addEventListener('click', async () => {
         const key = field.value.trim();
-        if (!key) { say('请先粘贴 API 密钥。', 'bad'); return; }
+        if (!key) { say(t('请先粘贴 API 密钥。'), 'bad'); return; }
         field.value = '';  // 密钥一交出去就从输入框里清掉，不在页面上多留
-        say('正在保存并同步模型列表……');
+        say(t('正在保存并同步模型列表……'));
         const result = await call('/api/key', { provider: provider.id, key });
-        say(result.ok ? result.warning || provider.label + ' 的密钥已保存，模型列表已同步。' : result.error,
+        say(result.ok ? result.warning || t('{provider} 的密钥已保存，模型列表已同步。', { provider: provider.label }) : result.error,
             result.ok && !result.warning ? 'good' : 'bad');
       });
       field.addEventListener('keydown', (key) => {
         if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); save.click(); }
       });
       sync.addEventListener('click', async () => {
-        say('正在同步 ' + provider.label + ' 的模型列表……');
+        say(t('正在同步 {provider} 的模型列表……', { provider: provider.label }));
         const result = await call('/api/models', { provider: provider.id });
-        say(result.ok ? provider.label + ' 的模型列表已更新。' : result.error, result.ok ? 'good' : 'bad');
+        say(result.ok ? t('{provider} 的模型列表已更新。', { provider: provider.label }) : result.error, result.ok ? 'good' : 'bad');
       });
       // 删除密钥要点两下：第一下只是让按钮变成"确认删除"，过几秒不点就恢复原样
       let armed = false, armedAt = 0;
@@ -2021,20 +2151,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         if (!armed) {
           armed = true;
           armedAt = performance.now();
-          remove.textContent = '确认删除';
+          remove.textContent = t('确认删除');
           remove.classList.add('danger');
-          setTimeout(() => { armed = false; remove.textContent = '删除'; remove.classList.remove('danger'); }, 4000);
+          setTimeout(() => { armed = false; remove.textContent = t('删除'); remove.classList.remove('danger'); }, 4000);
           return;
         }
         const result = await call('/api/key', { provider: provider.id, key: '' });
-        say(result.ok ? provider.label + ' 的密钥已删除。' : result.error, result.ok ? 'good' : 'bad');
+        say(result.ok ? t('{provider} 的密钥已删除。', { provider: provider.label }) : result.error, result.ok ? 'good' : 'bad');
       });
       return row;
     }));
 
     // 当前模型的价格
     const price = state.price || {};
-    const fields = [['input', '输入'], ['cache_read', '命中缓存的输入'], ['output', '输出']];
+    const fields = [['input', t('输入')], ['cache_read', t('命中缓存的输入')], ['output', t('输出')]];
     const inputs = {};
     const priceRow = $('price');
     priceRow.replaceChildren();
@@ -2048,7 +2178,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       field.value = typed[field.dataset.keep] !== undefined ? typed[field.dataset.keep] : (price[key] !== undefined ? price[key] : '');
       inputs[key] = field;
     }
-    const savePrice = priceRow.appendChild(el('button', 'button', '保存价格'));
+    const savePrice = priceRow.appendChild(el('button', 'button', t('保存价格')));
     savePrice.type = 'button';
     savePrice.addEventListener('click', async () => {
       const values = {};
@@ -2057,11 +2187,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         values[key] = Number(inputs[key].value);
       }
       const result = await call('/api/price', { model: state.model, price: values });
-      say(result.ok ? state.model + ' 的价格已保存。' : result.error, result.ok ? 'good' : 'bad');
+      say(result.ok ? t('{model} 的价格已保存。', { model: state.model }) : result.error, result.ok ? 'good' : 'bad');
     });
     $('price-note').textContent = state.price
-      ? '这是 ' + state.model + ' 现在用来估算的价格，可以改成你实际的价格。'
-      : state.model + ' 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。';
+      ? t('这是 {model} 现在用来估算的价格，可以改成你实际的价格。', { model: state.model })
+      : t('{model} 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。', { model: state.model });
 
     if (focused) {
       const again = settings.querySelector('input[data-keep="' + focused + '"]');
@@ -2083,7 +2213,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
   // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-  for (const dialog of [settings, approvalDialog]) {
+  for (const dialog of [settings, approvalDialog, languageDialog]) {
     let pressedOutside = false;
     dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
     dialog.addEventListener('click', (click) => { if (click.target === dialog && pressedOutside) dialog.close(); });
@@ -2101,11 +2231,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
     if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
       key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
-      if (settings.open || approvalDialog.open) return;
+      if (settings.open || approvalDialog.open || languageDialog.open) return;
       setNav(true, false);
       search.focus();
       search.select();
-    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open) {
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) setNav(false, false);
       if (overlaySide.matches && body.classList.contains('side-open')) setSide(false, false);
     }
@@ -2128,7 +2258,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   refreshStatus();
 
   if (!token) {
-    showBanner('地址里缺少口令（token）。请使用终端里显示的完整地址打开。');
+    showBanner(k('地址里缺少口令（token）。请使用终端里显示的完整地址打开。'));
     settle();
     return;
   }
@@ -2163,15 +2293,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     } catch (problem) {
       console.error(problem);
       try {
-        handlers.notice({ level: 'error', text: '有一项内容没能显示出来' + (event && event.type ? '（' + event.type + '）' : '') + '。可以点开这段会话的文件查看原始记录。' });
+        handlers.notice({ level: 'error', key: k('有一项内容没能显示出来（{type}）。可以点开这段会话的文件查看原始记录。'), values: { type: event && event.type ? event.type : '?' } });
       } catch (_) { /* 连提示都画不出来，就只能算了 */ }
     }
   };
   source.onerror = () => {
     const gone = source.readyState === EventSource.CLOSED;
     showBanner(gone
-      ? '连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。'
-      : '连接中断，正在重连……');
+      ? k('连接已断开：助手程序可能已经退出或重新启动了。请回到终端，用那里显示的新地址打开。')
+      : k('连接中断，正在重连……'));
     body.classList.add('ready');  // 连不上也要让页面亮相，否则只看得到一条提示
     if (gone && busy) {  // 助手程序不在了，"正在工作"就不该一直转下去
       endBlock();

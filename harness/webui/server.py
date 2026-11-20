@@ -13,6 +13,7 @@
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
+  POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
   POST /api/key        用户填写或删除了一家的 API key
   POST /api/models     用户点了"同步模型"
@@ -33,6 +34,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -43,9 +45,11 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
+from .. import i18n
 from ..app import App, build_app, run_turn
 from ..config import APP_NAME, Config
 from ..conversations import ConversationError
+from ..i18n import k, t
 from ..permissions import MODES
 from ..pricing import estimate, price_of
 from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
@@ -90,7 +94,7 @@ def reveal_in_file_manager(path: Path) -> None:
     )
     try:
         if process.wait(timeout=5) != 0:
-            raise OSError(f"{command[0]} 没有成功（退出码 {process.returncode}）")
+            raise OSError(t("{command} 没有成功（退出码 {code}）", command=command[0], code=process.returncode))
     except subprocess.TimeoutExpired:
         pass  # 有的文件管理器会一直开着不退出，那也算打开了，不用等它
 
@@ -161,6 +165,7 @@ class WebApp:
             unpriced=unpriced,
             tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
             approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
+            language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
         )
 
     def _models(self, provider_id: str) -> list[str]:
@@ -176,9 +181,9 @@ class WebApp:
         """开始一轮对话。成功返回空字符串，否则返回不能开始的原因。"""
         provider = self.app.provider
         if not has_key(provider):
-            return f"还没有设置 {provider.label} 的 API key，请先点右上角的“设置”填写。"
+            return t("还没有设置 {provider} 的 API key，请先点右上角的“设置”填写。", provider=provider.label)
         if not self._turn.acquire(blocking=False):
-            return "上一轮对话还没有结束"
+            return t("上一轮对话还没有结束")
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
         # 这样服务器还能继续响应浏览器的其他请求，比如"允许"和"停止"。
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
@@ -206,7 +211,7 @@ class WebApp:
         """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
         problem = self._try_save()
         if problem:
-            self.ui.error(f"保存会话失败：{problem}")
+            self.ui.error(t("保存会话失败：{error}", error=problem))
 
     def _try_save(self) -> str:
         """存盘。返回失败的原因（成功返回空字符串），并记下当前会话是不是还有没存上的内容。"""
@@ -230,7 +235,7 @@ class WebApp:
         if self._discard_ok == action:
             return ""
         self._discard_ok = action
-        return f"当前这段会话还没能保存（{self._unsaved}），现在离开会丢掉它的内容。可以先解决保存的问题；确实要放弃的话，再点一次。"
+        return t("当前这段会话还没能保存（{error}），现在离开会丢掉它的内容。可以先解决保存的问题；确实要放弃的话，再点一次。", error=self._unsaved)
 
     def _left(self) -> None:
         """已经离开了原来的会话：关于它的"没存上"和"确认放弃"都不用再记着。"""
@@ -255,7 +260,7 @@ class WebApp:
     def new_conversation(self) -> str:
         """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。"""
         if not self._turn.acquire(blocking=False):
-            return self.BUSY
+            return t(self.BUSY)
         try:
             blocked = self._before_leaving("new")
             if blocked:
@@ -273,7 +278,7 @@ class WebApp:
     def open_conversation(self, conversation_id: str) -> str:
         """打开一段保存过的会话。成功返回空字符串，否则返回原因。"""
         if not self._turn.acquire(blocking=False):
-            return self.BUSY
+            return t(self.BUSY)
         try:
             if conversation_id == self.app.conversation.id:
                 return ""  # 已经开着了
@@ -288,8 +293,10 @@ class WebApp:
             self.ui.load_events(conversation.events)
             if conversation.context_tokens >= LARGE_CONTEXT_TOKENS:
                 self.ui.hint(
-                    f"这段会话的历史约有 {conversation.context_tokens:,} 个 token。"
-                    "接着聊的第一条消息需要把它重新发给模型，会按这个量计费。"
+                    t(
+                        "这段会话的历史约有 {tokens} 个 token。接着聊的第一条消息需要把它重新发给模型，会按这个量计费。",
+                        tokens=f"{conversation.context_tokens:,}",
+                    )
                 )
             self._show_warnings()
             self.publish_state()
@@ -301,7 +308,7 @@ class WebApp:
         # 改名要读出会话文件、改掉标题、再写回去。如果这时正好有一轮对话结束、也在写同一个文件，
         # 两边会互相覆盖。所以和打开、删除一样，对话进行中不让改。
         if not self._turn.acquire(blocking=False):
-            return self.BUSY
+            return t(self.BUSY)
         try:
             try:
                 self.app.rename_conversation(conversation_id, title)
@@ -314,7 +321,7 @@ class WebApp:
 
     def delete_conversation(self, conversation_id: str) -> str:
         if not self._turn.acquire(blocking=False):
-            return self.BUSY
+            return t(self.BUSY)
         try:
             try:
                 was_current = self.app.delete_conversation(conversation_id)
@@ -335,31 +342,31 @@ class WebApp:
         """
         store, current = self.app.store, self.app.conversation
         if conversation_id == current.id and not current.saved:
-            return "这段会话还没有保存：第一轮对话结束后才会写到磁盘上。", ""
+            return t("这段会话还没有保存：第一轮对话结束后才会写到磁盘上。"), ""
         try:
             # 路径是由编号算出来的（编号的格式在 file_of 里检查过），浏览器没有办法指定别的路径
             target = store.file_of(conversation_id) if conversation_id else store.directory
         except ConversationError as exc:
             return str(exc), ""
         if not target.exists():
-            return "还没有保存过会话，文件夹还不存在。" if not conversation_id else "这段会话的文件已经不在了。", ""
+            return (t("还没有保存过会话，文件夹还不存在。") if not conversation_id else t("这段会话的文件已经不在了。")), ""
         try:
             reveal_in_file_manager(target)
         except OSError as exc:
-            return f"没能打开文件管理器（{exc}）。文件在：{target}", ""
+            return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
 
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
 
-    BUSY = "请先等当前这一轮对话结束，或者点“停止”"
+    BUSY = k("请先等当前这一轮对话结束，或者点“停止”")
 
     def select_model(self, provider_id: str, model: str) -> str:
         if not has_key(PROVIDERS[provider_id]):
-            return f"还没有设置 {PROVIDERS[provider_id].label} 的 API key"
+            return t("还没有设置 {provider} 的 API key", provider=PROVIDERS[provider_id].label)
         if not self._turn.acquire(blocking=False):
-            return self.BUSY
+            return t(self.BUSY)
         try:
             if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
@@ -370,7 +377,10 @@ class WebApp:
                 self._left()
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
             label = PROVIDERS[provider_id].label
-            self.ui.info(f"已换成 {label} · {model}。" + ("对话继续。" if continued else "换了一家，开始新对话。"))
+            if continued:
+                self.ui.info(t("已换成 {provider} · {model}。对话继续。", provider=label, model=model))
+            else:
+                self.ui.info(t("已换成 {provider} · {model}。换了一家，开始新对话。", provider=label, model=model))
             self._show_warnings()
             if continued:
                 self._save()  # 这段会话以后用新模型，记下来
@@ -386,7 +396,7 @@ class WebApp:
         原因放在"提醒"里告诉用户。
         """
         if not self._turn.acquire(blocking=False):
-            return self.BUSY, ""
+            return t(self.BUSY), ""
         warning = ""
         try:
             self.app.set_api_key(provider_id, key)
@@ -394,7 +404,7 @@ class WebApp:
                 try:
                     self.app.sync_models(provider_id)
                 except ProviderError as exc:
-                    warning = f"key 已保存，但同步模型列表失败：{exc}"
+                    warning = t("key 已保存，但同步模型列表失败：{error}", error=exc)
             else:
                 self.app.settings.set_models(provider_id, None)
             self.publish_state()
@@ -413,6 +423,21 @@ class WebApp:
     def set_price(self, model: str, price: dict | None) -> None:
         self.app.settings.set_price(model, price)
         self.publish_state()
+
+    def set_language(self, language: str) -> str:
+        """换界面语言。成功返回空字符串，否则返回原因。
+
+        不刷新页面：记下新的选择、发一次新的状态，页面收到后在原地把文字换掉（见 index.html 的 applyLanguage）。
+        也不用拿对话的锁：对话进行中也可以换。之后程序发给页面的话（提示、确认卡片上的说明）都用新的语言。
+        """
+        i18n.choose(language)
+        try:
+            self.app.settings.set_language(language)
+        except OSError as exc:
+            self.publish_state()  # 这一次照样换过去，只是下次启动还是原来的语言
+            return t("界面已经换过去了，但没能记下这个选择（{error}），下次启动时还是原来的语言。", error=exc)
+        self.publish_state()
+        return ""
 
     def set_approval(self, mode: str) -> None:
         """更改"要不要每次都问"。不用拿对话的锁：对话进行中也可以改，比如看到第五张确认卡片时决定全部放开。
@@ -462,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
             # 不回答的话连接会被直接掐断，页面只能当成"助手程序退出了"，让用户去重启一个其实好好的程序。
             if not self._responded:
                 try:
-                    self._send_json(500, {"error": f"助手程序处理这个请求时出错了：{str(exc) or type(exc).__name__}"})
+                    self._send_json(500, {"error": t("助手程序处理这个请求时出错了：{error}", error=str(exc) or type(exc).__name__)})
                 except OSError:
                     pass  # 浏览器已经不在了
 
@@ -473,17 +498,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/message":
             text = body.get("text")
             if not isinstance(text, str) or not text.strip() or len(text) > MAX_MESSAGE_CHARS:
-                self._send_json(400, {"error": "消息不能为空，也不能太长"})
+                self._send_json(400, {"error": t("消息不能为空，也不能太长")})
             else:
                 self._finish(web.send(text.strip()))
         elif path == "/api/confirm":
             confirm_id, allow, feedback = body.get("id"), body.get("allow"), body.get("feedback", "")
             if not isinstance(confirm_id, int) or not isinstance(allow, bool) or not isinstance(feedback, str):
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             elif web.ui.answer_confirm(confirm_id, allow, feedback.strip()):
                 self._send_json(200, {"ok": True})
             else:
-                self._send_json(409, {"error": "这个确认请求已经处理过了"})
+                self._send_json(409, {"error": t("这个确认请求已经处理过了")})
         elif path == "/api/stop":
             web.stop()
             self._send_json(200, {"ok": True})
@@ -493,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
             conversation_id, title = body.get("id"), body.get("title")
             action = path.removeprefix("/api/conversation/")
             if not isinstance(conversation_id, str):
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             elif action == "open":
                 self._finish(web.open_conversation(conversation_id))
             elif action == "delete":
@@ -507,46 +532,52 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "rename" and isinstance(title, str) and 0 < len(title.strip()) <= 200:
                 self._finish(web.rename_conversation(conversation_id, title.strip()))
             else:
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
         elif path == "/api/search":
             query = body.get("query")
             if not isinstance(query, str) or len(query) > MAX_QUERY_CHARS:
-                self._send_json(400, {"error": f"搜索词必须是一段文字，最长 {MAX_QUERY_CHARS} 个字符"})
+                self._send_json(400, {"error": t("搜索词必须是一段文字，最长 {n} 个字符", n=MAX_QUERY_CHARS)})
             else:
                 # 只读内存里的索引，不改任何东西，所以对话进行中也可以搜
                 self._send_json(200, {"ok": True, "results": web.app.store.search(query)})
+        elif path == "/api/language":
+            language = body.get("language")
+            if not isinstance(language, str) or language not in i18n.LANGUAGES:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                self._finish("", warning=web.set_language(language))
         elif path == "/api/approval":
             mode = body.get("mode")
             if not isinstance(mode, str) or mode not in MODES:
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             else:
                 web.set_approval(mode)
                 self._send_json(200, {"ok": True})
         elif path == "/api/model":
             provider, model = body.get("provider"), body.get("model")
             if provider not in PROVIDERS or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.select_model(provider, model.strip()))
         elif path == "/api/key":
             provider, key = body.get("provider"), body.get("key")
             if provider not in PROVIDERS or not isinstance(key, str):
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             elif key.strip() and not valid_api_key(key.strip()):
-                self._send_json(400, {"error": "这不像是一个 API key：里面不能有空格、换行或中文"})
+                self._send_json(400, {"error": t("这不像是一个 API key：里面不能有空格、换行或中文")})
             else:
                 error, warning = web.set_api_key(provider, key.strip())
                 self._finish(error, warning=warning)
         elif path == "/api/models":
             provider = body.get("provider")
             if provider not in PROVIDERS:
-                self._send_json(400, {"error": "参数不正确"})
+                self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.sync_models(provider))
         elif path == "/api/price":
             model, price = body.get("model"), body.get("price")
             if not isinstance(model, str) or not model or not _valid_price(price):
-                self._send_json(400, {"error": "价格必须是不小于 0 的数字，输入和输出两项必填"})
+                self._send_json(400, {"error": t("价格必须是不小于 0 的数字，输入和输出两项必填")})
             else:
                 web.set_price(model, price)
                 self._send_json(200, {"ok": True})
@@ -572,7 +603,7 @@ class Handler(BaseHTTPRequestHandler):
             and secrets.compare_digest(supplied_token.encode(), self.server.web.token.encode())
         )
         if not ok:
-            self._send_text(403, "链接无效或已经过期。请使用终端里显示的完整地址重新打开。")
+            self._send_text(403, t("链接无效或已经过期。请使用终端里显示的完整地址重新打开。"))
         return ok
 
     # ---- 响应 --------------------------------------------------------------
@@ -585,10 +616,15 @@ class Handler(BaseHTTPRequestHandler):
             f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
             "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
+        # 翻译表也在这时塞进页面（页面里放它的是一段 JSON 数据，不是脚本，浏览器不会执行）。
+        # 两处一次填完（re.sub 不会回头再扫一遍填进去的内容）：翻译表里万一出现 "__NONCE__"，
+        # 或者 nonce 里碰巧有 "__I18N__"，都不会被当成要填的地方。
+        fills = {"__NONCE__": nonce, "__I18N__": i18n.page_payload(self.server.web.app.settings.language)}
+        page = re.sub("__NONCE__|__I18N__", lambda match: fills[match.group(0)], PAGE)
         self._send(
             200,
             "text/html; charset=utf-8",
-            PAGE.replace("__NONCE__", nonce).encode(),
+            page.encode(),
             {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"},
         )
 
@@ -639,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
             length = -1
         if not 0 <= length <= MAX_BODY_BYTES:
             self._discard(length)
-            self._send_json(413, {"error": "请求太大：一次最多发送约 1MB 的内容"})
+            self._send_json(413, {"error": t("请求太大：一次最多发送约 1MB 的内容")})
             return None
         try:
             # clean：浏览器送来的文字（消息、标题……）在进门的地方统一洗一遍，见 safe.py
@@ -647,7 +683,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, RecursionError):  # RecursionError：嵌套了上千层的 JSON
             body = None
         if not isinstance(body, dict):
-            self._send_json(400, {"error": "请求格式不正确"})
+            self._send_json(400, {"error": t("请求格式不正确")})
             return None
         return body
 
@@ -738,8 +774,8 @@ def shut_down(server: Server, app: App) -> None:
 def run_web(config: Config, port: int | None = None, open_browser: bool = True) -> int:
     lock = claim_data_dir(config.data_dir)
     if lock is None:
-        print(f"已经有一个{APP_NAME}的网页界面在运行，用的是同一个数据目录：{config.data_dir}")
-        print("两个一起运行会互相覆盖对方保存的会话。请直接用已经打开的那个页面，或者先到它的终端里按 Ctrl-C 把它关掉。")
+        print(t("已经有一个{name}的网页界面在运行，用的是同一个数据目录：{path}", name=APP_NAME, path=config.data_dir))
+        print(t("两个一起运行会互相覆盖对方保存的会话。请直接用已经打开的那个页面，或者先到它的终端里按 Ctrl-C 把它关掉。"))
         return 1
     try:
         return _serve(config, port, open_browser)
@@ -753,16 +789,16 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     try:
         server, url = create_server(app, ui, port)
     except OSError as exc:
-        print(f"无法在端口 {port} 上启动：{exc}")
+        print(t("无法在端口 {port} 上启动：{error}", port=port, error=exc))
         return 1
 
-    print(f"{APP_NAME}（网页界面）已启动。在浏览器里打开这个地址：\n")
+    print(t("{name}（网页界面）已启动。在浏览器里打开这个地址：", name=APP_NAME) + "\n")
     print(f"    {url}\n")
     provider = app.provider
-    print(f"模型：{provider.label} · {app.settings.model}    工作目录：{config.workspace}")
+    print(t("模型：{model}    工作目录：{workspace}", model=f"{provider.label} · {app.settings.model}", workspace=config.workspace))
     if not has_key(provider):
-        print(f"还没有设置 {provider.label} 的 API key：打开页面后，点右上角的“设置”填写。")
-    print("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。")
+        print(t("还没有设置 {provider} 的 API key：打开页面后，点右上角的“设置”填写。", provider=provider.label))
+    print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
     if open_browser:
         webbrowser.open(url)
 
@@ -772,5 +808,5 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
         pass
     finally:
         shut_down(server, app)
-    print("\n再见。")
+    print("\n" + t("再见。"))
     return 0

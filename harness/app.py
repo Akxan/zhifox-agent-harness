@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import i18n
 from .agent import Agent
 from .config import Config
 from .conversations import (
@@ -16,6 +17,7 @@ from .conversations import (
     ConversationStore,
     make_title,
 )
+from .i18n import t
 from .permissions import Permissions
 from .prompt import build_system_prompt
 from .providers import (
@@ -90,7 +92,7 @@ class App:
         try:
             self.settings.choose(provider_id, model)
         except OSError as exc:
-            self.warnings.append(f"没能把这次选择的模型记下来（{exc}），下次启动时用的还是之前记住的那个。")
+            self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
 
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""
@@ -113,7 +115,7 @@ class App:
         """
         conversation = self.store.load(conversation_id)
         if conversation.provider not in PROVIDERS:
-            raise ConversationError("这段会话用的模型提供方，这个版本的程序已经不支持了。")
+            raise ConversationError(t("这段会话用的模型提供方，这个版本的程序已经不支持了。"))
         # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
         same_provider = conversation.provider == self.agent.backend.provider
         backend = self.agent.backend if same_provider else self._backend_for(conversation.provider, conversation.model)
@@ -187,7 +189,7 @@ class App:
         """向一家的服务器询问有哪些模型，并把列表记下来。"""
         provider = PROVIDERS[provider_id]
         if not has_key(provider):
-            raise ProviderError(f"还没有设置 {provider.label} 的 API key。")
+            raise ProviderError(t("还没有设置 {provider} 的 API key。", provider=provider.label))
         models = list_models(provider, self.client_factory(provider))
         self.settings.set_models(provider_id, models)
         return models
@@ -197,6 +199,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     settings = Settings(config.settings_file, config.default_provider, config.default_model)
     if settings.provider not in PROVIDERS:
         settings.provider, settings.model = "anthropic", "claude-opus-5-5"
+    i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
 
     files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file])
     todos = TodoStore(config.todo_file)
@@ -228,8 +231,8 @@ def run_turn(agent: Agent, ui: Any, text: str) -> None:
     try:
         agent.run_turn(text)
     except KeyboardInterrupt:
-        ui.info("已中断。")
+        ui.info(t("已中断。"))
     except ProviderError as exc:
-        ui.error(str(exc))
+        ui.error(i18n.message_of(exc))
     except Exception as exc:  # noqa: BLE001 —— 故意接住所有异常：哪里出了意料之外的错，都要让用户看到，而不是让程序退出
-        ui.error(f"这一轮出错了：{type(exc).__name__}: {exc}")
+        ui.error(t("这一轮出错了：{error}", error=f"{type(exc).__name__}: {exc}"))

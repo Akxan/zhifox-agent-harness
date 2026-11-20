@@ -24,15 +24,16 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from .i18n import k, t
 from .tools import files, shell
 from .tools.base import ToolError
 from .tools.files import FileEditor
 
 # 用户可以选的三种模式，以及给人看的说法。
 MODES = {
-    "ask": "每次都问",
-    "edits": "改工作目录里的文件不用问",
-    "all": "全部自动允许",
+    "ask": k("每次都问"),
+    "edits": k("改工作目录里的文件不用问"),
+    "all": k("全部自动允许"),
 }
 
 
@@ -83,7 +84,7 @@ class Permissions:
         if not isinstance(tool_input, dict):
             return None  # 参数本身不合法，工具会直接报错，什么都不会执行
         if tool_name == shell.TOOL_NAME:
-            return f"执行命令：\n\n    $ {tool_input.get('command')}\n"
+            return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:
             return self._review_file(tool_input)
         return None
@@ -96,25 +97,26 @@ class Permissions:
             return None  # 路径无效，工具会直接报错，什么都不会执行
         shown = self.editor.display(path)
 
+        # 这些说明会接在"助手想要"后面显示（"助手想要执行命令：…"），所以都写成"做什么"的样子
         if command == "create":
-            action = "覆盖已有文件" if path.exists() else "创建文件"
-            return f"{action}：{shown}\n\n{_preview(tool_input.get('file_text'))}\n"
+            content = _preview(tool_input.get("file_text"))
+            if path.exists():
+                return t("覆盖已有文件：{path}\n\n{content}", path=shown, content=content)
+            return t("创建文件：{path}\n\n{content}", path=shown, content=content)
         if command == "str_replace":
-            return (
-                f"修改文件：{shown}\n\n  把这段：\n{_preview(tool_input.get('old_str'))}\n"
-                f"  改成：\n{_preview(tool_input.get('new_str'))}\n"
-            )
+            old, new = _preview(tool_input.get("old_str")), _preview(tool_input.get("new_str"))
+            return t("修改文件：{path}\n\n  把这段：\n{old}\n  改成：\n{new}", path=shown, old=old, new=new)
         if command == "insert":
             text = tool_input.get("insert_text", tool_input.get("new_str"))
             line = tool_input.get("insert_line")
-            return f"在文件 {shown} 的第 {line} 行之后插入：\n\n{_preview(text)}\n"
+            return t("在文件 {path} 的第 {line} 行之后插入：\n\n{content}", path=shown, line=line, content=_preview(text))
 
         # 剩下的是读取（view）
         if self._is_private(path):
-            return f"读取助手自己保存的数据（以前的会话、设置、待办都在这个目录里）：\n\n    {path}\n"
+            return t("读取助手自己保存的数据（以前的会话、设置、待办都在这个目录里）：\n\n    {path}", path=path)
         if self.editor.in_workspace(path):
             return None
-        return f"读取工作目录之外的内容：\n\n    {path}\n"
+        return t("读取工作目录之外的内容：\n\n    {path}", path=path)
 
 
 def _preview(text: object, max_lines: int = 12) -> str:
@@ -122,5 +124,5 @@ def _preview(text: object, max_lines: int = 12) -> str:
     lines = str(text if text is not None else "").split("\n")
     shown = [f"    {line}" for line in lines[:max_lines]]
     if len(lines) > max_lines:
-        shown.append(f"    ……（共 {len(lines)} 行）")
+        shown.append("    " + t("……（共 {n} 行）", n=len(lines)))
     return "\n".join(shown)

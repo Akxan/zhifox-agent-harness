@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..display import describe_call
+from ..i18n import Message, t
 
 MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符（发给模型的不受影响）
 
@@ -166,7 +167,7 @@ class WebUI:
 
     def hint(self, text: str, level: str = "info") -> None:
         """一句只显示、不保存的提示。"""
-        self.publish("notice", level=level, text=text, transient=True)
+        self.publish("notice", level=level, transient=True, **said(text))
 
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
@@ -219,7 +220,7 @@ class WebUI:
     def notice(self, level: str, text: str) -> None:
         self._check_stop()
         self.end_stream()
-        self.publish("notice", level=level, text=text)
+        self.publish("notice", level=level, **said(text))
 
     def end_stream(self) -> None:
         """告诉浏览器：正在逐字输出的那段文字结束了。"""
@@ -238,7 +239,7 @@ class WebUI:
 
     def tool_result(self, text: str, is_error: bool) -> None:
         if len(text) > MAX_RESULT_CHARS:
-            text = text[:MAX_RESULT_CHARS] + f"\n……（共 {len(text)} 个字符，这里只显示开头）"
+            text = text[:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(text))
         self.publish("tool_result", text=text, is_error=is_error)
         self._check_stop()
 
@@ -246,7 +247,8 @@ class WebUI:
         """请用户确认一个操作：发一个事件让浏览器显示确认卡片，然后等用户点按钮。"""
         self.end_stream()
         with self._changed:
-            confirm_id = self.publish("confirm", description=description)
+            fields = said(description)
+            confirm_id = self.publish("confirm", description=fields.pop("text"), **fields)
             self._waiting_confirm = confirm_id
             self._confirm_answer = None
             while self._confirm_answer is None and not self._stop_requested:
@@ -271,8 +273,19 @@ class WebUI:
 
     def info(self, text: str) -> None:
         self.end_stream()
-        self.publish("notice", level="info", text=text)
+        self.publish("notice", level="info", **said(text))
 
     def error(self, text: str) -> None:
         self.end_stream()
-        self.publish("notice", level="error", text=text)
+        self.publish("notice", level="error", **said(text))
+
+
+def said(text: str) -> dict:
+    """一句要显示在页面上的话，变成事件里的字段。
+
+    除了译好的文字（text），用 t() 写的话还带着原文（key）和填进去的值（values）：用户在页面上换语言时，
+    页面照着它们在原地把这句话换成新的语言；保存下来的会话以后换了语言再打开，也一样。
+    """
+    if isinstance(text, Message):
+        return {"text": str(text), "key": text.key, "values": text.values}
+    return {"text": text}

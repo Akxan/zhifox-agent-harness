@@ -15,6 +15,7 @@ from prompt_toolkit.history import FileHistory
 
 from .config import APP_NAME
 from .display import describe_call, short
+from .i18n import t
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -23,8 +24,9 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
-YES = {"y", "yes", "是", "好", "允许"}
-NO = {"", "n", "no", "否", "不"}
+# 确认时认得的回答：中文、英文、西班牙语都行
+YES = {"y", "yes", "是", "好", "允许", "allow", "s", "si", "sí", "permitir"}
+NO = {"", "n", "no", "否", "不", "deny", "rechazar"}
 
 
 class TerminalUI:
@@ -63,9 +65,9 @@ class TerminalUI:
         self._line("", text)
 
     def banner(self, model: str, workspace: Path) -> None:
-        self.plain(self._paint(BOLD, f"{APP_NAME} · 个人助手"))
-        self.info(f"模型：{model}    工作目录：{workspace}")
-        self.info("直接输入想说的话；/help 查看命令；Ctrl-C 中断当前回复；Ctrl-D 或 /exit 退出。")
+        self.plain(self._paint(BOLD, t("{name} · 个人助手", name=APP_NAME)))
+        self.info(t("模型：{model}    工作目录：{workspace}", model=model, workspace=workspace))
+        self.info(t("直接输入想说的话；/help 查看命令；Ctrl-C 中断当前回复；Ctrl-D 或 /exit 退出。"))
 
     # ---- 输入 -------------------------------------------------------------
 
@@ -75,7 +77,7 @@ class TerminalUI:
         try:
             if self._session is not None:
                 self._write("\n")
-                return self._session.prompt("你> ")
+                return self._session.prompt(t("你> "))
             return input()
         except KeyboardInterrupt:
             return ""  # 在输入时按 Ctrl-C：清空这一行，不退出
@@ -85,12 +87,12 @@ class TerminalUI:
     def confirm(self, description: str) -> tuple[bool, str]:
         """请用户确认一个操作。返回（是否允许，用户附带的话）。"""
         self.end_stream()
-        self._write(self._paint(YELLOW, f"\n⚠️  助手想要{description}"))
+        self._write(self._paint(YELLOW, "\n⚠️  " + t("助手想要") + description) + "\n")
         if not self._interactive:
             self._write("\n")
-            return False, "当前不是交互式终端，没有人可以确认。"
+            return False, "当前不是交互式终端，没有人可以确认。"  # 这句是给模型看的，不用翻译
         try:
-            answer = ask("允许吗？y 允许；回车拒绝；也可以直接输入你的意见来拒绝 > ").strip()
+            answer = ask(t("允许吗？y 允许；回车拒绝；也可以直接输入你的意见来拒绝 > ")).strip()
         except EOFError:
             return False, ""
         if answer.lower() in YES:
@@ -141,4 +143,4 @@ class TerminalUI:
         self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}")
 
     def auto_allowed(self) -> None:
-        self.info("   （自动允许）")
+        self.info("   " + t("（自动允许）"))

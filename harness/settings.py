@@ -2,7 +2,7 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -15,6 +15,7 @@ import re
 import threading
 from pathlib import Path
 
+from . import i18n
 from .safe import private_dir, to_json, write_file
 
 
@@ -36,6 +37,8 @@ class Settings:
         self.model: str = saved.get("model") or default_model
         self.models: dict[str, list[str]] = saved.get("models") or {}  # 每家同步到的模型列表
         self.prices: dict[str, dict] = saved.get("prices") or {}  # 用户自己填的价格，按模型名
+        language = saved.get("language")
+        self.language: str = language if language in i18n.LANGUAGES else i18n.DEFAULT  # 界面语言：zh / en / es
 
     def save(self) -> None:
         with self._lock:
@@ -45,6 +48,12 @@ class Settings:
         """记住现在用的是哪家的哪个模型。"""
         with self._lock:
             self.provider, self.model = provider, model
+            self._write()
+
+    def set_language(self, language: str) -> None:
+        """记住界面语言（网页和终端都用它）。"""
+        with self._lock:
+            self.language = language
             self._write()
 
     def set_models(self, provider: str, models: list[str] | None) -> None:
@@ -68,7 +77,13 @@ class Settings:
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
-        data = {"provider": self.provider, "model": self.model, "models": self.models, "prices": self.prices}
+        data = {
+            "provider": self.provider,
+            "model": self.model,
+            "models": self.models,
+            "prices": self.prices,
+            "language": self.language,
+        }
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

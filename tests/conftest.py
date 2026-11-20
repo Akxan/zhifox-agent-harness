@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
+from harness import i18n
 from harness.app import build_app
 from harness.config import Config
 
@@ -89,6 +90,8 @@ def isolated_environment(monkeypatch, tmp_path):
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.setenv(name, "")
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    # 界面语言是整个程序共用的一个值（见 harness/i18n.py）。每个测试都从中文开始，测试里换了语言也会被换回来
+    monkeypatch.setattr(i18n, "current", i18n.DEFAULT)
 
 
 @pytest.fixture
