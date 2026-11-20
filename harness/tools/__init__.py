@@ -46,5 +46,5 @@ def build_registry(config: Config, files: FileEditor, todos: TodoStore, shell: S
         make_shell_tool(shell),
     ]
     if config.web:
-        tools += make_web_tools()
+        tools += make_web_tools(config.max_searches)
     return ToolRegistry(tools)

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import anthropic
 import pytest
 from fake_api import reply, text, thinking, tool_use
 
-from harness.agent import blocks_to_keep
+from harness.providers import ProviderError
+from harness.providers.claude import blocks_to_keep
 from harness.ui import TerminalUI
 
 FILE_TOOL = "str_replace_based_edit_tool"
@@ -34,9 +34,13 @@ def test_plain_answer_sends_expected_request(start):
     assert request["fallbacks"] == "default"
     assert request["context_management"] == {"edits": [{"type": "compact_20260112"}]}
     assert h.api.headers[0]["anthropic-beta"] == "server-side-fallback-2026-07-01,compact-2026-01-12"
-    assert request["system"] == [
-        {"type": "text", "text": "测试用的系统提示词", "cache_control": {"type": "ephemeral"}}
-    ]
+    (system,) = request["system"]
+    assert system["cache_control"] == {"type": "ephemeral"}  # 系统提示词上有缓存标记
+    assert "个人助手" in system["text"] and str(h.config.workspace) in system["text"]
+    # 联网工具带着每条消息的次数上限，由 API 强制执行
+    web_tools = {tool["name"]: tool for tool in request["tools"] if tool["name"].startswith("web_")}
+    assert web_tools["web_search"] == {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+    assert web_tools["web_fetch"]["max_uses"] == 5 and web_tools["web_fetch"]["max_content_tokens"] == 8000
     assert [tool["name"] for tool in request["tools"]] == [
         "todo_add",
         "todo_list",
@@ -61,7 +65,7 @@ def test_plain_answer_sends_expected_request(start):
 
 
 def test_optional_features_can_be_off(start):
-    h = start(reply(text("好")), model="claude-haiku-5-5", web=False)
+    h = start(reply(text("好")), default_model="claude-haiku-5-5", web=False)
     h.agent.run_turn("你好")
 
     (request,) = h.api.requests
@@ -257,9 +261,19 @@ def test_step_limit_stops_the_loop(start):
 
 def test_api_error_withdraws_the_user_message(start):
     h = start()  # 没有预设回复：假 API 会返回 500
-    with pytest.raises(anthropic.APIStatusError):
+    with pytest.raises(ProviderError, match="500"):
         h.agent.run_turn("你好")
     assert h.agent.messages == []
+
+
+def test_search_limit_can_be_changed_or_removed(start):
+    h = start(reply(text("好")), max_searches=2)
+    h.agent.run_turn("你好")
+    assert [t.get("max_uses") for t in h.api.requests[0]["tools"] if t["name"].startswith("web_")] == [2, 2]
+
+    h = start(reply(text("好")), max_searches=0)  # 0 表示不限制
+    h.agent.run_turn("你好")
+    assert all("max_uses" not in t for t in h.api.requests[0]["tools"])
 
 
 def test_interrupt_during_tools_keeps_history_valid(start):
@@ -374,3 +388,5 @@ def test_usage_is_accumulated(start):
     usage = h.agent.usage
     assert (usage.requests, usage.input_tokens, usage.output_tokens) == (2, 200, 40)
     assert (usage.cache_read_tokens, usage.cache_write_tokens) == (80, 20)
+    assert usage.context_tokens == 100 + 40 + 10 + 20  # 最近一次请求的输入加输出
+    assert h.agent.usage_by_model["claude-opus-5-5"].requests == 2

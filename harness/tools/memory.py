@@ -16,6 +16,35 @@ from anthropic.tools import ToolError as SdkToolError
 
 from .base import Tool, ToolError
 
+# 给其他厂商模型用的说明书。Claude 学过这个工具，知道每次对话开始时要先看一眼记忆目录；
+# 别家的模型没学过，所以这条规矩要在说明里写出来。
+PORTABLE = {
+    "name": "memory",
+    "description": (
+        "长期记忆。/memories 目录里的文件在程序重启后仍然存在，是跨会话记住事情的唯一方式。"
+        "每段对话开始时，先用 view 查看 /memories 目录，了解已经记住了什么。"
+        "command 决定做什么：view 查看目录或文件；create 新建文件；str_replace 替换文件里的一段文字；"
+        "insert 在指定行之后插入文字；delete 删除文件或目录；rename 重命名或移动。"
+        "所有路径都必须以 /memories 开头。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "enum": ["view", "create", "str_replace", "insert", "delete", "rename"]},
+            "path": {"type": "string", "description": "除 rename 之外都必填，例如 /memories/user.md"},
+            "view_range": {"type": "array", "items": {"type": "integer"}, "description": "view 时可选：[起始行, 结束行]"},
+            "file_text": {"type": "string", "description": "create 时必填：文件内容"},
+            "old_str": {"type": "string", "description": "str_replace 时必填：要被替换的原文"},
+            "new_str": {"type": "string", "description": "str_replace 时必填：新内容"},
+            "insert_line": {"type": "integer", "description": "insert 时必填：插在第几行之后"},
+            "insert_text": {"type": "string", "description": "insert 时必填：要插入的文字"},
+            "old_path": {"type": "string", "description": "rename 时必填：原路径"},
+            "new_path": {"type": "string", "description": "rename 时必填：新路径"},
+        },
+        "required": ["command"],
+    },
+}
+
 
 def make_memory_tool(data_dir: Path) -> Tool:
     backend = BetaLocalFilesystemMemoryTool(base_path=str(data_dir))  # 实际位置：data_dir/memories/
@@ -26,5 +55,5 @@ def make_memory_tool(data_dir: Path) -> Tool:
         except SdkToolError as exc:
             raise ToolError(str(exc)) from exc
 
-    # 说明书由 SDK 生成：{"type": "memory_20250818", "name": "memory"}
-    return Tool(spec=dict(backend.to_dict()), run=run)
+    # 给 Claude 的说明书由 SDK 生成：{"type": "memory_20250818", "name": "memory"}
+    return Tool(spec=dict(backend.to_dict()), run=run, portable=PORTABLE)

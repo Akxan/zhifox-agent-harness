@@ -23,10 +23,14 @@ class ToolError(Exception):
 
 @dataclass(frozen=True)
 class Tool:
+    # 发给 Claude 的说明书（Anthropic 的格式）
     spec: dict
     # 接收模型给的参数（一个 dict），返回给模型看的文字。
     # None 表示这是"服务器工具"：由 Anthropic 的服务器执行，本地不需要做任何事。
     run: Callable[[dict], str] | None = None
+    # 发给其他厂商模型的说明书：{"name", "description", "parameters"}，各家通用的函数格式。
+    # None 表示这个工具只有 Claude 能用（比如 Anthropic 服务器上的联网搜索）。
+    portable: dict | None = None
 
     @property
     def name(self) -> str:
@@ -95,4 +99,7 @@ def function_tool(
     def run(tool_input: dict) -> str:
         return function(**check_input(schema, tool_input))
 
-    return Tool(spec=spec, run=run)
+    # 自定义工具的说明书本来就是我们写的，换个包装就能给其他厂商用
+    parameters = {key: value for key, value in schema.items() if key != "additionalProperties"}
+    portable = {"name": name, "description": description, "parameters": parameters}
+    return Tool(spec=spec, run=run, portable=portable)

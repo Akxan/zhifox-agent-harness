@@ -17,8 +17,8 @@ DEFAULT_TIMEOUT = 60
 MAX_TIMEOUT = 600
 MAX_OUTPUT_CHARS = 20_000
 
-# 不让命令看到这些环境变量，免得密钥被打印出来或发到别处
-SECRET_ENV_VARS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+# 不让命令看到各家的 API key，免得密钥被打印出来或发到别处
+SECRET_ENV_VARS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"}
 
 
 def _clip(output: str) -> str:

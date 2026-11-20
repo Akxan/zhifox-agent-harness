@@ -6,19 +6,20 @@ import argparse
 import sys
 
 from .app import App, build_app, run_turn
-from .config import has_credentials, load_config
+from .config import Config, load_config
+from .pricing import estimate
+from .providers import has_key
 from .tools.todo import format_todos
 from .ui import TerminalUI
 
 SETUP_HELP = """\
-还没有找到 API key，助手需要它才能调用 Claude。
+还没有设置 {label} 的 API key，助手需要它才能调用模型。有两种办法：
 
-  1. 打开 https://platform.claude.com ，登录后在 API Keys 页面创建一个 key
-     （API 按用量计费，和 Claude 的订阅是分开的，需要先充值）。
-  2. 在项目目录里把 .env.example 复制一份，命名为 .env
-  3. 把 key 填在 ANTHROPIC_API_KEY= 的后面，保存，然后重新运行。
+  1. 运行 uv run harness --web ，在网页界面右上角的"设置"里填写（最省事）。
+  2. 打开 {env_file} ，加上一行：
+         {key_env}=你的key
 
-.env 文件的位置：{env_file}
+API key 在 {key_page} 申请。API 按用量计费，和聊天产品的订阅是分开的。
 """
 
 HELP = """\
@@ -26,10 +27,11 @@ HELP = """\
 /new     开始一段新对话（记忆和待办不受影响）
 /todos   查看未完成的待办
 /tools   查看模型可以使用的工具
-/usage   查看本次运行的 token 用量
+/usage   查看本次运行的 token 用量和估算费用
+/model   查看当前使用的模型
 /exit    退出"""
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage"}
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model"}
 
 
 def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
@@ -44,29 +46,43 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     elif command == "/todos":
         ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
-        for tool in app.tools:
-            where = "本地执行" if tool.run else "服务器执行"
-            description = tool.spec.get("description")
+        for name, local in app.agent.backend.tool_names():
+            tool = app.tools.get(name)
+            description = tool.spec.get("description") if tool else None
             # 自定义工具显示说明的第一句；Anthropic 定义的工具没有我们写的说明，显示它的类型
             summary = description.split("。")[0] + "。" if description else f"Anthropic 定义（{tool.spec['type']}）"
-            ui.plain(f"{tool.name}  [{where}]")
+            ui.plain(f"{name}  [{'本地执行' if local else '服务器执行'}]")
             ui.info(f"    {summary}")
     elif command == "/usage":
         usage = app.agent.usage
+        cost, unpriced = estimate(app.agent.usage_by_model, app.settings.prices)
+        note = f"（不含 {'、'.join(unpriced)}：没有设置价格）" if unpriced else ""
         ui.plain(
-            f"请求 {usage.requests} 次\n"
+            f"请求 {usage.requests} 次，联网搜索 {usage.searches} 次\n"
             f"输入：{usage.input_tokens} token（原价） + {usage.cache_read_tokens}（命中缓存） "
             f"+ {usage.cache_write_tokens}（写入缓存）\n"
-            f"输出：{usage.output_tokens} token"
+            f"输出：{usage.output_tokens} token\n"
+            f"估算费用：${cost:.4f}{note}"
         )
+    elif command == "/model":
+        ui.plain(f"{app.provider.label} · {app.settings.model}")
+        ui.info("换模型：运行 uv run harness --web ，在网页界面的“设置”里选择。选择会保存下来，终端版也会跟着用。")
     return True
 
 
-def run_terminal(config) -> int:
+def run_terminal(config: Config) -> int:
     """终端界面的主循环：读一句、答一句。"""
     ui = TerminalUI(history_file=config.data_dir / "input_history")
     app = build_app(config, ui)
-    ui.banner(config)
+    provider = app.provider
+    if not has_key(provider):
+        print(
+            SETUP_HELP.format(
+                label=provider.label, env_file=config.env_file, key_env=provider.key_env, key_page=provider.key_page
+            )
+        )
+        return 1
+    ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
 
     while True:
         text = ui.read_input()
@@ -93,10 +109,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config()
-    if not has_credentials():
-        print(SETUP_HELP.format(env_file=config.env_file))
-        return 1
-
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

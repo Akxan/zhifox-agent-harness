@@ -135,13 +135,47 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
 .usage dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .tool-item { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 12px; }
 .where { flex: none; font-family: var(--sans); color: var(--muted); }
+.cost { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-weight: 600; }
+.cost span:last-child { font-size: 16px; font-variant-numeric: tabular-nums; }
+.fine { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) { .side { display: none; } }
+
+/* 顶栏上的模型按钮 */
+.model-button { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.model-button::after { content: " ▾"; color: var(--muted); }
+
+/* 设置面板 */
+.settings { width: min(660px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+.settings::backdrop { background: rgba(0, 0, 0, .45); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.settings-head h2 { margin: 0; font-size: 15px; }
+.settings section { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.settings h3 { margin: 0 0 8px; font-size: 13px; }
+.settings .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.settings select, .settings input { min-width: 0; padding: 6px 10px; font: inherit; font-size: 13px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.settings select { flex: 1 1 180px; }
+.settings input[type="password"] { flex: 1 1 220px; }
+.settings input[type="number"] { width: 92px; }
+.settings button { flex: none; white-space: nowrap; padding: 5px 12px; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.settings button:hover:not(:disabled) { border-color: var(--muted); }
+.settings button.main { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.settings label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.key-row + .key-row { margin-top: 14px; }
+.key-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+.key-status { font-size: 12px; color: var(--muted); }
+.key-status.set { color: var(--ok); }
+.key-head a { margin-left: auto; font-size: 12px; }
+.settings-message { min-height: 20px; padding: 10px 18px 14px; font-size: 13px; color: var(--muted); }
+.settings-message.bad { color: var(--err); }
+.settings-message.good { color: var(--ok); }
 </style>
 </head>
 <body>
 <header class="bar">
   <h1>Harness 个人助手</h1>
   <span id="meta" class="meta"></span>
+  <button id="model" class="ghost model-button" type="button" title="换模型、填写 API 密钥">设置</button>
   <button id="new" class="ghost" type="button">新对话</button>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -179,6 +213,8 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     <section>
       <h2>本次运行的用量（token）</h2>
       <dl id="usage" class="usage"></dl>
+      <div class="cost"><span>估算费用</span><span id="cost">$0.0000</span></div>
+      <p id="cost-note" class="fine"></p>
     </section>
     <section>
       <h2>模型可以使用的工具</h2>
@@ -186,6 +222,33 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     </section>
   </aside>
 </div>
+
+<dialog id="settings" class="settings">
+  <div class="settings-head">
+    <h2>设置</h2>
+    <button id="close-settings" type="button">关闭</button>
+  </div>
+  <section>
+    <h3>当前模型</h3>
+    <div class="row">
+      <select id="pick-provider" aria-label="厂商"></select>
+      <select id="pick-model" aria-label="模型"></select>
+      <button id="apply-model" class="main" type="button">使用这个模型</button>
+    </div>
+    <p class="hint">同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
+  </section>
+  <section>
+    <h3>API 密钥</h3>
+    <div id="keys"></div>
+    <p class="hint">密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
+  </section>
+  <section>
+    <h3>价格（用来估算费用，单位：美元 / 每百万 token）</h3>
+    <div id="price" class="row"></div>
+    <p id="price-note" class="hint"></p>
+  </section>
+  <div id="settings-message" class="settings-message"></div>
+</dialog>
 
 <script nonce="__NONCE__">
 // 这个页面做的事情很少：
@@ -201,8 +264,10 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
   const $ = (id) => document.getElementById(id);
   const chat = $('chat'), log = $('log'), input = $('input'), sendButton = $('send');
   const banner = $('banner'), working = $('working'), empty = $('empty'), newButton = $('new');
+  const settings = $('settings'), pickProvider = $('pick-provider'), pickModel = $('pick-model');
 
   let busy = false;          // 是否有一轮对话正在进行
+  let state = null;          // 助手程序发来的最新状态：当前模型、各家的情况、用量……
   let block = null;          // 正在逐字输出的那一段：{kind, body, wrap, text}
   let toolCard = null;       // 最近一次工具调用的卡片，等它的结果来填
   const confirms = new Map(); // 还没答复的确认卡片
@@ -256,20 +321,31 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     node.replaceChildren(parts);
   }
 
-  async function post(path, data) {
+  // 向助手程序发一个请求。返回 {ok, error, warning}，不会抛异常。
+  async function call(path, data) {
     try {
       const response = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
         body: JSON.stringify(data || {}),
       });
-      if (response.ok) return true;
       const reply = await response.json().catch(() => ({}));
-      add(el('div', 'notice error', reply.error || '请求失败（' + response.status + '）'));
+      return {
+        ok: response.ok,
+        error: response.ok ? '' : reply.error || '请求失败（' + response.status + '）',
+        warning: reply.warning || '',
+      };
     } catch (_) {
       showBanner('连接不上助手程序。它可能已经退出，请回到终端重新运行。');
+      return { ok: false, error: '连接不上助手程序', warning: '' };
     }
-    return false;
+  }
+
+  // 对话区里用的：失败时把原因显示在对话里
+  async function post(path, data) {
+    const result = await call(path, data);
+    if (!result.ok) add(el('div', 'notice error', result.error));
+    return result.ok;
   }
 
   function showBanner(text) {
@@ -325,7 +401,10 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
     },
 
     state(event) {
-      $('meta').textContent = event.model + ' · ' + event.workspace;
+      state = event;
+      const current = event.providers.find((provider) => provider.id === event.provider);
+      $('meta').textContent = event.workspace;
+      $('model').textContent = current.label + ' · ' + event.model;
 
       const todos = event.todos.map((item) => {
         const row = el('li', null, item.title);
@@ -335,9 +414,14 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
       $('todos').replaceChildren(...(todos.length ? todos : [el('li', 'none', '没有')]));
 
       const usage = event.usage;
-      const rows = [['请求次数', usage.requests], ['输入（原价）', usage.input], ['输入（命中缓存）', usage.cache_read],
-                    ['输入（写入缓存）', usage.cache_write], ['输出', usage.output]];
+      const rows = [['请求次数', usage.requests], ['联网搜索次数', usage.searches], ['输入（原价）', usage.input],
+                    ['输入（命中缓存）', usage.cache_read], ['输入（写入缓存）', usage.cache_write], ['输出', usage.output],
+                    ['当前对话占用的上下文', usage.context]];
       $('usage').replaceChildren(...rows.flatMap(([name, value]) => [el('dt', null, name), el('dd', null, value.toLocaleString())]));
+      $('cost').textContent = '$' + event.cost.toFixed(4);
+      $('cost-note').textContent = event.unpriced.length
+        ? '没有计入 ' + event.unpriced.join('、') + '：还没有设置价格，可以在“设置”里填写。'
+        : '按公开价格估算，实际以各家的账单为准。';
 
       $('tools').replaceChildren(...event.tools.map((tool) => {
         const row = el('li', 'tool-item');
@@ -345,6 +429,8 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
         row.appendChild(el('span', 'where', tool.local ? '本地' : '服务器'));
         return row;
       }));
+
+      if (settings.open) renderSettings();
     },
 
     user(event) { add(el('div', 'msg user', event.text)); },
@@ -462,6 +548,142 @@ pre { margin: 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wra
       input.focus();
     });
   }
+
+  // ---- 设置面板 ------------------------------------------------------------
+
+  function say(text, kind) {
+    const box = $('settings-message');
+    box.textContent = text;
+    box.className = 'settings-message ' + (kind || '');
+  }
+
+  function fillModels(providerId, selected) {
+    const provider = state.providers.find((one) => one.id === providerId);
+    const options = provider.models.map((name) => {
+      const option = el('option', null, name);
+      option.value = name;
+      return option;
+    });
+    if (!options.length) {
+      const none = el('option', null, provider.has_key ? '（先点下面的“同步模型”）' : '（先填写这一家的 API 密钥）');
+      none.value = '';
+      options.push(none);
+    }
+    pickModel.replaceChildren(...options);
+    if (provider.models.includes(selected)) pickModel.value = selected;
+    $('apply-model').disabled = !provider.has_key || !provider.models.length;
+  }
+
+  // 把最新的状态画到设置面板上。面板开着的时候状态可能更新，所以要保留用户正在输入的内容。
+  function renderSettings() {
+    const typed = {};
+    for (const input of settings.querySelectorAll('input[data-keep]')) typed[input.dataset.keep] = input.value;
+    const chosenProvider = settings.dataset.ready ? pickProvider.value : state.provider;
+    const chosenModel = settings.dataset.ready ? pickModel.value : state.model;
+    settings.dataset.ready = '1';
+
+    pickProvider.replaceChildren(...state.providers.map((provider) => {
+      const option = el('option', null, provider.label + (provider.has_key ? '' : '（未设置密钥）'));
+      option.value = provider.id;
+      return option;
+    }));
+    pickProvider.value = chosenProvider;
+    fillModels(chosenProvider, chosenModel);
+
+    $('keys').replaceChildren(...state.providers.map((provider) => {
+      const row = el('div', 'key-row');
+      const head = row.appendChild(el('div', 'key-head'));
+      head.appendChild(el('strong', null, provider.label));
+      head.appendChild(el('span', 'key-status' + (provider.has_key ? ' set' : ''),
+        provider.has_key ? '已设置 ' + (provider.key_hint || '') : '未设置'));
+      if (provider.models.length) head.appendChild(el('span', 'key-status', provider.models.length + ' 个模型'));
+      const link = head.appendChild(el('a', null, '去申请'));
+      link.href = provider.key_page;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+
+      const controls = row.appendChild(el('div', 'row'));
+      const input = controls.appendChild(el('input'));
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.placeholder = provider.has_key ? '粘贴新的 API 密钥可以替换' : '粘贴 API 密钥';
+      input.dataset.keep = 'key-' + provider.id;
+      input.value = typed[input.dataset.keep] || '';
+      const save = controls.appendChild(el('button', 'main', '保存'));
+      const sync = controls.appendChild(el('button', null, '同步模型'));
+      const remove = controls.appendChild(el('button', null, '删除'));
+      save.type = sync.type = remove.type = 'button';
+      sync.disabled = remove.disabled = !provider.has_key;
+
+      save.addEventListener('click', async () => {
+        const key = input.value.trim();
+        if (!key) { say('请先粘贴 API 密钥。', 'bad'); return; }
+        input.value = '';  // 密钥一交出去就从输入框里清掉，不在页面上多留
+        say('正在保存并同步模型列表……');
+        const result = await call('/api/key', { provider: provider.id, key });
+        say(result.ok ? result.warning || provider.label + ' 的密钥已保存，模型列表已同步。' : result.error,
+            result.ok && !result.warning ? 'good' : 'bad');
+      });
+      sync.addEventListener('click', async () => {
+        say('正在同步 ' + provider.label + ' 的模型列表……');
+        const result = await call('/api/models', { provider: provider.id });
+        say(result.ok ? provider.label + ' 的模型列表已更新。' : result.error, result.ok ? 'good' : 'bad');
+      });
+      remove.addEventListener('click', async () => {
+        const result = await call('/api/key', { provider: provider.id, key: '' });
+        say(result.ok ? provider.label + ' 的密钥已删除。' : result.error, result.ok ? 'good' : 'bad');
+      });
+      return row;
+    }));
+
+    // 当前模型的价格
+    const price = state.price || {};
+    const fields = [['input', '输入'], ['cache_read', '命中缓存的输入'], ['output', '输出']];
+    const inputs = {};
+    const priceRow = $('price');
+    priceRow.replaceChildren();
+    for (const [key, label] of fields) {
+      const wrap = priceRow.appendChild(el('label', null, label));
+      const input = wrap.appendChild(el('input'));
+      input.type = 'number';
+      input.min = '0';
+      input.step = 'any';
+      input.dataset.keep = 'price-' + key;
+      input.value = typed[input.dataset.keep] !== undefined ? typed[input.dataset.keep] : (price[key] !== undefined ? price[key] : '');
+      inputs[key] = input;
+    }
+    const savePrice = priceRow.appendChild(el('button', 'main', '保存价格'));
+    savePrice.type = 'button';
+    savePrice.addEventListener('click', async () => {
+      const values = {};
+      for (const [key] of fields) {
+        if (inputs[key].value === '') continue;
+        values[key] = Number(inputs[key].value);
+      }
+      const result = await call('/api/price', { model: state.model, price: values });
+      say(result.ok ? state.model + ' 的价格已保存。' : result.error, result.ok ? 'good' : 'bad');
+    });
+    $('price-note').textContent = state.price
+      ? '这是 ' + state.model + ' 现在用来估算的价格，可以改成你实际的价格。'
+      : state.model + ' 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。';
+  }
+
+  $('model').addEventListener('click', () => {
+    if (!state) return;
+    delete settings.dataset.ready;  // 每次打开都从当前状态重新开始，不保留上次打开时填了一半的内容
+    $('keys').replaceChildren();
+    $('price').replaceChildren();
+    say('');
+    renderSettings();
+    settings.showModal();
+  });
+  $('close-settings').addEventListener('click', () => settings.close());
+  pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
+  $('apply-model').addEventListener('click', async () => {
+    if (!pickModel.value) return;
+    const result = await call('/api/model', { provider: pickProvider.value, model: pickModel.value });
+    if (result.ok) settings.close(); else say(result.error, 'bad');
+  });
 
   // ---- 连接事件流 ----------------------------------------------------------
 

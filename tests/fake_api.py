@@ -88,6 +88,7 @@ class FakeAPI:
         self.replies = list(replies)
         self.requests: list[dict] = []  # 收到的请求体
         self.headers: list[dict] = []  # 收到的请求头（键全部小写）
+        self.models = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-3-old"]  # 假装服务器上有这些模型
 
     def start(self) -> FakeAPI:
         api = self
@@ -105,6 +106,17 @@ class FakeAPI:
                 ).encode()
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_GET(self) -> None:  # 模型列表（"同步模型"用）
+                api.headers.append({key.lower(): value for key, value in self.headers.items()})
+                models = [{"type": "model", "id": name, "display_name": name, "created_at": "2026-01-01T00:00:00Z"}
+                          for name in api.models]
+                payload = json.dumps({"data": models, "has_more": False, "first_id": None, "last_id": None}).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)

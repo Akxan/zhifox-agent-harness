@@ -1,7 +1,7 @@
 """网页界面在 agent 这一侧的部分。
 
 agent 循环并不知道自己连着的是终端还是网页，它调用的还是那几个方法：
-stream_event、tool_call、tool_result、confirm、info。
+thinking、text、tool_call、tool_result、confirm、info。
 
 终端界面（../ui.py）把这些调用变成屏幕上的文字。这里则把它们变成一条条"事件"存进日志，
 server.py 再把日志里的事件推送给浏览器，浏览器收到后画出界面：
@@ -20,7 +20,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from ..ui import block_notice, describe_call
+from ..display import describe_call
 
 MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符（发给模型的不受影响）
 
@@ -108,22 +108,20 @@ class WebUI:
 
     # ---- agent 循环调用的方法（和 TerminalUI 是同一套）---------------------
 
-    def stream_event(self, event: Any) -> None:
+    def thinking(self, text: str) -> None:
         self._check_stop()
-        if event.type == "thinking":
-            self._block_open = True
-            self.publish("thinking", text=event.thinking)
-        elif event.type == "text":
-            self._block_open = True
-            self.publish("text", text=event.text)
-        elif event.type == "content_block_stop":
-            block = event.content_block
-            if block.type in ("thinking", "text"):
-                self.end_stream()
-            else:
-                notice = block_notice(block)
-                if notice is not None:
-                    self.publish("notice", level=notice[0], text=notice[1])
+        self._block_open = True
+        self.publish("thinking", text=text)
+
+    def text(self, text: str) -> None:
+        self._check_stop()
+        self._block_open = True
+        self.publish("text", text=text)
+
+    def notice(self, level: str, text: str) -> None:
+        self._check_stop()
+        self.end_stream()
+        self.publish("notice", level=level, text=text)
 
     def end_stream(self) -> None:
         """告诉浏览器：正在逐字输出的那段文字结束了。"""

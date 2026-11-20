@@ -6,16 +6,14 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit import prompt as ask
 from prompt_toolkit.history import FileHistory
 
-from .config import Config
+from .display import describe_call, short
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -26,48 +24,6 @@ CYAN = "\033[36m"
 
 YES = {"y", "yes", "是", "好", "允许"}
 NO = {"", "n", "no", "否", "不"}
-
-
-def _short(text: str, limit: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def describe_call(name: str, tool_input: object) -> str:
-    """把一次工具调用压缩成一行，显示给用户看。"""
-    if not isinstance(tool_input, dict):
-        return f"{name} {tool_input!r}"
-    if "command" in tool_input and "path" in tool_input:  # 文件工具和记忆工具
-        return f"{name} {tool_input['command']} {tool_input['path']}"
-    if set(tool_input) >= {"old_path", "new_path"}:  # 记忆工具的重命名
-        return f"{name} rename {tool_input['old_path']} → {tool_input['new_path']}"
-    if name == "run_command":
-        return f"{name} $ {_short(str(tool_input.get('command')), 200)}"
-    return f"{name} {_short(json.dumps(tool_input, ensure_ascii=False), 200)}"
-
-
-def block_notice(block: Any) -> tuple[str, str] | None:
-    """模型回复里不是逐字输出的那些内容块（联网搜索、压缩历史、换模型），各用一句话说明。
-
-    返回（级别，文字）。级别有四种："tool" 服务器工具开始执行，"result" 它的结果，
-    "error" 它失败了，"info" 其他提示。不需要显示的块返回 None。
-    终端界面和网页界面都用这个函数，所以两边显示的内容是一致的。
-    """
-    kind = block.type
-    if kind == "server_tool_use":
-        return "tool", describe_call(block.name, block.input)
-    if kind == "web_search_tool_result":
-        if isinstance(block.content, list):
-            return "result", f"找到 {len(block.content)} 条结果"
-        return "error", f"搜索失败：{getattr(block.content, 'error_code', '未知错误')}"
-    if kind == "web_fetch_tool_result":
-        error_code = getattr(block.content, "error_code", None)
-        return ("error", f"读取网页失败：{error_code}") if error_code else None
-    if kind == "compaction":
-        return "info", "对话已经很长，较早的内容被压缩成了摘要"
-    if kind == "fallback":
-        return "info", f"{block.from_.model} 拒绝了这个请求，已改由 {block.to.model} 继续"
-    return None
 
 
 class TerminalUI:
@@ -105,9 +61,9 @@ class TerminalUI:
     def plain(self, text: str) -> None:
         self._line("", text)
 
-    def banner(self, config: Config) -> None:
+    def banner(self, model: str, workspace: Path) -> None:
         self.plain(self._paint(BOLD, "Harness 个人助手"))
-        self.info(f"模型：{config.model}    工作目录：{config.workspace}")
+        self.info(f"模型：{model}    工作目录：{workspace}")
         self.info("直接输入想说的话；/help 查看命令；Ctrl-C 中断当前回复；Ctrl-D 或 /exit 退出。")
 
     # ---- 输入 -------------------------------------------------------------
@@ -141,17 +97,15 @@ class TerminalUI:
         return False, "" if answer.lower() in NO else answer
 
     # ---- 模型的流式输出 ---------------------------------------------------
+    # 模型一边生成，适配层（providers/）一边调用下面这几个方法，文字就一小段一小段地显示出来。
 
-    def stream_event(self, event: Any) -> None:
-        """模型一边生成，这里一边显示。event 是 SDK 解析好的流式事件。"""
-        if event.type == "thinking":  # 思考摘要的一小段
-            self._begin("thinking")
-            self._write(self._paint(DIM, event.thinking))
-        elif event.type == "text":  # 回答正文的一小段
-            self._begin("text")
-            self._write(event.text)
-        elif event.type == "content_block_stop":  # 一个内容块结束了
-            self._block_finished(event.content_block)
+    def thinking(self, text: str) -> None:
+        self._begin("thinking")
+        self._write(self._paint(DIM, text))
+
+    def text(self, text: str) -> None:
+        self._begin("text")
+        self._write(text)
 
     def _begin(self, kind: str) -> None:
         if self._streaming == kind:
@@ -166,14 +120,8 @@ class TerminalUI:
             self._write("\n")
             self._streaming = None
 
-    def _block_finished(self, block: Any) -> None:
-        if block.type in ("thinking", "text"):
-            self.end_stream()
-            return
-        notice = block_notice(block)
-        if notice is None:
-            return
-        level, text = notice
+    def notice(self, level: str, text: str) -> None:
+        """一行提示。level：tool 服务器工具开始执行，result 它的结果，error 出错，info 其他。"""
         if level == "tool":
             self._line(CYAN, f"🌐 {text}")
         elif level == "result":
@@ -189,4 +137,4 @@ class TerminalUI:
         self._line(CYAN, f"🔧 {describe_call(name, tool_input)}")
 
     def tool_result(self, text: str, is_error: bool) -> None:
-        self._line(RED if is_error else DIM, f"   ↳ {_short(text, 120)}")
+        self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}")

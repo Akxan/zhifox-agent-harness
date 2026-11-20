@@ -158,7 +158,39 @@ def _text(tool_input: dict, key: str) -> str:
     return value
 
 
+# 其他厂商的模型没有学过 Anthropic 的这个工具，所以要把同样的四种命令用通用的函数格式写出来。
+# 执行的代码是同一份（FileEditor.run），只是说明书不同。
+PORTABLE = {
+    "name": TOOL_NAME,
+    "description": (
+        "查看、创建和修改文本文件。command 决定做什么："
+        "view 查看文件内容（带行号）或列出目录；create 创建文件，或整个覆盖已有文件；"
+        "str_replace 把文件里的一段文字替换成另一段（old_str 必须在文件中恰好出现一次）；"
+        "insert 在指定行之后插入文字。相对路径以工作目录为起点。"
+        "创建和修改文件前会请用户确认。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "enum": ["view", "create", "str_replace", "insert"]},
+            "path": {"type": "string", "description": "文件或目录的路径"},
+            "view_range": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "view 时可选：[起始行, 结束行]，结束行填 -1 表示到文件末尾",
+            },
+            "file_text": {"type": "string", "description": "create 时必填：文件的完整内容"},
+            "old_str": {"type": "string", "description": "str_replace 时必填：要被替换的原文，逐字一致"},
+            "new_str": {"type": "string", "description": "str_replace 时必填：替换成的新内容"},
+            "insert_line": {"type": "integer", "description": "insert 时必填：插在第几行之后，0 表示文件开头"},
+            "insert_text": {"type": "string", "description": "insert 时必填：要插入的文字"},
+        },
+        "required": ["command", "path"],
+    },
+}
+
+
 def make_file_tool(editor: FileEditor) -> Tool:
-    # 说明书只有这一行：类型和名字。参数格式由 Anthropic 定义，不用（也不能）自己写。
+    # 给 Claude 的说明书只有这一行：类型和名字。参数格式由 Anthropic 定义，不用（也不能）自己写。
     spec = {"type": "text_editor_20250728", "name": TOOL_NAME}
-    return Tool(spec=spec, run=editor.run)
+    return Tool(spec=spec, run=editor.run, portable=PORTABLE)
