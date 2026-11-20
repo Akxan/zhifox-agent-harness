@@ -92,11 +92,17 @@ class OpenAICompatBackend:
         problem = unsupported(attachments, self.label, self.vision, self.pdf)
         if problem:
             raise ProviderError(problem)
-        # 和 Claude 一样，附件在前、文字在后：先是图片，然后是文本文件，最后是时间说明和用户的话
+        # 和 Claude 一样，附件在前、文字在后：先是图片，然后是 PDF、文本文件，最后是时间说明和用户的话
         content: list[dict] = [
             {"type": "image_url", "image_url": {"url": f"data:{item.media_type};base64,{item.data}"}}
             for item in attachments
             if item.kind == "image"
+        ]
+        # PDF 是 OpenAI 自己的写法（"file" 内容块），不是这套格式通用的，所以只有 pdf=True 的那家会走到这里
+        content += [
+            {"type": "file", "file": {"filename": item.name, "file_data": f"data:application/pdf;base64,{item.data}"}}
+            for item in attachments
+            if item.kind == "pdf"
         ]
         content += [{"type": "text", "text": wrap_text(item)} for item in attachments if item.kind == "text"]
         content.append({"type": "text", "text": text})

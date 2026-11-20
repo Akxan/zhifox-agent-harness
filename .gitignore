@@ -9,3 +9,7 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Claude Code：子代理的临时工作副本、本机的设置
+.claude/worktrees/
+.claude/settings.local.json

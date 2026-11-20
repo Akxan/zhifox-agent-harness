@@ -80,11 +80,11 @@ the button at the top right), enter a key for at least one provider, and start c
 | Claude (Anthropic) | [platform.claude.com](https://platform.claude.com) | `ANTHROPIC_API_KEY` | Yes, against the real API |
 | GPT (OpenAI) | [platform.openai.com](https://platform.openai.com) | `OPENAI_API_KEY` | Not with a real key |
 | Gemini (Google) | [aistudio.google.com](https://aistudio.google.com) | `GEMINI_API_KEY` | Not with a real key |
-| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | Key saving and model sync tested with a real key; chat not yet |
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | Yes: key saving, model sync, and a chat with a text attachment |
 
-The last three were written against each provider's official documentation and tested with local fake servers, but have
-not been used for a chat with a real key yet (DeepSeek's key saving and model sync have been run with a real key). If one of them fails the first time you use it, the likely cause is a detail of that
-provider's API that its documentation doesn't mention.
+GPT and Gemini were written against each provider's official documentation and tested with local fake servers, but
+have not been used with a real key yet. If one of them fails the first time you use it, the likely cause is a detail of
+that provider's API that its documentation doesn't mention.
 
 Every provider bills API usage by volume, separately from its chat-app subscription, and usually needs prepaid credit.
 You can enter keys in the web UI's Settings, or copy [.env.example](.env.example) to `.env` and write them there. Both
@@ -178,6 +178,7 @@ Each part of the harness has its own file or directory:
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
+| Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
@@ -472,15 +473,23 @@ This starts a small server on your computer and opens the chat page in your brow
   shown below the input.
 - **Attachments.** Click the paper clip left of the input, drop files anywhere on the page, or paste a screenshot
   straight into the input (⌘V / Ctrl+V). Before you send, attachments sit above the input as small cards you can
-  remove; a message can carry up to 10, and you can send attachments without any text.
-  - Images (PNG, JPEG, GIF, WebP): the model sees them. Anything with a long edge over 2,576 px is scaled down in the
-    browser first; each image can be up to about 7 MB.
-  - PDFs (up to 25 MB): Claude only. It reads both the text and what's drawn on the pages.
-  - Text and code files (up to 400,000 characters): sent to the model as text; works with every provider.
+  remove; a message can carry up to 10, and you can send attachments without any text. The providers' APIs take only
+  a few image types, PDFs and text, so everything else is converted first:
 
-  Claude, GPT and Gemini can see images; DeepSeek takes text only. If the current model can't take an attachment,
-  ZhiFox tells you when you add it. Attachments are saved with the conversation, so their thumbnails come back when
-  you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
+  | File | What is sent | Claude | GPT | Gemini | DeepSeek |
+  |---|---|:-:|:-:|:-:|:-:|
+  | PNG, JPEG, WebP | The image. A long edge over 2,576 px is scaled down in the browser; up to about 7 MB | ✅ | ✅ | ✅ | ❌ |
+  | GIF, BMP, AVIF, HEIC, TIFF | Redrawn as PNG or JPEG in the browser (a GIF becomes its first frame). HEIC and TIFF only where the browser can open them, such as Safari | ✅ | ✅ | ✅ | ❌ |
+  | SVG | Drawn as a PNG. With a model that can't see images, its source is sent as text | ✅ | ✅ | ✅ | ✅ as text |
+  | PDF (up to 25 MB, no password) | The PDF itself: the model reads the text and what's drawn on the pages | ✅ | ✅ | ❌ | ❌ |
+  | Word, Excel, PowerPoint (.docx, .xlsx, .pptx; up to 25 MB) | The text, taken out by ZhiFox: Word keeps headings, lists and tables; Excel gives every sheet as tab-separated rows with dates restored; PowerPoint gives every slide in order with its speaker notes. Pictures and layout are dropped, and the model is told so | ✅ | ✅ | ✅ | ✅ |
+  | Text and code (up to 400,000 characters) | The text. UTF-8, UTF-16 and GBK are recognized; a file with an unknown extension is taken if its content is text | ✅ | ✅ | ✅ | ✅ |
+
+  Anything else (archives, audio and video, old Office formats such as .doc, Pages, WPS, password-protected files) is
+  turned away when you add it, with a note on how to convert it. If the current model can't take an attachment, ZhiFox
+  says so right away and names models that can. The GPT and Gemini columns follow their official documentation and are
+  tested against local fake servers, not real keys. Attachments are saved with the conversation, so their thumbnails
+  come back when you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, and enter model prices.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
@@ -613,7 +622,8 @@ What the program does to keep cost under control:
   30,000 tokens shows a notice about this.
 - **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
 - **Attachments.** Images are billed by size: every 28×28-pixel patch is one token, so a full-size screenshot costs at
-  most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens. Like the rest of the
+  most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
+  PowerPoint file costs what its text costs. Like the rest of the
   history, attachments are resent on every turn, and caching is what keeps that cheap.
 - You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
@@ -705,10 +715,10 @@ page.
 ## Limitations
 
 - macOS and Linux only (running commands depends on bash).
-- GPT, Gemini and DeepSeek have not been tested with real keys (see [Supported models](#supported-models)).
+- GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
 - With GPT, Gemini and DeepSeek there is no web search, and long conversations are not compacted automatically.
-- Attachments work in the web UI only, not in the terminal. Image input with GPT and Gemini has not been tested with
-  real keys, and only Claude can read PDFs.
+- Attachments work in the web UI only, not in the terminal. Images with GPT and Gemini, and PDFs with GPT, have not
+  been tested with real keys. Gemini and DeepSeek can't read PDFs.
 - GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
 - Only the three Claude models the program has been adapted to are listed; other Anthropic models accept slightly
   different parameters.

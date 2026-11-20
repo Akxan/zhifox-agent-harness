@@ -7,9 +7,10 @@ import json
 import openai
 import pytest
 from fake_openai import FakeOpenAI, call, chat
-from sample_files import PNG, image, pdf, text_file
+from sample_files import PDF, PNG, document, docx, image, pdf, text_file
 
 from harness.attachments import parse
+from harness.documents import NOTE as NOTE_OFFICE
 from harness.providers import PROVIDERS, ProviderError, list_models
 
 FILE_TOOL = "str_replace_based_edit_tool"
@@ -236,6 +237,28 @@ def test_gpt_gets_images_as_data_urls_before_the_words(start):
     assert h.api.requests[1]["messages"][:3] == h.api.requests[0]["messages"] + [h.agent.messages[2]]
 
 
+def test_gpt_gets_pdfs_as_file_parts(start):
+    # OpenAI 自己的写法：{"type": "file", "file": {"filename", "file_data"}}，file_data 是 data: 地址
+    h = start(chat("一份报告。"))
+    h.app.select_model("openai", "gpt-6-luna")
+    h.agent.run_turn("", parse([pdf(), image()]))
+    assert h.api.requests[0]["messages"][1]["content"][:2] == [
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG}"}},
+        {"type": "file", "file": {"filename": "报告.pdf", "file_data": f"data:application/pdf;base64,{PDF}"}},
+    ]
+
+
+def test_office_files_reach_every_provider_as_their_text(start):
+    # DeepSeek 只认文字，Word 文件在助手程序里取出文字以后，它也能读。文字旁边注明图片和排版没有了
+    body = '<w:p><w:r><w:t>口令是 ORCHID-913</w:t></w:r></w:p>'
+    h = start(chat("读完了。"))
+    h.agent.run_turn("", parse([document("周报.docx", docx(body))]))
+    assert h.api.requests[0]["messages"][1]["content"][0] == {
+        "type": "text",
+        "text": f'<attachment name="周报.docx" note="{NOTE_OFFICE}">\n口令是 ORCHID-913\n</attachment>',
+    }
+
+
 def test_text_files_work_with_every_provider(start):
     h = start(chat("读完了。"))  # DeepSeek 看不了图片，但文本文件就是一段文字
     h.agent.run_turn("", parse([text_file()]))
@@ -251,10 +274,10 @@ def test_models_that_cannot_take_an_attachment_refuse_it_before_sending(start):
         h.agent.run_turn("看图", parse([image()]))
     assert str(raised.value) == "当前的模型（DeepSeek）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。"
 
-    h.app.select_model("openai", "gpt-6-luna")  # GPT 看得了图片，但读不了 PDF
+    h.app.select_model("gemini", "gemini-4-pro")  # Gemini 看得了图片，但读不了 PDF
     with pytest.raises(ProviderError) as raised:
         h.agent.run_turn("读一下", parse([pdf()]))
-    assert str(raised.value) == "当前的模型（GPT (OpenAI)）读不了 PDF，只有 Claude 能读。"
+    assert str(raised.value) == "当前的模型（Gemini (Google)）读不了 PDF。可以在设置里换成 Claude 或 GPT，或者把需要的文字复制进来。"
 
     assert h.api.requests == []  # 一个请求都没有发出去
     assert h.agent.backend.export() == []  # 历史里什么都没留下

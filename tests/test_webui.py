@@ -25,9 +25,11 @@ from sample_files import (
     PNG_BYTES,
     THUMB,
     b64,
+    document,
     image,
     pdf,
     text_file,
+    xlsx,
 )
 
 import harness.webui.server as server_module
@@ -41,6 +43,7 @@ from harness.attachments import (
     from_saved,
 )
 from harness.conversations import ConversationStore
+from harness.documents import NOTE as NOTE_OFFICE
 from harness.search import MAX_QUERY_CHARS
 from harness.webui.server import (
     LARGE_CONTEXT_TOKENS,
@@ -1989,6 +1992,22 @@ def test_bad_thumbnails_are_dropped_and_the_message_still_goes(serve):
     assert len(s.api.requests[0]["messages"][0]["content"]) == len(thumbs) + 2  # 图片一张不少地发了出去
 
 
+def test_an_office_file_reaches_the_model_as_text_and_the_page_as_a_file(serve):
+    s = serve(reply(text("预算是 1284.5。")))
+    sheet = '<row r="1"><c r="A1" t="inlineStr"><is><t>预算</t></is></c><c r="B1"><v>1284.5</v></c></row>'
+    assert send_files(s, document("预算.xlsx", xlsx([("第一季度", sheet)])), text="多少钱？")[0] == 200
+    s.browser.wait_for("turn_end")
+    words = "## 工作表：第一季度\n预算\t1284.5"
+    (user,) = s.browser.of_type("user")
+    assert user["attachments"] == [{"kind": "text", "name": "预算.xlsx", "media_type": "text/plain", "size": len(words)}]
+    content = s.api.requests[0]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": f'<attachment name="预算.xlsx" note="{NOTE_OFFICE}">\n{words}\n</attachment>'}
+    # 读不了的说清楚原因，一轮都不开始
+    error = "“旧.xls”打不开：它可能设了密码，或者是旧版的 Office 格式（.doc、.xls、.ppt）。去掉密码、或者另存为 .docx、.xlsx、.pptx 或 PDF 再发。"
+    assert send_files(s, document("旧.xls", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(64))) == (400, {"error": error})
+    assert len(s.api.requests) == 1
+
+
 def test_a_larger_preview_is_kept_for_opening_the_image(serve, tmp_path):
     # 点开缩略图看的大图：完整的原图只在发给模型的历史里，页面拿不到，所以页面另外送一张大一些的预览来存着。
     # 它和小缩略图一样只能是图片的 data: 地址；只是长度上限大一些
@@ -2034,14 +2053,15 @@ def test_each_provider_says_what_it_can_take_and_the_rest_is_refused(serve, monk
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     s = serve(others=[chat("读完了。")])
     flags = {item["id"]: (item["vision"], item["pdf"]) for item in latest_state(s.browser)["providers"]}
-    assert flags == {"anthropic": (True, True), "openai": (True, False), "gemini": (True, False), "deepseek": (False, False)}
+    assert flags == {"anthropic": (True, True), "openai": (True, True), "gemini": (True, False), "deepseek": (False, False)}
 
     act(s, "/api/model", {"provider": "deepseek", "model": "deepseek-flash"})
     refused = (400, {"error": "当前的模型（DeepSeek）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。"})
     assert send_files(s, image()) == refused
-    act(s, "/api/model", {"provider": "openai", "model": "gpt-6-luna"})
-    assert send_files(s, pdf()) == (400, {"error": "当前的模型（GPT (OpenAI)）读不了 PDF，只有 Claude 能读。"})
+    no_pdf = "当前的模型（DeepSeek）读不了 PDF。可以在设置里换成 Claude 或 GPT，或者把需要的文字复制进来。"
+    assert send_files(s, pdf()) == (400, {"error": no_pdf})
     assert s.other_api.requests == [] and "user" not in s.browser.types()  # 一轮都没有开始
+    act(s, "/api/model", {"provider": "openai", "model": "gpt-6-luna"})
 
     # 文本文件哪一家都能收
     assert send_files(s, text_file())[0] == 200

@@ -1,7 +1,8 @@
 """附件：用户随消息一起发来的图片、PDF 和文本文件。
 
-网页上可以粘贴截图、选择或拖进文件。浏览器把文件读出来，图片和 PDF 编码成 base64，文本文件直接给文字，
-和消息一起发过来。这里做三件事：
+网页上可以粘贴截图、选择或拖进文件。浏览器把文件读出来，图片、PDF 和 Office 文件编码成 base64，
+文本文件直接给文字，和消息一起发过来。Word、Excel、PowerPoint 文件在这里取出文字（见 documents.py），
+之后就和文本文件一样，哪一家模型都能读。这里做三件事：
 
   检查     浏览器送来的东西不能全信（页面有 bug、文件改过扩展名），所以每一项都在这里查一遍：
            个数、大小、格式、编码。不合格的整条消息退回去，并说明是哪个文件、哪里不行。
@@ -25,6 +26,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from . import documents
 from .i18n import t
 from .safe import clean_text
 
@@ -36,7 +38,7 @@ MAX_THUMB_CHARS = 150_000  # 页面自己生成的小预览图（data: 地址）
 MAX_PREVIEW_CHARS = 600_000  # 点开看的大图（长边 1280 像素的 JPEG，一般一两百 KB）
 MAX_NAME_CHARS = 200
 
-KINDS = ("image", "pdf", "text")
+KINDS = ("image", "pdf", "text", "document")  # document：Word、Excel、PowerPoint，检查时就变成了 text
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")  # 各家都支持的四种图片格式
 PDF_TYPE = "application/pdf"
 TEXT_TYPE = "text/plain"  # 文本文件的类型浏览器说了不算（.py、.md 各报各的），一律记成这个
@@ -71,6 +73,7 @@ class Attachment:
     text: str = ""  # 文本文件的内容
     thumb: str = ""  # 图片的小预览（data: 地址），只给页面看，不发给模型
     preview: str = ""  # 点开看的大图（data: 地址）。完整的原图只在发给模型的历史里，页面拿不到，所以另存一张
+    note: str = ""  # 交给模型时附在文件名旁边的说明，比如"这是从 Word 里取出的文字"（见 wrap_text）
 
     def summary(self) -> dict:
         """界面上显示这个附件要用的那几项。不含内容本身。"""
@@ -111,11 +114,48 @@ def _parse_one(item: object) -> Attachment:
         return Attachment("text", name, TEXT_TYPE, len(text), text=text)
 
     media_type = item.get("media_type")
+    if kind == "document":
+        return _parse_document(name, item.get("data"))
     if kind == "image" and media_type not in IMAGE_TYPES:
         raise AttachmentError(t("图片“{name}”的格式不支持，只能是 PNG、JPEG、GIF 或 WebP。", name=name))
     if kind == "pdf" and media_type != PDF_TYPE:
         raise AttachmentError(t("附件的格式不正确。"))
     data = item.get("data")
+    content = _decode(name, data)
+
+    if kind == "pdf":
+        if len(content) > MAX_PDF_BYTES:
+            raise AttachmentError(t("PDF“{name}”太大了，一个 PDF 最大 25 MB。", name=name))
+        if b"%PDF-" not in content[:1024]:  # PDF 文件的开头（前面允许有少量别的字节）
+            raise AttachmentError(t("“{name}”不是有效的 PDF 文件。", name=name))
+        # 设了密码（或者限制了打印、复制）的 PDF 里有一个 /Encrypt 字典。模型的接口只收不加密的 PDF，
+        # 发过去会换回一句英文报错，不如在这里说清楚
+        if b"/Encrypt" in content:
+            raise AttachmentError(t("PDF“{name}”设了密码或者加了限制，模型打不开。去掉密码、另存一份再发。", name=name))
+        return Attachment("pdf", name, PDF_TYPE, len(content), data=data)
+
+    if len(content) > MAX_IMAGE_BYTES:
+        raise AttachmentError(t("图片“{name}”太大了，一张图片最大 7.5 MB。", name=name))
+    actual = sniff_image(content)
+    if not actual:
+        raise AttachmentError(t("图片“{name}”的格式不支持，只能是 PNG、JPEG、GIF 或 WebP。", name=name))
+    thumb, preview = valid_thumb(item.get("thumb")), valid_thumb(item.get("preview"), MAX_PREVIEW_CHARS)
+    return Attachment("image", name, actual, len(content), data=data, thumb=thumb, preview=preview)
+
+
+def _parse_document(name: str, data: object) -> Attachment:
+    """Word、Excel、PowerPoint 文件：解码，取出文字，变成一个文本附件。"""
+    content = _decode(name, data)
+    if len(content) > documents.MAX_DOCUMENT_BYTES:
+        raise AttachmentError(t("“{name}”太大了，Word、Excel、PowerPoint 文件最大 25 MB。", name=name))
+    try:
+        text = clean_text(documents.extract_text(name, content))
+    except documents.DocumentError as exc:
+        raise AttachmentError(str(exc)) from exc
+    return Attachment("text", name, TEXT_TYPE, len(text), text=text, note=documents.NOTE)
+
+
+def _decode(name: str, data: object) -> bytes:
     if not isinstance(data, str):
         raise AttachmentError(t("附件的格式不正确。"))
     try:
@@ -126,21 +166,7 @@ def _parse_one(item: object) -> Attachment:
         raise AttachmentError(t("附件“{name}”的内容编码不正确（应该是 base64）。", name=name)) from exc
     if not content:
         raise AttachmentError(t("附件“{name}”是空的。", name=name))
-
-    if kind == "pdf":
-        if len(content) > MAX_PDF_BYTES:
-            raise AttachmentError(t("PDF“{name}”太大了，一个 PDF 最大 25 MB。", name=name))
-        if b"%PDF-" not in content[:1024]:  # PDF 文件的开头（前面允许有少量别的字节）
-            raise AttachmentError(t("“{name}”不是有效的 PDF 文件。", name=name))
-        return Attachment("pdf", name, PDF_TYPE, len(content), data=data)
-
-    if len(content) > MAX_IMAGE_BYTES:
-        raise AttachmentError(t("图片“{name}”太大了，一张图片最大 7.5 MB。", name=name))
-    actual = sniff_image(content)
-    if not actual:
-        raise AttachmentError(t("图片“{name}”的格式不支持，只能是 PNG、JPEG、GIF 或 WebP。", name=name))
-    thumb, preview = valid_thumb(item.get("thumb")), valid_thumb(item.get("preview"), MAX_PREVIEW_CHARS)
-    return Attachment("image", name, actual, len(content), data=data, thumb=thumb, preview=preview)
+    return content
 
 
 def sniff_image(content: bytes) -> str:
@@ -184,17 +210,23 @@ def unsupported(attachments: Sequence[Attachment], provider: str, vision: bool, 
     if not vision and any(item.kind == "image" for item in attachments):
         return t("当前的模型（{provider}）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。", provider=provider)
     if not pdf and any(item.kind == "pdf" for item in attachments):
-        return t("当前的模型（{provider}）读不了 PDF，只有 Claude 能读。", provider=provider)
+        return t("当前的模型（{provider}）读不了 PDF。可以在设置里换成 Claude 或 GPT，或者把需要的文字复制进来。", provider=provider)
     return ""
 
 
 def wrap_text(attachment: Attachment) -> str:
     """文本文件交给模型时的样子：用 <attachment> 标签包起来，标上文件名，模型才分得清哪些是文件的内容。
 
+    从 Office 文件里取出的文字另外带一句说明（note），让模型知道图片和排版没有了，不要假装看到了。
     名字里的引号等字符要转义，否则文件名里的一个 " 就能提前结束这个属性。（这段文字是写给模型看的，所以不翻译。）
     """
-    name = attachment.name.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
-    return f'<attachment name="{name}">\n{attachment.text}\n</attachment>'
+    name = _escape(attachment.name)
+    note = f' note="{_escape(attachment.note)}"' if attachment.note else ""
+    return f'<attachment name="{name}"{note}>\n{attachment.text}\n</attachment>'
+
+
+def _escape(value: str) -> str:
+    return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def from_saved(value: object) -> list[dict]:

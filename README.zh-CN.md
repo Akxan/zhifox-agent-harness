@@ -57,9 +57,9 @@ uv run harness --web    # 启动网页界面，会自动在浏览器里打开
 | Claude (Anthropic) | [platform.claude.com](https://platform.claude.com) | `ANTHROPIC_API_KEY` | 用真实 API 实测过 |
 | GPT (OpenAI) | [platform.openai.com](https://platform.openai.com) | `OPENAI_API_KEY` | 没有实测 |
 | Gemini (Google) | [aistudio.google.com](https://aistudio.google.com) | `GEMINI_API_KEY` | 没有实测 |
-| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | 保存密钥、同步模型实测过；对话没有实测 |
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | `DEEPSEEK_API_KEY` | 实测过：保存密钥、同步模型、带文本附件的对话 |
 
-后三家是对照各自的官方文档写的，并用本地的假服务器测试过，但还没有用真实的密钥对话过（DeepSeek 的密钥保存和模型同步是用真实密钥跑通的）。
+GPT 和 Gemini 是对照各自的官方文档写的，并用本地的假服务器测试过，但还没有用真实的密钥测过。
 第一次使用时如果报错，多半是那一家的接口有文档里没写到的细节。
 
 各家的 API 都按用量计费，和它们聊天产品的订阅是分开的，一般需要先充值。
@@ -87,12 +87,20 @@ uv run harness --web
   正在运行的命令也会一起结束。输入框下面一直显示本次运行的估算费用。
 - 附件：点输入框左边的回形针选文件，或者把文件拖到页面上，截图可以直接在输入框里粘贴（⌘V / Ctrl+V）。
   发送前，附件以小卡片的样子排在输入框上方，可以删掉某一个；一条消息最多 10 个，只带附件、不写字也能发。
-  - 图片（PNG、JPEG、GIF、WebP）：模型直接"看"。长边超过 2576 像素的先在浏览器里缩小，单张最大约 7 MB。
-  - PDF（最大 25 MB）：只有 Claude 能读，文字和页面上的图都看得到。
-  - 文本和代码文件（最多 40 万字）：内容当作文字发给模型，四家都能用。
+  各家模型的接口只收几种图片、PDF 和文字，别的格式要先转换：
 
-  Claude、GPT、Gemini 能看图片，DeepSeek 只收文字；当前的模型收不了的附件，加的时候就会提示。
-  附件存在这段会话里，打开旧会话时缩略图还在。点缩略图可以看大图（Esc 或点图片外面关闭）。
+  | 文件 | 发出去的是什么 | Claude | GPT | Gemini | DeepSeek |
+  |---|---|:-:|:-:|:-:|:-:|
+  | PNG、JPEG、WebP | 图片本身。长边超过 2576 像素的先在浏览器里缩小，单张最大约 7 MB | ✅ | ✅ | ✅ | ❌ |
+  | GIF、BMP、AVIF、HEIC、TIFF | 在浏览器里重新存成 PNG 或 JPEG（GIF 取第一帧）。HEIC 和 TIFF 要浏览器打得开才行，比如 Safari | ✅ | ✅ | ✅ | ❌ |
+  | SVG | 画成 PNG。当前的模型看不了图的话，把 SVG 的源码当文字发 | ✅ | ✅ | ✅ | ✅ 发源码 |
+  | PDF（最大 25 MB，不能有密码） | PDF 本身：文字和页面上的图都看得到 | ✅ | ✅ | ❌ | ❌ |
+  | Word、Excel、PowerPoint（.docx、.xlsx、.pptx，最大 25 MB） | 智狐取出来的文字：Word 保留标题、列表和表格；Excel 每张工作表一节，格子之间用制表符隔开，日期还原成日期；PowerPoint 按播放顺序一张一张，带演讲者备注。图片和排版没有了，也会告诉模型这一点 | ✅ | ✅ | ✅ | ✅ |
+  | 文本和代码（最多 40 万字） | 文字。认得 UTF-8、UTF-16 和 GBK 编码；扩展名不认识的，看内容是文字也收 | ✅ | ✅ | ✅ | ✅ |
+
+  别的文件（压缩包、音频视频、.doc 这类旧版 Office、Pages、WPS、设了密码的文件）加的时候就会退回，并说明可以怎么转换。
+  当前的模型收不了的附件，加的时候就会提示，并说可以换成哪几家。GPT 和 Gemini 两列是对照官方文档写的，用本地的假服务器测过，
+  没有用真实的密钥测过。附件存在这段会话里，打开旧会话时缩略图还在。点缩略图可以看大图（Esc 或点图片外面关闭）。
 - 设置（右上角显示当前模型的按钮）：填写或删除各家的 API 密钥、同步每家可用的模型列表、选择和切换模型、
   填写模型的价格。
 - 信息栏（右上角最右边的按钮展开或收起）：估算费用、四类 token 各占多少、未完成的待办、
@@ -184,6 +192,7 @@ uv run --project "/这个项目的完整路径" harness
 | 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
 | 会话存档 | [harness/conversations.py](harness/conversations.py) | 程序关掉后内存里的对话历史就没了。把它存成文件，下次读回来就能接着聊 |
 | 会话搜索 | [harness/search.py](harness/search.py) | 会话多了以后找不到。把每段会话里的文字放进内存，按标题和内容搜，允许不完全一样 |
+| 附件 | [harness/attachments.py](harness/attachments.py)、[harness/documents.py](harness/documents.py) | 模型只收几种文件。每个附件发出去之前都检查一遍，Word、Excel、PowerPoint 先变成文字 |
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
@@ -517,7 +526,7 @@ API 按 token 计费（一个汉字大约 1 到 2 个 token）。因为每次请
   打开超过 3 万 token 的旧会话时，页面会提示一下。
 - **自动压缩**：和 Claude 的对话特别长时，较早的内容会被压缩成摘要。
 - **附件**：图片按大小计费，每 28×28 像素算一个 token，一张满尺寸的截图最多约 4800 个 token（用 Opus 5.5 约 2 美分）；
-  PDF 每页大约 1500 到 3000 个 token。附件和其他历史一样，每一轮都会重新发给模型，靠缓存才便宜。
+  PDF 每页大约 1500 到 3000 个 token；Word、Excel、PowerPoint 按取出来的文字计费。附件和其他历史一样，每一轮都会重新发给模型，靠缓存才便宜。
 - 随时可以点"停止"，或者用"新对话"把历史清零。
 
 内置的价格只有 Claude 的几个模型（写这份文档时的公开价格，单位是美元 / 每百万 token）：
@@ -597,9 +606,9 @@ uv run pytest
 ## 局限
 
 - 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
-- GPT、Gemini、DeepSeek 没有用真实的密钥实测过（见上面"支持的模型"）。
+- GPT 和 Gemini 没有用真实的密钥实测过（见上面"支持的模型"）。
 - 用 GPT、Gemini、DeepSeek 时没有联网搜索，对话太长时也不会自动压缩。
-- 附件只能在网页界面里发，终端界面不行。GPT 和 Gemini 看图片没有用真实的密钥测过；PDF 只有 Claude 能读。
+- 附件只能在网页界面里发，终端界面不行。GPT 和 Gemini 看图片、GPT 读 PDF 没有用真实的密钥测过；Gemini 和 DeepSeek 读不了 PDF。
 - GPT 走的是 Chat Completions 接口。OpenAI 的个别新模型如果只支持它的另一套接口，在这里用不了。
 - Claude 的模型只列出程序适配过的三个，Anthropic 的其他模型接受的参数不完全一样。
 - 每条命令都在全新的 shell 里运行，`cd` 和环境变量不会保留到下一条命令。

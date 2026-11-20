@@ -44,7 +44,9 @@ class Provider:
     key_page: str  # 去哪里申请 API key
     # 能收哪些附件（文本文件哪一家都能收）。默认都不能：新接入的一家先当它只认文字，确认支持了再打开
     vision: bool = False  # 看得懂图片
-    pdf: bool = False  # 读得了 PDF。OpenAI 格式的接口里没有通用的 PDF 写法，所以目前只有 Claude 能读
+    # 读得了 PDF。OpenAI 格式的接口里没有通用的 PDF 写法：GPT 有自己的写法（见 openai_compat.py），
+    # Gemini 和 DeepSeek 的兼容接口文档里没有写，所以目前只有 Claude 和 GPT 能读
+    pdf: bool = False
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -60,7 +62,9 @@ PROVIDERS: dict[str, Provider] = {
             vision=True,
             pdf=True,
         ),
-        Provider("openai", "GPT (OpenAI)", "openai", "OPENAI_API_KEY", None, "https://platform.openai.com", vision=True),
+        Provider(
+            "openai", "GPT (OpenAI)", "openai", "OPENAI_API_KEY", None, "https://platform.openai.com", vision=True, pdf=True
+        ),
         Provider(
             "gemini",
             "Gemini (Google)",
