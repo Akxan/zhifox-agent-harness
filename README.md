@@ -61,8 +61,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
   has light and dark themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
-- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, and per-message
-  caps on web search.
+- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, automatic
+  compaction of long conversations with every provider, and per-message caps on web search.
 - 🧪 **Tests without API keys.** The test suite drives the real SDKs against local fake servers, so running it is free.
 
 ## Quick start
@@ -181,6 +181,7 @@ Each part of the harness has its own file or directory:
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
+| History compaction | [harness/providers/compaction.py](harness/providers/compaction.py) | Resending the whole history every turn gets more expensive and finally exceeds the model's limit. When a GPT, Gemini or DeepSeek conversation gets too long, the model is asked to summarize the earlier part (Claude's API compacts on its own) |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
 | Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
@@ -244,7 +245,8 @@ than in the system prompt, because it changes every time, and a changing system 
 One rule holds throughout: **the history is only ever appended to; nothing earlier is changed.** The reasons are in the
 comment in `AnthropicBackend.__init__` in [harness/providers/claude.py](harness/providers/claude.py). In short, changing
 earlier content invalidates the cache (so requests cost more), and it makes the model's earlier thinking fail the API's
-validation (so requests are rejected).
+validation (so requests are rejected). The one exception is compacting very long GPT, Gemini and DeepSeek
+conversations; see [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction).
 
 ### One loop, many models
 
@@ -268,11 +270,56 @@ and DeepSeek all support it at different server addresses, so one piece of code 
 | Tool calls | A "content block" in the reply | A `tool_calls` field on the assistant message; the arguments are a JSON string |
 | Tool results | All results in one message | One message per result |
 | Web search | Yes, run on Anthropic's servers | No |
-| Very long conversations | Earlier content is automatically condensed into a summary | Not handled |
+| Very long conversations | Anthropic's API condenses earlier content into a summary on its servers | ZhiFox asks the model for a summary and replaces the earlier content (see the next section) |
 | Caching | We mark it in the request | Each provider handles it automatically |
 
 To add another provider that supports the OpenAI format, add one entry to `PROVIDERS` in
 [`harness/providers/__init__.py`](harness/providers/__init__.py).
+
+### When a conversation gets too long: compaction
+
+Every turn resends the whole history, so the longer a conversation gets, the more each turn costs; once it grows past
+what the model can read at once (its context window), requests are rejected and the conversation can't go on. The fix
+is compaction: replace the earlier part with a summary and keep only the last few turns verbatim.
+
+For Claude, Anthropic's API compacts on its servers (the request carries `context_management`; see
+[claude.py](harness/providers/claude.py)), and on our side the history is still only appended to. The OpenAI format has
+no such feature, so for GPT, Gemini and DeepSeek ZhiFox does it itself, in
+[harness/providers/compaction.py](harness/providers/compaction.py):
+
+1. **When.** Every response reports how many tokens went in and came out, which is how much context the conversation
+   now takes up. Once that passes 70% of the model's window, the next request is preceded by a compaction. The
+   remaining 30% has to fit the next message, tool results and the model's reply.
+2. **Where to cut.** Only between turns, that is, right before one of your messages. A tool call and its result always
+   belong to the same turn, so they always end up on the same side of the cut, and the history never holds a call
+   without its result (the API would reject that). The last two turns, counting the one in progress, are kept verbatim.
+3. **Who writes the summary.** The same model you are talking to. The part before the cut is sent exactly as it was,
+   followed by an instruction asking for a summary (the instruction lives in `compaction.py`). Sending it unchanged
+   means it hits the cache: that part went out with every earlier request, so its beginning matches and is billed at
+   the much lower cache price. The usage of this call is recorded like any other, so the cost estimate includes it.
+4. **What replaces it.** The system prompt, a user message holding the summary and an assistant message acknowledging
+   it (so the history still alternates between you and the model; some models refuse two user messages in a row),
+   then the recent turns verbatim. Attachments in the summarized part aren't kept; one sentence mentions which files
+   you sent. When the conversation gets too long again, it is compacted again, and the previous summary is folded into
+   the new one.
+
+This is the one exception to "the history is only ever appended to", so its boundaries are drawn tightly: only the
+OpenAI-format adapter does it; only the part before the cut changes, never the system prompt or the recent turns; and
+only between two requests. Because the history gets shorter, the positions that `mark` hands out are adjusted too, so
+undoing a turn after an error still removes exactly that turn. The price is one cache miss: the first request after a
+compaction starts differently, so it pays the full input price once, and the new beginning is cached from then on. In
+return, the history stops growing without bound.
+
+You see two notices: one while the model writes the summary, and one when it's done, telling you roughly how many
+fewer tokens each turn now sends. If writing the summary fails (the network drops, the server is busy), the notice says
+why, the turn goes on as usual, and the next turn tries again. In the saved conversation, `messages` (the copy for the
+model) is the compacted history, so a reopened conversation continues from the summary, while `events` (the copy for
+the page) keeps everything, so replay and search still see the whole conversation.
+
+The tunables are in [harness/config.py](harness/config.py): `ENABLE_OPENAI_COMPACTION` (set it to `False` to turn
+compaction off), `CONTEXT_WINDOWS` (each model's window; 1M tokens for both DeepSeek models), `DEFAULT_CONTEXT_WINDOW`
+(128K tokens for models not in the table, erring on the side of compacting early), `COMPACTION_THRESHOLD` (0.7) and
+`COMPACTION_KEEP_TURNS` (2).
 
 ### How conversations are saved and restored
 
@@ -735,7 +782,10 @@ What the program does to keep cost under control:
   of the normal input price). The cache lasts only a few minutes, so when you come back to a long old conversation after
   a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
   30,000 tokens shows a notice about this.
-- **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
+- **Automatic compaction.** In very long conversations, earlier content is condensed into a summary, so every later
+  turn sends far fewer tokens. Claude's API does this itself; for GPT, Gemini and DeepSeek, ZhiFox asks the same model
+  to write the summary, and that call is included in the cost estimate (see
+  [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction)).
 - **Attachments.** Images are billed by size: every 28×28-pixel patch is one token, so a full-size screenshot costs at
   most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
   PowerPoint file costs what its text costs. Like the rest of the
@@ -826,7 +876,8 @@ OpenAI's formats. That lets the real SDKs run the whole loop, and the tests chec
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
 where the test code plays the browser. Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py). Scheduled
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py), and
+compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py). Scheduled
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
 server with a fake clock, so no test waits for 9 a.m.).
@@ -846,7 +897,12 @@ page.
 
 - macOS and Linux only (running commands depends on bash).
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
-- With GPT, Gemini and DeepSeek there is no web search, and long conversations are not compacted automatically.
+- With GPT, Gemini and DeepSeek there is no web search.
+- Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
+  inevitably loses detail. The cut can only fall between turns, so a single turn that by itself exceeds the model's
+  limit (say, one that reads many large files) can't be compacted. Models not listed in `config.py` are all assumed
+  to have a 128K-token window, so models with a larger window are compacted earlier than they need to be. After you
+  reopen an old conversation, the first request has to measure its size before compaction can kick in.
 - Attachments work in the web UI only, not in the terminal. Images with GPT and Gemini, and PDFs with GPT, have not
   been tested with real keys. Gemini and DeepSeek can't read PDFs.
 - GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
@@ -905,8 +961,9 @@ anywhere else. The web UI's server accepts connections from your own machine onl
 
 Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-2`) through Anthropic's native API, and GPT, Gemini and
 DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings. Only Claude has
-been tested in real chats so far, and web search and automatic compaction are Claude-only. Any other provider that speaks the
-OpenAI format can be added with one entry in `PROVIDERS`.
+been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
+Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
+added with one entry in `PROVIDERS`.
 
 ### Can it run commands without asking me?
 

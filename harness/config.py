@@ -40,6 +40,25 @@ ENABLE_COMPACTION = True
 # API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
 ENABLE_THINKING_DROP = True
 
+# 下面几项只对 GPT、Gemini、DeepSeek 生效（OpenAI 格式的适配层）。这几家的 API 不会替我们压缩历史，
+# 所以由智狐自己做：上一次请求占用的上下文超过了模型上限的一定比例，就在下一次请求之前，
+# 请同一个模型把较早的对话写成摘要，换掉原文。做法和理由见 providers/compaction.py。
+# 改成 False 就不压缩：对话每一轮都整段重发，越聊越贵，直到超出模型的上限、请求被拒绝。
+ENABLE_OPENAI_COMPACTION = True
+# 各个模型的上下文上限（token）。DeepSeek 的数字来自它的定价页（https://api-docs.deepseek.com/quick_start/pricing）。
+# 不在表里的模型按 DEFAULT_CONTEXT_WINDOW 算：这个数取得保守，宁可早一点压缩，也不要等到请求被拒绝
+CONTEXT_WINDOWS = {
+    "deepseek-flash": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,  # deepseek-flash 的旧名字，官方说照样能用
+    "deepseek-v4-pro": 1_000_000,
+}
+DEFAULT_CONTEXT_WINDOW = 128_000
+# 上下文用到上限的这个比例就压缩。剩下的余量要装得下下一条消息、工具的结果和模型的回复
+COMPACTION_THRESHOLD = 0.7
+# 压缩时，最近的这几轮对话保持原样，不写进摘要。"一轮"从用户的一条消息开始，到下一条之前；
+# 正在进行的那一轮也算在里面，而且总是保留（所以至少是 1）
+COMPACTION_KEEP_TURNS = 2
+
 
 # 用户自己写的提示词最长多少个字符。提示词每一轮都要发给模型（命中缓存时便宜，但第一次和缓存过期后按原价），
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
