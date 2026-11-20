@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+from datetime import datetime
+from functools import partial
+from types import SimpleNamespace
 
+import anthropic.lib.tools._beta_builtin_memory_tool as sdk_memory
 import pytest
 
 from harness.config import load_env_file
 from harness.permissions import MODES, Permissions
+from harness.tools import files
 from harness.tools.base import ToolError, check_input
 from harness.tools.files import FileEditor
 from harness.tools.memory import make_memory_tool
@@ -112,6 +119,22 @@ def test_file_overwrite_keeps_a_backup(editor):
     assert (editor.workspace / "a.txt").read_text(encoding="utf-8") == "新内容"
 
 
+def test_backups_of_same_named_files_never_replace_each_other(editor, monkeypatch):
+    # 备份的文件名是"时间（精确到微秒）-原来的文件名"。不同目录里的两个同名文件在同一刻被覆盖
+    # （你的对话和一个定时任务同时在改），名字就撞上了：不另起一个名字的话，后一份备份会把前一份顶掉，旧版本就找不回来了
+    moment = datetime(2026, 11, 21, 9, 0, 0, 123456)
+    monkeypatch.setattr(files, "datetime", SimpleNamespace(now=lambda: moment))  # 让每一次覆盖都发生在同一微秒
+    for path, versions in (("甲/note.txt", ["甲 1", "甲 2", "甲 3"]), ("乙/note.txt", ["乙 1", "乙 2"])):
+        for content in versions:
+            editor.run({"command": "create", "path": path, "file_text": content})
+
+    backups = sorted(editor.backup_dir.iterdir())
+    assert len(backups) == 3 and all(path.name.startswith("20261121-090000-123456") for path in backups)
+    assert all(path.name.endswith("note.txt") for path in backups)  # 名字里还看得出原来是哪个文件
+    assert sorted(path.read_text(encoding="utf-8") for path in backups) == ["乙 1", "甲 1", "甲 2"]
+    assert (editor.workspace / "甲" / "note.txt").read_text(encoding="utf-8") == "甲 3"
+
+
 def test_file_errors(editor):
     editor.run({"command": "create", "path": "a.txt", "file_text": "重复 重复"})
     with pytest.raises(ToolError, match="出现了 2 次"):
@@ -152,6 +175,53 @@ def test_paths_are_resolved_before_checking(editor, tmp_path):
     (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
     (editor.workspace / "link.txt").symlink_to(tmp_path / "secret.txt")
     assert not editor.in_workspace(editor.resolve("link.txt"))
+
+
+def run_together(jobs: list) -> None:
+    """每件事放进一个线程，同时开始，等它们都做完。线程里抛出的错误让测试失败（不然只会打印出来，测试照样通过）。"""
+    errors: list = []
+
+    def guarded(job) -> None:
+        try:
+            job()
+        except BaseException as exc:  # noqa: BLE001 —— 什么错误都要带回主线程
+            errors.append(exc)
+
+    threads = [threading.Thread(target=guarded, args=(job,), daemon=True) for job in jobs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    assert errors == []
+
+
+def slowly(read):
+    """把一个"读文件"的函数包一层：读完多停 20 毫秒再交回去。
+
+    str_replace 和 insert 都是"读出来、改一处、整个写回去"。多停的这一会儿，就是别的线程读到同一份旧内容的机会：
+    没有排队的话，几个线程都基于同一份旧内容改，后写的把先写的冲掉，每次都会丢；排着队的话只是慢一点。
+    """
+
+    def read_slowly(*args):
+        content = read(*args)
+        time.sleep(0.02)
+        return content
+
+    return read_slowly
+
+
+def test_edits_to_one_file_from_several_threads_all_land(editor, monkeypatch):
+    # 你的对话和几个定时任务各有一个 FileEditor，可能同时在改同一个文件（比如都往一份日志里加一行）
+    task_editor = FileEditor(editor.workspace, editor.backup_dir)
+    editor.run({"command": "create", "path": "plan.txt", "file_text": "\n".join(f"槽{n}" for n in range(6))})
+    monkeypatch.setattr(FileEditor, "_read", slowly(FileEditor._read))
+
+    edits = [{"command": "str_replace", "path": "plan.txt", "old_str": f"槽{n}", "new_str": f"改好的第 {n} 格"} for n in range(6)]
+    edits += [{"command": "insert", "path": "plan.txt", "insert_line": 0, "insert_text": f"新加的第 {n} 行"} for n in range(4)]
+    run_together([partial((editor if n % 2 else task_editor).run, edit) for n, edit in enumerate(edits)])
+
+    lines = (editor.workspace / "plan.txt").read_text(encoding="utf-8").split("\n")
+    assert sorted(lines) == sorted([f"改好的第 {n} 格" for n in range(6)] + [f"新加的第 {n} 行" for n in range(4)])
 
 
 # ---- 权限 -----------------------------------------------------------------
@@ -340,6 +410,23 @@ def test_memory_cannot_escape_its_directory(tmp_path):
     with pytest.raises(ToolError):
         tool.run({"command": "create", "path": "/memories/../escaped.txt", "file_text": "x"})
     assert not (tmp_path / "data" / "escaped.txt").exists()
+
+
+def test_memory_edits_from_the_chat_and_a_task_at_once_all_land(tmp_path, monkeypatch):
+    # 你的对话和一个定时任务各组装了一份工具（两个 registry，两个记忆工具），改的却是同一个文件夹。
+    # SDK 的 insert 也是"读出来、插一行、整个写回去"，同时插的话只会留下最后写的那一份
+    chat, task = make_memory_tool(tmp_path / "data"), make_memory_tool(tmp_path / "data")
+    chat.run({"command": "create", "path": "/memories/notes.md", "file_text": "# 记住的事\n"})
+    monkeypatch.setattr(sdk_memory, "_read_file_content", slowly(sdk_memory._read_file_content))
+
+    run_together([
+        partial((chat if n % 2 else task).run, {"command": "insert", "path": "/memories/notes.md", "insert_line": 1, "insert_text": f"第 {n} 条"})
+        for n in range(8)
+    ])
+
+    lines = (tmp_path / "data" / "memories" / "notes.md").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "# 记住的事"
+    assert sorted(lines[1:]) == sorted(f"第 {n} 条" for n in range(8))
 
 
 # ---- 配置 -----------------------------------------------------------------

@@ -5,6 +5,9 @@
 
 添加和删除"让助手去做"（agent）的任务要先问用户（规则在 ../permissions.py）：这种任务以后每次运行都要花钱，
 还会在没人看着的时候自己调用工具，是一件长期有效的事，不能由模型一个人定下来。只是提醒的不花钱，不用问。
+
+模型添加的任务，运行时一律"每次都问"（approval 是 ask），工具也没有能改它的参数：要不要放宽，只能由用户
+在页面上编辑任务时自己选。不然被网页上的一句话带偏的模型，就能给自己定一个"到点自动执行任何命令"的任务。
 """
 
 from __future__ import annotations
@@ -64,6 +67,8 @@ def _view(task: dict) -> dict:
         "enabled": task["enabled"],
         "next_run": None if task["next_run"] is None else local_text(task["next_run"]),
     }
+    if task["kind"] == "agent":
+        view["approval"] = task["approval"]  # 运行时要确认的操作问不问用户：ask / edits / all（只有用户能改）
     if task["runs"]:
         last = task["runs"][0]
         view["last_run"] = {"at": local_text(last["started_at"]), "status": last["status"], "summary": last["summary"]}
@@ -77,7 +82,9 @@ def _as_json(value: object) -> str:
 def make_task_tools(store: TaskStore) -> list[Tool]:
     def task_add(kind: str, title: str, schedule: dict, prompt: str = "") -> str:
         try:
-            task = store.add({"kind": kind, "title": title, "prompt": prompt, "schedule": schedule, "enabled": True})
+            # approval 写死成 ask：模型添加的任务运行时一律每次都问，放宽只能由用户在页面上做（见文件开头的说明）
+            fields = {"kind": kind, "title": title, "prompt": prompt, "schedule": schedule, "enabled": True, "approval": "ask"}
+            task = store.add(fields)
         except TaskError as exc:
             raise ToolError(_chinese(exc)) from None
         return _as_json({"added": _view(task), "note": NOTE})
@@ -102,7 +109,9 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
                 "用户说“提醒我……”时用它。\n"
                 "agent：到时间由助手自己跑一轮，把 prompt 当成用户发来的消息去做（比如“看看我的待办，写一份今天的安排”）。"
                 "每次运行都要花 API 费用；那时用户多半不在电脑前，所以 prompt 要写成一条完整、不用追问就能做完的指令。"
-                "添加 agent 任务会先请用户确认。\n"
+                "添加 agent 任务会先请用户确认。agent 任务运行时，需要确认的操作（执行命令、改文件……）会停下来等用户批准；"
+                "想让它不问就做，只能由用户自己在网页界面的任务列表里编辑这个任务、选择自动允许，你没有办法替用户改，"
+                "需要时告诉用户去哪里改。\n"
                 "只是要记下一件有截止日期的事、不需要到时间做什么的，用 todo_add。" + NOTE
             ),
             properties={

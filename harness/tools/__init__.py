@@ -41,6 +41,15 @@ class ToolRegistry:
     def __iter__(self) -> Iterator[Tool]:
         return iter(self._tools.values())
 
+    def replaced(self, *tools: Tool) -> ToolRegistry:
+        """一份新的工具箱：和这一份一样（顺序也一样），只是同名的几个换成传进来的。
+
+        定时任务每次运行都用它换上自己的 shell（见 App.unattended_agent）：别的工具照旧共用，
+        背后是同一份待办、任务、记忆和文件，各自有锁，几边同时用也不会互相冲掉。
+        """
+        swap = {tool.name: tool for tool in tools}
+        return ToolRegistry([swap.get(tool.name, tool) for tool in self])
+
 
 def build_registry(
     config: Config, files: FileEditor, todos: TodoStore, shell: Shell, tasks: TaskStore, skills: SkillStore

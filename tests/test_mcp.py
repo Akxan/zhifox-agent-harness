@@ -424,6 +424,70 @@ def test_stop_cancels_a_stdio_call(manager, tmp_path):
     assert m.call("fake", "echo", {"text": "still fine"}).text == "still fine"  # 连接没有受影响
 
 
+def test_stopping_one_run_cancels_only_its_own_mcp_calls(manager):
+    """你的对话和几个定时任务同时在跑，各自都可能停在一个很慢的 MCP 调用上。
+
+    点对话里的"停止"只取消对话自己的调用（owner 是 None），停下一个任务也只取消那个任务的：
+    每个运行用的快照记着它是谁的（snapshot(owner)），调用就记在谁的名下。
+    """
+    m = manager({"fake": stdio()})
+    task, other = object(), object()
+    chat_tool = next(tool for tool in m.snapshot().tools if tool.name.endswith("slow"))
+    task_tool = next(tool for tool in m.snapshot(task).tools if tool.name.endswith("slow"))
+    other_tool = next(tool for tool in m.snapshot(other).tools if tool.name.endswith("slow"))
+    outcome: dict[str, str] = {}
+
+    def call(name: str, tool, seconds: float) -> None:
+        try:
+            outcome[name] = tool.run({"seconds": seconds}).text or "ok"
+        except ToolError as exc:
+            outcome[name] = str(exc)
+
+    def running(owner: object) -> bool:
+        with m._lock:
+            return bool(m._running.get(owner))
+
+    # 对话停下：任务的调用不受影响，照样等到结果
+    threads = [threading.Thread(target=call, args=("chat", chat_tool, 10)), threading.Thread(target=call, args=("task", task_tool, 1.5))]
+    for thread in threads:
+        thread.start()
+    wait_until(lambda: running(None) and running(task), what="两边的调用都开始了")
+    m.cancel_running()
+    threads[0].join(5)
+    assert outcome["chat"] == "用户中断了这次调用。" and "task" not in outcome
+    threads[1].join(5)
+    assert outcome["task"] != "用户中断了这次调用。" and "中断" not in outcome["task"]
+
+    # 反过来：停下一个任务，你的对话和另一个任务的调用都不受影响
+    threads = [
+        threading.Thread(target=call, args=("chat", chat_tool, 1.5)),
+        threading.Thread(target=call, args=("task", task_tool, 10)),
+        threading.Thread(target=call, args=("other", other_tool, 1.5)),
+    ]
+    outcome.clear()
+    for thread in threads:
+        thread.start()
+    wait_until(lambda: running(None) and running(task) and running(other), what="三边的调用都开始了")
+    m.cancel_running(task)
+    threads[1].join(5)
+    assert outcome["task"] == "用户中断了这次调用。" and "chat" not in outcome and "other" not in outcome
+    for thread in (threads[0], threads[2]):
+        thread.join(5)
+    assert "中断" not in outcome["chat"] and "中断" not in outcome["other"]
+    assert m._running == {}  # 做完的都从登记里拿掉了
+
+    # 退出程序时不管是谁的都取消
+    threads = [threading.Thread(target=call, args=(name, tool, 10)) for name, tool in (("chat", chat_tool), ("task", task_tool))]
+    outcome.clear()
+    for thread in threads:
+        thread.start()
+    wait_until(lambda: running(None) and running(task), what="两边的调用都开始了")
+    m.cancel_all()
+    for thread in threads:
+        thread.join(5)
+    assert outcome == {"chat": "用户中断了这次调用。", "task": "用户中断了这次调用。"}
+
+
 def test_stop_cancels_http_calls_the_way_each_era_expects(manager):
     modern, legacy = FakeMcpHttp("modern").start(), FakeMcpHttp("legacy").start()
     try:
@@ -701,8 +765,9 @@ def test_a_denied_mcp_call_never_reaches_the_server(start, make_config, tmp_path
     assert not any(message.get("method") == "tools/call" for message in records(log))
 
 
-def test_a_scheduled_task_run_gets_its_own_snapshot_and_always_asks(start, make_config):
-    """定时任务自己运行时也带上 MCP 的工具（开始那一刻的快照），但即使设成了"不用问"也照样要问：没人看着。
+def test_a_scheduled_task_run_gets_its_own_snapshot_and_asks_even_for_trusted_tools(start, make_config):
+    """定时任务自己运行时也带上 MCP 的工具（开始那一刻的快照）。设成"不用问"的工具是在对话里放开的，
+    任务里不算数：任务按它自己的那一档，"每次确认"就照样要问。
 
     它手里的快照可以和你正在看的这段对话的不一样（这里那段对话的快照是空的），权限照样认得出哪些是 MCP 的工具：
     认的是工具本身，不是对话的快照。认不出来的话，这次调用就会不问就执行。
@@ -714,7 +779,7 @@ def test_a_scheduled_task_run_gets_its_own_snapshot_and_always_asks(start, make_
     m.set_approval("fake", "echo", "auto")
     m.active = Snapshot()  # 你正在看的那段对话还没开始：它的快照里一个 MCP 工具都没有
     ui = RecordingUI()
-    agent = h.app.unattended_agent(ui)
+    agent = h.app.unattended_agent(ui).agent
     assert agent.tools.get("mcp__fake__echo") is not None
     agent.run_turn("定时任务的指令")
 
@@ -722,6 +787,16 @@ def test_a_scheduled_task_run_gets_its_own_snapshot_and_always_asks(start, make_
     assert len(ui.confirmations) == 1 and "fake" in ui.confirmations[0] and ui.auto_allowed_count == 0
     assert ui.results[-1] == ("task", False)
     assert h.app.mcp.active.tools == []  # 没有动你那段对话的快照
+
+
+def test_a_task_allowed_to_do_everything_calls_mcp_tools_without_asking(start, make_config):
+    # 任务自己选了"全部自动允许"：MCP 的工具也不问（和对话里的"全部自动允许"一样），记录里标着"自动允许"
+    write_app_config(make_config, {"fake": stdio()})
+    h = start(reply(tool_use("toolu_1", "mcp__fake__echo", {"text": "task"}), stop_reason="tool_use"), reply(text("做完了")))
+    settle(h.app.mcp)
+    ui = RecordingUI()
+    h.app.unattended_agent(ui, "all").agent.run_turn("定时任务的指令")
+    assert ui.confirmations == [] and ui.auto_allowed_count == 1 and ui.results[-1] == ("task", False)
 
 
 def test_an_unrecognized_mcp_name_still_asks():

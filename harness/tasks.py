@@ -6,6 +6,9 @@
             每次运行都要花 API 费用（每一次花了多少都记下来，见 webui/scheduler.py）。
   reminder  到时间后，只在页面上弹出一条提醒。不调用模型，不花钱。
 
+agent 任务还记着"要不要先问你"（approval）：和对话里的三档同名、同义（ask / edits / all，见 permissions.py 的 MODES），
+默认 ask。只有你在页面上编辑任务时能放宽；模型用工具添加的一律是 ask（见 tools/tasks.py）。
+
 时间表，全部按这台电脑的本地时间：
 
   {"type": "once", "at": "2026-11-21T09:00"}             只运行一次
@@ -53,7 +56,8 @@ MAX_REMINDERS = 50  # 还没关掉的提醒最多留这么多条，更早的自�
 MAX_COUNTED = 1000  # 数"错过了几次"时最多数到这里（一个每天的任务关了三年也就一千来次）
 
 # 一次运行在保存的记录里可能处于的状态。
-#   waiting  还没开始：在排队（等你这一轮对话结束），或者已经开始了、正停在一个要你批准的操作上
+#   waiting  还没开始：在排队（同时运行的任务到了上限，见 config.py 的 MAX_PARALLEL_TASKS），
+#            或者已经开始了、正停在一个要你批准的操作上
 #   running  正在运行          done     做完了          failed   出错了（原因在 error 里）
 #   stopped  被停下了（你点了停止，或者程序退出了）
 #   missed   保留给"错过了、没有补上"的情况。现在错过的会补跑一次（见 webui/scheduler.py），所以还用不到
@@ -140,7 +144,7 @@ def _check_at(value: object) -> str:
 
 
 def check_task(value: object) -> dict:
-    """检查用户（或者模型）给的一个任务：名称、种类、指令、时间表、是否启用。返回整理好的这几项。"""
+    """检查用户（或者模型）给的一个任务：名称、种类、指令、时间表、是否启用、要不要先问。返回整理好的这几项。"""
     if not isinstance(value, dict):
         raise TaskError(t("参数不正确"))
     title = value.get("title")
@@ -160,7 +164,24 @@ def check_task(value: object) -> dict:
     enabled = value.get("enabled", True)
     if not isinstance(enabled, bool):
         raise TaskError(t("参数不正确"))
-    return {"title": title, "kind": kind, "prompt": prompt, "schedule": check_schedule(value.get("schedule")), "enabled": enabled}
+    approval = value.get("approval", "ask")
+    if not isinstance(approval, str) or approval not in _approval_modes():
+        raise TaskError(t("参数不正确"))
+    if kind == "reminder":
+        approval = "ask"  # 提醒不调用模型、不用任何工具，没有什么可问的。存成默认值，免得文件里留着一个不起作用的"全部自动允许"
+    schedule = check_schedule(value.get("schedule"))
+    return {"title": title, "kind": kind, "prompt": prompt, "schedule": schedule, "enabled": enabled, "approval": approval}
+
+
+def _approval_modes() -> dict:
+    """任务可以选的几档"要不要先问你"，就是对话里的那几档。
+
+    定义在 permissions.py（那里讲每一档是什么意思），在这里才导入：permissions.py 也要用这个文件
+    （审查添加任务的工具调用），两边都在文件开头导入对方的话，谁先加载谁就拿不到对方。
+    """
+    from .permissions import MODES
+
+    return MODES
 
 
 # ---- 什么时候 ----------------------------------------------------------------

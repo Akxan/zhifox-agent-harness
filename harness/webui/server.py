@@ -33,7 +33,7 @@
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
-  POST /api/task/run、stop                      立即运行一次、停下正在排队或者正在运行的那一次
+  POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
   POST /api/task/dismiss                        关掉一条（或者全部）已经弹出的提醒
   POST /api/task/preview                        还没保存的时间表接下来会在哪三个时刻运行
@@ -64,6 +64,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
 import zlib
 from datetime import datetime
@@ -162,10 +163,11 @@ class WebApp:
         self._live: tuple[object, tuple[Entry, ...]] = (None, ())  # 当前会话里的附件，和算它时的依据（见 _live_media）
         # Skill 一页的接口。"在文件管理器里显示"每次都按名字现找这个函数（测试会把它换掉）
         self.skills = SkillsAPI(self, lambda path: reveal_in_file_manager(path))
-        # 定时任务：到时间了自己跑一轮（和你的对话轮流用 self._turn），或者弹出一条提醒。见 scheduler.py
-        self.tasks = Scheduler(self, self._turn)
+        # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
+        # 各用各的界面和 shell（见 scheduler.py）
+        self.tasks = Scheduler(self)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
-        ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用
+        ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用：只是对话自己的，任务的各自管各自的（见 McpManager.call）
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         app.mcp.on_change = self.publish_state  # MCP 服务器连上了、断开了、工具变了，页面上跟着变
         if app.tasks.problem:
@@ -344,17 +346,18 @@ class WebApp:
             self.ui.hint(text, level="error")
 
     def _busy(self, otherwise: str | None = None) -> str:
-        """对话的锁被占着时，告诉用户为什么。被定时任务占着的话，说是哪个任务、怎么停下它。"""
-        title = self.tasks.holder()
-        if title is not None:
-            return t("定时任务“{title}”正在运行。可以等它跑完，或者在“任务”里停下它。", title=title)
+        """对话的锁被占着（你的这一轮还没结束，或者正在改设置）时，告诉用户为什么。
+
+        定时任务不拿这把锁，所以任务在跑的时候不会走到这里：你照常发消息、换模型、打开会话。
+        """
         return otherwise or t(self.BUSY)
 
     def stop(self) -> None:
-        # 锁被定时任务拿着时，这个"停止"不是冲它来的：停任务走 /api/task/stop。
-        # 不然点一下对话的"停止"，会把任务正在运行的命令杀掉
-        if self._turn.locked() and self.tasks.holder() is None:
-            self.ui.request_stop()
+        """对话里的"停止"：只停你的这一轮（连同它正在运行的命令）。
+
+        定时任务的运行各有各的界面和 shell，这里碰不到它们；停任务走 /api/task/stop。
+        """
+        self.ui.request_stop()
 
     def wait_idle(self, timeout: float) -> bool:
         """等正在进行的一轮对话结束（包括它收尾时的存盘）。等到了返回 True，超时返回 False。"""
@@ -1260,7 +1263,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "toggle":
                 tasks.toggle(task_id, body["enabled"])
             elif action == "run":
-                tasks.run_now(task_id)
+                reply["queued"] = tasks.run_now(task_id)  # 同时运行的到了上限，在排队
             elif action == "stop":
                 tasks.stop(task_id)
             else:
@@ -1507,15 +1510,17 @@ def claim_data_dir(data_dir: Path) -> IO | None:
 
 
 def shut_down(server: Server, app: App) -> None:
-    """退出前的收尾：让正在进行的一轮（或者正在运行的定时任务）停下来、存好盘，再关掉服务器。"""
-    server.web.tasks.close()
+    """退出前的收尾：让正在进行的一轮和正在运行的定时任务停下来、存好盘，再关掉服务器。"""
+    server.web.tasks.close()  # 排队的不跑了，正在跑的各自停下（连同它们自己的命令）
     server.web.stop()
     app.shell.kill_running()
-    app.mcp.cancel_running()
-    # stop() 只是通知这一轮尽快收尾，收尾（包括存盘）是在另一个线程里做的。不等它的话，程序一退出那个线程就没了：
-    # 这一轮里助手已经做过的事（执行过的命令、改过的文件）在保存的会话里不留一点记录。
-    # 模型一直没有输出时等不到它停下，所以只等有限的几秒。
+    app.mcp.cancel_all()  # 正在等的 MCP 调用，不管是对话的还是任务的，都取消
+    # 停止只是通知它们尽快收尾，收尾（包括存盘）是在别的线程里做的。不等的话，程序一退出那些线程就没了：
+    # 助手已经做过的事（执行过的命令、改过的文件）在保存的会话里不留一点记录。
+    # 模型一直没有输出时等不到它停下，所以对话和任务加起来只等有限的几秒。
+    deadline = time.monotonic() + SHUTDOWN_WAIT_SECONDS
     server.web.wait_idle(SHUTDOWN_WAIT_SECONDS)
+    server.web.tasks.wait_idle(max(0.0, deadline - time.monotonic()))
     app.close()  # 关掉 MCP 服务器的进程
     server.server_close()
 

@@ -9,15 +9,17 @@ from __future__ import annotations
 import json
 import os
 import stat
+import threading
 import time
 from datetime import datetime
+from functools import partial
 
 import pytest
 from fake_api import reply, text, tool_use
 
-from harness import i18n
+from harness import i18n, safe
 from harness.i18n import Message
-from harness.permissions import Permissions
+from harness.permissions import MODES, Permissions
 from harness.tasks import (
     MAX_TASKS,
     TaskError,
@@ -141,7 +143,7 @@ def test_schedule_errors_follow_the_interface_language(monkeypatch):
 def test_tasks_are_checked():
     daily = {"type": "daily", "time": "09:00"}
     task = check_task({"title": "  喝水 \n 提醒 ", "kind": "reminder", "schedule": daily})
-    assert task == {"title": "喝水 提醒", "kind": "reminder", "prompt": "", "schedule": daily, "enabled": True}
+    assert task == {"title": "喝水 提醒", "kind": "reminder", "prompt": "", "schedule": daily, "enabled": True, "approval": "ask"}
     assert check_task({"title": "安排", "kind": "agent", "prompt": " 看看待办 ", "schedule": daily, "enabled": False})["prompt"] == "看看待办"
     for bad in (
         {"title": "", "kind": "reminder", "schedule": daily},
@@ -155,6 +157,21 @@ def test_tasks_are_checked():
     ):
         with pytest.raises(TaskError):
             check_task(bad)
+
+
+def test_tasks_say_how_much_to_ask_while_running():
+    # agent 任务运行时多半没人看着，所以它自己记着"要确认的操作问不问你"，和对话里的三档同名、同义
+    daily = {"type": "daily", "time": "09:00"}
+    plan = {"title": "安排", "kind": "agent", "prompt": "看看待办", "schedule": daily}
+    assert check_task(plan)["approval"] == "ask"  # 没说的话就是每次都问
+    for mode in MODES:
+        assert check_task({**plan, "approval": mode})["approval"] == mode
+    for bad in ("", "always", "ALL", "yes", 1, True, ["all"], {"mode": "all"}):
+        with pytest.raises(TaskError):
+            check_task({**plan, "approval": bad})
+    # 提醒不调用模型、不用工具，没有什么可问的：不管填了哪一档都存成 ask，文件里不留一个不起作用的"全部自动允许"
+    for mode in MODES:
+        assert check_task({"title": "喝水", "kind": "reminder", "schedule": daily, "approval": mode})["approval"] == "ask"
 
 
 # ---- 下一次是什么时候 -------------------------------------------------------
@@ -369,6 +386,84 @@ def test_editing_toggling_and_deleting(tmp_path):
             action()
 
 
+def test_approval_is_saved_changed_and_defaults_to_ask_for_old_files(tmp_path):
+    path = tmp_path / "tasks.json"
+    store = TaskStore(path, clock=Clock(now()))
+    plan = {"title": "安排", "kind": "agent", "prompt": "看看待办", "schedule": DAILY}
+    task = store.add(plan)
+    assert task["approval"] == "ask"
+
+    # 你在页面上编辑任务、放宽了它：只改了这一项，时间表照旧
+    loosened = store.update(task["id"], {**plan, "approval": "all"})
+    assert loosened["approval"] == "all" and loosened["next_run"] == task["next_run"]
+    assert TaskStore(path).get(task["id"])["approval"] == "all"  # 存进了文件
+    # 改成只是提醒：那一档没有意义了，变回 ask
+    assert store.update(task["id"], {**reminder("安排"), "approval": "all"})["approval"] == "ask"
+    store.update(task["id"], {**plan, "approval": "edits"})
+
+    # 有这一项之前存下的文件里没有它：读回来按"每次都问"算，不会因为升级了程序就放宽
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["tasks"][0]["approval"]
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    (old,) = TaskStore(path).snapshot()[0]
+    assert (old["id"], old["kind"], old["approval"]) == (task["id"], "agent", "ask")
+
+
+def test_runs_recorded_from_many_threads_at_once_are_all_kept(tmp_path, monkeypatch):
+    # 几个任务的运行同时进行：每一次运行开始、停在确认上、做完，都要记一笔（add_run、update_run），
+    # 这些都是"改内存里的记录、整个写回文件"。没有锁的话会这样：A 改好内存、把整份内容转成了 JSON，还没写进文件；
+    # B、C……各自改好、写好；A 这才把它那份旧的 JSON 写进去，盖掉了别人记的那些。
+    # 内存里看着都在，重新启动以后就没了。这里让第一个写文件的线程停在"写之前"，等别的线程都做完。
+    path = tmp_path / "tasks.json"
+    store = TaskStore(path, clock=Clock(now()))
+    task = store.add({"title": "安排", "kind": "agent", "prompt": "看看待办", "schedule": DAILY})
+    started = [new_run(now() + n, "running") for n in range(6)]
+    for run in started:
+        store.add_run(task["id"], run)
+
+    real_write = safe.write_file
+    first_writing, others_done = threading.Event(), threading.Event()
+
+    def write_file(target, content):
+        if not first_writing.is_set():
+            first_writing.set()
+            others_done.wait(timeout=0.3)  # 有锁的话别的线程进不来，等到超时就接着写
+        real_write(target, content)
+
+    monkeypatch.setattr("harness.tasks.write_file", write_file)
+    errors: list = []
+
+    def in_thread(job) -> threading.Thread:
+        def guarded() -> None:
+            try:
+                assert job() is True
+            except BaseException as exc:  # noqa: BLE001 —— 什么错误都要带回主线程
+                errors.append(exc)
+
+        thread = threading.Thread(target=guarded, daemon=True)
+        thread.start()
+        return thread
+
+    added = [new_run(now() + 100 + n, "running") for n in range(10)]
+    first = in_thread(partial(store.add_run, task["id"], added[0]))
+    assert first_writing.wait(timeout=2)
+    others = [in_thread(partial(store.add_run, task["id"], run)) for run in added[1:]]
+    others += [
+        in_thread(partial(store.update_run, task["id"], run["id"], status="done", summary=f"第 {n} 次"))
+        for n, run in enumerate(started)
+    ]
+    for thread in others:
+        thread.join(timeout=5)
+    others_done.set()
+    first.join(timeout=5)
+
+    assert errors == []
+    for runs in (store.get(task["id"])["runs"], TaskStore(path).get(task["id"])["runs"]):  # 内存里的，和文件里的
+        assert {run["id"] for run in runs} == {run["id"] for run in started + added}
+        finished = {run["id"]: run["summary"] for run in runs if run["status"] == "done"}
+        assert finished == {run["id"]: f"第 {n} 次" for n, run in enumerate(started)}
+
+
 def test_there_is_a_limit_on_how_many_tasks(tmp_path):
     store = TaskStore(tmp_path / "tasks.json", clock=Clock(now()))
     for n in range(MAX_TASKS):
@@ -472,18 +567,66 @@ def test_tool_errors_stay_in_chinese_for_the_model(start, monkeypatch):
     assert json.loads(h.ui.results[1][0])["tasks"] == []
 
 
-def test_unattended_permissions_always_ask(tmp_path):
-    editor = FileEditor(tmp_path, tmp_path / "backups")
-    permissions = Permissions(editor)
-    permissions.mode = "all"
-    command = {"command": "rm -rf build"}
-    assert permissions.review("run_command", command) is not None and permissions.auto_allows("run_command", command)
+def test_tasks_the_model_adds_always_ask_before_acting(start):
+    # 被网页上的一句话带偏的模型，不能给自己定一个"到点自动执行任何命令"的任务：它加的一律每次都问，
+    # 工具也没有能改这一项的参数。放宽只能由用户自己在页面上编辑任务时做
+    plan = {"kind": "agent", "title": "每日安排", "prompt": "看看我的待办，写一份今天的安排", "schedule": DAILY}
+    h = start(
+        reply(tool_use("toolu_1", "task_add", plan), stop_reason="tool_use"),
+        reply(tool_use("toolu_2", "task_add", {**plan, "title": "不用问的安排", "approval": "all"}), stop_reason="tool_use"),
+        reply(text("加好了一个。")),
+    )
+    h.agent.run_turn("每天 9 点帮我排一下当天的事，到时候什么都别问我")
 
-    unattended = permissions.unattended()
-    # 规则一样（要问的还是要问、给用户看的说明一样），只是不管什么模式都不自动放行
-    assert unattended.review("run_command", command) == permissions.review("run_command", command)
-    assert not unattended.auto_allows("run_command", command)
-    unattended.mode = "all"
-    assert not unattended.auto_allows("run_command", command)
-    permissions.mode = "ask"  # 用户改的是对话用的那一份，碰不到它
-    assert unattended.always_ask and not permissions.always_ask
+    (task,) = h.app.tasks.snapshot()[0]  # 带着 approval 的那一次什么都没加
+    assert (task["title"], task["approval"]) == ("每日安排", "ask")
+    assert json.loads(h.ui.results[0][0])["added"]["approval"] == "ask"
+    error, is_error = h.ui.results[1]
+    assert is_error and "没有 approval 这个参数" in error
+    spec = next(tool for tool in h.api.requests[0]["tools"] if tool["name"] == "task_add")
+    assert "approval" not in spec["input_schema"]["properties"]
+
+    # 用户自己在页面上放宽了：模型能看到是哪一档（好回答用户"它会不会问我"），但改不了。提醒没有这一项
+    h.app.tasks.update(task["id"], {**plan, "approval": "all"})
+    h.app.tasks.add(reminder())
+    h.api.replies += [reply(tool_use("toolu_3", "task_list", {}), stop_reason="tool_use"), reply(text("有两个任务。"))]
+    h.agent.run_turn("我有哪些任务？")
+    agent_view, reminder_view = json.loads(h.ui.results[2][0])["tasks"]
+    assert agent_view["approval"] == "all" and "approval" not in reminder_view
+
+
+def test_a_task_run_asks_as_much_as_its_own_setting_says(tmp_path):
+    workspace = tmp_path / "work"
+    data = workspace / "data"
+    data.mkdir(parents=True)
+    editor = FileEditor(workspace, data / "backups", protected=[workspace / ".env"])
+    chat = Permissions(editor, private=[data])
+    chat.mode = "all"  # 对话里放开了。用户想的是"我看着它做"，不是"它半夜自己做的时候也别问"
+    write = ("str_replace_based_edit_tool", {"command": "create", "path": "notes.txt", "file_text": "x"})
+    private = ("str_replace_based_edit_tool", {"command": "create", "path": "data/settings.json", "file_text": "{}"})
+    command = ("run_command", {"command": "rm -rf build"})
+
+    # 每一档：改工作目录里的文件、改助手自己的数据目录、执行命令，哪些可以不问就做
+    expected = {"ask": (False, False, False), "edits": (True, False, False), "all": (True, True, True)}
+    assert list(expected) == list(MODES)
+    for mode, allowed in expected.items():
+        run = chat.unattended(mode)
+        assert run is not chat and run.mode == mode
+        for (tool, tool_input), auto in zip((write, private, command), allowed):
+            # 规则和对话里的一样：要问的还是要问，给用户看的说明一字不差；只是"问不问"看任务自己的那一档
+            question = run.review(tool, tool_input)
+            assert question is not None and question == chat.review(tool, tool_input)
+            assert run.auto_allows(tool, tool_input) is auto, (mode, tool_input)
+
+    # 没说是哪一档、或者是不认识的写法：按"每次都问"算
+    for odd in ((), ("",), ("ALL",), ("always",), (None,)):
+        run = chat.unattended(*odd)
+        assert run.mode == "ask" and not any(run.auto_allows(*case) for case in (write, private, command))
+
+    # 是另外一份：用户换对话的那一档碰不到正在运行的任务，反过来也一样
+    run = chat.unattended("edits")
+    chat.mode = "ask"
+    assert run.mode == "edits" and run.auto_allows(*write)
+    chat.mode = "all"
+    run.mode = "ask"
+    assert chat.mode == "all" and chat.auto_allows(*command) and not run.auto_allows(*write)

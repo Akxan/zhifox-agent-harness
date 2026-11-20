@@ -3,6 +3,10 @@
 它按顺序回放事先写好的回复（格式和真实 API 的流式响应一样），并记下收到的每一个请求。
 这样不需要 API key、不花钱，就能让真正的 SDK 把整个 agent 循环跑一遍，
 还能检查我们发出去的请求长什么样。
+
+几段对话同时进行时（你的对话和几个定时任务一起跑），"按顺序"就说不清是谁先谁后了。这时用 routes：
+{"某句话": [回复, ...]}，请求里第一条消息含有这句话的，从它自己的那一串里按顺序取；别的照旧从 replies 里取。
+每次运行的第一条消息就是任务的指令，所以用指令里的一句话就能把每个任务的回复分开。
 """
 
 from __future__ import annotations
@@ -93,11 +97,20 @@ def _events(scripted: dict) -> list[dict]:
 
 
 class FakeAPI:
-    def __init__(self, replies: list[dict]):
+    def __init__(self, replies: list[dict], routes: dict[str, list[dict]] | None = None):
         self.replies = list(replies)
+        self.routes = {marker: list(items) for marker, items in (routes or {}).items()}
         self.requests: list[dict] = []  # 收到的请求体
         self.headers: list[dict] = []  # 收到的请求头（键全部小写）
         self.models = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-3-old"]  # 假装服务器上有这些模型
+        self._lock = threading.Lock()  # 几个请求同时到时，"看看还有没有、有就取一条"要一口气做完
+
+    def next_reply(self, body: dict) -> dict | None:
+        """这个请求该拿到哪一条回复（见文件开头的 routes）。没有了返回 None。"""
+        first = json.dumps((body.get("messages") or [None])[0], ensure_ascii=False)
+        with self._lock:
+            queue = next((items for marker, items in self.routes.items() if marker in first), self.replies)
+            return queue.pop(0) if queue else None
 
     def start(self) -> FakeAPI:
         api = self
@@ -107,10 +120,10 @@ class FakeAPI:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 api.requests.append(body)
                 api.headers.append({key.lower(): value for key, value in self.headers.items()})
-                if not api.replies:
+                scripted = api.next_reply(body)
+                if scripted is None:
                     self.send_error(500, "no scripted reply left")
                     return
-                scripted = api.replies.pop(0)
                 if scripted.get("status"):
                     payload = json.dumps(scripted["error"]).encode()
                     self.send_response(scripted["status"])

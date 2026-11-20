@@ -52,9 +52,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
   description until a task calls for it, and the scripts a skill brings still need your approval to run.
 - ⏰ **Scheduled and recurring tasks.** Free reminders, or instructions the assistant runs on its own at a set time:
-  once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs take turns with
-  your conversation, pause for your approval even in Allow everything mode, catch up once after ZhiFox was closed, and
-  record what each one cost.
+  once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs happen alongside
+  your conversation (up to three at once), ask for approval the way you choose for each task (Ask every time by
+  default), catch up once after ZhiFox was closed, and record what each one cost.
 - 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
   can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
   convert it, in all three interface languages.
@@ -207,7 +207,7 @@ Each part of the harness has its own file or directory:
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
-| Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that takes turns with you and pauses for approval, and the tools that set one up from a sentence |
+| Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -517,14 +517,20 @@ with three things handled differently ([harness/webui/scheduler.py](harness/webu
    out on the calendar in local time rather than by adding 24 hours, which is what keeps "every day at 9:00" at 9:00 on
    the wall clock across daylight saving. Each task's next time is saved in `data/tasks.json`; finding it in the past on
    the next start is how ZhiFox knows a run was missed.
-2. **Taking turns.** The loop and its tools assume one turn at a time: one shell whose running command Stop can end,
-   one set of files and to-dos. So a task run takes the same lock as your own turns, and waits for yours to finish.
-   Reminders call no model and don't need it.
-3. **Nobody watching.** The run gets its own `Agent` with a new adapter and an empty history
-   (`App.unattended_agent`), and its own event log (a second `WebUI` whose events aren't pushed to the page), so it
-   can't write into the conversation you're looking at. Its permissions are a copy that always asks
-   (`Permissions.unattended`). When it reaches a step that needs approval, the loop waits in `confirm` exactly as it
-   does in a conversation, and the waiting approval goes into the page state so you can answer it from the task.
+2. **Side by side.** A run doesn't take your conversation's lock: you keep chatting, switching models and opening
+   conversations while tasks run, and several tasks can run at once. That works because everything that can be
+   *stopped* is per run (`App.unattended_agent`): its own shell, so stopping a run ends only that run's command, and
+   the chat's Stop never reaches a task; its own MCP calls (each run's tool snapshot files its calls under that run,
+   so Stop cancels only those); its own event log and approval card. What runs share is what lives on disk (to-dos,
+   tasks, memory, conversations, files in the working folder), and each of those has a lock, so every change is made
+   in one go and two runs can't overwrite each other's edit. At most `MAX_PARALLEL_TASKS` runs (3, in
+   [config.py](harness/config.py)) go at once; more wait in line, marked "Queued", and start as soon as a slot frees
+   up. The same task never runs twice at the same time.
+3. **Nobody watching.** The run gets its own `Agent` with a new adapter and an empty history, and its own event log
+   (a second `WebUI` whose events aren't pushed to the page), so it can't write into the conversation you're looking
+   at. Its permissions are a copy set to *that task's* approval mode (`Permissions.unattended(mode)`), not the one you
+   chose for the chat. When it reaches a step that needs approval, the loop waits in `confirm` exactly as it does in a
+   conversation, and the waiting approval goes into the page state so you can answer it from the task.
 
 Progress reaches the page in the same `state` event as everything else: at most four times a second while text streams
 in, and immediately when a run starts, pauses for approval or ends. A stopped run still gives every tool call its
@@ -700,7 +706,8 @@ An MCP tool is someone else's program. ZhiFox can't see what it does, and what i
 isn't verified, so every call asks by default. In **Extensions → MCP** you can mark one tool, or a whole server, as
 **don't ask**. That is your decision about one specific tool, so it is saved in `data/mcp.json` and applies in every
 mode, and those calls are still marked **Allowed automatically** in the conversation. The one exception is a scheduled
-task running on its own: like everything else that would ask, an MCP call then waits for your approval.
+task running on its own: it follows only its own approval mode, so an MCP call waits for your approval unless that
+task is set to Allow everything.
 
 Reading `data/` always asks because otherwise the model could quietly read every past conversation and send it to the
 provider you're using now, whether because you asked "what files are in this folder?" or because a web page misled it.
@@ -720,6 +727,12 @@ below the input box; in the terminal, use `/auto`:
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
 every time, so you can't turn it on and forget about it.
+
+Scheduled tasks don't follow this choice. Each agent task has its own setting with the same three options, chosen in the
+task editor and saved with the task (it defaults to Ask every time). Loosening the chat when you're watching says nothing
+about a task that runs at 3 a.m. Tasks the assistant creates for you are always Ask every time, and its tool has no way
+to change that: only you can, in the page. Otherwise a model misled by a web page could set itself a task that runs any
+command, unasked, every night.
 
 Scheduled tasks are the exception. When one runs on its own, every step marked "Asks you first" pauses the run until you
 answer, whichever option you chose: loosening the prompts means "I'm here, go ahead", which isn't true at 3 a.m. (see
@@ -922,21 +935,28 @@ runs only once. Before you save a task, the form shows the next three times it w
 
 How agent tasks behave:
 
-- **They take turns with you.** Tasks use the same tools as your conversation (the same shell, files and to-dos), so a
-  task never runs during your own turn. One that comes due while you're chatting waits until your turn ends. While a
-  task runs, sending a message, switching models or opening a conversation is refused with a note naming the task and
-  how to stop it. Reminders don't wait for anything.
+- **They run alongside you.** A task that comes due while you're chatting starts right away; you can keep chatting,
+  switch models or open conversations while it runs, and several tasks can run at once. Each run has its own shell, so
+  stopping one task ends only its command, and the Stop button in your conversation never touches a task. Up to three
+  run at the same time; the rest wait in line, shown as **Queued**, and start as soon as one finishes. Changing the
+  model or a task's settings affects only later runs.
 - **They leave your conversation alone.** Each run starts with an empty history, uses the provider and model selected
-  in Settings at that moment, and is saved as a normal conversation named after the task and the time (for example
-  "Daily plan · 2026-11-21 09:00"). It appears in the sidebar marked as coming from a task, and you can open it, replay
-  it, search it and keep chatting in it.
-- **They pause for your approval.** Anything that would ask you in a conversation (running a command, writing a file…)
-  pauses the run until you answer, **even if you chose Allow everything**. The waiting approval is shown with the task,
-  where you can allow or deny it. Until you answer, the task keeps its turn, so answer it (or stop it) to get back to
-  chatting.
+  in Settings at the moment it starts, and is saved as a normal conversation named after the task and the time (for
+  example "Daily plan · 2026-11-21 09:00"). It appears in the sidebar marked as coming from a task, and you can open
+  it, replay it, search it and keep chatting in it.
+- **Each task decides when to ask.** In the task editor, an agent task has the same three options as the chat's
+  approval setting: **Ask every time** (the default), **Allow file edits** and **Allow everything**, the last with a
+  warning, since a task usually runs while nobody is watching. A row shows a small badge when its task is not Ask
+  every time, and the task details show the setting. Anything that still needs approval pauses the run until you
+  answer: the waiting approval is shown with the task, where you can allow or deny it, while you go on chatting.
+  Steps that ran without asking are marked **Allowed automatically** in the run's progress and in its saved
+  conversation. The chat's own setting doesn't apply to tasks, and tasks the assistant creates are always Ask every
+  time (only you can change that).
 - **You can watch and stop them.** While a task runs you can see what it is doing (thinking, writing, which tool), how
   many model calls it has made, its cost so far and the tool calls so far. **Stop** works like the Stop button in a
-  conversation and also ends a running command; a run still waiting for its turn is simply dropped.
+  conversation and ends that run's command; a run still waiting in line is simply dropped. When several tasks are
+  running, the pill at the top of the page counts them ("Scheduled tasks: 2 running, 1 waiting for you"); clicking it
+  opens the task list at the first one that needs you.
 - **Missed runs are caught up once.** If ZhiFox wasn't running at the scheduled time (or the computer was asleep), the
   task runs once the next time ZhiFox notices, however many times it was missed. The run is marked as a catch-up with
   the number of missed times, and the assistant is told when it should have run.
@@ -1202,7 +1222,9 @@ half-written last line, merging old entries), the export in [tests/test_export.p
 ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). Scheduled
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
-server with a fake clock, so no test waits for 9 a.m.).
+server with a fake clock, so no test waits for 9 a.m.: a run beside a chat turn, two runs side by side, the queue past
+the limit, Stop reaching only its own run, and the three approval modes; the fake API routes each run's requests by
+its instruction, so parallel runs stay deterministic).
 MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
 over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
 The media library is covered in
@@ -1258,9 +1280,10 @@ page.
   aren't loaded (you see their description and address), raw HTML is shown as text, links work only for http, https
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
   only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
-- Scheduled tasks run only while the web UI is running, one at a time, taking turns with your own conversation. A task
-  that pauses for your approval keeps its turn until you answer or stop it. Reminders appear only in the page; there are
-  no system notifications.
+- Scheduled tasks run only while the web UI is running, at most three at once. Two runs (or a run and your
+  conversation) editing the same lines of the same file don't merge their changes: each edit is applied whole, and the
+  later one fails if the text it expected has changed, so the model reads the file again. Reminders appear only in the
+  page; there are no system notifications.
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
   #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
@@ -1321,15 +1344,17 @@ added with one entry in `PROVIDERS`.
 
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
-every launch, and steps that ran without asking are marked as allowed automatically. Scheduled tasks always ask, whatever
-the mode. In every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
+every launch, and steps that ran without asking are marked as allowed automatically. Scheduled tasks have their own
+setting, chosen per task in the task editor (Ask every time by default; tasks the assistant creates always ask). In
+every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
 [Permissions](#permissions).
 
 ### Can it do things on a schedule?
 
 Yes, while the web UI is running. Ask for "remind me at 3 p.m. to call the bank" (a free reminder) or "every Monday at
-9, summarize my open to-dos" (the assistant does it, and each run costs API credits). Runs wait for your turn to end,
-pause for your approval before commands and file writes, and are caught up once if ZhiFox was closed. See
+9, summarize my open to-dos" (the assistant does it, and each run costs API credits). Runs happen alongside your
+conversation, pause for your approval before commands and file writes (unless you loosen that for the task), and are
+caught up once if ZhiFox was closed. See
 [Scheduled and recurring tasks](#scheduled-and-recurring-tasks).
 
 ### What does it cost to run?

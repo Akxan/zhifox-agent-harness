@@ -70,8 +70,8 @@ def serve(make_config, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(server_module, "reveal_in_file_manager", lambda path: None)
 
-    def serve(*replies, **config_overrides):
-        api = FakeAPI(list(replies)).start()
+    def serve(*replies, routes=None, **config_overrides):
+        api = FakeAPI(list(replies), routes).start()
         config = make_config(**config_overrides)
         ui = WebUI()
 
@@ -95,6 +95,7 @@ def serve(make_config, monkeypatch):
         s.web.stop()
         s.app.shell.kill_running()
         s.web.wait_idle(5)
+        s.web.tasks.wait_idle(5)  # 任务在各自的线程里收尾，也等它们存好盘
         s.server.shutdown()
         s.server.server_close()
         s.api.stop()
@@ -139,6 +140,11 @@ def paused(s, task_id: str) -> dict:
     return until(lambda: (task_of(s, task_id)["running"] or {}).get("confirm") and task_of(s, task_id)["running"], what="确认")
 
 
+def requests_for(s, marker: str) -> list[dict]:
+    """假 API 收到的请求里，属于某一次运行的那些（第一条消息里有这句话，见 fake_api.py 的 routes）。"""
+    return [request for request in s.api.requests if marker in json.dumps(request["messages"][0], ensure_ascii=False)]
+
+
 def latest_state(s) -> dict:
     until(lambda: s.browser.of_type("state"), what="状态")
     return s.browser.of_type("state")[-1]
@@ -158,7 +164,7 @@ def test_tasks_are_saved_listed_and_previewed(serve):
 
     state = until(lambda: latest_state(s)["tasks"] and latest_state(s), what="带着任务的状态")
     (task,) = state["tasks"]
-    assert set(task) == {"id", "title", "kind", "prompt", "schedule", "enabled", "created_at", "next_run", "runs", "running"}
+    assert set(task) == {"id", "title", "kind", "prompt", "schedule", "enabled", "approval", "created_at", "next_run", "runs", "running"}
     assert (task["id"], task["title"], task["kind"], task["prompt"], task["schedule"]) == (task_id, "喝水", "reminder", "起来喝杯水", DAILY)
     assert task["next_run"] == at(2026, 11, 21, 9, 0) and task["created_at"] == s.clock.now
     assert task["runs"] == [] and task["running"] is None and state["reminders"] == []
@@ -236,7 +242,7 @@ def test_a_reminder_fires_on_time_once_and_can_be_dismissed(serve):
     assert s.browser.post("/api/task/dismiss", {"reminder_id": item["id"]}) == (200, {"ok": True})  # 连点两下也没事
 
     # 立即提醒一次：不改原来的计划
-    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True})
+    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True, "queued": False})
     task = task_of(s, task_id)
     assert task["runs"][0]["manual"] is True and task["next_run"] == at(2026, 11, 22, 9, 0)
     s.clock.now = at(2026, 11, 22, 9, 0)
@@ -298,50 +304,42 @@ def test_an_agent_task_runs_in_a_conversation_of_its_own(serve):
     assert s.browser.wait_for("user")["text"] == "看看我的待办，写一份今天的安排"
 
 
-def test_a_due_task_waits_for_your_turn_and_then_holds_the_next_one(serve):
+def test_a_task_runs_while_you_chat(serve):
+    # 任务停在自己的确认上的时候，你照常聊天、换模型、开新对话；你的确认和它的确认互不相干
     s = serve(
-        reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"),  # 你的这一轮
+        reply(text("你好呀。")),  # 你的第一轮
+        reply(tool_use("toolu_9", "run_command", {"command": "true"}), stop_reason="tool_use"),  # 你的第二轮：停在确认上
         reply(text("跑完了。")),
-        reply(tool_use("toolu_2", "run_command", {"command": "touch report.txt"}), stop_reason="tool_use"),  # 任务
-        reply(text("报告建好了。")),
+        routes={"整理报告": [
+            reply(tool_use("toolu_1", "run_command", {"command": "touch report.txt"}), stop_reason="tool_use"),
+            reply(text("报告建好了。")),
+        ]},
     )
-    task_id = agent_task(s)
-    assert s.browser.post("/api/message", {"text": "跑一下"})[0] == 200
-    yours = s.browser.wait_for("confirm")  # 你的这一轮停在确认上，拿着对话锁
+    task_id = agent_task(s, prompt="整理报告，放进 report.txt")
+    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True, "queued": False})
 
-    s.clock.now = at(2026, 11, 21, 9, 0)
-    s.web.tasks.tick()
-    task = until(lambda: task_of(s, task_id)["running"] and task_of(s, task_id), what="排队")
-    running = task["running"]
-    assert set(running) == RUNNING_FIELDS
-    assert running["activity"] == {"kind": "waiting", "tool": "", "summary": "等你这一轮对话结束"}
-    assert (running["step"], running["log"], running["confirm"]) == (0, [], None)
-    assert task["runs"][0]["status"] == "waiting" and len(s.api.requests) == 1  # 还没开始
-
-    assert s.browser.post("/api/confirm", {"id": yours["id"], "allow": True})[0] == 200
-    s.browser.wait_for("turn_end")
-
-    # 你这一轮一结束，任务就开始了；它也停在自己的确认上
     running = paused(s, task_id)
     assert running["confirm"]["tool"] == "run_command" and "touch report.txt" in running["confirm"]["summary"]
     assert running["activity"] == {"kind": "waiting", "tool": "run_command", "summary": "等你批准"}
-    assert running["log"] == [{"tool": "run_command", "summary": "run_command $ touch report.txt", "ok": None}]
+    # 进度里给人看的话已经带着工具的名字：页面原样显示，不再在前面加一遍
+    assert running["log"] == [{"tool": "run_command", "summary": "run_command $ touch report.txt", "ok": None, "auto": False}]
     assert (running["step"], running["max_steps"], running["cost"]) == (1, s.config.max_steps, ONE_REQUEST)
     assert task_of(s, task_id)["runs"][0]["status"] == "waiting"
     shown = until(lambda: (latest_state(s)["tasks"][0]["running"] or {}).get("confirm"), what="页面上的确认")
     assert shown == running["confirm"]
-    assert len(s.browser.of_type("confirm")) == 1  # 任务的确认不出现在你的对话里
 
-    # 任务拿着对话锁的时候：你发消息、开新对话都被拦下，并且说清楚是哪个任务
-    status, body = s.browser.post("/api/message", {"text": "再来一句"})
-    assert status == 409 and body["error"] == "定时任务“每日安排”正在运行。可以等它跑完，或者在“任务”里停下它。"
-    assert s.browser.post("/api/new")[0] == 409
-    assert s.browser.post("/api/model", {"provider": "anthropic", "model": "claude-sonnet-5-5"})[1]["error"] == body["error"]
-    # 对话里的"停止"不是冲它来的
-    assert s.browser.post("/api/stop") == (200, {"ok": True})
+    # 任务停着，你的这一轮照常开始、照常结束
+    say(s, "你好")
+    assert s.browser.of_type("confirm") == []  # 任务的确认不出现在你的对话里
     assert task_of(s, task_id)["running"]["confirm"] is not None
+    # 换模型、开新对话也不用等任务：只影响以后的运行，这一次照旧用它开始时的那个模型
+    assert s.browser.post("/api/model", {"provider": "anthropic", "model": "claude-sonnet-5-5"}) == (200, {"ok": True, "warning": ""})
+    assert s.browser.post("/api/new") == (200, {"ok": True, "warning": ""})
 
-    # 答复：编号不对的不算
+    # 你的第二轮也停在确认上：两边同时等着，各答各的
+    assert s.browser.post("/api/message", {"text": "跑一下"})[0] == 200
+    yours = s.browser.wait_for("confirm")
+    # 对话里的"停止"不是冲任务来的；任务的答复接口也答不了你的确认
     confirm_id = running["confirm"]["id"]
     assert s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": confirm_id + 1, "allow": True})[0] == 409
     assert s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": str(confirm_id), "allow": True})[0] == 400
@@ -351,69 +349,249 @@ def test_a_due_task_waits_for_your_turn_and_then_holds_the_next_one(serve):
     run = task["runs"][0]
     assert (run["steps"], run["cost"]) == (2, round(2 * ONE_REQUEST, 6))
     assert s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": confirm_id, "allow": True})[0] == 409
+    # 你的那一轮一直在等你，没被任务的答复碰到
+    assert s.browser.post("/api/confirm", {"id": yours["id"], "allow": True})[0] == 200
+    s.browser.wait_for("turn_end")
 
-    # 任务跑完，你可以接着聊了
-    s.api.replies.append(reply(text("在。")))
-    say(s, "在吗")
+    # 任务的两次请求都用它开始时的模型；你换过之后的对话用的是新的
+    ran = requests_for(s, "整理报告")
+    assert [request["model"] for request in ran] == ["claude-opus-5-5", "claude-opus-5-5"]
+    chat = [request for request in s.api.requests if request not in ran]
+    assert (chat[0]["model"], chat[-1]["model"]) == ("claude-opus-5-5", "claude-sonnet-5-5")
+    conversation = s.app.store.load(run["conversation"])
+    assert conversation.model == "claude-opus-5-5"
+
+    # 下一次运行用的就是新的模型了
+    s.api.routes["整理报告"].append(reply(text("又整理了一遍。")))
+    s.browser.post("/api/task/run", {"id": task_id})
+    finished(s, task_id, "done")
+    assert requests_for(s, "整理报告")[-1]["model"] == "claude-sonnet-5-5"
 
 
-def test_unattended_runs_ask_even_when_everything_is_allowed(serve):
-    s = serve(reply(tool_use("toolu_1", "run_command", {"command": "touch x.txt"}), stop_reason="tool_use"), reply(text("没建。")))
+def test_two_tasks_run_side_by_side(serve):
+    s = serve(routes={
+        "看看天气": [reply(tool_use("toolu_1", "run_command", {"command": "echo 晴"}), stop_reason="tool_use"), reply(text("今天晴。"))],
+        "看看邮件": [reply(tool_use("toolu_2", "run_command", {"command": "echo 3 封"}), stop_reason="tool_use"), reply(text("有 3 封新邮件。"))],
+    })
+    weather = agent_task(s, title="天气", prompt="看看天气")
+    mail = agent_task(s, title="邮件", prompt="看看邮件")
+    assert s.browser.post("/api/task/run", {"id": weather}) == (200, {"ok": True, "queued": False})
+    assert s.browser.post("/api/task/run", {"id": mail}) == (200, {"ok": True, "queued": False})
+    assert s.browser.post("/api/task/run", {"id": mail})[0] == 409  # 同一个任务不会同时跑两次
+
+    # 两个同时停在各自的确认上
+    first, second = paused(s, weather), paused(s, mail)
+    assert "echo 晴" in first["confirm"]["summary"] and "echo 3 封" in second["confirm"]["summary"]
+    until(lambda: len([task for task in latest_state(s)["tasks"] if (task["running"] or {}).get("confirm")]) == 2, what="页面上的两个确认")
+    # 答错了任务（拿 A 的编号去答 B）不算
+    assert s.browser.post("/api/task/confirm", {"id": mail, "confirm_id": first["confirm"]["id"] + 1000, "allow": True})[0] == 409
+
+    # 先答复后来的那个：它跑完了，先来的那个还停着
+    assert s.browser.post("/api/task/confirm", {"id": mail, "confirm_id": second["confirm"]["id"], "allow": True})[0] == 200
+    done = finished(s, mail, "done")
+    assert done["runs"][0]["summary"] == "有 3 封新邮件。"
+    assert task_of(s, weather)["running"]["confirm"] is not None
+    assert s.browser.post("/api/task/confirm", {"id": weather, "confirm_id": first["confirm"]["id"], "allow": False})[0] == 200
+    assert finished(s, weather, "done")["runs"][0]["summary"] == "今天晴。"
+
+    # 各存成各的会话，内容不串
+    texts = {}
+    for task_id in (weather, mail):
+        conversation = s.app.store.load(task_of(s, task_id)["runs"][0]["conversation"])
+        texts[task_id] = " ".join(event.get("text", "") for event in conversation.events)
+    assert "晴" in texts[weather] and "邮件" not in texts[weather]
+    assert "3 封" in texts[mail] and "天气" not in texts[mail]
+    # 花的钱各记各的，来源都是 task
+    rows = [json.loads(line) for line in s.config.ledger_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [row["source"] for row in rows] == ["task"] * 4
+
+
+def test_runs_beyond_the_limit_wait_in_line(serve):
+    s = serve(max_parallel_tasks=2, routes={
+        f"第{n}件事": [reply(tool_use(f"toolu_{n}", "run_command", {"command": f"echo {n}"}), stop_reason="tool_use"), reply(text(f"做完第{n}件。"))]
+        for n in (1, 2, 3)
+    })
+    ids = [agent_task(s, title=f"任务{n}", prompt=f"做第{n}件事") for n in (1, 2, 3)]
+    # 三个同时到时间：两个开始，第三个排队，并且说清楚为什么
+    s.clock.now = at(2026, 11, 21, 9, 0)
+    s.web.tasks.tick()
+    paused(s, ids[0])
+    paused(s, ids[1])
+    queued = task_of(s, ids[2])
+    assert queued["running"]["activity"] == {"kind": "waiting", "tool": "", "summary": "排队中：同时最多运行 2 个任务"}
+    assert queued["running"]["confirm"] is None and queued["runs"][0]["status"] == "waiting"
+    assert requests_for(s, "第3件事") == []  # 还没开始，一次模型都没调用
+    s.web.tasks.tick()  # 再看一眼：排着队的不会被排第二次
+    assert len(task_of(s, ids[2])["runs"]) == 1
+
+    # 立即运行一个已经在排队的：说它已经在排了
+    status, body = s.browser.post("/api/task/run", {"id": ids[2]})
+    assert status == 409 and "已经在排队" in body["error"]
+
+    # 前面的跑完一个，排着的那个马上开始
+    first = paused(s, ids[0])
+    s.browser.post("/api/task/confirm", {"id": ids[0], "confirm_id": first["confirm"]["id"], "allow": True})
+    finished(s, ids[0], "done")
+    third = paused(s, ids[2])
+    assert "echo 3" in third["confirm"]["summary"]
+    assert task_of(s, ids[1])["running"]["confirm"] is not None  # 另一个还在等，没受影响
+
+    # 位子都占满时立即运行：排队，并告诉页面
+    s.api.routes["第1件事"] += [reply(text("又做了一遍。"))]
+    assert s.browser.post("/api/task/run", {"id": ids[0]}) == (200, {"ok": True, "queued": True})
+    for task_id in ids[1:]:
+        running = paused(s, task_id)
+        s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": running["confirm"]["id"], "allow": True})
+    for task_id in ids:
+        finished(s, task_id, "done")
+    assert task_of(s, ids[0])["runs"][0]["summary"] == "又做了一遍。"
+
+
+def test_a_task_asks_by_default_even_when_the_chat_allows_everything(serve):
+    s = serve(routes={"建个文件": [reply(tool_use("toolu_1", "run_command", {"command": "touch x.txt"}), stop_reason="tool_use"), reply(text("没建。"))]})
     assert s.browser.post("/api/approval", {"mode": "all"}) == (200, {"ok": True})
-    task_id = agent_task(s)
-    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True})
+    task_id = agent_task(s, prompt="建个文件 x.txt")
+    assert task_of(s, task_id)["approval"] == "ask"
+    assert s.browser.post("/api/task/run", {"id": task_id})[0] == 200
 
-    running = paused(s, task_id)  # 你选了"全部自动允许"，可没人看着的时候它还是停下来等你
+    running = paused(s, task_id)  # 对话里选了"全部自动允许"，任务按它自己的那一档（每次确认）停下来等你
     feedback = {"id": task_id, "confirm_id": running["confirm"]["id"], "allow": False, "feedback": " 先别动 "}
     assert s.browser.post("/api/task/confirm", feedback) == (200, {"ok": True})
     task = finished(s, task_id, "done")
 
     assert not (s.config.workspace / "x.txt").exists()
-    result = s.api.requests[1]["messages"][-1]["content"][0]
+    result = requests_for(s, "建个文件")[1]["messages"][-1]["content"][0]
     assert result["is_error"] is True and result["content"] == "用户拒绝了这个操作。用户说：先别动"
     conversation = s.app.store.load(task["runs"][0]["conversation"])
     (confirm,) = [event for event in conversation.events if event["type"] == "confirm"]
     assert confirm["outcome"] == "denied"
     assert latest_state(s)["approval"] == "all"  # 对话用的那一份没被动过
+    # 发给模型的说明照实说：要确认的会停下来等用户
+    assert "需要用户确认的操作会停在那里，等他回来批准。" in requests_for(s, "建个文件")[0]["messages"][0]["content"][-1]["text"]
+
+
+def test_a_task_can_be_allowed_to_edit_files_or_to_do_everything(serve):
+    create = {"command": "create", "path": "notes.txt", "file_text": "笔记\n"}
+    s = serve(routes={
+        "记笔记": [
+            reply(tool_use("toolu_1", "str_replace_based_edit_tool", create), stop_reason="tool_use"),
+            reply(tool_use("toolu_2", "run_command", {"command": "touch edits.txt"}), stop_reason="tool_use"),
+            reply(text("笔记写好了，命令没跑。")),
+        ],
+        "全都做": [
+            reply(tool_use("toolu_3", "run_command", {"command": "touch all.txt"}), stop_reason="tool_use"),
+            reply(text("都做好了。")),
+        ],
+    })
+    # 只能是那三档之一
+    bad = {"title": "x", "kind": "agent", "prompt": "x", "schedule": DAILY, "approval": "always"}
+    assert s.browser.post("/api/task/save", bad) == (400, {"error": "参数不正确"})
+    edits = save(s, title="笔记", kind="agent", prompt="记笔记", schedule=DAILY, approval="edits")
+    everything = save(s, title="全部", kind="agent", prompt="全都做", schedule=DAILY, approval="all")
+    assert [task_of(s, task_id)["approval"] for task_id in (edits, everything)] == ["edits", "all"]
+    listed = until(lambda: {task["id"]: task["approval"] for task in latest_state(s)["tasks"]}.get(everything), what="状态里的那一档")
+    assert listed == "all"
+
+    # 改文件不用问：直接建好，进度里和会话里都标着"自动允许"；执行命令还是要问
+    s.browser.post("/api/task/run", {"id": edits})
+    running = paused(s, edits)
+    # 它停着的时候把这一档改回"每次确认"：存下来了，但只影响以后的运行，这次运行手里的还是开始时的那一份
+    assert save(s, id=edits, title="笔记", kind="agent", prompt="记笔记", schedule=DAILY, approval="ask") == edits
+    assert task_of(s, edits)["approval"] == "ask" and s.web.tasks._find(edits).agent.permissions.mode == "edits"
+    assert (s.config.workspace / "notes.txt").read_text(encoding="utf-8") == "笔记\n"
+    assert running["log"][0] == {"tool": "str_replace_based_edit_tool", "summary": "str_replace_based_edit_tool create notes.txt", "ok": True, "auto": True}
+    assert running["log"][1]["auto"] is False and "touch edits.txt" in running["confirm"]["summary"]
+    s.browser.post("/api/task/confirm", {"id": edits, "confirm_id": running["confirm"]["id"], "allow": False})
+    task = finished(s, edits, "done")
+    events = s.app.store.load(task["runs"][0]["conversation"]).events
+    assert [event["type"] for event in events].count("auto_allowed") == 1
+    assert [event["type"] for event in events].count("confirm") == 1
+    assert not (s.config.workspace / "edits.txt").exists()
+    assert "改工作目录里的文件不用问" in requests_for(s, "记笔记")[0]["messages"][0]["content"][-1]["text"]
+
+    # 全部自动允许：命令直接执行，不停下来；没问就做的那一步照样记着
+    s.browser.post("/api/task/run", {"id": everything})
+    task = finished(s, everything, "done")
+    assert (s.config.workspace / "all.txt").exists()
+    events = s.app.store.load(task["runs"][0]["conversation"]).events
+    assert "auto_allowed" in [event["type"] for event in events] and "confirm" not in [event["type"] for event in events]
+    assert "全部自动允许" in requests_for(s, "全都做")[0]["messages"][0]["content"][-1]["text"]
 
 
 def test_stopping_a_queued_task_and_a_running_one(serve):
-    s = serve(
-        reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"),  # 你的这一轮
-        reply(text("好。")),
-        reply(tool_use("toolu_2", "run_command", {"command": "sleep 30; touch late.txt"}), stop_reason="tool_use"),  # 任务
-    )
-    task_id = agent_task(s)
-    assert s.browser.post("/api/message", {"text": "跑一下"})[0] == 200
-    yours = s.browser.wait_for("confirm")
-    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True})
-    assert task_of(s, task_id)["running"]["activity"]["kind"] == "waiting"
+    s = serve(max_parallel_tasks=1, routes={
+        "慢慢做": [
+            reply(tool_use("toolu_1", "run_command", {"command": "sleep 30; touch late.txt"}), stop_reason="tool_use"),
+        ],
+        "排着队": [reply(text("不该跑到这里。"))],
+    })
+    slow = agent_task(s, title="慢", prompt="慢慢做")
+    waiting = agent_task(s, title="排队的", prompt="排着队")
+    assert s.browser.post("/api/task/run", {"id": slow}) == (200, {"ok": True, "queued": False})
+    assert s.browser.post("/api/task/run", {"id": waiting}) == (200, {"ok": True, "queued": True})
+    assert task_of(s, waiting)["running"]["activity"]["summary"] == "排队中：同时最多运行 1 个任务"
 
-    # 还在排队：停下就不跑了
-    assert s.browser.post("/api/task/stop", {"id": task_id}) == (200, {"ok": True})
-    task = task_of(s, task_id)
+    # 还在排队：停下就不跑了，正在跑的那个不受影响
+    assert s.browser.post("/api/task/stop", {"id": waiting}) == (200, {"ok": True})
+    task = task_of(s, waiting)
     assert task["running"] is None and task["runs"][0]["status"] == "stopped"
-    assert s.browser.post("/api/task/stop", {"id": task_id})[0] == 409  # 没有在运行
-    assert s.browser.post("/api/confirm", {"id": yours["id"], "allow": True})[0] == 200
-    s.browser.wait_for("turn_end")
-    assert len(s.api.requests) == 2  # 任务一次都没调用模型
+    assert s.browser.post("/api/task/stop", {"id": waiting})[0] == 409  # 没有在运行
+    running = paused(s, slow)
+    assert requests_for(s, "排着队") == []  # 一次都没调用模型
 
-    # 正在跑、正在执行一条命令：停下时连命令一起结束
-    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True})
-    running = paused(s, task_id)
-    s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": running["confirm"]["id"], "allow": True})
-    until(lambda: s.app.shell._running is not None, what="命令跑起来")
+    # 正在跑、正在执行一条命令：停下时连命令一起结束（是它自己的 shell，不是对话的）
+    s.browser.post("/api/task/confirm", {"id": slow, "confirm_id": running["confirm"]["id"], "allow": True})
+    shell = until(lambda: (s.web.tasks._find(slow) or SimpleNamespace(shell=None)).shell, what="这次运行的 shell")
+    until(lambda: shell._running is not None, what="命令跑起来")
+    assert shell is not s.app.shell and s.app.shell._running is None
     began = time.monotonic()
-    assert s.browser.post("/api/task/stop", {"id": task_id}) == (200, {"ok": True})
-    task = finished(s, task_id, "stopped")
+    assert s.browser.post("/api/task/stop", {"id": slow}) == (200, {"ok": True})
+    task = finished(s, slow, "stopped")
     assert time.monotonic() - began < 5
     assert not (s.config.workspace / "late.txt").exists()
 
     # 停下来之前做过的事照样存成会话；每个工具调用都有结果，这段会话还能接着聊
     conversation = s.app.store.load(task["runs"][0]["conversation"])
     (result,) = conversation.messages[-1]["content"]
-    assert result["tool_use_id"] == "toolu_2" and result["is_error"] is True and "被用户停止" in result["content"]
-    assert len(s.api.requests) == 3
+    assert result["tool_use_id"] == "toolu_1" and result["is_error"] is True and "被用户停止" in result["content"]
+    assert len(requests_for(s, "慢慢做")) == 1
+
+
+def test_stopping_one_run_leaves_the_other_runs_and_your_chat_alone(serve):
+    def slow(name: str) -> list:
+        return [reply(tool_use(f"toolu_{name}", "run_command", {"command": f"sleep 30; touch {name}.txt"}), stop_reason="tool_use")]
+
+    s = serve(*slow("chat"), routes={"第一个": slow("a"), "第二个": slow("b")})
+    assert s.browser.post("/api/approval", {"mode": "all"}) == (200, {"ok": True})  # 三边都不问，命令直接跑起来
+    first = save(s, title="A", kind="agent", prompt="第一个", schedule=DAILY, approval="all")
+    second = save(s, title="B", kind="agent", prompt="第二个", schedule=DAILY, approval="all")
+    s.browser.post("/api/task/run", {"id": first})
+    s.browser.post("/api/task/run", {"id": second})
+    assert s.browser.post("/api/message", {"text": "你也跑一个"})[0] == 200
+
+    shells = {task_id: until(lambda task_id=task_id: (s.web.tasks._find(task_id) or SimpleNamespace(shell=None)).shell, what="shell")
+              for task_id in (first, second)}
+    for shell in (*shells.values(), s.app.shell):
+        until(lambda shell=shell: shell._running is not None, what="三条命令都跑起来")
+    assert len({id(shell) for shell in (*shells.values(), s.app.shell)}) == 3  # 各用各的 shell
+
+    # 停下 A：只有 A 的命令被结束
+    began = time.monotonic()
+    assert s.browser.post("/api/task/stop", {"id": first}) == (200, {"ok": True})
+    finished(s, first, "stopped")
+    assert time.monotonic() - began < 5
+    assert shells[second]._running is not None and s.app.shell._running is not None
+    assert task_of(s, second)["running"] is not None
+
+    # 对话里的"停止"：只停你的这一轮，B 还在跑
+    assert s.browser.post("/api/stop") == (200, {"ok": True})
+    s.browser.wait_for("turn_end")
+    assert s.app.shell._running is None and shells[second]._running is not None
+    assert task_of(s, second)["running"] is not None
+
+    assert s.browser.post("/api/task/stop", {"id": second}) == (200, {"ok": True})
+    finished(s, second, "stopped")
+    assert not any((s.config.workspace / f"{name}.txt").exists() for name in ("a", "b", "chat"))
 
 
 def test_deleting_a_running_task_stops_it(serve):
@@ -422,7 +600,7 @@ def test_deleting_a_running_task_stops_it(serve):
     s.browser.post("/api/task/run", {"id": task_id})
     paused(s, task_id)
     assert s.browser.post("/api/task/delete", {"id": task_id}) == (200, {"ok": True})
-    until(lambda: s.web.wait_idle(0.1), what="运行停下")
+    until(lambda: s.web.tasks.wait_idle(0.1), what="运行停下")
     assert s.web.tasks.snapshot()[0] == []
     (saved,) = [item for item in s.app.store.summaries() if item.get("task") == task_id]  # 做过的事还在会话里
     assert saved["title"].startswith("每日安排 · ")
@@ -476,7 +654,7 @@ def test_running_now_and_what_stops_it(serve, monkeypatch):
     s = serve(reply(text("好了。")))
     task_id = agent_task(s)
     planned = task_of(s, task_id)["next_run"]
-    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True})
+    assert s.browser.post("/api/task/run", {"id": task_id}) == (200, {"ok": True, "queued": False})
     task = finished(s, task_id, "done")
     assert task["runs"][0]["manual"] is True and task["next_run"] == planned  # 立即运行不改原来的计划
     assert "用户刚刚在任务列表里点了“立即运行”" in s.api.requests[0]["messages"][0]["content"][-1]["text"]
@@ -516,6 +694,25 @@ def test_the_model_can_set_up_a_task_during_a_conversation(serve):
     assert [task["title"] for task in latest_state(s)["tasks"]] == ["喝水"]
 
 
+def test_tasks_the_model_adds_always_ask_even_when_the_chat_allows_everything(serve):
+    # 安全：被网页上的一句话带偏的模型，不能给自己定一个"到点自动执行任何命令"的任务。
+    # 对话里选了"全部自动允许"，添加任务这一步可以不问；可加出来的任务运行时照样每次都问，模型也改不了
+    plan = {"kind": "agent", "title": "清理", "prompt": "清理临时文件", "schedule": DAILY}
+    s = serve(
+        reply(tool_use("toolu_1", "task_add", plan), stop_reason="tool_use"),
+        reply(tool_use("toolu_2", "task_add", {**plan, "title": "清理 2", "approval": "all"}), stop_reason="tool_use"),
+        reply(text("加好了。")),
+    )
+    assert s.browser.post("/api/approval", {"mode": "all"}) == (200, {"ok": True})
+    say(s, "每天帮我清理临时文件，不用问我")
+    (task,) = latest_state(s)["tasks"]
+    assert (task["title"], task["approval"]) == ("清理", "ask")
+    error = s.api.requests[2]["messages"][-1]["content"][0]
+    assert error["is_error"] is True and "没有 approval 这个参数" in error["content"]
+    spec = next(tool for tool in s.api.requests[0]["tools"] if tool.get("name") == "task_add")
+    assert "approval" not in spec["input_schema"]["properties"] and "只能由用户自己" in spec["description"]
+
+
 def test_the_scheduler_thread_wakes_up_when_something_is_due(serve):
     s = serve()
     first = save(s, title="喝水", kind="reminder", schedule=DAILY)
@@ -531,26 +728,28 @@ def test_the_scheduler_thread_wakes_up_when_something_is_due(serve):
     s.web.tasks.close()
 
 
-def test_quitting_stops_the_running_task_and_keeps_what_it_did(serve):
+def test_quitting_stops_the_running_tasks_and_keeps_what_they_did(serve):
     s = serve(
         reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"),  # 你的这一轮
-        reply(text("好。")),
-        reply(tool_use("toolu_2", "run_command", {"command": "true"}), stop_reason="tool_use"),  # 第一个任务
+        max_parallel_tasks=1,
+        routes={"写周报": [reply(tool_use("toolu_2", "run_command", {"command": "true"}), stop_reason="tool_use")]},
     )
-    plan, other = agent_task(s), agent_task(s, title="周报")
+    plan, other = agent_task(s, prompt="写周报"), agent_task(s, title="周报", prompt="排着的那个")
     assert s.browser.post("/api/message", {"text": "跑一下"})[0] == 200
-    yours = s.browser.wait_for("confirm")
+    s.browser.wait_for("confirm")
     s.browser.post("/api/task/run", {"id": plan})
     s.browser.post("/api/task/run", {"id": other})
-    assert task_of(s, other)["running"]["activity"]["summary"] == "排在“每日安排”后面"
-    s.browser.post("/api/confirm", {"id": yours["id"], "allow": True})
+    assert task_of(s, other)["running"]["activity"]["summary"] == "排队中：同时最多运行 1 个任务"
     paused(s, plan)
 
+    # 你的这一轮和任务都停在确认上，这时退出：两边都停下、存好盘，排着队的不跑了
     server_module.shut_down(s.server, s.app)
     task = finished(s, plan, "stopped")
     assert task["runs"][0]["conversation"]  # 停下之前做过的事存了下来
     queued = finished(s, other, "stopped")["runs"][0]
     assert queued["error"] == "智狐退出了，这次没有运行。" and queued["conversation"] == ""
+    assert s.app.conversation.saved  # 你的这一轮也存下来了
+    assert requests_for(s, "排着的那个") == []
 
 
 def test_progress_is_throttled_but_the_latest_always_goes_out():
@@ -576,7 +775,7 @@ def test_task_runs_are_recorded_in_the_ledger_as_task(make_config):
 
     config = make_config()
     app = build_app(config, SimpleNamespace(), client_factory=lambda provider: None)
-    agent = app.unattended_agent(SimpleNamespace())
+    agent = app.unattended_agent(SimpleNamespace()).agent
     agent.on_call("anthropic", "claude-opus-5-5", Usage(input_tokens=1_000_000), app.agent.clock())
     rows = [line for line in config.ledger_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 1 and '"task"' in rows[0]

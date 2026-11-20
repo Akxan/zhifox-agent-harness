@@ -3,26 +3,41 @@
 任务是什么、时间怎么算、存在哪里，在 ../tasks.py。这里管的是"到时间之后"：
 
     调度线程 ──到时间了──► 提醒：马上弹出来（不调用模型，不花钱，不用排队）
-                      └──► agent 任务：排进队里 ──等你这一轮对话结束──► 执行线程跑一轮 ──► 存成一段会话
+                      └──► agent 任务：排进队里 ──有空位就开始──► 它自己的线程跑一轮 ──► 存成一段会话
+                                          （同时最多跑 MAX_PARALLEL_TASKS 个，见 config.py）
 
 为什么只在网页界面里运行：任务要在你没看着的时候自己跑，跑的过程要能看到、要你批准的操作要能点，
 这些都需要一个一直开着、又能显示东西的地方。终端界面在你打字时一直等着输入，没法同时做这些。
 
 几条规矩，以及为什么：
 
-  和你的对话排队，不同时进行。
-    任务和你的对话用的是同一套工具：同一个 shell（"停止"要结束的是正在运行的那条命令）、同一份待办、
-    同一个工作目录。两边同时跑，一边的"停止"会把另一边的命令杀掉，两边改同一个文件也会互相覆盖。
-    所以任务要先拿到对话的那把锁（WebApp._turn）：你正在对话的话，它等你这一轮结束；它在跑的时候，
-    你发消息、换模型、打开会话都会被拦下，并且告诉你是哪个任务、怎么停下它。提醒不用这把锁。
+  和你的对话同时进行，谁也不等谁。
+    任务不拿对话的那把锁（WebApp._turn）：它跑的时候，你照常发消息、换模型、打开会话；几个任务也可以一起跑。
+    能这样做，是因为凡是"会被停下"的东西，每次运行都有自己的一份（见 App.unattended_agent）：
+      - 自己的 shell：停下一个任务，只结束它自己正在运行的命令。你点对话里的"停止"碰不到任务，
+        停下一个任务也碰不到你的对话和别的任务；
+      - 自己的界面（RunUI，见下面）、适配层和历史、权限。
+    共用的只有存在磁盘上的东西：待办、任务、记忆、会话、工作目录里的文件。它们各自有锁（TodoStore、TaskStore、
+    ConversationStore、tools/files.py、tools/memory.py），每次改动一口气做完，几边同时改也不会互相冲掉。
+    要是两边改的是同一个文件的同一处，后改的那一边会发现原文已经变了（str_replace 找不到原文就报错），
+    模型看到错误会重新读一遍再改。
+    同一个任务不会同时跑两次：它还在排队或者正在跑的时候又到了时间，这一次就算在它头上。
+
+  同时跑的有上限。
+    每个运行都在调用模型、花钱，还可能开着命令，一下子跑太多既费钱又盯不过来。所以最多同时跑
+    MAX_PARALLEL_TASKS 个（config.py），再到时间的先排着队，页面上写着"排队中"；前面的跑完一个，
+    排在最前面的那个就开始。你自己的对话不算在里面。
 
   不打扰你正在看的对话。
-    任务用的是新建的适配层和空的历史（见 App.unattended_agent），显示的事件记在它自己的日志里（RunUI），
-    不进页面上那段对话的日志。跑完存成一段普通的会话，出现在会话列表里，可以打开、重放、接着聊。
+    任务用的是新建的适配层和空的历史，显示的事件记在它自己的日志里（RunUI），不进页面上那段对话的日志。
+    跑完存成一段普通的会话，出现在会话列表里，可以打开、重放、接着聊。
 
-  没人看着的时候不自动放行。
-    要你确认的操作（执行命令、改文件……），任务会停下来等你，你选了"全部自动允许"也一样。
-    停着的那个确认放在状态里（tasks[].running.confirm），页面上能看到、能答复（/api/task/confirm）。
+  要不要问你，每个任务自己定。
+    每个任务记着一档"要不要先问你"（approval：ask / edits / all，和对话里的三档同名、同义，见 ../permissions.py），
+    默认是"每次确认"：要你确认的操作（执行命令、改文件……），任务会停下来等你。停着的那个确认放在状态里
+    （tasks[].running.confirm），页面上能看到、能答复（/api/task/confirm）。你在对话里换的那一档碰不到任务。
+    放宽只能由你在页面上编辑任务时选；模型用工具添加的任务一律是"每次确认"，它自己改不了（见 ../tools/tasks.py）。
+    放宽了的，没问你就放行的那一步照样记下来：会话里标着"自动允许"，进度里那一行的 auto 是 true。
 
   错过了就补一次。
     程序没开着（或者电脑睡着了）的时候到了时间的，下一次看到时补跑一次，几次错过合成一次，
@@ -37,6 +52,9 @@
   started_at、finished_at（还没结束是 null）、cost（美元；有没有价格的模型、或者只是提醒时是 null）、
   steps（调用了几次模型）、catch_up（是不是补跑的）、missed（补跑时错过了几次）、manual（是不是你点了"立即运行"）、
   conversation（存下来的会话编号，没有就是空字符串）、summary（最后的回答的开头）、error（出错的原因）。
+
+running 的字段见 _live_view。里面给人看的话（activity.summary、log[].summary、confirm.summary）都是写好的整句，
+已经说清楚了是哪个工具（比如"run_command $ ls"、"执行命令：$ ls"），页面原样显示，不再在前面加工具的名字。
 """
 
 from __future__ import annotations
@@ -69,19 +87,18 @@ from ..tasks import preview as preview_schedule
 from .ui import WebUI
 
 if TYPE_CHECKING:
+    from ..tools.shell import Shell
     from .server import WebApp
 
 LATE_SECONDS = 120  # 比预定时间晚了这么久才看到，说明这期间程序没在运行（或者电脑睡着了），算补跑
 MAX_SLEEP = 30  # 调度线程最多睡这么久就起来看一眼：电脑睡醒、改了系统时间，都能在半分钟内发现
 MIN_SLEEP = 0.5
-TURN_POLL = 0.25  # 排队等对话锁时，每隔这么久看一眼这次运行是不是被停下了
 PUBLISH_INTERVAL = 0.25  # 运行时的进度最多每秒刷新四次，免得逐字输出时每个字都发一张状态快照
 MAX_LOG = 30  # 进度里最多列出这么多次工具调用（最近的）
 SUMMARY_CHARS = 120
 TITLE_CHARS = 21  # 会话标题里任务名称最多占这么多字（后面还有" · 2026-11-21 09:00"）
 
-WAIT_TURN = k("等你这一轮对话结束")
-WAIT_QUEUE = k("排在“{title}”后面")
+QUEUED = k("排队中：同时最多运行 {n} 个任务")
 WAIT_CONFIRM = k("等你批准")
 
 
@@ -134,11 +151,11 @@ class Pending:
     catch_up: bool
     missed: int
     manual: bool
-    cancelled: bool = False  # 还没开始就被停下了（或者程序要退出了）
     stop_requested: bool = False
-    started_at: float | None = None  # 拿到对话锁、真正开始的时刻
+    started_at: float | None = None  # 轮到它、开始运行的时刻；还在排队是 None
     ui: RunUI | None = None
     agent: Agent | None = None
+    shell: Shell | None = None  # 这次运行自己的 shell（见 App.unattended_agent）
     tool: str = ""  # 正在调用的工具
     activity: dict = field(default_factory=lambda: {"kind": "starting", "tool": "", "summary": ""})
     log: list = field(default_factory=list)
@@ -187,17 +204,16 @@ class Scheduler:
     RunUI 在等确认时是拿着它自己的锁来通知我们的（见 _observe），所以反过来只能先放开 self._lock 再去找它。
     """
 
-    def __init__(self, web: WebApp, turn: threading.Lock):
+    def __init__(self, web: WebApp):
         self.web = web
         self.store = web.app.tasks
-        self._turn = turn  # 对话的那把锁：任务和你的对话轮流用它
+        self.limit = max(1, web.app.config.max_parallel_tasks)  # 最多同时跑几个（见 config.py 的 MAX_PARALLEL_TASKS）
         self._lock = threading.Lock()
+        self._idle = threading.Condition(self._lock)  # 队伍空了（全都跑完了）的时候通知等着的人（见 wait_idle）
         self._enqueuing = threading.Lock()  # "查一下是不是已经在排队、没有就排进去"要一口气做完，免得连点两下排进去两次
-        self._queue: list[Pending] = []  # 排队的和正在跑的（正在跑的那个总在最前面）
-        self._worker: threading.Thread | None = None
+        self._queue: list[Pending] = []  # 正在跑的和排着队的，按排进来的先后
         self._wake = threading.Event()
         self._closed = False
-        self._holder: str | None = None  # 正拿着对话锁的那个任务的名称
         self.started_at: float | None = None  # 第一次看时间表的时刻。在这之前就该运行的，都是程序没开着时错过的
         self._progress = Throttle(self._publish, PUBLISH_INTERVAL)
         self.store.on_change(self._changed)
@@ -212,14 +228,9 @@ class Scheduler:
 
     def _publish(self) -> None:
         """刷新页面上的状态。这里发的每一张都只留最新的（见 WebUI.forget_old_states）：
-        跑一个任务能发出上千张状态快照，这期间你没在对话，等不到下一轮开始时再清。"""
+        跑一个任务能发出上千张状态快照，这期间你不一定在对话，等不到下一轮开始时再清。"""
         self.web.publish_state()
         self.web.ui.forget_old_states()
-
-    def holder(self) -> str | None:
-        """正在运行、拿着对话锁的那个任务的名称；没有的话是 None。"""
-        with self._lock:
-            return self._holder
 
     # ---- 调度线程 ----------------------------------------------------------
 
@@ -265,68 +276,51 @@ class Scheduler:
         with self._lock:
             return next((pending for pending in self._queue if pending.task_id == task_id), None)
 
-    def _enqueue(self, task: dict, now: float, *, due: float | None, catch_up: bool, missed: int, manual: bool) -> bool:
-        """排进队里。已经在排队或者正在跑、或者程序要退出了，返回 False。"""
+    def _enqueue(self, task: dict, now: float, *, due: float | None, catch_up: bool, missed: int, manual: bool) -> Pending | None:
+        """排进队里，有空位的话马上开始。返回排进去的那一个；已经在排队或者正在跑、或者程序要退出了，返回 None。"""
         with self._enqueuing:
             with self._lock:
                 if self._closed or any(pending.task_id == task["id"] for pending in self._queue):
-                    return False
+                    return None
             run = new_run(now, "waiting", catch_up=catch_up, missed=missed, manual=manual)
             # 先记下这次运行，再排进队：执行线程一开始就要改这条记录，记录得先在那儿
             if not self.store.add_run(task["id"], run):
-                return False
+                return None
             pending = Pending(task["id"], run["id"], task["title"], now, due, catch_up, missed, manual)
             with self._lock:
                 self._queue.append(pending)
-                if self._worker is None:
-                    self._worker = threading.Thread(target=self._work, daemon=True, name="task-run")
-                    self._worker.start()
-        self._publish()  # 排进去了：页面上显示"等你这一轮对话结束"
-        return True
+        self._dispatch()
+        self._publish()  # 排进去了：页面上显示"正在准备"，或者"排队中"
+        return pending
 
-    # ---- 执行线程 ----------------------------------------------------------
+    # ---- 执行 --------------------------------------------------------------
 
-    def _work(self) -> None:
-        """一个接一个地跑队里的任务，跑完了就退出（下次有任务排进来时再开一个）。"""
-        while True:
-            with self._lock:
-                pending = self._queue[0] if self._queue and not self._closed else None
-                if pending is None:
-                    self._worker = None
-                    return
-            if self._take_turn(pending):
-                try:
-                    self._run(pending)
-                except Exception as exc:  # noqa: BLE001 —— 这一次出了意料之外的错：记下来，接着跑后面的，不能让队伍卡住
-                    self._finish(pending, "failed", error=t("这次运行出错了：{error}", error=f"{type(exc).__name__}: {exc}"))
-                finally:
-                    with self._lock:
-                        self._holder = None
-                    self._turn.release()
-            with self._lock:
-                if pending in self._queue:
-                    self._queue.remove(pending)
+    def _dispatch(self) -> None:
+        """有空位的话，让排在最前面的几个开始运行，每个一个线程。排进来一个、跑完一个的时候都来这里看一眼。"""
+        with self._lock:
+            if self._closed:
+                return
+            free = self.limit - sum(1 for pending in self._queue if pending.started_at is not None)
+            starting = [pending for pending in self._queue if pending.started_at is None][: max(0, free)]
+            for pending in starting:
+                pending.started_at = self.clock()  # 在锁里就标上"开始了"：同时来看的另一个线程不会把它再开一遍
+        for pending in starting:
+            threading.Thread(target=self._work, args=(pending,), daemon=True, name="task-run").start()
+
+    def _work(self, pending: Pending) -> None:
+        """一个运行的线程：跑完这一次就退出，并让排着队的下一个开始。"""
+        try:
+            self._run(pending)
+        except Exception as exc:  # noqa: BLE001 —— 这一次出了意料之外的错：记下来，不能让它占着的位子一直空不出来
+            self._finish(pending, "failed", error=t("这次运行出错了：{error}", error=f"{type(exc).__name__}: {exc}"))
+        finally:
+            self._forget(pending)
             self._wake.set()
+            self._dispatch()  # 空出一个位子：排在最前面的那个可以开始了
             self._publish()
 
-    def _take_turn(self, pending: Pending) -> bool:
-        """等到对话的锁空出来（你这一轮对话结束）再拿过来。等的时候被停下了、或者程序要退出了，返回 False。"""
-        while True:
-            with self._lock:
-                if pending.cancelled or self._closed:
-                    return False
-            # 不是一直死等：每隔一会儿起来看看是不是被停下了。你这一轮一结束、锁一放开，这里马上就能拿到
-            if self._turn.acquire(timeout=TURN_POLL):
-                with self._lock:
-                    if not (pending.cancelled or self._closed):
-                        pending.started_at = self.clock()
-                        self._holder = pending.title
-                        return True
-                self._turn.release()
-                return False
-
     def _run(self, pending: Pending) -> None:
-        """跑一次。调用的时候已经拿着对话锁了。"""
+        """跑一次（在这次运行自己的线程里）。"""
         app = self.web.app
         task = self.store.get(pending.task_id)
         if task is None:
@@ -346,17 +340,20 @@ class Scheduler:
             return
 
         ui = RunUI(lambda kind, data, event_id: self._observe(pending, kind, data, event_id))
-        ui.on_stop(app.shell.kill_running)  # 停止时连正在运行的命令一起结束（和对话里的"停止"一样）
-        agent = app.unattended_agent(ui)
+        # 这次运行自己的助手、shell 和 MCP 调用。权限按这个任务自己的那一档；之后你再改它，只影响以后的运行
+        unattended = app.unattended_agent(ui, task["approval"])
+        agent, shell = unattended.agent, unattended.shell
+        # 停止时连它正在运行的命令、正在等的 MCP 调用一起结束。只是它自己的，你的对话和别的任务不受影响
+        ui.on_stop(unattended.stop)
         agent.on_usage = self._progress  # 每调用完一次模型，刷新步数和费用
-        conversation = app.store.new(provider.id, app.settings.model)
+        conversation = app.store.new(agent.backend.provider, agent.backend.model)  # 和这次运行用的模型一致，哪怕你刚刚换了
         conversation.title = f"{short(task['title'], TITLE_CHARS)} · {local_text(now)}"
         conversation.task = task["id"]
         self.store.update_run(task["id"], pending.run_id, status="running", started_at=now)
 
         ui.begin_turn(task["prompt"])  # 会话里显示的是你写的指令；发给模型的还带着一段说明（见 instruction）
         with self._lock:
-            pending.ui, pending.agent = ui, agent
+            pending.ui, pending.agent, pending.shell = ui, agent, shell
             stop_now = pending.stop_requested
         if stop_now:
             ui.request_stop()  # 在 begin_turn 之后才立旗子：begin_turn 会把旗子放下
@@ -394,9 +391,11 @@ class Scheduler:
         )
 
     def _forget(self, pending: Pending) -> None:
-        with self._lock:
+        with self._idle:
             if pending in self._queue:
                 self._queue.remove(pending)
+            if not self._queue:
+                self._idle.notify_all()
 
     def _finish(self, pending: Pending, status: str, error: str = "", **fields: Any) -> None:
         """一次运行结束了。先从队里拿掉、再写记录：页面收到的那张快照里，"正在运行"和"做完了"不会同时出现。"""
@@ -417,7 +416,12 @@ class Scheduler:
             elif kind == "tool_call":
                 pending.tool = data["name"]
                 pending.activity = {"kind": "tool", "tool": data["name"], "summary": data["summary"]}
-                pending.log = [*pending.log, {"tool": data["name"], "summary": data["summary"], "ok": None}][-MAX_LOG:]
+                entry = {"tool": data["name"], "summary": data["summary"], "ok": None, "auto": False}
+                pending.log = [*pending.log, entry][-MAX_LOG:]
+            elif kind == "auto_allowed":
+                # 这一步本来要问你，按这个任务的那一档没问就放行了。进度里标出来，会话里也记着（RunUI 照常记下这个事件）
+                if pending.log:
+                    pending.log[-1]["auto"] = True
             elif kind == "tool_result":
                 if pending.log and pending.log[-1]["ok"] is None:
                     pending.log[-1]["ok"] = not data["is_error"]
@@ -447,10 +451,7 @@ class Scheduler:
         tasks, reminders = self.store.snapshot()
         prices, max_steps = self.web.app.settings.prices, self.web.app.config.max_steps
         with self._lock:
-            head = self._queue[0] if self._queue else None
-            live: dict[str, dict] = {}
-            for index, pending in enumerate(self._queue):
-                live.setdefault(pending.task_id, _live_view(pending, index, head, prices, max_steps))
+            live = {pending.task_id: _live_view(pending, prices, max_steps, self.limit) for pending in self._queue}
         for task in tasks:
             task.pop("anchor", None)  # 只是算间隔用的，页面用不到
             for run in task["runs"]:
@@ -477,23 +478,30 @@ class Scheduler:
         self._stop(task_id)
         self.store.delete(task_id)
 
-    def run_now(self, task_id: str) -> None:
-        """立即运行一次。提醒马上弹出来；agent 任务排进队里（你正在对话的话，等这一轮结束）。不改变原来的计划。"""
+    def run_now(self, task_id: str) -> bool:
+        """立即运行一次，不改变原来的计划。提醒马上弹出来；agent 任务有空位就开始，没有就排队。
+
+        返回 True 表示在排队（同时运行的已经到了上限），页面据此告诉你"排好了"还是"开始了"。
+        """
         task = self.store.get(task_id)
         if task is None:
             raise TaskRefused(t("这个任务不存在，可能已经被删除了。"))
         now = self.clock()
         if task["kind"] == "reminder":
             self.store.remind(task_id, now, new_run(now, "done", manual=True))
-            return
+            return False
         provider = self.web.app.provider
         if not has_key(provider):
             raise TaskRefused(t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label))
-        if not self._enqueue(task, now, due=None, catch_up=False, missed=0, manual=True):
+        pending = self._enqueue(task, now, due=None, catch_up=False, missed=0, manual=True)
+        if pending is None:
             raise TaskRefused(t("这个任务已经在排队或者正在运行了。"))
+        with self._lock:
+            return pending.started_at is None
 
     def stop(self, task_id: str) -> None:
-        """停下一个任务：还在排队就不跑了；正在跑就像对话里的"停止"一样（连正在运行的命令一起结束）。"""
+        """停下一个任务：还在排队就不跑了；正在跑就像对话里的"停止"一样，连它正在运行的命令一起结束。
+        只停这一个：你的对话和别的任务各有各的界面和 shell，碰不到。"""
         if not self._stop(task_id):
             raise TaskRefused(t("这个任务现在没有在运行。"))
 
@@ -505,13 +513,12 @@ class Scheduler:
             pending.stop_requested = True
             ui, waiting = pending.ui, pending.started_at is None
             if waiting:
-                pending.cancelled = True
                 self._queue.remove(pending)
         if waiting:
             self.store.update_run(task_id, pending.run_id, status="stopped", finished_at=self.clock())
         elif ui is not None:
             ui.request_stop()  # 已经放开了 self._lock 才去找 RunUI（见类的说明）
-        # 刚拿到锁、还没来得及建好 RunUI 的，_run 建好之后会看到 stop_requested，马上停
+        # 刚开始、还没来得及建好 RunUI 的，_run 建好之后会看到 stop_requested，马上停
         return True
 
     def confirm(self, task_id: str, confirm_id: int, allow: bool, feedback: str) -> None:
@@ -530,13 +537,12 @@ class Scheduler:
         return preview_schedule(schedule, self.clock())
 
     def close(self) -> None:
-        """程序要退出了：不再开始新的运行，排队的不跑了，正在跑的停下（它会自己收尾、存好盘）。"""
+        """程序要退出了：不再开始新的运行，排队的不跑了，正在跑的停下（它们会自己收尾、存好盘，见 wait_idle）。"""
         with self._lock:
             self._closed = True
             waiting = [pending for pending in self._queue if pending.started_at is None]
             running = [pending for pending in self._queue if pending.started_at is not None]
             for pending in waiting:
-                pending.cancelled = True
                 self._queue.remove(pending)
             for pending in running:
                 pending.stop_requested = True
@@ -550,23 +556,32 @@ class Scheduler:
                 pass  # 退出时写不进去也不要紧：下次启动时它会被当成"没跑完"，到时间的会补跑
         for ui in uis:
             ui.request_stop()
+        with self._idle:
+            self._idle.notify_all()  # 队伍可能已经空了（只有排队的、没有正在跑的）
+
+    def wait_idle(self, timeout: float) -> bool:
+        """等所有正在跑的运行结束（包括它们收尾时的存盘）。等到了返回 True，超时返回 False。退出程序之前用。"""
+        with self._idle:
+            return self._idle.wait_for(lambda: not self._queue, timeout)
 
 
-def _live_view(pending: Pending, index: int, head: Pending | None, prices: dict, max_steps: int) -> dict:
-    """状态里的 running：一次排队或者正在运行的情况。调用的人要拿着 Scheduler._lock。"""
-    if pending.ui is None or pending.agent is None:
-        # 还没开始：排在最前面的在等你这一轮对话结束，后面的在等前面的任务
-        summary = t(WAIT_TURN) if index == 0 or head is None else t(WAIT_QUEUE, title=head.title)
-        return {
-            "run_id": pending.run_id,
-            "started_at": pending.started_at or pending.queued_at,
-            "step": 0,
-            "max_steps": max_steps,
-            "cost": 0.0,
-            "activity": {"kind": "waiting", "tool": "", "summary": summary},
-            "log": [],
-            "confirm": None,
-        }
+def _live_view(pending: Pending, prices: dict, max_steps: int, limit: int) -> dict:
+    """状态里的 running：一次排队或者正在运行的情况。调用的人要拿着 Scheduler._lock。
+
+      run_id、started_at（开始的时刻；还在排队的是排进来的时刻）、step（调用了几次模型）、max_steps、
+      cost（到现在为止的估算费用，美元；模型没有价格时是 null）、
+      activity（在做什么：kind 是 waiting 排队或等你、starting 正在准备、thinking、writing、tool；
+               tool 是正在调用的工具；summary 是给人看的一句话）、
+      log（最近的工具调用：tool、summary、ok 成功没有（还没结果是 null）、auto 是不是没问你就放行的）、
+      confirm（停着等你答复的那个确认：id、tool、summary；没有是 null）
+    """
+    if pending.started_at is None:  # 还在排队：同时运行的到了上限，等前面的跑完一个
+        activity = {"kind": "waiting", "tool": "", "summary": t(QUEUED, n=limit)}
+        return {"run_id": pending.run_id, "started_at": pending.queued_at, "step": 0, "max_steps": max_steps, "cost": 0.0,
+                "activity": activity, "log": [], "confirm": None}
+    if pending.ui is None or pending.agent is None:  # 轮到它了，正在准备（读任务、建适配层）
+        return {"run_id": pending.run_id, "started_at": pending.started_at, "step": 0, "max_steps": max_steps, "cost": 0.0,
+                "activity": {"kind": "starting", "tool": "", "summary": ""}, "log": [], "confirm": None}
     agent = pending.agent
     total, unpriced = estimate(dict(agent.usage_by_model), prices)
     confirm = pending.confirm
@@ -586,7 +601,8 @@ def _live_view(pending: Pending, index: int, head: Pending | None, prices: dict,
 def instruction(task: dict, pending: Pending) -> str:
     """发给模型的那条消息：任务的指令，前面加一段说明。写给模型看的，所以是中文、不翻译。
 
-    说明告诉模型三件事：这一轮不是用户刚刚打的字；用户多半不在，别停下来提问；要确认的操作会等用户回来。
+    说明告诉模型三件事：这一轮不是用户刚刚打的字；用户多半不在，别停下来提问；哪些操作会等用户回来批准
+    （按这个任务的那一档说实话：放开了的，模型要知道这一步不会再有人把关）。
     补跑的还要说清楚原定是什么时候，不然"看看今天上午有什么安排"在下午补跑时，模型会按现在的时间去理解。
     """
     when = describe(task["schedule"], say=chinese)
@@ -601,5 +617,13 @@ def instruction(task: dict, pending: Pending) -> str:
     return (
         f"<task>这一轮是定时任务“{task['title']}”（{when}），{how}。用户此刻可能不在电脑前："
         "不要停下来问他问题，按下面的指令把事情做完，最后用几句话交代做了什么、结果怎样。"
-        "需要用户确认的操作会停在那里，等他回来批准。</task>\n\n" + task["prompt"]
+        f"{APPROVAL_NOTES.get(task.get('approval', 'ask'), APPROVAL_NOTES['ask'])}</task>\n\n" + task["prompt"]
     )
+
+
+# 按任务的那一档，告诉模型哪些操作会停下来等用户（写给模型看的，中文、不翻译）
+APPROVAL_NOTES = {
+    "ask": "需要用户确认的操作会停在那里，等他回来批准。",
+    "edits": "这个任务设置成了改工作目录里的文件不用问：改文件会直接执行；执行命令等别的需要确认的操作会停在那里，等他回来批准。",
+    "all": "这个任务设置成了全部自动允许：执行命令、改文件都会直接执行，不会再有人确认，所以只做指令要求的事，拿不准的不要做。",
+}

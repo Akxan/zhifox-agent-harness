@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,8 +42,17 @@ from .skills.catalog import notifier
 from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
-from .tools.shell import Shell
+from .tools.shell import Shell, make_shell_tool
 from .tools.todo import TodoStore
+
+
+@dataclass
+class UnattendedRun:
+    """定时任务的一次运行用的东西（见 App.unattended_agent）。"""
+
+    agent: Agent
+    shell: Shell  # 这次运行自己的 shell
+    stop: Callable[[], None]  # 停下这次运行正在做的事：结束它正在运行的命令、取消它正在等的 MCP 调用。别人的不碰
 
 
 @dataclass
@@ -131,28 +140,39 @@ class App:
         except OSError as exc:
             self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
 
-    def unattended_agent(self, ui: Any) -> Agent:
-        """给定时任务的一次运行准备一个助手。
+    def unattended_agent(self, ui: Any, approval: str = "ask") -> UnattendedRun:
+        """给定时任务的一次运行准备一个助手，以及只属于这次运行的那几样东西（见 UnattendedRun）。
 
-        和对话用的那个共用工具（包括同一个 shell、同一份待办）：定时任务和你的对话是排着队一个一个来的
-        （见 webui/scheduler.py），不会同时用到它们。不共用的有三样：
+        定时任务和你的对话、和别的任务同时运行（见 webui/scheduler.py），所以凡是"会被停下"的东西都各用各的：
+          - shell 是新建的：停下这次运行（调用的人把 run.stop 登记到停止上），只结束它自己正在运行的命令；
+            你点对话里的"停止"、停下另一个任务，也碰不到它；
           - 适配层是新建的，历史是空的：任务从头开始，不带着你正在聊的内容，也不往你的对话里写东西；
-          - 用的是此刻设置里选中的那一家、那个模型；
-          - 权限是"永远要问"的那一份（见 Permissions.unattended）：没人看着的时候不自动放行，
-            设成了"不用问"的 MCP 工具也一样要问；
-          - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 fresh_tools）。
+          - 用的是此刻设置里选中的那一家、那个模型。之后你再换模型，只影响以后的运行；
+          - 权限是这个任务自己的那一档（approval，见 Permissions.unattended），和你在对话里选的哪一档无关；
+          - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 fresh_tools），而且记在这次运行自己的名下：
+            停下这次运行，只取消它自己正在等的 MCP 调用，你的对话和别的任务的不受影响（见 McpManager.call）。
+        别的工具和对话共用：背后是同一份待办、任务、记忆和工作目录里的文件，它们各自有锁（见 TodoStore、TaskStore、
+        tools/files.py、tools/memory.py），几边同时改也不会互相冲掉。
         """
+        shell = Shell(self.config.workspace)
+        owner = object()  # 这次运行的 MCP 调用都记在它名下（见 McpManager.call）
+        tools = self.tools.replaced(make_shell_tool(shell))
         backend = self._backend_for(self.settings.provider, self.settings.model)
-        permissions = self.agent.permissions.unattended()
-        agent = Agent(backend=backend, config=self.config, tools=self.tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        permissions = self.agent.permissions.unattended(approval)
+        agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
         # 任务的这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
         # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
-        agent.use_tools(ToolRegistry([*self.tools, *self.mcp.snapshot().tools]))
-        # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看
+        agent.use_tools(ToolRegistry([*tools, *self.mcp.snapshot(owner).tools]))
+        # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
         # 任务也能用 Skill：它的历史是空的，所以第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
         agent.notes.append(notifier(self.skills))
-        return agent
+
+        def stop() -> None:
+            shell.kill_running()
+            self.mcp.cancel_running(owner)
+
+        return UnattendedRun(agent=agent, shell=shell, stop=stop)
 
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""

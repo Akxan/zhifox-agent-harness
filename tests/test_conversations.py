@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+from functools import partial
 
 import pytest
 from fake_api import reply, text, thinking, tool_use
 from fake_openai import call, chat
 
+from harness import conversations
 from harness.conversations import (
     FORMAT_VERSION,
     TITLE_LIMIT,
@@ -264,6 +267,135 @@ def test_malformed_ids_are_rejected(store, tmp_path, bad_id):
         store.save(outsider)
     assert outsider.saved is False
     assert len(list(tmp_path.rglob("*.json"))) == 1 and list(tmp_path.rglob("*.tmp")) == []
+
+
+# ---- 几个线程同时存 ---------------------------------------------------------
+#
+# 网页界面里，你的对话、几个同时在跑的定时任务、处理页面请求的线程会同时用同一个 ConversationStore。
+# 要守住的是 CLAUDE.md 里那一条：内存里的列表和搜索索引必须和磁盘上的文件一致。
+# 线程什么时候切换是碰运气的，所以这几个测试用 Event 把"最容易出事的那一刻"拉长、固定下来：
+# 没有锁的话每次都会出错，有锁的话后来的那个线程只是多等一会儿。
+
+
+def in_thread(job, errors: list) -> threading.Thread:
+    """在一个新线程里做 job，马上开始。线程里抛出的错误记进 errors：不记的话只会打印出来，测试照样通过。"""
+
+    def guarded() -> None:
+        try:
+            job()
+        except BaseException as exc:  # noqa: BLE001 —— 什么错误都要带回主线程
+            errors.append(exc)
+
+    thread = threading.Thread(target=guarded, daemon=True)
+    thread.start()
+    return thread
+
+
+def assert_matches_disk(store: ConversationStore, queries: list[str]) -> None:
+    """内存里的列表和搜索结果，和一个刚启动、从磁盘重新读一遍的 store 完全一样。"""
+    fresh = ConversationStore(store.directory)
+    assert store.summaries() == fresh.summaries()
+    for query in queries:
+        assert store.search(query) == fresh.search(query), query
+
+
+def test_saving_many_conversations_while_the_list_is_first_read(tmp_path, monkeypatch):
+    # 刚启动时 store 还没扫过目录。你打开页面（第一次列出会话），正好这时几个定时任务各自存下自己的那段、
+    # 你的对话也存了一轮。不同会话的保存本身互不相干（各写各的文件，往字典里各放各的一项），
+    # 会撞上的是"第一次扫目录"：扫描先读到一个文件的旧内容，还没来得及记进目录，那段会话就被存成了新的；
+    # 扫描接着把旧内容记进去，就盖掉了刚记下的新内容。列表和搜索从此和文件对不上，要等下次重启才好。
+    directory = tmp_path / "conversations"
+    earlier = ConversationStore(directory)
+    changed = [put(earlier, f"旧标题 {n}", events=[{"type": "user", "text": f"旧内容 {n}"}]) for n in range(6)]
+    store = ConversationStore(directory)  # 重新启动：还没扫过目录
+    for conversation in changed:
+        conversation.title = conversation.title.replace("旧", "新")
+        conversation.events = [{"type": "user", "text": f"新内容 {conversation.title}"}]
+    for n in range(4):  # 还有几段是刚开的
+        conversation = store.new("anthropic", "claude-opus-5-5")
+        conversation.title, conversation.events = f"刚开的 {n}", [{"type": "user", "text": f"新内容 刚开的 {n}"}]
+        changed.append(conversation)
+
+    real_read = ConversationStore._read
+    scanning, all_saved = threading.Event(), threading.Event()
+
+    def read(self, conversation_id):
+        conversation = real_read(self, conversation_id)
+        if threading.current_thread() is page and not scanning.is_set():
+            scanning.set()  # 页面的扫描已经读到了第一个文件的旧内容，还没记进目录
+            all_saved.wait(timeout=0.3)  # 等别的线程存完（有锁的话它们存不了，等到超时就接着扫）
+        return conversation
+
+    monkeypatch.setattr(ConversationStore, "_read", read)
+    errors: list = []
+    page = in_thread(store.summaries, errors)
+    assert scanning.wait(timeout=2)
+    savers = [in_thread(partial(store.save, conversation), errors) for conversation in changed]
+    for saver in savers:
+        saver.join(timeout=5)
+    all_saved.set()
+    page.join(timeout=5)
+
+    assert errors == []
+    assert sorted(item["title"] for item in store.summaries()) == sorted(conversation.title for conversation in changed)
+    assert {item["id"] for item in store.search("新内容")} == {conversation.id for conversation in changed}
+    assert store.search("旧内容") == []
+    assert_matches_disk(store, ["新内容", "旧内容", "新标题 3", "刚开的"])
+
+
+@pytest.mark.parametrize("other", ["save", "rename", "delete"])
+def test_two_threads_changing_one_conversation_leave_the_index_matching_the_file(store, monkeypatch, other):
+    # 同一段会话被两边同时改：比如它正在被存盘，你在页面上给它改名、把它删掉，或者另一个线程也在存它。
+    # 没有锁的时候会这样：A 写好了文件、还没记进目录；B 写文件（或者删掉文件）、改好目录；
+    # A 这才把自己的那份记进目录。磁盘上是 B 的结果，目录里却是 A 的。
+    conversation = put(store, "原来的标题", events=[{"type": "user", "text": "原来的内容"}])
+    mine = store.load(conversation.id)  # 对话这边的一份
+    mine.title, mine.events = "对话改的标题", [{"type": "user", "text": "对话写的 apricot"}]
+    theirs = store.load(conversation.id)  # 另一个线程手里的一份
+    theirs.title, theirs.events = "另一边改的标题", [{"type": "user", "text": "另一边写的 blueberry"}]
+
+    real_write = conversations.write_file
+    first_wrote, other_done = threading.Event(), threading.Event()
+    writes: list = []
+
+    def write_file(path, text):
+        real_write(path, text)
+        writes.append(path)
+        if len(writes) == 1:  # 第一个写完文件的：停在"还没记进目录"这一步，等另一边做完
+            first_wrote.set()
+            other_done.wait(timeout=0.3)  # 有锁的话另一边进不来，等到超时就接着做
+
+    def change() -> None:
+        try:
+            if other == "save":
+                store.save(theirs)
+            elif other == "rename":
+                store.rename(conversation.id, "改过的名字")
+            else:
+                store.delete(conversation.id)
+        finally:
+            other_done.set()
+
+    monkeypatch.setattr(conversations, "write_file", write_file)
+    errors: list = []
+    first = in_thread(partial(store.save, mine), errors)
+    assert first_wrote.wait(timeout=2)
+    second = in_thread(change, errors)
+    second.join(timeout=5)
+    first.join(timeout=5)
+
+    assert errors == []
+    if other == "save":  # 后存的那一份算数
+        assert [item["title"] for item in store.summaries()] == ["另一边改的标题"]
+        assert [item["id"] for item in store.search("blueberry")] == [conversation.id] and store.search("apricot") == []
+    elif other == "rename":  # 改名读到的是刚存好的内容，只换了标题
+        renamed = store.load(conversation.id)
+        assert (renamed.title, renamed.events) == ("改过的名字", mine.events)
+        assert [item["title"] for item in store.search("apricot")] == ["改过的名字"]
+    else:  # 删掉的就是删掉了：文件、列表、搜索里都没有
+        assert not store.exists(conversation.id) and not (store.directory / f"{conversation.id}.json").exists()
+        assert store.search("apricot") == []
+    assert_matches_disk(store, ["apricot", "blueberry", "原来的内容", "改过的名字"])
 
 
 # ---- 对话历史的往返：存盘 → 重启 → 接着聊 ---------------------------------

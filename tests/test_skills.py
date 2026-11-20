@@ -1337,7 +1337,7 @@ def test_scheduled_task_runs_get_the_catalog_too(start):
     h = start(reply(text("好")), reply(text("任务做完了")))
     h.app.skills.create("pdf-tools", DESCRIPTION, "# PDF\n")
     h.agent.run_turn("你好")
-    task_agent = h.app.unattended_agent(RecordingUI())
+    task_agent = h.app.unattended_agent(RecordingUI()).agent
     task_agent.run_turn("<task>每天整理一下</task>")
     first_of_task = h.api.requests[1]["messages"][0]["content"]
     assert len(h.api.requests[1]["messages"]) == 1  # 任务的历史和对话不相干

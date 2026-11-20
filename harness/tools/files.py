@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import shutil
+import threading
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,11 @@ WRITE_COMMANDS = {"create", "str_replace", "insert"}
 
 MAX_VIEW_CHARS = 60_000  # 一次最多给模型看这么多字符，避免大文件撑爆上下文
 MAX_DIR_ENTRIES = 200
+
+# 改文件的操作（create、str_replace、insert）一个一个来。你的对话和几个定时任务可能同时在改文件，
+# str_replace 和 insert 都是"读出来、改一处、整个写回去"：两边同时改同一个文件，后写的会把先写的那一处冲掉。
+# 整个程序共用这一把（而不是每个 FileEditor 一把），以后谁多建了一个 FileEditor 也照样排着队。改文件很快，排队不碍事
+_EDITING = threading.Lock()
 
 
 class FileEditor:
@@ -66,15 +72,16 @@ class FileEditor:
 
         if command == "view":
             return self._view(path, tool_input.get("view_range"))
-        if command == "create":
-            return self._create(path, _text(tool_input, "file_text"))
-        if command == "str_replace":
-            return self._str_replace(path, _text(tool_input, "old_str"), _text(tool_input, "new_str"))
-        if command == "insert":
-            # 不同版本的工具对"要插入的文字"用过两个名字，这里都接受
+        if command not in WRITE_COMMANDS:
+            raise ToolError(f"不支持的命令 {command!r}。可用的命令：view、create、str_replace、insert。")
+        with _EDITING:
+            if command == "create":
+                return self._create(path, _text(tool_input, "file_text"))
+            if command == "str_replace":
+                return self._str_replace(path, _text(tool_input, "old_str"), _text(tool_input, "new_str"))
+            # insert。不同版本的工具对"要插入的文字"用过两个名字，这里都接受
             key = "insert_text" if "insert_text" in tool_input else "new_str"
             return self._insert(path, tool_input.get("insert_line"), _text(tool_input, key))
-        raise ToolError(f"不支持的命令 {command!r}。可用的命令：view、create、str_replace、insert。")
 
     # ---- 四种命令 ---------------------------------------------------------
 
@@ -145,10 +152,14 @@ class FileEditor:
             raise ToolError(f"{path} 不是文本文件，无法读取。") from None
 
     def _backup(self, path: Path) -> None:
-        """整个覆盖一个文件之前，先把旧版本存一份到 data/backups/。"""
+        """整个覆盖一个文件之前，先把旧版本存一份到 data/backups/。调用的人拿着 _EDITING。"""
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        shutil.copy2(path, self.backup_dir / f"{stamp}-{path.name}")
+        target, number = self.backup_dir / f"{stamp}-{path.name}", 1
+        while target.exists():  # 不同目录里的两个同名文件在同一微秒里被覆盖：不能让后一份备份顶掉前一份
+            number += 1
+            target = self.backup_dir / f"{stamp}-{number}-{path.name}"
+        shutil.copy2(path, target)
 
 
 def _text(tool_input: dict, key: str) -> str:

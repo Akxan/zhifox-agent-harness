@@ -64,6 +64,10 @@ COMPACTION_KEEP_TURNS = 2
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
 MAX_PROMPT_CHARS = 20_000
 
+# 定时任务最多同时运行几个（你自己的对话不算在里面，它照常进行）。每个运行都在调用模型、花钱，还可能开着命令，
+# 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
+MAX_PARALLEL_TASKS = 3
+
 # 花费账本（见 ledger.py）。超过这么多天的明细，合并成"每天、每个模型、每种来源一行"，账本文件不会无限变大；
 # 每天、每月、每个模型花了多少都不变，只是看不到一笔一笔的时间了
 LEDGER_DETAIL_DAYS = 90
@@ -83,6 +87,7 @@ class Config:
     max_searches: int = 5  # 用户每发一条消息，最多联网搜索几次；0 表示不限制
     default_provider: str = "anthropic"  # 还没在界面上选过模型时用哪一家
     default_model: str = "claude-opus-5-5"
+    max_parallel_tasks: int = MAX_PARALLEL_TASKS  # 定时任务最多同时运行几个（测试里会改小）
 
     @property
     def todo_file(self) -> Path:

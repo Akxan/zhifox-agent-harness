@@ -21,7 +21,8 @@
     （这个脚本把 HOME 换成了临时目录）。
   - 定时任务照常运行（调度线程和正式程序里一样）。全新的数据目录里预先放了几个编造的任务：
     一条已经弹出、还没关掉的提醒，一个跑过两次的"每日安排"，一个关掉了的每周任务，一个每 45 分钟的提醒。
-    "立即运行"会用掉下面预设回复里的下一条。
+    任务的回复不占下面那一串（几个任务和你的对话同时跑，按顺序就分不清谁是谁了）：每次运行先要执行一条命令
+    （"每次确认"的任务会停下来等你批准），然后交代做完了。所以可以一边聊天，一边让好几个任务一起跑。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）；
@@ -83,26 +84,44 @@ def in_small_pieces(events: list[dict]) -> list[dict]:
     return pieces
 
 
+def task_reply(body: dict) -> dict:
+    """定时任务的一次运行该拿到的回复：第一次先执行一条命令，看到命令的结果之后交代做完了。
+
+    只看这次运行自己的历史（有几条消息），不看先后顺序：几个任务一起跑的时候，谁先谁后都对得上。
+    """
+    if len(body.get("messages") or []) <= 1:
+        return reply(
+            thinking("这是一个定时任务。先看看工作目录里有什么，再交代结果。"),
+            tool_use("toolu_task", "run_command", {"command": "sleep 2 && ls"}),
+            stop_reason="tool_use",
+        )
+    return reply(text("做完了：看过了工作目录，里面有 notes.txt。"))
+
+
 class SlowClaude:
-    """假的 Anthropic API：按顺序回放写好的回复，但是慢慢地发。"""
+    """假的 Anthropic API：按顺序回放写好的回复，但是慢慢地发。定时任务的请求另外回答（见 task_reply）。"""
 
     def __init__(self, replies: list[dict]):
         self.replies = list(replies)
+        self.lock = threading.Lock()  # 你的对话和几个任务的请求可能同时到
 
     def start(self) -> SlowClaude:
         api = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:
-                self.rfile.read(int(self.headers["content-length"]))
-                if not api.replies:
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                first = json.dumps((body.get("messages") or [None])[0], ensure_ascii=False)
+                with api.lock:
+                    scripted = task_reply(body) if "<task>" in first else api.replies.pop(0) if api.replies else None
+                if scripted is None:
                     self.send_error(500, "no scripted reply left")  # 回复用完了：页面上会看到一条出错提示
                     return
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
                 self.end_headers()
                 time.sleep(0.5)  # 模型开口之前先"想"一会儿
-                for event in in_small_pieces(_events(api.replies.pop(0))):
+                for event in in_small_pieces(_events(scripted)):
                     self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
                     self.wfile.flush()
                     if event["type"] == "content_block_delta":

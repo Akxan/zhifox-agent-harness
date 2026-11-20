@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from anthropic.tools import BetaLocalFilesystemMemoryTool
@@ -46,12 +47,19 @@ PORTABLE = {
 }
 
 
+# 记忆的操作一个一个来。你的对话和几个定时任务可能同时在改记忆：SDK 的实现写文件是原子的（不会写出半个文件），
+# 但 str_replace、insert 是"读出来、改一处、整个写回去"，两边同时改同一个文件，后写的会把先写的那一处冲掉。
+# 整个程序共用这一把锁（而不是每个工具一把）：不管谁建了几份记忆工具，改的都是同一个文件夹
+_LOCK = threading.Lock()
+
+
 def make_memory_tool(data_dir: Path) -> Tool:
     backend = BetaLocalFilesystemMemoryTool(base_path=str(data_dir))  # 实际位置：data_dir/memories/
 
     def run(tool_input: dict) -> str:
         try:
-            return str(backend.call(tool_input))
+            with _LOCK:
+                return str(backend.call(tool_input))
         except SdkToolError as exc:
             raise ToolError(str(exc)) from exc
 

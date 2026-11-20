@@ -23,12 +23,15 @@
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
 
 MCP 的工具是别人写的程序，它能做什么我们看不到（它说自己"只读"也没法验证），所以默认每次都问。
-你在"扩展 → MCP"里把某个工具设成"不用问"，它就和"全部自动允许"一样直接执行，在任何模式下都算数，
+你在"扩展 → MCP"里把某个工具设成"不用问"，它就和"全部自动允许"一样直接执行，在对话的任何模式下都算数，
 对话里照样标着"自动允许"。这是你对一个具体工具做的决定，记在 data/mcp.json 里，重启后还在。
 
-定时任务自己运行的时候（没人看着）不能放宽：表上要问的，一律停下来等用户批准，用户选了"全部自动允许"也一样
-（见 unattended）。用户选择放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。
-设成"不用问"的 MCP 工具也按这条来：没人看着的时候照样要问。
+定时任务自己运行的时候（多半没人看着），用的是这个任务自己的那一档（见 unattended），和对话里选的哪一档无关：
+用户在对话里放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。每个任务默认"每次都问"，
+表上要问的一律停下来等用户批准；只有用户自己在页面上编辑任务时才能为它放宽。模型用工具添加的任务
+一律是"每次都问"，它自己改不了（见 tools/tasks.py）：不然被网页上的一句话带偏的模型，就能给自己定一个
+"每天半夜自动执行任何命令"的任务。设成"不用问"的 MCP 工具也是在对话里放开的，任务里不算数：
+只有任务自己选了"全部自动允许"，MCP 的工具才不问。
 """
 
 from __future__ import annotations
@@ -71,27 +74,27 @@ class Permissions:
         # 现在是哪种模式。每次启动都从"每次都问"开始，不记进设置文件：
         # 放开之后忘了关，比每次多点一下要危险得多。
         self.mode = "ask"
-        self.always_ask = False  # 为真时不管什么模式都要问（定时任务自己运行时用的那一份，见 unattended）
+        self.trust_mcp = True  # 认不认你在"扩展 → MCP"里设成"不用问"的工具（定时任务用的那一份不认，见 unattended）
 
-    def unattended(self) -> Permissions:
-        """给定时任务自己运行时用的一份：规则和这一份完全相同，但永远是"每次都问"。
+    def unattended(self, mode: str = "ask") -> Permissions:
+        """给定时任务的一次运行用的一份：规则和这一份完全相同，模式是这个任务自己的那一档（默认"每次都问"）。
 
-        是另外一个对象，所以用户在页面上换模式（改的是对话用的那一份）碰不到它。
+        是另外一个对象，所以用户在页面上换对话的模式（改的是对话用的那一份）碰不到它；
+        这次运行开始以后用户再改任务的那一档，也只影响以后的运行。不认识的模式按"每次都问"算。
         """
         copy = Permissions(self.editor, self.private, self.tasks, self.mcp)
-        copy.always_ask = True
+        copy.mode = mode if mode in MODES else "ask"
+        copy.trust_mcp = False  # 在"扩展 → MCP"里放开的工具，是在对话里放开的（见文件开头的说明）
         return copy
 
     def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
         """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
-        if self.always_ask:
-            return False
         if self.mode == "all":
             return True
         found = self._mcp_of(tool_name, tool)
         if found is not None:
             # 你单独放开了这个 MCP 工具（见文件开头的说明）。认不出是哪个服务器的，一律问
-            return found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
+            return self.trust_mcp and found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
         if self.mode == "edits":
             return self._edits_workspace_file(tool_name, tool_input)
         return False
@@ -148,6 +151,10 @@ class Permissions:
         return None
 
     def _review_task_add(self, tool_input: dict) -> str | None:
+        if "approval" in tool_input:
+            # 工具没有这个参数（模型添加的任务一律"每次都问"，见 tools/tasks.py），会直接报错、什么都不会添加：
+            # 不用为一次注定失败的调用去打扰用户
+            return None
         try:
             task = check_task({**tool_input, "enabled": True})
         except TaskError:

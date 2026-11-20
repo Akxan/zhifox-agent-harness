@@ -90,7 +90,8 @@ class McpManager:
         self.active = Snapshot()  # 当前这段对话用的快照（见 App._use_tools）
         self._servers: dict[str, Server] = {}
         self._lock = threading.RLock()
-        self._running: set[threading.Event] = set()  # 正在进行的工具调用，点"停止"时逐个取消
+        # 正在进行的工具调用，按"是谁调用的"分开记（见 call）：点"停止"时只取消那一边的
+        self._running: dict[object, set[threading.Event]] = {}
         self._closed = False
         self._exit_hooked = False
 
@@ -386,8 +387,12 @@ class McpManager:
 
     # ---- 给对话用的 ---------------------------------------------------------
 
-    def snapshot(self) -> Snapshot:
-        """拍一张快照：现在已经连上的服务器的全部工具，做成智狐的工具。按服务器的名字排好，每次的顺序都一样。"""
+    def snapshot(self, owner: object = None) -> Snapshot:
+        """拍一张快照：现在已经连上的服务器的全部工具，做成智狐的工具。按服务器的名字排好，每次的顺序都一样。
+
+        owner 是"谁在用这张快照"：用它的工具发出的调用都记在 owner 名下，停的时候只停 owner 自己的（见 call）。
+        你的对话用 None；定时任务的每次运行各给一个（见 App.unattended_agent）。
+        """
         with self._lock:
             ready = sorted((server for server in self._servers.values() if server.status == "ready"), key=lambda server: server.name)
             plan = [(server.name, list(server.tools), server.print) for server in ready]
@@ -402,7 +407,7 @@ class McpManager:
                 taken.add(shown)
 
                 def run(arguments: dict, server: str = name, remote: str = tool["name"]) -> ToolOutput:
-                    return self.call(server, remote, arguments)
+                    return self.call(server, remote, arguments, owner)
 
                 shot.tools.append(bridge.make_tool(name, tool, shown, run))
                 shot.names[shown] = (name, tool["name"])
@@ -416,8 +421,12 @@ class McpManager:
         """你是不是把这个工具（或者整个服务器）设成了"不用问"。"""
         return self.config.approval(server, tool) == "auto"
 
-    def call(self, server_name: str, tool: str, arguments: object) -> ToolOutput:
-        """替模型调用一个工具。出了问题抛出 ToolError，原因会交给模型（所以是中文，见 bridge.chinese）。"""
+    def call(self, server_name: str, tool: str, arguments: object, owner: object = None) -> ToolOutput:
+        """替模型调用一个工具。出了问题抛出 ToolError，原因会交给模型（所以是中文，见 bridge.chinese）。
+
+        owner 是这次调用算谁的（你的对话是 None，定时任务的每次运行各有一个）。你的对话和几个定时任务同时在跑，
+        点对话里的"停止"只该取消对话自己的调用，停下一个任务也只取消那个任务的（见 cancel_running）。
+        """
         if not isinstance(arguments, dict):
             raise ToolError("参数必须是一个 JSON 对象。")
         with self._lock:
@@ -429,7 +438,7 @@ class McpManager:
             raise ToolError(f"MCP 服务器“{server_name}”{state}，这个工具现在用不了。可以请用户到“扩展 → MCP”里看看它的状态，或者换个办法。")
         stop = threading.Event()
         with self._lock:
-            self._running.add(stop)
+            self._running.setdefault(owner, set()).add(stop)
         try:
             result = client.call_tool(tool, arguments, timeout, stop)
         except Cancelled as exc:
@@ -440,14 +449,27 @@ class McpManager:
             raise ToolError(f"调用 MCP 服务器“{server_name}”的工具 {tool} 失败：{bridge.chinese(exc)}") from exc
         finally:
             with self._lock:
-                self._running.discard(stop)
+                calls = self._running.get(owner, set())
+                calls.discard(stop)
+                if not calls:
+                    self._running.pop(owner, None)
         return bridge.render(result)
 
-    def cancel_running(self) -> None:
-        """用户点了"停止"：取消正在进行的工具调用（等待中的那个线程会立刻放弃，并通知服务器）。"""
+    def cancel_running(self, owner: object = None) -> None:
+        """用户点了"停止"：取消 owner 名下正在进行的工具调用（等待中的那个线程会立刻放弃，并通知服务器）。
+
+        只取消这一边的：你的对话（owner 是 None）和每个定时任务的运行各管各的，见 call。
+        """
         with self._lock:
-            for stop in self._running:
+            for stop in self._running.get(owner, ()):
                 stop.set()
+
+    def cancel_all(self) -> None:
+        """程序要退出了：不管是谁的，正在进行的工具调用全部取消。"""
+        with self._lock:
+            for calls in self._running.values():
+                for stop in calls:
+                    stop.set()
 
 
 _STATE_FOR_MODEL = {"connecting": "还在连接", "failed": "连接失败了", "disabled": "被用户停用了"}

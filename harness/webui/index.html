@@ -867,11 +867,17 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .chip.failed, .chip.missed { color: var(--err); background: var(--err-soft); }
 .chip.waiting { color: var(--warn); background: var(--warn-soft); }
 .chip.running { color: var(--accent); background: var(--accent-soft); }
-.task-actions { position: absolute; right: 6px; top: 7px; display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+/* 悬停时出现的按钮浮在文字上面（左边一段渐隐的底色），不去改文字的内边距：那样整行会重新排版、跳一下 */
+.task-actions { position: absolute; right: 6px; top: 7px; display: flex; gap: 2px; padding-left: 22px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 10px 10px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
 .task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; pointer-events: auto; }
-.task:hover .task-words > *, .task:focus-within .task-words > * { padding-right: 112px; }
-.task.running .task-words > * { padding-right: 0; }
-@media (hover: none) { .task-actions { opacity: 1; pointer-events: auto; } .task-words > * { padding-right: 112px; } }
+@media (hover: none) { .task-actions { opacity: 1; pointer-events: auto; } .task-words > * { padding-right: 112px; } .task.running .task-words > * { padding-right: 0; } }  /* 触屏上一直显示，位置一直留着 */
+/* 标题那一行：名字（太长就省略）+ 放宽了确认方式的小标签 */
+.task-title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.task-title-line .task-title { flex: 0 1 auto; min-width: 0; }
+.chip.task-mode { flex: none; gap: 4px; height: 17px; padding: 0 6px; font-size: 10.5px; }
+.chip.task-mode .icon { width: 11px; height: 11px; }
+.chip.task-mode.edits { color: var(--warn); background: var(--warn-soft); }
+.chip.task-mode.all { color: var(--err); background: var(--err-soft); }
 .task-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
 .task-confirm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 9px 10px; font-size: 13px; }
 .task-confirm-row span { flex: 1 1 120px; min-width: 0; }
@@ -890,6 +896,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .task-log li span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-log .mark { flex: none; width: 12px; text-align: center; }
 .task-log .ok .mark { color: var(--ok, #1a7f37); }
+.task-log .task-log-auto { flex: none; font: 500 10.5px/1.6 var(--sans); color: var(--warn); }
 .task-log .bad .mark { color: var(--err); }
 .task-ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 11px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 10px; }
 .task-ask code { font: 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
@@ -935,6 +942,26 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .task-preview { margin: 2px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .task-preview.bad { color: var(--err); }
 .settings .task-check { gap: 9px; font-size: 13px; color: var(--ink-2); }
+/* 要不要先问你：和对话里的"助手动手之前，要不要先问你"同样的三档、同样的说法，排得紧凑一些 */
+#task-approval-field[hidden], .task-approval-warning[hidden] { display: none; }
+.task-approval { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.task-approval-option { position: relative; display: grid; gap: 2px; min-width: 0; padding: 9px 40px 10px 12px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s var(--ease); }
+.task-approval-option:hover { border-color: var(--ink-3); }
+.task-approval-option:active { transform: scale(.99); }
+.task-approval-option b { font-size: 13px; font-weight: 600; color: var(--ink); }
+.task-approval-option span { font-size: 12px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.task-approval-option .icon { position: absolute; right: 13px; top: 11px; width: 15px; height: 15px; color: var(--accent); opacity: 0; transform: scale(.5); transition: opacity .15s ease, transform .3s var(--spring); }
+.task-approval-option[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.task-approval-option[aria-checked="true"] .icon { opacity: 1; transform: none; }
+.task-approval-option[data-approval="all"][aria-checked="true"] { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.task-approval-option[data-approval="all"][aria-checked="true"] .icon { color: var(--err); }
+.task-approval-warning { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 0; padding: 9px 12px; font-size: 12.5px; line-height: 1.55; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 10px; }
+.task-approval-warning .icon { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.task-approval-hint { margin-top: 2px; }
+/* 任务详情里的"要不要先问你" */
+.task-mode-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
+.task-mode-line .chip.task-mode { height: 20px; font-size: 11.5px; }
+.task-mode-line .chip.task-mode.ask { color: var(--ink-2); background: var(--hover); }
 /* 任务详情 */
 .settings.task-detail { width: min(680px, calc(100vw - 32px)); }
 .task-detail-body { display: grid; gap: 4px; padding-bottom: 16px; }
@@ -1921,8 +1948,17 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       </div>
       <p id="task-preview" class="task-preview" aria-live="polite"></p>
     </div>
+    <div id="task-approval-field" class="task-field"><span class="task-label" id="task-approval-label" data-i18n>动手之前要不要先问你</span>
+      <div class="task-approval" role="radiogroup" aria-labelledby="task-approval-label">
+        <button class="task-approval-option" type="button" role="radio" data-approval="ask"><b data-i18n>每次确认</b><span data-i18n>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+        <button class="task-approval-option" type="button" role="radio" data-approval="edits"><b data-i18n>自动允许改文件</b><span data-i18n>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+        <button class="task-approval-option" type="button" role="radio" data-approval="all"><b data-i18n>全部自动允许</b><span data-i18n>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+      </div>
+      <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。</span></p>
+      <p class="hint task-approval-hint" data-i18n>任务按这里选的来，和对话里选的那一档互不影响。要确认的操作会停下来，等你在任务列表里批准。</p>
+    </div>
     <label class="task-check"><input id="task-enabled" type="checkbox"><span data-i18n>启用（关掉以后先不运行，设置都留着）</span></label>
-    <p id="task-cost-note" class="hint" data-i18n>每次运行都会调用模型，会产生费用（不设上限，每次花了多少都会记下来）。遇到要你确认的操作，任务会停下来等你。只有智狐开着的时候任务才会运行；错过的，下次打开时补跑一次。</p>
+    <p id="task-cost-note" class="hint" data-i18n>每次运行都会调用模型，会产生费用（不设上限，每次花了多少都会记下来）。只有智狐开着的时候任务才会运行；错过的，下次打开时补跑一次。</p>
   </div>
   <div class="memory-foot"><p id="task-editor-message" class="memory-message" role="status"></p><button id="task-cancel" class="button" type="button" data-i18n>取消</button><button id="task-save" class="button primary" type="button" data-i18n>保存</button></div>
 </dialog>
@@ -5644,11 +5680,13 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     return '';
   }
 
+  // 助手程序发来的 summary 都是写好的整句，已经说了是哪个工具（"run_command $ ls"、"执行命令：$ ls"），原样显示，
+  // 不在前面再加一遍工具的名字（以前加过，就成了"run_command run_command $ ls"）
   function activityText(running) {
     const doing = running.activity || {};
-    if (running.confirm) return t('等你确认：{what}', { what: [running.confirm.tool, running.confirm.summary].filter(Boolean).join(' · ') });
-    if (doing.kind === 'tool') return doing.summary ? t('正在调用 {tool}：{summary}', { tool: doing.tool, summary: doing.summary }) : t('正在调用 {tool}', { tool: doing.tool });
-    if (doing.kind === 'waiting') return doing.summary || t('排队中');  // 助手程序写好了在等什么（"等你这一轮对话结束"）
+    if (running.confirm) return t('等你确认：{what}', { what: running.confirm.summary || running.confirm.tool });
+    if (doing.kind === 'tool') return doing.summary ? t('正在调用：{summary}', { summary: doing.summary }) : t('正在调用 {tool}', { tool: doing.tool });
+    if (doing.kind === 'waiting') return doing.summary || t('排队中');  // 助手程序写好了在等什么（"排队中：同时最多运行 3 个任务"）
     if (doing.kind === 'thinking') return t('正在思考……');
     if (doing.kind === 'writing') return t('正在写回复……');
     return t('正在准备……');
@@ -5759,7 +5797,9 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     main.dataset.role = 'main';
     main.appendChild(icon(task.kind === 'agent' ? 'bot' : 'bell'));
     const words = main.appendChild(el('span', 'task-words'));
-    words.appendChild(el('span', 'task-title', task.title));
+    const head = words.appendChild(el('span', 'task-title-line'));
+    head.appendChild(el('span', 'task-title', task.title));
+    if (task.kind === 'agent' && task.approval in APPROVAL && task.approval !== 'ask') head.appendChild(modeChip(task.approval));
     words.appendChild(el('span', 'task-meta', taskMeta(task)));
     const last = !running && task.runs && task.runs[0];
     if (last) words.appendChild(lastRunLine(task, last));
@@ -5789,6 +5829,14 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       renderTasks(tasks, reminders);
     });
     return row;
+  }
+
+  // 一个任务"要不要先问你"的那一档，画成一个小标签。名字和对话里的三档是同一套（APPROVAL，在"要不要先问你"那一节）
+  function modeChip(mode) {
+    const chip = el('span', 'chip task-mode ' + mode);
+    chip.appendChild(icon('shield'));
+    chip.appendChild(el('span', null, t(APPROVAL[mode])));
+    return chip;
   }
 
   function taskMeta(task) {
@@ -5832,13 +5880,14 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       for (const entry of running.log.slice(-6)) {
         const item = log.appendChild(el('li', entry.ok === true ? 'ok' : entry.ok === false ? 'bad' : ''));
         item.appendChild(el('span', 'mark', entry.ok === true ? '✓' : entry.ok === false ? '✕' : '…'));
-        item.appendChild(el('span', null, [entry.tool, entry.summary].filter(Boolean).join('  ')));
+        item.appendChild(el('span', null, entry.summary || entry.tool));
+        if (entry.auto) item.appendChild(el('span', 'task-log-auto', t('自动允许')));  // 按这个任务的那一档，没问你就放行了
       }
     }
     if (running.confirm) {
       const ask = box.appendChild(el('div', 'task-ask'));
       ask.appendChild(el('span', null, t('任务停下来等你确认这一步：')));
-      ask.appendChild(el('code', null, [running.confirm.tool, running.confirm.summary].filter(Boolean).join('  ')));
+      ask.appendChild(el('code', null, running.confirm.summary || running.confirm.tool));
       const choices = ask.appendChild(el('div', 'row'));
       const allow = choices.appendChild(el('button', 'mini primary', t('允许')));
       const deny = choices.appendChild(el('button', 'mini', t('拒绝')));
@@ -5882,11 +5931,12 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     return item;
   }
 
+  // 任务和你的对话同时进行，不用等你这一轮结束；同时运行的任务到了上限时才排队（助手程序在回答里说 queued）
   async function runTask(task) {
     const reply = await call('/api/task/run', { id: task.id });
     if (!reply.ok) { toast(reply.error); return; }
     toast(task.kind === 'reminder' ? t('已经提醒了：{title}', { title: task.title })
-      : busy ? t('排好了：等这一轮对话结束就开始运行“{title}”。', { title: task.title }) : t('开始运行：{title}', { title: task.title }));
+      : reply.data.queued ? t('排好了：同时运行的任务到了上限，前面的跑完一个就开始“{title}”。', { title: task.title }) : t('开始运行：{title}', { title: task.title }));
   }
 
   async function answerTask(task, confirmId, allow, ...buttons) {
@@ -5978,18 +6028,31 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     box.replaceChildren(el('span', null, t('到点的时候，就算这个页面不在眼前，也可以弹出系统通知。')), ask);
   }
 
+  // 主区域顶部的那条提示。只有一个任务在跑时说它的名字；好几个一起跑时数一数：几个在运行、几个在等你、几个在排队。
+  // 点一下打开任务列表，停在第一个等你确认的（没有的话，第一个在跑的）
   function renderTaskAlert() {
     const alert = $('task-alert');
-    const waiting = tasks.find((task) => task.running && task.running.confirm);
-    const running = waiting || tasks.find((task) => task.running);
-    alert.hidden = !running;
-    if (!running) return;
-    alert.classList.toggle('waiting', Boolean(waiting));
-    const queued = !waiting && running.running.activity && running.running.activity.kind === 'waiting';
-    $('task-alert-text').textContent = waiting ? t('定时任务“{title}”在等你确认', { title: waiting.title })
-      : queued ? t('定时任务“{title}”在排队：{what}', { title: running.title, what: activityText(running.running) })
-        : t('定时任务“{title}”正在运行 · 第 {n} 步', { title: running.title, n: running.running.step });
-    alert.dataset.id = running.id;
+    const active = tasks.filter((task) => task.running);
+    alert.hidden = !active.length;
+    if (!active.length) return;
+    const waiting = active.filter((task) => task.running.confirm);
+    const queued = active.filter((task) => !task.running.confirm && task.running.activity && task.running.activity.kind === 'waiting');
+    alert.classList.toggle('waiting', waiting.length > 0);
+    let text;
+    if (active.length === 1) {
+      const only = active[0];
+      text = waiting.length ? t('定时任务“{title}”在等你确认', { title: only.title })
+        : queued.length ? t('定时任务“{title}”在排队：{what}', { title: only.title, what: activityText(only.running) })
+          : t('定时任务“{title}”正在运行 · 第 {n} 步', { title: only.title, n: only.running.step });
+    } else {
+      const parts = [];
+      if (active.length > queued.length) parts.push(t('{n} 个在运行', { n: active.length - queued.length }));
+      if (waiting.length) parts.push(t('{n} 个在等你确认', { n: waiting.length }));
+      if (queued.length) parts.push(t('{n} 个在排队', { n: queued.length }));
+      text = t('定时任务：{list}', { list: parts.join(t('、')) });
+    }
+    $('task-alert-text').textContent = text;
+    alert.dataset.id = (waiting[0] || active[0]).id;
   }
 
   $('task-alert').addEventListener('click', () => {
@@ -6047,6 +6110,13 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     if (task.running) section(t('正在运行')).appendChild(progressBlock(task));
     section(t('下次运行')).appendChild(el('p', 'task-next', !task.enabled ? t('已暂停，不会运行。')
       : task.next_run ? momentText(task.next_run) + ' · ' + fromNow(task.next_run) : t('不会再运行了')));
+    if (task.kind === 'agent' && task.approval in APPROVAL) {
+      const line = section(t('动手之前要不要先问你')).appendChild(el('p', 'task-mode-line'));
+      line.appendChild(modeChip(task.approval));
+      line.appendChild(el('span', null, task.approval === 'all' ? t('任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。')
+        : task.approval === 'edits' ? t('改工作目录里的文件直接做；执行命令等别的操作，停下来等你批准。')
+          : t('要确认的操作会停下来，等你在任务列表里批准。')));
+    }
     if (task.prompt) section(task.kind === 'agent' ? t('让助手做什么') : t('提醒的内容')).appendChild(el('pre', null, task.prompt));
     const history = section(t('运行记录'));
     if (!task.runs || !task.runs.length) history.appendChild(el('p', 'hint', t('还没有运行过。')));
@@ -6143,7 +6213,10 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   function openEditor(task, preset) {
     const base = task || { kind: 'agent', title: '', prompt: '', enabled: true, schedule: { type: 'daily', time: '09:00' }, ...(preset || {}) };
     const plan = base.schedule || {};
-    editing = { id: task ? task.id : null, kind: base.kind === 'reminder' ? 'reminder' : 'agent', type: plan.type || 'daily', days: new Set(plan.days || [1, 2, 3, 4, 5]), armed: false, saving: false };
+    editing = {
+      id: task ? task.id : null, kind: base.kind === 'reminder' ? 'reminder' : 'agent', type: plan.type || 'daily', days: new Set(plan.days || [1, 2, 3, 4, 5]),
+      approval: base.approval in APPROVAL ? base.approval : 'ask', armed: false, saving: false,
+    };
     retext($('task-editor-title'), task ? k('编辑任务') : k('新建定时任务'));
     $('task-title').value = base.title || '';
     $('task-prompt').value = base.prompt || '';
@@ -6176,7 +6249,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     return { type: 'interval', minutes: Number($('task-every').value) * Number($('task-unit').value) };
   }
 
-  const editorPrint = () => JSON.stringify([editing.kind, $('task-title').value, $('task-prompt').value, editorSchedule(), $('task-enabled').checked]);
+  const editorPrint = () => JSON.stringify([editing.kind, $('task-title').value, $('task-prompt').value, editorSchedule(), $('task-enabled').checked, editing.approval]);
 
   function drawEditor() {
     if (!editing) return;
@@ -6190,7 +6263,15 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       choice.setAttribute('aria-checked', String(on));
       choice.tabIndex = on ? 0 : -1;
     }
+    for (const choice of taskEditor.querySelectorAll('[data-approval]')) {
+      const on = choice.dataset.approval === editing.approval;
+      choice.setAttribute('aria-checked', String(on));
+      choice.tabIndex = on ? 0 : -1;
+    }
     const agent = editing.kind === 'agent';
+    // 只提醒的任务不调用模型、不用工具，没有什么可问的
+    $('task-approval-field').hidden = !agent;
+    $('task-approval-warning').hidden = !agent || editing.approval !== 'all';
     retext($('task-prompt-label'), agent ? k('让助手做什么') : k('提醒的内容（可以不写）'));
     tattr($('task-prompt'), 'placeholder', agent ? k('比如：看看我的待办，按轻重缓急给我写一份今天的安排。') : k('比如：起来走走，喝杯水。'));
     $('task-cost-note').hidden = !agent;
@@ -6250,6 +6331,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     $('task-save').disabled = true;
     const reply = await call('/api/task/save', {
       ...(editing.id ? { id: editing.id } : {}), title, kind: editing.kind, prompt, schedule: editorSchedule(), enabled: $('task-enabled').checked,
+      approval: editing.kind === 'agent' ? editing.approval : 'ask',
     });
     if (!editing) return;
     editing.saving = false;
@@ -6272,12 +6354,14 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     taskEditor.close();
   }
 
-  for (const group of taskEditor.querySelectorAll('.segmented')) {
-    // 单选的一组：点一下选中；左右方向键在选项之间移动（选中跟着走）
+  for (const group of taskEditor.querySelectorAll('[role="radiogroup"]')) {
+    // 单选的一组（到点以后、什么时候、要不要先问你）：点一下选中；方向键在选项之间移动（选中跟着走）
     group.addEventListener('click', (click) => {
       const choice = click.target.closest('button');
       if (!choice || !editing) return;
-      if (choice.dataset.kind) editing.kind = choice.dataset.kind; else editing.type = choice.dataset.type;
+      if (choice.dataset.kind) editing.kind = choice.dataset.kind;
+      else if (choice.dataset.approval) editing.approval = choice.dataset.approval;
+      else editing.type = choice.dataset.type;
       drawEditor();
       editorChanged();
     });
@@ -9044,6 +9128,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     drawMediaFilters(); // 多媒体：筛选按钮上的字、日期、每一项的说明（"指纹"里带着语言，一定会重画）
     drawMedia();
     if (viewer.open) { labelViewer(); drawViewerChrome(); }  // 查看器：按钮的说明（带着快捷键）、上面的信息
+    if (taskEditor.open) { drawEditor(); previewSoon(); }  // 编辑任务的窗口：星期几的按钮、接下来几次的时间
   }
 
   $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮

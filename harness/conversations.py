@@ -87,13 +87,18 @@ class ConversationStore:
         # 扫描要把每个会话文件都读一遍，会话多了并不便宜，所以等到第一次真的要用列表或搜索时才做（见 _load）。
         # 终端界面不保存也不打开会话，它就永远不用付这个代价。
         self._loaded = False
-        self._loading = threading.Lock()
+        # 网页界面里好几个线程会同时用它：你的对话每一轮结束时存盘，几个定时任务跑完各自存一段，
+        # 处理请求的线程在改名、删除、列出会话。"写文件"和"更新内存里的两份目录"要一口气做完：
+        # 两个线程同时存同一段会话时，要是 A 先写文件、B 后写文件，B 先记进目录、A 后记进目录，
+        # 磁盘上是 B 的内容，目录里却是 A 的，搜索结果就和文件对不上了。所以改动都拿着这把锁，一个一个来。
+        # 用 RLock：改名是"读出来再存回去"，存的时候还要再拿一次
+        self._lock = threading.RLock()
 
     def _load(self) -> None:
         """第一次用到时，把磁盘上的会话扫一遍。之后再调用什么都不做。"""
         if self._loaded:
             return
-        with self._loading:  # 网页界面里可能有两个请求同时第一次用到：只扫一遍
+        with self._lock:  # 网页界面里可能有两个请求同时第一次用到：只扫一遍
             if self._loaded:
                 return
             if self.directory.is_dir():
@@ -112,29 +117,38 @@ class ConversationStore:
         # 编号是时间（精确到秒）加一段随机数。同一秒里开的两段会话，随机数撞上的机会极小，
         # 可一旦撞上，后存的那段会把先存的文件整个盖掉。所以还是查一下：用过了就再抽一个。
         # 查的是磁盘上的文件，不用为此把所有会话扫一遍（终端界面从不扫，见 _load）。
-        while True:
-            conversation_id = stamp + "-" + secrets.token_hex(3)
-            if conversation_id not in self._summaries and not self._path(conversation_id).exists():
-                break
+        with self._lock:
+            while True:
+                conversation_id = stamp + "-" + secrets.token_hex(3)
+                if conversation_id not in self._summaries and not self._path(conversation_id).exists():
+                    break
         return Conversation(id=conversation_id, provider=provider, model=model, created_at=now, updated_at=now)
 
     def summaries(self) -> list[dict]:
         """所有已保存的会话，最近更新的排在前面。"""
-        self._load()
-        return sorted(self._summaries.values(), key=lambda item: item["updated_at"], reverse=True)
+        with self._lock:
+            self._load()
+            items = list(self._summaries.values())
+        return sorted(items, key=lambda item: item["updated_at"], reverse=True)
 
     def exists(self, conversation_id: str) -> bool:
-        self._load()
-        return conversation_id in self._summaries
+        with self._lock:
+            self._load()
+            return conversation_id in self._summaries
 
     def load(self, conversation_id: str) -> Conversation:
-        self._load()
-        if conversation_id not in self._summaries:
-            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
-        return self._read(conversation_id)
+        with self._lock:
+            self._load()
+            if conversation_id not in self._summaries:
+                raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
+            return self._read(conversation_id)
 
     def save(self, conversation: Conversation, touch: bool = True) -> None:
         """写到磁盘。touch 为 False 时不改"更新时间"（比如只是改了标题，不应该让它跳到列表最前面）。"""
+        with self._lock:  # 写文件和更新目录一口气做完（见 __init__ 里的说明）
+            self._save(conversation, touch)
+
+    def _save(self, conversation: Conversation, touch: bool) -> None:
         self._load()
         path = self._path(conversation.id)  # 先检查编号：格式不对的话什么都不写
         if touch:
@@ -162,39 +176,47 @@ class ConversationStore:
         self._remember(conversation)
 
     def rename(self, conversation_id: str, title: str) -> None:
-        conversation = self.load(conversation_id)
-        conversation.title = make_title(title)
-        self.save(conversation, touch=False)
+        with self._lock:  # 读出来、改标题、存回去之间，不能让别人把它存成另一个样子
+            conversation = self.load(conversation_id)
+            conversation.title = make_title(title)
+            self.save(conversation, touch=False)
 
     def delete(self, conversation_id: str) -> None:
-        self._load()
-        if conversation_id not in self._summaries:
-            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
-        path = self._path(conversation_id)
-        path.unlink(missing_ok=True)
-        # 以前某次保存到一半失败的话，旁边可能留着这段会话的临时文件，里面也是它的内容：一起删掉
-        for leftover in self.directory.glob(f"{conversation_id}*.tmp"):
-            leftover.unlink(missing_ok=True)
-        del self._summaries[conversation_id]
-        self._index.remove(conversation_id)
-        self._media.remove(conversation_id)
+        with self._lock:
+            self._load()
+            if conversation_id not in self._summaries:
+                raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
+            path = self._path(conversation_id)
+            path.unlink(missing_ok=True)
+            # 以前某次保存到一半失败的话，旁边可能留着这段会话的临时文件，里面也是它的内容：一起删掉
+            for leftover in self.directory.glob(f"{conversation_id}*.tmp"):
+                leftover.unlink(missing_ok=True)
+            del self._summaries[conversation_id]
+            self._index.remove(conversation_id)
+            self._media.remove(conversation_id)
 
     def file_of(self, conversation_id: str) -> Path:
         """一段保存过的会话在磁盘上的文件。"""
-        self._load()
-        if conversation_id not in self._summaries:
-            raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
-        return self._path(conversation_id)
+        with self._lock:
+            self._load()
+            if conversation_id not in self._summaries:
+                raise ConversationError(t("这段会话不存在，可能已经被删除了。"))
+            return self._path(conversation_id)
 
     def search(self, query: str) -> list[dict]:
         """在所有保存过的会话里搜索，标题和内容都找。
 
         返回的每一项是列表里要显示的基本信息，加上命中的情况（见 search.py 里的 _result）。
+        搜索本身不拿锁（可能要花一点时间，不该挡住正在存盘的对话）：索引自己会先拍一张快照（见 SearchIndex.search）。
         """
-        self._load()
+        with self._lock:
+            self._load()
+        found = self._index.search(query)
+        with self._lock:
+            summaries = dict(self._summaries)  # 搜完再拿列表：搜索的同时刚存好的那一段，这里也有它
         results = []
-        for item in self._index.search(query):
-            summary = self._summaries.get(item["id"])
+        for item in found:
+            summary = summaries.get(item["id"])
             if summary is None:
                 continue  # 搜索的同时，这一段刚好被删掉了
             # 标题用索引里的那一份（标出关键词的位置是按它算的）；没有标题的会话和列表里一样显示成"新对话"
@@ -202,12 +224,13 @@ class ConversationStore:
         return results
 
     def media(self) -> MediaIndex:
-        """所有保存过的会话里的附件（多媒体库用）。"""
-        self._load()
+        """所有保存过的会话里的附件（多媒体库用）。它自己有锁，拿回去随时读。"""
+        with self._lock:
+            self._load()
         return self._media
 
     def _remember(self, conversation: Conversation) -> None:
-        """把一段会话记进内存里的三份目录：列表用的基本信息、搜索用的文字、多媒体库用的附件。"""
+        """把一段会话记进内存里的三份目录：列表用的基本信息、搜索用的文字、多媒体库用的附件。调用的人拿着 self._lock。"""
         self._summaries[conversation.id] = conversation.summary()
         self._index.put(conversation.id, conversation.title, conversation.events, conversation.updated_at)
         entries = entries_of(conversation.events, conversation.messages, conversation.created_at)
