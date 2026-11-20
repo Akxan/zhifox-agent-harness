@@ -56,8 +56,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
   has light and dark themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
-- 💸 **Cost you can see:** token usage and an estimated cost after every model call, prompt caching, and per-message
-  caps on web search.
+- 💸 **Cost you can see:** token usage and an estimated cost after every model call, a spending record that survives
+  restarts (today, this month, the last 30 days, by model and source), an optional monthly budget reminder, prompt
+  caching, and per-message caps on web search.
 - 🧪 **Tests without API keys.** The test suite drives the real SDKs against local fake servers, so running it is free.
 
 ## Quick start
@@ -185,6 +186,8 @@ Each part of the harness has its own file or directory:
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
+| Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
+| Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
 
@@ -493,10 +496,22 @@ This starts a small server on your computer and opens the chat page in your brow
   tested against local fake servers, not real keys. Attachments are saved with the conversation, so their thumbnails
   come back when you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
-  each provider's model list, choose and switch models, and enter model prices.
+  each provider's model list, choose and switch models, and enter model prices. Two more sections at the bottom:
+  - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
+    message on the page, and a system notification if the page is in the background and you allowed notifications).
+    It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
+    remembered across restarts, so it doesn't repeat. If you set a budget below what you've already spent this month,
+    the panel says so right away.
+  - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
+    afterwards. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
-  updates after every model call.
+  updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
+  **this month** (from the spending record, so restarts don't reset it), how much of your monthly budget is left, and a
+  red note once you're over it (the cost next to the input box gets a red dot too). **Spending** opens a window with
+  the last 30 days as a bar chart (hover a bar, click it, or use the arrow keys and Home / End to read a day), a total
+  for every month, and a breakdown by model and by source (chat or scheduled task) for this month, the last 30 days or
+  all time. Calls to models without a price are listed separately with their tokens.
 - **Memory** (fixed at the top of the sidebar, with a count; it opens a two-pane window: the list on the left, searchable
   by name, and the selected memory on the right; on a narrow screen it shows one side at a time). Every file the
   assistant keeps in its long-term memory (`data/memories/`), with its
@@ -575,7 +590,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/new` | Start a new conversation (memory and to-dos are kept) |
 | `/todos` | Show open to-dos |
 | `/tools` | Show the tools the model can use |
-| `/usage` | Show this run's token usage and estimated cost |
+| `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
@@ -601,7 +616,8 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `data/conversations/` | Every web UI conversation, one JSON file each |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/todos.json` | To-dos |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, and the interface language. No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
+| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat or scheduled task, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
@@ -628,6 +644,29 @@ deletes plain files; a subfolder left empty by the deletion is removed too. A ne
 name (no `/`, not starting with a dot), so a memory can be renamed but never moved out of its folder, and the new text
 is written to a temporary file first and swapped in, so a failed save never leaves half a file.
 
+### Backup and restore
+
+**Settings → Export all data** packs the data folder into `zhifox-backup-<date>-<time>.zip` and downloads it:
+conversations, memories, to-dos, settings, the spending record, and anything else later features keep there. API keys
+are never in it: they live in `.env`, which isn't in the data folder, and any `.env`-like file found there anyway is
+skipped. If `data/mcp.json` exists, it is exported with every secret replaced by `<removed-from-backup>` (environment
+variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
+URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
+valid JSON, it is left out entirely rather than risk exporting a secret. Symbolic links are skipped too, since they
+could point anywhere on your computer. A `README-backup.txt` inside the zip lists the date, how to restore, and what was
+masked or skipped. The zip is built in a temporary file outside the data folder and deleted once it has been sent.
+
+To restore:
+
+1. Quit ZhiFox (Ctrl-C in its terminal).
+2. Unzip the archive into the data folder (by default the project's `data/`), replacing files with the same name:
+   `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
+   into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
+   `data/`.
+3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again.
+
+Importing from the web UI isn't supported yet.
+
 ## Cost
 
 APIs bill by the token (a Chinese character is roughly 1 to 2 tokens). Because every request resends the whole
@@ -638,6 +677,13 @@ What the program does to keep cost under control:
 
 - **Estimated cost.** The web UI's info panel and the terminal's `/usage` convert usage into US dollars. It's only an
   estimate; each provider's bill is what counts, and bills usually lag.
+- **Spending record.** Every model call, from a chat or a scheduled task, is written to `data/ledger.jsonl` with its
+  price at that moment (DeepSeek's peak or off-peak rate included), so today's and this month's totals survive
+  restarts. Changing a price later doesn't rewrite old entries; calls to a model without a price keep their tokens and
+  count as $0 until it has one. Each call is appended as one line, so a crash can at most leave half a line, which is
+  skipped when reading.
+- **Monthly budget.** Optional, in Settings. Passing it shows one reminder and never stops anything, including
+  scheduled tasks.
 - **Search caps.** For each message you send, Claude can search the web at most 5 times and fetch at most 5 pages; past
   that, it answers with what it has. The API enforces this cap. Each web search costs $0.01 on top of tokens.
 - **Caching.** Parts that are sent again and again cost far less once they hit the cache (for Claude, about a twentieth
@@ -732,7 +778,10 @@ OpenAI's formats. That lets the real SDKs run the whole loop, and the tests chec
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
 where the test code plays the browser. Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py).
+[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py); the
+spending record and budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a
+fixed clock, a half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py)
+(no secret ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py).
 
 The page itself (the styles and scripts in `index.html`) has no automated tests. After every change it is checked by hand
 in a real browser against the fake servers.

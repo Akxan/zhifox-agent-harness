@@ -22,6 +22,10 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/ledger     打开"花费明细"：最近 30 天、每个月、每个模型、每种来源花了多少（见 ledger.py）
+  POST /api/budget     用户填写或清除了每月预算（见 budget.py）
+  POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
+  POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -40,20 +44,24 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import i18n, memories
+from .. import export, i18n, memories
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
-from ..config import APP_NAME, Config
+from ..budget import valid_budget
+from ..config import APP_NAME, LEDGER_CHART_DAYS, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
 from ..memories import MemoryConflict, MemoryFileError
@@ -182,6 +190,7 @@ class WebApp:
             },
             cost=round(cost, 4),
             unpriced=unpriced,
+            spend=self.app.spending(),  # 今天、本月花了多少，预算超了没有（这些记在账本里，重启也不会清零）
             tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
             approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
@@ -518,6 +527,21 @@ class WebApp:
         self.app.settings.set_price(model, price)
         self.publish_state()
 
+    def set_budget(self, amount: float | None) -> None:
+        """记下每月预算（None 表示不设）。只是提醒用，所以不用拿对话的锁，对话进行中也可以改。"""
+        self.app.settings.set_budget(amount)
+        self.publish_state()  # 状态里带着预算，超了没有也在这时重新算一次（见 App.spending）
+
+    def spend_report(self) -> dict:
+        """"花费明细"窗口要的全部数字。只读内存里的汇总，对话进行中也可以看。"""
+        return self.app.ledger.report(self.app.agent.clock().date(), LEDGER_CHART_DAYS)
+
+    def export_info(self) -> dict:
+        """导出之前给页面看的：数据文件夹在哪、要导出的有多大、多少个文件。"""
+        config = self.app.config
+        work = export.plan(config.data_dir, [config.env_file])
+        return {"bytes": work.size, "files": work.count, "path": str(config.data_dir)}
+
     def set_language(self, language: str) -> str:
         """换界面语言。成功返回空字符串，否则返回原因。
 
@@ -721,6 +745,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.sync_models(provider))
+        elif path == "/api/ledger":
+            self._send_json(200, {"ok": True, "report": web.spend_report()})
+        elif path == "/api/budget":
+            amount = body.get("amount")
+            if "amount" not in body or not valid_budget(amount):  # 不设预算要明说（null），不能是忘了带
+                self._send_json(400, {"error": t("预算要填一个大于 0 的数（美元）")})
+            else:
+                web.set_budget(None if amount is None else float(amount))
+                # 带上存完以后的花费：设的预算比这个月已经花的还少时，页面当场就能说清楚（提示框会被设置面板挡住）
+                self._send_json(200, {"ok": True, "spend": web.app.spending()})
+        elif path == "/api/export/info":
+            self._send_json(200, {"ok": True, **web.export_info()})
+        elif path == "/api/export":
+            self._send_export()
         elif path == "/api/price":
             model, price = body.get("model"), body.get("price")
             if not isinstance(model, str) or not model or not _valid_price(price):
@@ -730,6 +768,32 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _send_export(self) -> None:
+        """导出全部数据：把 zip 先写进一个临时文件，再整个发给浏览器（见 export.py）。
+
+        页面用 fetch 拿到它、变成一个 Blob，再交给一个带 download 属性的链接去存盘：这样请求照样带着口令、
+        经过上面的检查，地址里不用露出口令，页面的安全策略也不用为下载放宽什么。
+        临时文件在系统的临时文件夹里，只有自己的账号能读，发完（或者出错）就删掉，不会留在数据文件夹里。
+        """
+        config = self.server.web.app.config
+        moment = datetime.now()
+        with tempfile.TemporaryFile() as archive:
+            export.write_archive(config.data_dir, archive, moment, [config.env_file])
+            size = archive.tell()
+            archive.seek(0)
+            self._responded = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{export.archive_name(moment)}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            try:
+                shutil.copyfileobj(archive, self.wfile)
+            except OSError:
+                pass  # 浏览器那边取消了
 
     def _finish(self, error: str, warning: str = "") -> None:
         """按"空字符串表示成功"的约定回复浏览器。"""

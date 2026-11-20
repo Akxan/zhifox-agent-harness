@@ -40,6 +40,12 @@ ENABLE_COMPACTION = True
 # API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
 ENABLE_THINKING_DROP = True
 
+# 花费账本（见 ledger.py）。超过这么多天的明细，合并成"每天、每个模型、每种来源一行"，账本文件不会无限变大；
+# 每天、每月、每个模型花了多少都不变，只是看不到一笔一笔的时间了
+LEDGER_DETAIL_DAYS = 90
+# 网页上"花费明细"的柱状图显示最近这么多天
+LEDGER_CHART_DAYS = 30
+
 
 @dataclass(frozen=True)
 class Config:
@@ -73,6 +79,10 @@ class Config:
     @property
     def conversations_dir(self) -> Path:
         return self.data_dir / "conversations"
+
+    @property
+    def ledger_file(self) -> Path:
+        return self.data_dir / "ledger.jsonl"
 
 
 def load_env_file(path: Path) -> None:

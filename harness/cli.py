@@ -108,6 +108,11 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
                 note=note,
             )
         )
+        # 账本里的数（见 ledger.py）：不随重启清零，网页界面里花的、定时任务花的也都在里面
+        spend = app.spending()
+        ui.plain(t("今天 ${today}，本月 ${month}", today=f"{spend['today']:.4f}", month=f"{spend['month']:.4f}"))
+        if spend["budget"]:
+            ui.plain(t("每月预算 ${budget}", budget=f"{spend['budget']:.2f}") + (t("（已超出）") if spend["over"] else ""))
     elif command == "/model":
         ui.plain(f"{app.provider.label} · {app.settings.model}")
         ui.info(t("换模型：运行 uv run harness --web ，在网页界面的“设置”里选择。选择会保存下来，终端版也会跟着用。"))

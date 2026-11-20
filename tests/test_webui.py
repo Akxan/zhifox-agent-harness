@@ -1202,7 +1202,7 @@ def test_unknown_and_malformed_conversation_ids_are_refused(serve):
     assert s.ui.events_after(0, timeout=0) == before
     assert (s.config.conversations_dir / f"{first}.json").read_bytes() == file_before
     assert saved_ids(s.config) == [first] and s.app.conversation.id == first
-    others = [path for path in s.config.data_dir.rglob("*") if path.is_file() and path != s.config.settings_file]
+    others = [path for path in s.config.data_dir.rglob("*") if path.is_file() and path not in (s.config.settings_file, s.config.ledger_file)]
     assert [path.name for path in others] == [f"{first}.json"]
 
 
