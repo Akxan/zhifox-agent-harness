@@ -77,6 +77,9 @@ KEEPALIVE_SECONDS = 15
 LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
 PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+# 回复里的 Markdown 怎么画，单独写在 markdown.js 里（一个文件只讲一件事，也方便用 Node 单独测试）。
+# 发页面时把它原样填进页面里那个带 nonce 的 <script>，所以不用为它另开一个地址，也不用放宽安全策略。
+MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
 
 
 def reveal_in_file_manager(path: Path) -> None:
@@ -763,11 +766,15 @@ class Handler(BaseHTTPRequestHandler):
             f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
             "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
-        # 翻译表也在这时塞进页面（页面里放它的是一段 JSON 数据，不是脚本，浏览器不会执行）。
-        # 两处一次填完（re.sub 不会回头再扫一遍填进去的内容）：翻译表里万一出现 "__NONCE__"，
+        # 翻译表和 Markdown 渲染器也在这时塞进页面（翻译表放在一段 JSON 数据里，浏览器不会执行）。
+        # 几处一次填完（re.sub 不会回头再扫一遍填进去的内容）：翻译表里万一出现 "__NONCE__"，
         # 或者 nonce 里碰巧有 "__I18N__"，都不会被当成要填的地方。
-        fills = {"__NONCE__": nonce, "__I18N__": i18n.page_payload(self.server.web.app.settings.language)}
-        page = re.sub("__NONCE__|__I18N__", lambda match: fills[match.group(0)], PAGE)
+        fills = {
+            "__NONCE__": nonce,
+            "__I18N__": i18n.page_payload(self.server.web.app.settings.language),
+            "__MARKDOWN__": MARKDOWN,
+        }
+        page = re.sub("__NONCE__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
         self._send(
             200,
             "text/html; charset=utf-8",

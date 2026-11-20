@@ -12,7 +12,8 @@ PAGE = Path(__file__).parent.parent / "harness" / "webui" / "index.html"
 
 def _main_script() -> str:
     page = PAGE.read_text(encoding="utf-8")
-    return re.findall(r'<script nonce="__NONCE__">(.*?)</script>', page, flags=re.DOTALL)[1]
+    scripts = re.findall(r'<script nonce="__NONCE__">(.*?)</script>', page, flags=re.DOTALL)
+    return next(script for script in scripts if "这个页面做的事情很少" in script)
 
 
 def test_no_two_functions_share_a_name():

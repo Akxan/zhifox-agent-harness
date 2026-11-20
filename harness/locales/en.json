@@ -164,6 +164,7 @@
  "地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。": "The token in the address is this run's password; don't share it. Press Ctrl-C to quit.",
  "地址里缺少口令（token）。请使用终端里显示的完整地址打开。": "The address is missing its token. Open the full address shown in the terminal.",
  "复制": "Copy",
+ "复制代码": "Copy code",
  "复制失败：浏览器没有允许访问剪贴板。": "Couldn't copy: the browser didn't allow access to the clipboard.",
  "外观": "Appearance",
  "外观和动效": "Appearance and motion",
