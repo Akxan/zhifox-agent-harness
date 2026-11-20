@@ -33,6 +33,7 @@ MAX_IMAGE_BYTES = 7_500_000  # 原始大小。base64 之后正好 10 MB，不超
 MAX_PDF_BYTES = 25_000_000
 MAX_TEXT_CHARS = 400_000
 MAX_THUMB_CHARS = 150_000  # 页面自己生成的小预览图（data: 地址）最长这么多字符
+MAX_PREVIEW_CHARS = 600_000  # 点开看的大图（长边 1280 像素的 JPEG，一般一两百 KB）
 MAX_NAME_CHARS = 200
 
 KINDS = ("image", "pdf", "text")
@@ -69,12 +70,15 @@ class Attachment:
     data: str = ""  # 图片和 PDF 的内容，base64（不带 data: 前缀）
     text: str = ""  # 文本文件的内容
     thumb: str = ""  # 图片的小预览（data: 地址），只给页面看，不发给模型
+    preview: str = ""  # 点开看的大图（data: 地址）。完整的原图只在发给模型的历史里，页面拿不到，所以另存一张
 
     def summary(self) -> dict:
         """界面上显示这个附件要用的那几项。不含内容本身。"""
         shown = {"kind": self.kind, "name": self.name, "media_type": self.media_type, "size": self.size}
         if self.thumb:
             shown["thumb"] = self.thumb
+        if self.preview:
+            shown["preview"] = self.preview
         return shown
 
 
@@ -135,7 +139,8 @@ def _parse_one(item: object) -> Attachment:
     actual = sniff_image(content)
     if not actual:
         raise AttachmentError(t("图片“{name}”的格式不支持，只能是 PNG、JPEG、GIF 或 WebP。", name=name))
-    return Attachment("image", name, actual, len(content), data=data, thumb=valid_thumb(item.get("thumb")))
+    thumb, preview = valid_thumb(item.get("thumb")), valid_thumb(item.get("preview"), MAX_PREVIEW_CHARS)
+    return Attachment("image", name, actual, len(content), data=data, thumb=thumb, preview=preview)
 
 
 def sniff_image(content: bytes) -> str:
@@ -164,9 +169,9 @@ def clean_name(value: object) -> str:
     return name[: MAX_NAME_CHARS - 1] + "…"
 
 
-def valid_thumb(value: object) -> str:
-    """合格的预览图原样返回，否则返回空字符串（不显示预览，但不影响发送）。"""
-    if isinstance(value, str) and len(value) <= MAX_THUMB_CHARS and _THUMB.fullmatch(value):
+def valid_thumb(value: object, limit: int = MAX_THUMB_CHARS) -> str:
+    """合格的预览图（小缩略图或点开看的大图）原样返回，否则返回空字符串（不显示预览，但不影响发送）。"""
+    if isinstance(value, str) and len(value) <= limit and _THUMB.fullmatch(value):
         return value
     return ""
 
@@ -208,8 +213,9 @@ def from_saved(value: object) -> list[dict]:
         if not name or not isinstance(media_type, str) or not isinstance(size, int) or isinstance(size, bool) or size < 0:
             continue
         entry = {"kind": item["kind"], "name": name, "media_type": media_type[:100], "size": size}
-        thumb = valid_thumb(item.get("thumb")) if item["kind"] == "image" else ""
-        if thumb:
-            entry["thumb"] = thumb
+        if item["kind"] == "image":
+            for field, limit in (("thumb", MAX_THUMB_CHARS), ("preview", MAX_PREVIEW_CHARS)):
+                if value := valid_thumb(item.get(field), limit):
+                    entry[field] = value
         shown.append(entry)
     return shown

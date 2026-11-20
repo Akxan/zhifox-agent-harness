@@ -431,6 +431,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .msg-atts + .msg.user { margin-top: 6px; }
 .msg-atts .att.image { width: auto; height: 120px; max-width: 220px; }
 .msg-atts .att.image img { width: auto; max-width: 100%; height: 100%; }
+.att-open { display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; border-radius: 11px; cursor: zoom-in; }
+.msg-atts .att-open { width: auto; }
+.att-open img { transition: transform .25s var(--ease); }
+.att-open:hover img { transform: scale(1.04); }
+/* 看大图：图片按屏幕能放下的最大尺寸显示，下面一行是文件名和关闭按钮 */
+.viewer { max-width: 96vw; max-height: 94vh; padding: 0; overflow: visible; background: none; border: 0; }
+.viewer[open] { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: viewer-in .26s var(--ease); }
+.viewer::backdrop { background: rgba(8, 8, 12, .78); animation: fade .2s ease; }
+@keyframes viewer-in { from { opacity: 0; transform: scale(.94); } }
+.viewer img { display: block; max-width: 96vw; max-height: calc(94vh - 52px); object-fit: contain; background: #fff; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
+.viewer-bar { display: flex; align-items: center; gap: 8px; max-width: 96vw; color: #f4f4f6; font-size: 13px; }
+.viewer-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.viewer-bar .icon-button { color: #f4f4f6; }
+.viewer-bar .icon-button:hover { color: #fff; background: rgba(255, 255, 255, .14); }
 .send { position: relative; display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: var(--sunken); border: 0; border-radius: 50%; overflow: hidden; transition: transform .2s var(--ease); }
 .send::before, .send::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s ease; }
 .send::before { background: var(--aurora-solid); }
@@ -900,6 +914,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <div class="settings-body">
     <div id="language-options" class="options"></div>
     <p class="hint" data-i18n>换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。</p>
+  </div>
+</dialog>
+
+<dialog id="viewer" class="viewer" aria-label="查看图片" data-i18n-aria-label>
+  <img id="viewer-image" alt="">
+  <div class="viewer-bar">
+    <span id="viewer-name" class="viewer-name"></span>
+    <button id="close-viewer" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
 </dialog>
 
@@ -1618,7 +1640,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   const ATTACH_LIMIT = 10;
   const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   const IMAGE_BYTES = 7.5e6, PDF_BYTES = 25e6, TEXT_CHARS = 400000;  // 和助手程序那边的上限一致
-  const IMAGE_EDGE = 2576, THUMB_EDGE = 240;
+  const IMAGE_EDGE = 2576, THUMB_EDGE = 240, PREVIEW_EDGE = 1280;  // 发给模型的、列表里的、点开看的
   const TEXT_FILE = /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|ya?ml|toml|ini|cfg|conf|log|py|js|mjs|cjs|ts|tsx|jsx|html?|css|scss|sh|bash|zsh|c|h|cc|cpp|hpp|java|kt|go|rs|rb|php|swift|sql|r|lua|pl|tex|srt|vtt|env\.example)$/i;
   const THUMB_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
   const tray = $('tray'), fileInput = $('file-input');
@@ -1680,8 +1702,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     }
     const thumbScale = Math.min(1, THUMB_EDGE / Math.max(width, height));
     const thumb = drawScaled(bitmap, width * thumbScale, height * thumbScale, true).toDataURL('image/jpeg', .8);
+    // 点开看的大图。完整的原图只进发给模型的历史，页面以后拿不到，所以另存一张够看清楚的
+    const previewScale = Math.min(1, PREVIEW_EDGE / Math.max(width, height));
+    const preview = drawScaled(bitmap, width * previewScale, height * previewScale, true).toDataURL('image/jpeg', .85);
     bitmap.close();
-    return { kind: 'image', media_type: type, size: blob.size, data: await base64Of(blob), thumb };
+    return { kind: 'image', media_type: type, size: blob.size, data: await base64Of(blob), thumb, preview };
   }
 
   async function readAttachment(file) {
@@ -1726,10 +1751,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const card = el('div', 'att ' + (item.kind === 'image' && item.thumb ? 'image' : 'file') + (item.loading ? ' busy-att' : ''));
     card.title = item.name;
     if (item.kind === 'image' && item.thumb && THUMB_URL.test(item.thumb)) {
-      const image = card.appendChild(el('img'));
+      const open = card.appendChild(el('button', 'att-open'));
+      open.type = 'button';
+      tattr(open, 'title', k('点击查看大图'));
+      const image = open.appendChild(el('img'));
       image.alt = item.name;
       image.src = item.thumb;  // 只接受 data: 开头的图片（页面的安全策略也只允许这种）
-      card.appendChild(el('span', 'sr-only', item.name));  // 文件名：读屏软件读它，搜索跳转也靠它找到这张图
+      open.appendChild(el('span', 'sr-only', item.name));  // 文件名：读屏软件读它，搜索跳转也靠它找到这张图
+      open.addEventListener('click', () => {
+        // 还没发出去的手里有原图；对话里的只有存下来的大图（旧会话里没有的话就用缩略图）
+        const full = item.data && item.media_type ? 'data:' + item.media_type + ';base64,' + item.data : '';
+        const shown = [full, item.preview, item.thumb].find((url) => url && (url === full || THUMB_URL.test(url)));
+        openViewer(shown, item.name);
+      });
     } else {
       card.appendChild(icon(item.kind === 'image' ? 'bookmark' : 'file'));
       const text = card.appendChild(el('span', 'att-text'));
@@ -1767,10 +1801,23 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     for (const item of list) {
       if (!item || typeof item !== 'object') continue;
       const kind = ['image', 'pdf', 'text'].includes(item.kind) ? item.kind : 'text';
-      row.appendChild(attachmentCard({ kind, name: String(item.name || ''), size: Number(item.size) || 0, thumb: typeof item.thumb === 'string' ? item.thumb : '' }, false));
+      const thumb = typeof item.thumb === 'string' ? item.thumb : '', preview = typeof item.preview === 'string' ? item.preview : '';
+      row.appendChild(attachmentCard({ kind, name: String(item.name || ''), size: Number(item.size) || 0, thumb, preview }, false));
     }
     return row;
   }
+
+  // 看大图：一个铺满屏幕的对话框。Esc、点图片外面、点 × 都能关
+  const viewer = $('viewer');
+  function openViewer(url, name) {
+    if (!url) return;
+    $('viewer-image').src = url;
+    $('viewer-image').alt = name;
+    $('viewer-name').textContent = name;
+    viewer.showModal();
+  }
+  $('close-viewer').addEventListener('click', () => viewer.close());
+  viewer.addEventListener('close', () => { $('viewer-image').removeAttribute('src'); });  // 关掉就放开这张图占的内存
 
   $('attach').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
@@ -1838,10 +1885,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (busy && (text || files.length)) { toast(t(BUSY_HINT)); return; }
     if ((!text && !files.length) || busy || sending) return;
     // 整条消息（连同附件）最多约 64 MB，超过的助手程序会直接退回。base64 编码后的大小就是要发的字节数，文字按最坏情况算
-    const bytes = files.reduce((sum, item) => sum + (item.data || '').length + (item.thumb || '').length + (item.text || '').length * 3, text.length * 3);
+    const bytes = files.reduce((sum, item) => sum + (item.data || '').length + (item.thumb || '').length + (item.preview || '').length + (item.text || '').length * 3, text.length * 3);
     if (bytes > 62e6) { toast(t('附件加起来太大了：一条消息连同附件最多约 64 MB。可以分成几条发。')); return; }
     sending = true;
-    const attachments = files.map(({ kind, name, media_type, data, text: content, thumb }) => ({ kind, name, media_type, data, text: content, thumb }));
+    const attachments = files.map(({ kind, name, media_type, data, text: content, thumb, preview }) => ({ kind, name, media_type, data, text: content, thumb, preview }));
     const sent = await post('/api/message', files.length ? { text, attachments } : { text });
     sending = false;
     if (!sent) return;  // 没发出去（比如当前的模型看不了图片）：附件和文字都留着，改一改还能再发
@@ -2689,7 +2736,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
   // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-  for (const dialog of [settings, approvalDialog, languageDialog]) {
+  for (const dialog of [settings, approvalDialog, languageDialog, viewer]) {
     let pressedOutside = false;
     dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
     dialog.addEventListener('click', (click) => { if (click.target === dialog && pressedOutside) dialog.close(); });
@@ -2712,11 +2759,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
     if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
       key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
-      if (settings.open || approvalDialog.open || languageDialog.open) return;
+      if (settings.open || approvalDialog.open || languageDialog.open || viewer.open) return;
       setNav(true, false);
       search.focus();
       search.select();
-    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open) {
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) { setNav(false, false); refocus($('nav-open'), nav); }
       if (overlaySide.matches && body.classList.contains('side-open')) { setSide(false, false); refocus($('side-toggle'), side); }
     }

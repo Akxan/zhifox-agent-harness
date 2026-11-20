@@ -35,8 +35,10 @@ from harness.app import build_app
 from harness.attachments import (
     MAX_IMAGE_BYTES,
     MAX_PDF_BYTES,
+    MAX_PREVIEW_CHARS,
     MAX_TEXT_CHARS,
     MAX_THUMB_CHARS,
+    from_saved,
 )
 from harness.conversations import ConversationStore
 from harness.search import MAX_QUERY_CHARS
@@ -1985,6 +1987,23 @@ def test_bad_thumbnails_are_dropped_and_the_message_still_goes(serve):
     assert [item.get("thumb") for item in user["attachments"]] == [THUMB, None, None, None, None, None]
     assert user["text"] == "看看这些"
     assert len(s.api.requests[0]["messages"][0]["content"]) == len(thumbs) + 2  # 图片一张不少地发了出去
+
+
+def test_a_larger_preview_is_kept_for_opening_the_image(serve, tmp_path):
+    # 点开缩略图看的大图：完整的原图只在发给模型的历史里，页面拿不到，所以页面另外送一张大一些的预览来存着。
+    # 它和小缩略图一样只能是图片的 data: 地址；只是长度上限大一些
+    s = serve(reply(text("收到。")))
+    preview = "data:image/jpeg;base64," + "A" * (MAX_THUMB_CHARS + 4)  # 比缩略图的上限长，但在预览图的上限之内
+    too_long = "data:image/jpeg;base64," + "A" * MAX_PREVIEW_CHARS
+    status, _ = send_files(s, image("大.png", thumb=THUMB, preview=preview), image("太大.png", preview=too_long),
+                           image("坏.png", preview="javascript:alert(1)"))
+    assert status == 200
+    s.browser.wait_for("turn_end")
+    (user,) = s.browser.of_type("user")
+    assert [item.get("preview") for item in user["attachments"]] == [preview, None, None]
+    assert all("preview" not in str(block) for block in s.api.requests[0]["messages"][0]["content"])  # 不发给模型
+    # 存下来的会话重新打开时，预览图还在
+    assert from_saved(user["attachments"])[0]["preview"] == preview
 
 
 def test_only_messages_may_carry_a_large_body(serve):

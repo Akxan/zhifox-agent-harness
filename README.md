@@ -480,7 +480,7 @@ This starts a small server on your computer and opens the chat page in your brow
 
   Claude, GPT and Gemini can see images; DeepSeek takes text only. If the current model can't take an attachment,
   ZhiFox tells you when you add it. Attachments are saved with the conversation, so their thumbnails come back when
-  you reopen it.
+  you reopen it. Click a thumbnail to view the image full size (Esc or a click outside closes it).
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, and enter model prices.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
