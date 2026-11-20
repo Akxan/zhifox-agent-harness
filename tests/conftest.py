@@ -28,6 +28,7 @@ class RecordingUI:
         self.calls: list[str] = []
         self.results: list[tuple[str, bool]] = []
         self.confirmations: list[str] = []
+        self.auto_allowed_count = 0  # 有几次是没问用户、自动放行的
         self.infos: list[str] = []
 
     def thinking(self, text: str) -> None:
@@ -51,6 +52,9 @@ class RecordingUI:
     def confirm(self, description: str) -> tuple[bool, str]:
         self.confirmations.append(description)
         return self.approve, self.feedback
+
+    def auto_allowed(self) -> None:
+        self.auto_allowed_count += 1
 
     def info(self, text: str) -> None:
         self.infos.append(text)

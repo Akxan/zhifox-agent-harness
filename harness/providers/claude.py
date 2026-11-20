@@ -10,6 +10,11 @@ from typing import Any
 
 import anthropic
 
+try:  # anthropic 的 SDK 用这个库收发网络请求。回复收到一半断线时，抛出来的是它的错误，不是 SDK 自己的
+    import httpx2 as transport
+except ImportError:  # 旧一些的 SDK 用的是它的前身
+    import httpx as transport
+
 from ..config import (
     ENABLE_COMPACTION,
     ENABLE_FALLBACKS,
@@ -18,6 +23,7 @@ from ..config import (
     Config,
 )
 from ..display import describe_call
+from ..safe import clean, has_bad_number, tame
 from ..tools import ToolRegistry
 from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage
 
@@ -128,11 +134,12 @@ class AnthropicBackend:
 
         # 把模型的回复原样追加进历史。不能只存文字：思考块、工具调用块下次都要原样发回去。
         kept = blocks_to_keep(response.content)
-        if kept:
-            self._messages.append({"role": "assistant", "content": [_plain(block) for block in kept]})
+        content = [_plain(block) for block in kept]
+        step.tool_calls = [_tool_call(block, data) for block, data in zip(kept, content) if block.type == "tool_use"]
+        if content:
+            self._messages.append({"role": "assistant", "content": content})
 
         step.truncated = response.stop_reason == "max_tokens"
-        step.tool_calls = [ToolCall(block.id, block.name, block.input) for block in kept if block.type == "tool_use"]
         if response.stop_reason == "pause_turn":
             step.status = "paused"
         elif step.tool_calls:
@@ -148,13 +155,17 @@ class AnthropicBackend:
                     for event in stream:
                         self._show(event, ui)
                     return stream.get_final_message()
-            except ValueError:
+            except ValueError as exc:
                 # 极少数情况下，模型生成的工具参数不是合法的 JSON，SDK 解析不了。重新请求一次即可。
                 if attempt == attempts:
-                    raise
+                    raise ProviderError(f"模型连续 {attempts} 次返回了解析不了的内容，这一轮没有完成（{exc}）。可以再试一次。") from exc
                 ui.info("模型返回的工具参数格式有误，正在重试……")
             except anthropic.APIError as exc:
                 raise ProviderError(_explain(exc, self.model)) from exc
+            except transport.HTTPError as exc:
+                # 连上了、也开始收回复了，但中途断了（网络抖动、电脑休眠、代理超时）。
+                # 已经显示出来的半截内容不算数：这一步没有走完，循环会把它撤掉。
+                raise ProviderError("和 Anthropic 的连接中断了，这一轮没有完成。请检查网络后再试一次。") from exc
             finally:
                 ui.end_stream()
         raise AssertionError("unreachable")
@@ -174,6 +185,27 @@ class AnthropicBackend:
                 notice = block_notice(block)
                 if notice is not None:
                     ui.notice(*notice)
+
+
+def _tool_call(block: Any, data: dict) -> ToolCall:
+    """把模型发来的一次工具调用整理成循环能执行的样子。data 是这个块要存进历史的那一份。
+
+    参数里要是有 NaN 或无穷大（比如模型写了 1e999），这次调用不执行，把原因告诉模型：
+    这样的数写不成合法的 JSON，留在历史里的话，这段会话之后就既存不了盘、也发不出下一次请求了。
+    所以存进历史和显示给用户的那一份，把它们换成说明性的文字。
+    """
+    try:
+        bad = has_bad_number(block.input)
+    except RecursionError:  # 嵌套深得不正常：同样不执行
+        bad = True
+    if not bad:
+        return ToolCall(block.id, block.name, clean(block.input))
+    try:
+        data["input"] = tame(block.input)
+    except RecursionError:
+        data["input"] = {}
+    problem = "参数里有 NaN、无穷大这样不是数的数，或者嵌套得太深，这次调用没有执行。请用正常的参数重新调用。"
+    return ToolCall(block.id, block.name, data["input"], error=problem)
 
 
 def _plain(block: Any) -> dict:

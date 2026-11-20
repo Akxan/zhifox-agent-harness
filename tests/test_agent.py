@@ -199,6 +199,87 @@ def test_writing_a_file_asks_first(start):
     assert "第一行" in h.ui.confirmations[0]
 
 
+# ---- 自动允许 -------------------------------------------------------------
+# 用户可以放宽"问不问"（见 permissions.py 的 MODES）。下面三个测试看的是循环里实际发生了什么。
+
+
+def test_edits_mode_changes_workspace_files_without_asking(start, tmp_path):
+    h = start(
+        reply(
+            tool_use("toolu_1", FILE_TOOL, {"command": "create", "path": "a.txt", "file_text": "第一行"}),
+            tool_use("toolu_2", FILE_TOOL, {"command": "str_replace", "path": "a.txt", "old_str": "第一行", "new_str": "改过了"}),
+            tool_use("toolu_3", "run_command", {"command": "touch b.txt"}),
+            tool_use("toolu_4", FILE_TOOL, {"command": "create", "path": str(tmp_path / "outside.txt"), "file_text": "x"}),
+            stop_reason="tool_use",
+        ),
+        reply(text("好的。")),
+        approve=False,  # 凡是问到用户的，一律拒绝：这样"问没问"从结果上就看得出来
+    )
+    assert h.agent.permissions.mode == "ask"  # 每次启动都从"每次都问"开始
+    h.agent.permissions.mode = "edits"
+    h.agent.run_turn("改几个文件")
+
+    # 工作目录里的文件：没有问就改了，并且告诉了界面"这两次是自动放行的"
+    assert (h.config.workspace / "a.txt").read_text(encoding="utf-8") == "改过了"
+    assert h.ui.auto_allowed_count == 2
+    # 执行命令、写工作目录之外的文件：照常先问
+    assert len(h.ui.confirmations) == 2
+    assert "touch b.txt" in h.ui.confirmations[0] and "outside.txt" in h.ui.confirmations[1]
+    assert not (h.config.workspace / "b.txt").exists() and not (tmp_path / "outside.txt").exists()
+    assert [result.get("is_error", False) for result in tool_results(h.api.requests[1])] == [False, False, True, True]
+
+
+def test_all_mode_asks_nothing_but_the_key_file_stays_off_limits(start):
+    h = start(
+        reply(
+            tool_use("toolu_1", "run_command", {"command": "touch made.txt"}),
+            tool_use("toolu_2", FILE_TOOL, {"command": "view", "path": ".env"}),
+            tool_use("toolu_3", FILE_TOOL, {"command": "create", "path": ".env", "file_text": "KEY=replaced"}),
+            stop_reason="tool_use",
+        ),
+        reply(text("好的。")),
+        approve=False,
+    )
+    (h.config.workspace / ".env").write_text("ANTHROPIC_API_KEY=the-real-one", encoding="utf-8")
+    h.agent.permissions.mode = "all"
+    h.agent.run_turn("随便做")
+
+    assert h.ui.confirmations == []  # 一次都没有问
+    assert (h.config.workspace / "made.txt").exists()
+    command, read, write = tool_results(h.api.requests[1])
+    assert "is_error" not in command
+    # 保存密钥的文件是工具自己拒绝的，和"问不问"无关：全部放开之后照样读不了、改不了
+    for result in (read, write):
+        assert result["is_error"] is True and "密钥" in result["content"] and "the-real-one" not in result["content"]
+    assert (h.config.workspace / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=the-real-one"
+    assert "the-real-one" not in json.dumps(h.api.requests, ensure_ascii=False)  # 密钥没有被发给模型
+
+
+def test_the_assistants_own_data_is_only_opened_without_asking_when_everything_is_allowed(start, tmp_path):
+    data_dir = tmp_path / "work" / "data"  # 像在项目目录里运行时那样：数据目录就在工作目录里面
+
+    def turn(number: int) -> dict:
+        return reply(
+            tool_use(f"toolu_{number}a", FILE_TOOL, {"command": "view", "path": "data/old-conversation.json"}),
+            tool_use(f"toolu_{number}b", FILE_TOOL, {"command": "create", "path": f"data/new-{number}.txt", "file_text": "x"}),
+            stop_reason="tool_use",
+        )
+
+    h = start(turn(1), reply(text("好")), turn(2), reply(text("好")), turn(3), reply(text("好")), data_dir=data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "old-conversation.json").write_text("以前聊过的内容", encoding="utf-8")
+
+    counted = {}
+    for mode in ("ask", "edits", "all"):
+        h.agent.permissions.mode = mode
+        asked, allowed = len(h.ui.confirmations), h.ui.auto_allowed_count
+        h.agent.run_turn("看看数据目录")
+        counted[mode] = (len(h.ui.confirmations) - asked, h.ui.auto_allowed_count - allowed)
+    # （问了几次，自动放行了几次）。"改文件不用问"说的是工作目录里用户自己的文件，不包括助手存的数据
+    assert counted == {"ask": (2, 0), "edits": (2, 0), "all": (0, 2)}
+    assert "助手自己保存的数据" in h.ui.confirmations[0]
+
+
 def test_tool_errors_go_back_to_the_model(start):
     h = start(
         reply(

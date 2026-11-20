@@ -1525,3 +1525,150 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
 
     monkeypatch.setattr(FakeProcess, "wait", still_running)
     server_module.reveal_in_file_manager(plain)
+
+
+# ---- 自动允许 -------------------------------------------------------------
+# 用户可以放宽"要不要每次都问"：ask 每次都问（默认），edits 改工作目录里的文件不用问，all 全部自动允许。
+
+
+def set_approval(s, mode: str) -> dict:
+    """更改"要不要每次都问"，返回更改之后的状态。"""
+    last_id = s.ui.events_after(0, timeout=0)[-1]["id"]
+    assert s.browser.post("/api/approval", {"mode": mode}) == (200, {"ok": True})
+    while True:
+        state = s.browser.wait_for("state")
+        if state["id"] > last_id:
+            return state
+
+
+def without_states(browser: Browser) -> list[str]:
+    return [type for type in browser.types() if type != "state"]
+
+
+def test_approval_starts_at_ask_and_only_accepts_the_three_modes(serve):
+    s = serve()
+    assert latest_state(s.browser)["approval"] == "ask"
+
+    for mode in ("edits", "all", "ask", "all"):
+        assert set_approval(s, mode)["approval"] == mode  # 页面马上收到新的状态
+        assert s.app.agent.permissions.mode == mode
+
+    # 别的值一律不收，现在的模式不变，也不发新的状态
+    log = s.ui.events_after(0, timeout=0)
+    for bad in (
+        {"mode": "everything"}, {"mode": "ALL"}, {"mode": " all"}, {"mode": ""}, {"mode": 1}, {"mode": True},
+        {"mode": None}, {"mode": ["all"]}, {"mode": {"all": 1}}, {},
+    ):
+        assert s.browser.post("/api/approval", bad) == (400, {"error": "参数不正确"})
+    assert s.app.agent.permissions.mode == "all" and s.ui.events_after(0, timeout=0) == log
+
+    # 没带口令的、别的网站发起的请求：和其他接口一样，根本到不了这里
+    set_approval(s, "ask")
+    host, token = s.browser.host, s.browser.token
+    assert request(host, "POST", "/api/approval", {"mode": "all"})[0] == 403
+    evil = {"X-Harness-Token": token, "Origin": "http://evil.example"}
+    assert request(host, "POST", "/api/approval", {"mode": "all"}, evil)[0] == 403
+    assert s.app.agent.permissions.mode == "ask"
+
+
+def test_the_approval_mode_is_forgotten_when_the_program_restarts(serve):
+    s = serve()
+    set_approval(s, "all")
+    act(s, "/api/model", {"provider": "anthropic", "model": "claude-sonnet-5-5"})  # 让设置文件写一次
+
+    # 设置文件里没有这一项：放开之后忘了关，比每次多点一下危险得多，所以故意不记
+    saved = json.loads(s.config.settings_file.read_text(encoding="utf-8"))
+    assert set(saved) == {"provider", "model", "models", "prices"}
+    restarted = serve()  # 同一个数据目录：相当于把程序关掉再打开
+    assert latest_state(restarted.browser)["approval"] == "ask"
+    assert restarted.app.agent.permissions.mode == "ask"
+    assert latest_state(restarted.browser)["model"] == "claude-sonnet-5-5"  # 别的设置是记住了的
+
+
+def test_auto_allowed_calls_are_marked_live_and_when_the_conversation_is_reopened(serve):
+    s = serve(
+        reply(
+            tool_use("toolu_1", "run_command", {"command": "touch made.txt"}),
+            tool_use("toolu_2", "todo_list", {}),
+            stop_reason="tool_use",
+        ),
+        reply(text("建好了。")),
+        reply(text("这是另一段。")),
+    )
+    set_approval(s, "all")
+    first = say(s, "建个文件")["conversation"]
+
+    assert (s.config.workspace / "made.txt").exists()
+    assert s.browser.of_type("confirm") == []  # 没有弹出确认卡片
+    # "自动允许"紧跟在它说的那次工具调用后面、结果之前。本来就不用问的操作（查看待办）没有这个标记
+    shown = ["user", "turn_start", "tool_call", "auto_allowed", "tool_result", "tool_call", "tool_result", "text", "block_end"]
+    assert without_states(s.browser) == [*shown, "turn_end"]
+    (mark,) = s.browser.of_type("auto_allowed")
+    assert set(mark) == {"id", "type"}  # 不带任何数据：说的就是它前面那一次调用
+
+    # 存进了会话文件：以后翻看记录时，看得出哪些操作是没问就做了的
+    saved = saved_file(s.config, first)["events"]
+    assert kinds(saved) == shown and {"type": "auto_allowed"} in saved
+    act(s, "/api/new")
+    say(s, "另一段")
+    replayed, _ = open_conversation(s, first)
+    assert kinds(replayed) == [*shown, "turn_end"]
+
+
+def test_approval_can_be_changed_while_a_confirmation_is_waiting(serve):
+    s = serve(
+        reply(
+            tool_use("toolu_1", "run_command", {"command": "touch first.txt"}),
+            tool_use("toolu_2", "run_command", {"command": "touch second.txt"}),
+            stop_reason="tool_use",
+        ),
+        reply(text("好的。")),
+    )
+    s.browser.post("/api/message", {"text": "建两个文件"})
+    card = s.browser.wait_for("confirm")
+
+    # 对话进行中也可以改（换模型、填密钥这些设置这时候是改不了的）
+    assert s.browser.post("/api/model", {"provider": "anthropic", "model": "claude-sonnet-5-5"})[0] == 409
+    assert set_approval(s, "all")["approval"] == "all"
+    # 已经显示出来、正在等答复的那一张卡片不受影响：它还在等，什么都没有执行
+    time.sleep(0.2)
+    assert s.browser.of_type("confirm_done") == [] and not (s.config.workspace / "first.txt").exists()
+    assert s.browser.post("/api/confirm", {"id": card["id"], "allow": False, "feedback": "这个不要"})[0] == 200
+    s.browser.wait_for("turn_end")
+
+    # 第一个按用户的答复没有执行；第二个是改了之后才轮到的，不再问
+    assert not (s.config.workspace / "first.txt").exists() and (s.config.workspace / "second.txt").exists()
+    assert without_states(s.browser) == [
+        "user", "turn_start", "tool_call", "confirm", "confirm_done", "tool_result",
+        "tool_call", "auto_allowed", "tool_result", "text", "block_end", "turn_end",
+    ]
+    first, second = last_results(SimpleNamespace(messages=s.api.requests[1]["messages"]))
+    assert first["is_error"] is True and "这个不要" in first["content"] and "is_error" not in second
+
+    # 改回"每次都问"之后，下一次又会问了
+    set_approval(s, "ask")
+    assert s.app.agent.permissions.review("run_command", {"command": "true"}) is not None
+    assert not s.app.agent.permissions.auto_allows("run_command", {"command": "true"})
+
+
+def test_edits_mode_in_the_page_still_asks_before_running_commands(serve):
+    s = serve(
+        reply(
+            tool_use("toolu_1", "str_replace_based_edit_tool", {"command": "create", "path": "a.txt", "file_text": "内容"}),
+            tool_use("toolu_2", "run_command", {"command": "touch b.txt"}),
+            stop_reason="tool_use",
+        ),
+        reply(text("好的。")),
+    )
+    set_approval(s, "edits")
+    s.browser.post("/api/message", {"text": "写个文件，再执行个命令"})
+    card = s.browser.wait_for("confirm")  # 等到的第一张卡片是命令的：写文件那一步没有问
+
+    assert "touch b.txt" in card["description"]
+    assert (s.config.workspace / "a.txt").read_text(encoding="utf-8") == "内容"
+    assert s.browser.post("/api/confirm", {"id": card["id"], "allow": True})[0] == 200
+    s.browser.wait_for("turn_end")
+    assert without_states(s.browser) == [
+        "user", "turn_start", "tool_call", "auto_allowed", "tool_result",
+        "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "turn_end",
+    ]

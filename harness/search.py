@@ -13,8 +13,13 @@
                 只在这个词在所有会话里都原样找不到时才启用（那多半是敲错了）。
   3. 隔字包含   关键词的每个字按顺序都出现，中间可以隔几个字。
                 比如"交报"能找到"交了报告"，"hrns"能找到"harness"。
+                这一档最容易对上不相干的东西，所以管得严：英文关键词至少 4 个字母，
+                不能跨过空格（也就是只在一个单词里面找），夹进来的字不能超过关键词长度的一半；
+                中文关键词至少 2 个字，夹进来的字不能比关键词本身还多。
 
 多个关键词用空格隔开，要全部满足，先后顺序不限，也不要求出现在同一句话里。
+排序：每个关键词都原样找到的会话在最前面，然后是用到了"相近的词"的，最后是用到了"隔字包含"的；
+同一档里，命中在标题里的排在只在内容里的前面，一样相关时新的会话在前。
 
 没有做的：按拼音搜索（需要一张很大的汉字拼音对照表）。
 """
@@ -30,7 +35,7 @@ from itertools import islice
 MAX_QUERY_CHARS = 200  # 搜索词最长这么多字符
 MAX_TERMS = 8  # 最多几个关键词
 MAX_RESULTS = 50  # 最多返回几段会话
-RESULT_CHARS = 2000  # 每条工具结果只收录开头这么多字符：它们往往很长，又很少是用户想找的
+RESULT_CHARS = 600  # 每条工具结果只收录开头这么多字符：它们往往很长，又很少是用户想找的，全收进来最占内存
 GAP = 3  # "隔字包含"时，相邻两个字之间最多隔几个字
 LOOSE_MAX = 32  # 比这更长的关键词不做"隔字包含"：那么长的一串，要么原样找得到，要么就是找不到
 SNIPPET_BEFORE, SNIPPET_AFTER = 16, 64  # 摘录时，命中位置的前后各带上多少个字符
@@ -50,7 +55,26 @@ _SEARCHABLE = {
     "tool_call": ("tool", "summary"),
     "tool_result": ("result", "text"),
 }
-_WORD = re.compile(r"[a-z][a-z0-9_]{3,23}")  # 英文单词：字母开头，4 到 24 个字符
+# "相近的词"用的词表只收像英文单词的东西：4 到 16 个字母（可以带下划线），前后不挨着别的字母数字。
+# 工具输出里常有哈希值、base64 这样的长串，把它们切开收进来只会把词表撑大、让每次比较变慢。
+_WORD = re.compile(r"(?<![a-z0-9_])[a-z][a-z_]{3,15}(?![a-z0-9_])")
+
+
+class _FoldTable(dict):
+    """"统一写法"的对照表，给 str.translate 用：全角变半角，大写变小写。用到哪个字符才算哪个。
+
+    一个字符统一写法之后如果不再是一个字符（比如"㎏"会变成"kg"，"…"会变成三个点），就保持原样。
+    这样处理过的文字和原文一定一样长、位置一一对应，在它里面找到的位置可以直接拿去原文里摘录和标记。
+    """
+
+    def __missing__(self, code: int) -> str:
+        char = chr(code)
+        folded = unicodedata.normalize("NFKC", char).lower()
+        self[code] = folded if len(folded) == 1 else char
+        return self[code]
+
+
+_FOLD = _FoldTable()
 
 
 @dataclass(frozen=True)
@@ -73,9 +97,12 @@ class Document:
     updated_at: float
     title: Passage
     passages: tuple[Passage, ...]
-    text: str  # 所有文字（小写）连在一起，用来快速判断"这段会话里有没有这个词"
-    letters: frozenset[str]  # 出现过的所有字符，用来快速排除不可能"隔字包含"的会话
+    letters: frozenset[str]  # 出现过的所有字符，用来快速排除不可能命中的会话
     words: frozenset[str]  # 出现过的英文单词，给"相近的词"用
+
+    @property
+    def everywhere(self) -> tuple[Passage, ...]:
+        return (self.title, *self.passages)
 
 
 @dataclass(frozen=True)
@@ -84,7 +111,8 @@ class Needle:
 
     term: str
     similar: tuple[str, ...]  # 和它相近的词（多数时候没有）
-    loose: re.Pattern | None  # "隔字包含"用的正则；关键词太短时没有
+    loose: re.Pattern | None  # "隔字包含"用的正则；关键词太短或太长时没有
+    slack: int  # "隔字包含"时最多可以夹进来几个别的字
 
 
 @dataclass(frozen=True)
@@ -94,26 +122,25 @@ class Hit:
     passage: Passage
     start: int
     end: int
-    grade: float
+    grade: float  # 是哪一档命中的：EXACT、SIMILAR，或者不超过 LOOSE 的一个数（越紧凑越大）
 
     @property
     def score(self) -> float:
         return self.grade * WEIGHTS[self.passage.kind]
 
-
-def _fold(text: str) -> str:
-    """统一写法，方便比较：全角的字母、数字、标点变成半角的（NFKC），大写变成小写。"""
-    return unicodedata.normalize("NFKC", text).lower()
+    @property
+    def loose(self) -> bool:
+        return self.grade < SIMILAR
 
 
 def make_passage(kind: str, text: str) -> Passage:
-    shown = " ".join(text.split())  # 连续的空白（包括换行）压成一个空格，摘录出来才是整齐的一行
-    folded = _fold(shown)
-    if len(folded) != len(shown):
-        # 少数字符统一写法之后长度会变（比如"㎏"变成"kg"），位置就对不上了。
-        # 这时改成逐字处理，长度会变的那些字保持原样。
-        folded = "".join(one if len(one := _fold(char)) == 1 else char for char in shown)
-    return Passage(kind, shown, folded)
+    # 连续的空白（包括换行）压成一个空格，摘录出来才是整齐的一行。
+    # 再把"字母 + 单独的重音符号"这种拆开的写法合成一个字符（NFC；macOS 的文件名常是拆开的），
+    # 否则正常输入的关键词对不上它。
+    shown = unicodedata.normalize("NFC", " ".join(text.split()))
+    folded = shown.translate(_FOLD)
+    # 没有需要统一的地方时，两份就是同一段文字，不用在内存里存两遍
+    return Passage(kind, shown, shown if folded == shown else folded)
 
 
 def split_query(query: str) -> list[str]:
@@ -130,7 +157,9 @@ def split_query(query: str) -> list[str]:
 class SearchIndex:
     def __init__(self) -> None:
         self._documents: dict[str, Document] = {}
-        self._vocabulary: list[str] | None = None  # 所有会话里出现过的英文单词。索引一变就作废，用到时再算
+        self._version = 0  # 索引每变一次加一
+        # 所有会话里出现过的英文单词，连同算它时索引的版本号。版本对不上就是过期了，要重算
+        self._vocabulary: tuple[int, list[str]] | None = None
 
     def put(self, conversation_id: str, title: str, events: list, updated_at: float = 0.0) -> None:
         """收录（或更新）一段会话。events 是保存下来的界面事件。"""
@@ -147,51 +176,68 @@ class SearchIndex:
             if isinstance(value, str) and value.strip():
                 passages.append(make_passage(kind, value[:RESULT_CHARS] if kind == "result" else value))
         heading = make_passage("title", title if isinstance(title, str) else "")
-        text = "\n".join([heading.folded, *(passage.folded for passage in passages)])
+        # 字符和单词各记一份"出现过哪些"，用来快速排除。拼起来的这一长串只是临时用一下，不留在内存里
+        everything = "\n".join([heading.folded, *(passage.folded for passage in passages)])
         self._documents[conversation_id] = Document(
             id=conversation_id,
             updated_at=updated_at,
             title=heading,
             passages=tuple(passages),
-            text=text,
-            letters=frozenset(text),
-            words=frozenset(_WORD.findall(text)),
+            letters=frozenset(everything),
+            words=frozenset(_WORD.findall(everything)),
         )
-        self._vocabulary = None
+        self._version += 1
 
     def remove(self, conversation_id: str) -> None:
         self._documents.pop(conversation_id, None)
-        self._vocabulary = None
+        self._version += 1
 
     def search(self, query: str, limit: int = MAX_RESULTS) -> list[dict]:
         """返回命中的会话，最相关的排在前面。每一项说明命中在哪里，页面用它来显示和标出关键词。"""
         terms = split_query(query)
-        documents = list(self._documents.values())  # 先拍个快照：搜索的同时，另一个线程可能正在保存会话
+        # 先记下版本、拍个快照：搜索的同时，另一个线程可能正在保存会话
+        version = self._version
+        documents = list(self._documents.values())
         if not terms or not documents:
             return []
-        needles = [self._needle(term, documents) for term in terms]
+        needles = [self._needle(term, documents, version) for term in terms]
         found = []
         for document in documents:
             hits = [_find(needle, document) for needle in needles]
             if all(hits):  # 每个关键词都得找到
-                found.append((_all_exact(hits), sum(hit.score for hit in hits) / len(hits), document, hits))
-        # 先看是不是每个关键词都原样找到了：原样的整体排在模糊的前面，页面上也是分成这样两组显示的
-        # （只按分数排的话，标题里的模糊命中会排到工具输出里的原样命中前面）。
-        # 然后才是分数；一样相关时，新的在前。
-        found.sort(key=lambda item: (item[0], item[1], item[2].updated_at), reverse=True)
-        return [_result(document, needles, hits) for _, _, document, hits in found[:limit]]
+                # 越严格的排得越靠前：先看是不是每个关键词都原样找到了，再看有没有用到最宽松的"隔字包含"，
+                # 然后才是分数；一样相关时，新的在前。页面上也是把"全部原样"和其余的分成两组显示的。
+                order = (_all_exact(hits), not any(hit.loose for hit in hits), sum(hit.score for hit in hits) / len(hits))
+                found.append((order, document, hits))
+        found.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
+        return [_result(document, needles, hits) for _, document, hits in found[:limit]]
 
-    def _needle(self, term: str, documents: list[Document]) -> Needle:
+    def _needle(self, term: str, documents: list[Document], version: int) -> Needle:
         similar: tuple[str, ...] = ()
         # 相近的词：只对够长的英文单词做，而且只在它哪儿都原样找不到时才做
-        if len(term) >= 5 and _WORD.fullmatch(term) and not any(term in document.text for document in documents):
-            if self._vocabulary is None:
-                self._vocabulary = sorted(set().union(*(document.words for document in documents)))
-            similar = tuple(difflib.get_close_matches(term, self._vocabulary, n=3, cutoff=0.78))
-        loose = None
-        if (3 if term.isascii() else 2) <= len(term) <= LOOSE_MAX:  # 太短的词隔着字去找，几乎什么都能对上
+        if len(term) >= 5 and _WORD.fullmatch(term) and not any(_contains(document, term) for document in documents):
+            similar = tuple(difflib.get_close_matches(term, self._words(documents, version), n=3, cutoff=0.78))
+        # 隔字包含：太短的词隔着字去找，几乎什么都能对上（"css"能对上"process"），所以英文至少 4 个字母
+        loose, slack = None, 0
+        if (4 if term.isascii() else 2) <= len(term) <= LOOSE_MAX:
             loose = re.compile("(?=(" + _loose_pattern(term) + "))")  # 套一层 (?=...)：从每个位置都试一次，重叠的几处都能找出来
-        return Needle(term, similar, loose)
+            slack = len(term) // 2 if term.isascii() else len(term)
+        return Needle(term, similar, loose, slack)
+
+    def _words(self, documents: list[Document], version: int) -> list[str]:
+        """这批会话里出现过的所有英文单词。算一次不便宜，所以记下来，索引没变就接着用。"""
+        cached = self._vocabulary
+        if cached is not None and cached[0] == version:
+            return cached[1]
+        words = sorted(set().union(*(document.words for document in documents)))
+        # 连同版本号一起记：万一算的这会儿索引又变了，这份记录的版本对不上，下次自然会重算
+        self._vocabulary = (version, words)
+        return words
+
+
+def _contains(document: Document, word: str) -> bool:
+    """这段会话里有没有原样出现这个词。先用"出现过哪些字符"排除，多数会话到这一步就不用再看了。"""
+    return document.letters.issuperset(word) and any(word in passage.folded for passage in document.everywhere)
 
 
 def _loose_pattern(term: str) -> str:
@@ -201,12 +247,14 @@ def _loose_pattern(term: str) -> str:
     一种走法。如果写成"夹着任意字符"，遇到"哈哈哈哈哈哈"这样一长串重复的字，正则会把每一种隔法都试一遍，
     字每多一个，耗时就翻几倍，足以把整个程序卡住（Python 的正则在计算时不会让出线程）。
     代价是极少数情况下会漏掉一处本来对得上的地方，对"找个大概"来说可以接受。
+
+    夹着的字里也不能有空白：不然"ssh"会对上"class Handler"这样横跨两个单词的地方。
     """
     steps = []
     for char, following in zip(term, [*term[1:], ""]):
         steps.append(re.escape(char))
         if following:
-            steps.append(f"[^{re.escape(following)}]{{0,{GAP}}}")
+            steps.append(f"[^{re.escape(following)}\\s]{{0,{GAP}}}")
     return "".join(steps)
 
 
@@ -220,15 +268,15 @@ def _find(needle: Needle, document: Document, body_only: bool = False) -> Hit | 
 
     body_only 为真时不看标题，也不用最宽松的那一档：用在"标题已经对上了，看看内容里有没有可以摘录的"。
     """
-    everywhere = document.passages if body_only else (document.title, *document.passages)
+    everywhere = document.passages if body_only else document.everywhere
     # 第一档：原样包含；第二档：相近的词
     for word, grade in ((needle.term, EXACT), *((word, SIMILAR) for word in needle.similar)):
-        if word not in document.text:
-            continue
+        if not document.letters.issuperset(word):
+            continue  # 连这几个字符都凑不齐，不用一段段去找了
         hits = [Hit(passage, at, at + len(word), grade) for passage in everywhere if (at := passage.folded.find(word)) >= 0]
         if hits:
             return max(hits, key=lambda hit: hit.score)  # 分数一样时取靠前的那一处
-    # 第三档：隔字包含。会话里连这几个字都凑不齐的话，就不用费劲去找了
+    # 第三档：隔字包含
     if body_only or needle.loose is None or not document.letters.issuperset(needle.term):
         return None
     best = None
@@ -243,11 +291,11 @@ def _find(needle: Needle, document: Document, body_only: bool = False) -> Hit | 
 
 
 def _tightest(needle: Needle, folded: str) -> tuple[int, int] | None:
-    """隔字包含：找出最紧凑的那一处。中间夹的字不能比关键词本身还多，否则就太牵强了。"""
+    """隔字包含：找出最紧凑的那一处。夹进来的字太多（超过 needle.slack）就太牵强了，不算。"""
     best = None
     for match in islice(needle.loose.finditer(folded), 2000):
         start, end = match.span(1)
-        if end - start > 2 * len(needle.term):
+        if end - start - len(needle.term) > needle.slack:
             continue
         if best is None or end - start < best[1] - best[0]:
             best = (start, end)
@@ -266,41 +314,43 @@ def _result(document: Document, needles: list[Needle], hits: list[Hit]) -> dict:
         "id": document.id,
         "exact": _all_exact(hits),
         "title": title.shown,
-        "title_marks": _marks(title, needles, 0, len(title.shown), title.shown),
+        "title_marks": _marks(title, needles, hits, 0, len(title.shown), title.shown),
         # 摘录内容里最相关的那一处。只有标题对得上的话就没有摘录
-        "snippet": _snippet(max(in_body, key=lambda hit: hit.score), needles) if in_body else None,
+        "snippet": _snippet(max(in_body, key=lambda hit: hit.score), needles, hits) if in_body else None,
     }
 
 
-def _snippet(hit: Hit, needles: list[Needle]) -> dict:
+def _snippet(hit: Hit, needles: list[Needle], hits: list[Hit]) -> dict:
     """把命中位置前后的一小段文字摘出来。"""
     passage = hit.passage
     start = max(0, hit.start - SNIPPET_BEFORE)
     end = min(len(passage.shown), hit.end + SNIPPET_AFTER)
     lead = "…" if start > 0 else ""
     text = lead + passage.shown[start:end] + ("…" if end < len(passage.shown) else "")
+    marks = _marks(passage, needles, hits, start, end, text[len(lead) :])
     return {
         "kind": passage.kind,
         "text": text,
-        "marks": [[first + len(lead), last + len(lead)] for first, last in _marks(passage, needles, start, end, text[len(lead) :])],
+        "marks": [[first + len(lead), last + len(lead)] for first, last in marks],
         "find": passage.shown[hit.start : hit.end],  # 命中的原文。页面打开会话后靠它找到并滚到那个位置
     }
 
 
-def _marks(passage: Passage, needles: list[Needle], start: int, end: int, shown: str) -> list[list[int]]:
-    """这段文字的 [start, end) 范围里，哪些位置该标出来。
+def _marks(passage: Passage, needles: list[Needle], hits: list[Hit], start: int, end: int, shown: str) -> list[list[int]]:
+    """这段文字的 [start, end) 范围里，哪些位置该标出来。hits 是每个关键词在这段会话里是怎么命中的。
 
     返回的位置从 start 算起，并且换算成了浏览器里字符串的下标：JavaScript 的字符串按 UTF-16 计数，
     一个表情符号占两格，而 Python 里只占一格。不换算的话，文字里一有表情，后面标的位置就全偏了。
     """
     window = passage.folded[start:end]
     spans: list[tuple[int, int]] = []
-    for needle in needles:
+    for needle, hit in zip(needles, hits):
         found = [match.span() for word in (needle.term, *needle.similar) for match in re.finditer(re.escape(word), window)]
-        if not found and needle.loose is not None and (loose := _tightest(needle, window)):
-            # 隔字包含：只标对上的那几个字，不标中间夹着的
+        # 隔字的标法只用在"这个关键词在这段会话里确实是靠隔字包含才找到的"时候。
+        # 否则会把不相干的地方标出来：搜"git"，回复里原样有"git log"，标题"Debugging it"却被标成了 g…it
+        if not found and hit.loose and needle.loose is not None and (loose := _tightest(needle, window)):
             at = loose[0]
-            for char in needle.term:
+            for char in needle.term:  # 只标对上的那几个字，不标中间夹着的
                 at = window.index(char, at)
                 found.append((at, at + 1))
                 at += 1
@@ -313,6 +363,7 @@ def _marks(passage: Passage, needles: list[Needle], start: int, end: int, shown:
             merged.append([first, last])
 
     def units(index: int) -> int:
-        return len(shown[:index].encode("utf-16-le")) // 2
+        # surrogatepass：万一文字里有半个表情这样编码不了的字符，也照样数得出来，不让整次搜索失败
+        return len(shown[:index].encode("utf-16-le", "surrogatepass")) // 2
 
     return [[units(first), units(last)] for first, last in merged[:MAX_MARKS]]

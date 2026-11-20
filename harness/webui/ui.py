@@ -28,7 +28,19 @@ MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符�
 # 会话文件里可以重放给页面的事件类型。别的类型（尤其是"状态"和"清空页面"）只能由程序自己发出：
 # 文件万一被改坏、或者被人动过手脚，也不能借着重放去冒充它们。
 REPLAYABLE = frozenset(
-    {"user", "turn_start", "turn_end", "thinking", "text", "block_end", "notice", "tool_call", "tool_result", "confirm"}
+    {
+        "user",
+        "turn_start",
+        "turn_end",
+        "thinking",
+        "text",
+        "block_end",
+        "notice",
+        "tool_call",
+        "tool_result",
+        "confirm",
+        "auto_allowed",
+    }
 )
 
 
@@ -152,9 +164,9 @@ class WebUI:
         if open_turns > 0:
             self.publish("turn_end")  # 保存的内容停在一轮中间：补上结尾，免得页面以为还在进行
 
-    def hint(self, text: str) -> None:
+    def hint(self, text: str, level: str = "info") -> None:
         """一句只显示、不保存的提示。"""
-        self.publish("notice", level="info", text=text, transient=True)
+        self.publish("notice", level=level, text=text, transient=True)
 
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
@@ -219,6 +231,10 @@ class WebUI:
         self._check_stop()
         self.end_stream()
         self.publish("tool_call", name=name, summary=describe_call(name, tool_input), input=tool_input)
+
+    def auto_allowed(self) -> None:
+        """刚才那次工具调用本来要问用户，但用户设置了自动允许。页面会在那张工具卡片上标出来。"""
+        self.publish("auto_allowed")
 
     def tool_result(self, text: str, is_error: bool) -> None:
         if len(text) > MAX_RESULT_CHARS:

@@ -139,3 +139,6 @@ class TerminalUI:
 
     def tool_result(self, text: str, is_error: bool) -> None:
         self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}")
+
+    def auto_allowed(self) -> None:
+        self.info("   （自动允许）")

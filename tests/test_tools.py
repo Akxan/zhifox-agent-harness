@@ -7,7 +7,7 @@ import os
 import pytest
 
 from harness.config import load_env_file
-from harness.permissions import Permissions
+from harness.permissions import MODES, Permissions
 from harness.tools.base import ToolError, check_input
 from harness.tools.files import FileEditor
 from harness.tools.memory import make_memory_tool
@@ -181,6 +181,99 @@ def test_permission_rules(editor, tmp_path):
     assert str(tmp_path / "outside.txt") in ask(
         FILE_TOOL, command="create", path=str(tmp_path / "outside.txt"), file_text="x"
     )
+
+
+def test_the_assistants_own_data_is_not_read_without_asking(tmp_path):
+    # 在项目目录里运行时，数据目录（保存的会话、设置、待办）就在工作目录里面。把它当成普通的工作目录文件的话，
+    # 模型不用问就能把以前所有会话的内容读走，发给现在用的这一家厂商
+    workspace = tmp_path / "work"
+    data = workspace / "data"
+    (data / "conversations").mkdir(parents=True)
+    (data / "conversations" / "20261120-140000-aaaaaa.json").write_text("{}", encoding="utf-8")
+    (workspace / "notes.txt").write_text("x", encoding="utf-8")
+    (workspace / "database").mkdir()  # 名字相近但不是数据目录
+    editor = FileEditor(workspace, data / "backups", protected=[workspace / ".env"])
+    permissions = Permissions(editor, private=[data])
+
+    def ask(**tool_input) -> str | None:
+        return permissions.review(FILE_TOOL, tool_input)
+
+    # 工作目录里别的文件照常直接读
+    assert ask(command="view", path="notes.txt") is None and ask(command="view", path=".") is None
+    assert ask(command="view", path="database") is None and ask(command="view", path="data.txt") is None
+    # 数据目录本身、里面的文件、绕着弯写的路径、指进去的符号链接：一律先问
+    (workspace / "shortcut").symlink_to(data / "conversations")
+    for inside in (
+        "data",
+        "data/conversations",
+        "data/conversations/20261120-140000-aaaaaa.json",
+        "data/settings.json",
+        "notes/../data/todos.json",
+        str(data / "conversations" / "20261120-140000-aaaaaa.json"),
+        "shortcut/20261120-140000-aaaaaa.json",
+    ):
+        question = ask(command="view", path=inside)
+        assert question is not None and "助手自己保存的数据" in question, inside
+    # 往里写本来就要问
+    assert "创建文件" in ask(command="create", path="data/x.json", file_text="{}")
+    # 记忆走的是它自己的工具，不受影响；没有配置数据目录时（单独使用 Permissions）和以前一样
+    assert permissions.review("memory", {"command": "view", "path": "/memories"}) is None
+    assert Permissions(editor).review(FILE_TOOL, {"command": "view", "path": "data/settings.json"}) is None
+
+
+def test_auto_allow_modes_decide_what_is_done_without_asking(tmp_path):
+    workspace = tmp_path / "work"
+    data = workspace / "data"
+    data.mkdir(parents=True)
+    (workspace / "a.txt").write_text("x", encoding="utf-8")
+    editor = FileEditor(workspace, data / "backups", protected=[workspace / ".env"])
+    permissions = Permissions(editor, private=[data])
+    outside = str(tmp_path / "outside.txt")
+
+    # 每一行：一次工具调用，以及它在三种模式下是不是"不用问就可以做"（ask、edits、all）
+    cases = [
+        ((FILE_TOOL, {"command": "create", "path": "new.txt", "file_text": "内容"}), (False, True, True)),
+        ((FILE_TOOL, {"command": "str_replace", "path": "a.txt", "old_str": "x", "new_str": "y"}), (False, True, True)),
+        ((FILE_TOOL, {"command": "insert", "path": "a.txt", "insert_line": 0, "insert_text": "y"}), (False, True, True)),
+        ((FILE_TOOL, {"command": "create", "path": "sub/../b.txt", "file_text": "x"}), (False, True, True)),
+        # 下面这些，"改文件不用问"并不包括
+        ((FILE_TOOL, {"command": "create", "path": outside, "file_text": "x"}), (False, False, True)),  # 工作目录之外
+        ((FILE_TOOL, {"command": "create", "path": "../outside.txt", "file_text": "x"}), (False, False, True)),
+        ((FILE_TOOL, {"command": "create", "path": "data/settings.json", "file_text": "{}"}), (False, False, True)),  # 数据目录
+        ((FILE_TOOL, {"command": "view", "path": outside}), (False, False, True)),  # 读工作目录之外的文件
+        ((FILE_TOOL, {"command": "view", "path": "data/settings.json"}), (False, False, True)),  # 读数据目录
+        (("run_command", {"command": "rm -rf build"}), (False, False, True)),  # 执行命令
+    ]
+    assert permissions.mode == "ask"  # 一开始总是"每次都问"
+    for mode_index, mode in enumerate(MODES):
+        permissions.mode = mode
+        for (tool, tool_input), expected in cases:
+            # 模式只决定"问不问"；这次操作需不需要确认、确认时给用户看什么，和模式无关
+            assert permissions.review(tool, tool_input) is not None, (mode, tool_input)
+            assert permissions.auto_allows(tool, tool_input) is expected[mode_index], (mode, tool_input)
+    assert list(MODES) == ["ask", "edits", "all"]
+
+    # 本来就不用问的操作，问"能不能自动放行"没有意义，但也不该出错
+    permissions.mode = "edits"
+    assert permissions.review(FILE_TOOL, {"command": "view", "path": "a.txt"}) is None
+    assert permissions.auto_allows(FILE_TOOL, {"command": "view", "path": "a.txt"}) is False
+    assert permissions.auto_allows(FILE_TOOL, "不是字典") is False
+    assert permissions.auto_allows(FILE_TOOL, {"command": "create"}) is False  # 没有路径
+
+
+def test_the_key_file_stays_off_limits_in_every_mode(tmp_path):
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (workspace / ".env").write_text("ANTHROPIC_API_KEY=secret", encoding="utf-8")
+    editor = FileEditor(workspace, tmp_path / "data" / "backups", protected=[workspace / ".env"])
+    permissions = Permissions(editor, private=[tmp_path / "data"])
+    # 自动允许放宽的只是"问不问"。保存密钥的文件是工具自己拒绝的，哪种模式下都读不了、改不了
+    for mode in MODES:
+        permissions.mode = mode
+        for tool_input in ({"command": "view", "path": ".env"}, {"command": "create", "path": ".env", "file_text": "x"}):
+            with pytest.raises(ToolError, match="密钥"):
+                editor.run(tool_input)
+    assert (workspace / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=secret"
 
 
 def test_long_previews_are_shortened(editor):

@@ -20,12 +20,16 @@ def thinking(value: str, signature: str = "sig-1") -> dict:
     return {"type": "thinking", "thinking": value, "signature": signature}
 
 
-def tool_use(id: str, name: str, input: dict) -> dict:
-    return {"type": "tool_use", "id": id, "name": name, "input": input}
+def tool_use(id: str, name: str, input: dict, raw: str | None = None) -> dict:
+    """一次工具调用。raw 是参数的原始 JSON 文本：想发 Python 自己写不出来的东西（比如 1e999）时用。"""
+    return {"type": "tool_use", "id": id, "name": name, "input": input, "raw": raw}
 
 
-def reply(*blocks: dict, stop_reason: str = "end_turn", stop_details: dict | None = None) -> dict:
-    return {"blocks": list(blocks), "stop_reason": stop_reason, "stop_details": stop_details}
+def reply(
+    *blocks: dict, stop_reason: str = "end_turn", stop_details: dict | None = None, cut_after: int | None = None
+) -> dict:
+    """一条回复。cut_after 不是 None 时，只发出前面这么多个事件就把连接掐断，模拟回复收到一半断线。"""
+    return {"blocks": list(blocks), "stop_reason": stop_reason, "stop_details": stop_details, "cut_after": cut_after}
 
 
 def _events(scripted: dict) -> list[dict]:
@@ -61,8 +65,8 @@ def _events(scripted: dict) -> list[dict]:
                 {"type": "signature_delta", "signature": block["signature"]},
             ]
         elif block["type"] == "tool_use":
-            start = {**block, "input": {}}
-            deltas = [{"type": "input_json_delta", "partial_json": json.dumps(block["input"])}]
+            start = {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}
+            deltas = [{"type": "input_json_delta", "partial_json": block.get("raw") or json.dumps(block["input"])}]
         else:  # 其他类型的块没有增量，整块一次发完
             start, deltas = block, []
         events.append({"type": "content_block_start", "index": index, "content_block": start})
@@ -101,8 +105,21 @@ class FakeAPI:
                 if not api.replies:
                     self.send_error(500, "no scripted reply left")
                     return
+                scripted = api.replies.pop(0)
+                if scripted.get("cut_after") is not None:
+                    # 回复发到一半就断线：用分块传输发出前几个事件，不发结束标记，直接关连接
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.send_header("transfer-encoding", "chunked")
+                    self.end_headers()
+                    for event in _events(scripted)[: scripted["cut_after"]]:
+                        data = f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode()
+                        self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+                    self.wfile.flush()
+                    self.close_connection = True
+                    return
                 payload = "".join(
-                    f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in _events(api.replies.pop(0))
+                    f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in _events(scripted)
                 ).encode()
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")

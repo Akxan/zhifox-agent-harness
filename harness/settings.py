@@ -12,29 +12,64 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from pathlib import Path
+
+from .safe import private_dir, to_json, write_file
 
 
 class Settings:
     def __init__(self, path: Path, default_provider: str, default_model: str):
         self.path = path
+        # 网页界面里，好几个请求可能同时要改设置（一边在同步模型列表，一边打开了一段会话）。
+        # "改一项、写回文件"必须一口气做完，否则两边写出来的内容会搅在一起。
+        self._lock = threading.Lock()
         saved = {}
         if path.is_file():
             try:
                 saved = json.loads(path.read_text(encoding="utf-8"))
-            except ValueError:
+            except (ValueError, OSError, RecursionError):
                 saved = {}  # 文件坏了就当作没有，下次保存时会重写
+        if not isinstance(saved, dict):
+            saved = {}
         self.provider: str = saved.get("provider") or default_provider
         self.model: str = saved.get("model") or default_model
         self.models: dict[str, list[str]] = saved.get("models") or {}  # 每家同步到的模型列表
         self.prices: dict[str, dict] = saved.get("prices") or {}  # 用户自己填的价格，按模型名
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            self._write()
+
+    def choose(self, provider: str, model: str) -> None:
+        """记住现在用的是哪家的哪个模型。"""
+        with self._lock:
+            self.provider, self.model = provider, model
+            self._write()
+
+    def set_models(self, provider: str, models: list[str] | None) -> None:
+        """记下一家可以选择的模型列表；None 表示忘掉它（删掉了这一家的 key）。"""
+        with self._lock:
+            if models is None:
+                self.models.pop(provider, None)
+            else:
+                self.models[provider] = models
+            self._write()
+
+    def set_price(self, model: str, price: dict | None) -> None:
+        """记下用户给一个模型填的价格；None 表示删掉，改回内置的价格。"""
+        with self._lock:
+            if price is None:
+                self.prices.pop(model, None)
+            else:
+                self.prices[model] = price
+            self._write()
+
+    def _write(self) -> None:
+        """写回文件。调用的人要先拿到 self._lock。"""
+        private_dir(self.path.parent)
         data = {"provider": self.provider, "model": self.model, "models": self.models, "prices": self.prices}
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp.replace(self.path)
+        write_file(self.path, to_json(data, readable=True, indent=2))
 
 
 # ---- API key -------------------------------------------------------------------

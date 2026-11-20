@@ -17,6 +17,7 @@ from typing import Any
 import openai
 
 from ..config import Config
+from ..safe import clean, clean_text, loads_strict
 from ..tools import ToolRegistry
 from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage
 
@@ -93,13 +94,16 @@ class OpenAICompatBackend:
                     choice = chunk.choices[0]
                     delta = choice.delta
                     # 有的模型（如 DeepSeek 的思考模式）会把思考过程放在这个额外的字段里
+                    # 模型的输出也要先洗一遍（见 safe.py）：这些文字接下来要存进历史、发回给 API
                     thought = getattr(delta, "reasoning_content", None)
                     if thought:
+                        thought = clean_text(thought)
                         reasoning += thought
                         ui.thinking(thought)
                     if delta.content:
-                        text += delta.content
-                        ui.text(delta.content)
+                        piece_text = clean_text(delta.content)
+                        text += piece_text
+                        ui.text(piece_text)
                     for piece in delta.tool_calls or []:
                         _merge_tool_call(calls, piece)
                     finish = choice.finish_reason or finish
@@ -131,8 +135,9 @@ class OpenAICompatBackend:
         for call in ordered:
             raw = call["function"]["arguments"] or "{}"
             try:
-                step.tool_calls.append(ToolCall(call["id"], call["function"]["name"], json.loads(raw)))
-            except ValueError:
+                # 用严格的解析：NaN、无穷大这类"不是数的数"也算参数不合法（它们写不回合法的 JSON）
+                step.tool_calls.append(ToolCall(call["id"], call["function"]["name"], loads_strict(raw)))
+            except (ValueError, RecursionError):
                 problem = json.dumps({"error": "参数不是合法的 JSON", "INVALID_JSON": raw}, ensure_ascii=False)
                 step.tool_calls.append(ToolCall(call["id"], call["function"]["name"], None, error=problem))
         if step.tool_calls:
@@ -144,14 +149,14 @@ def _merge_tool_call(calls: dict[int, dict], piece: Any) -> None:
     """把流里到达的一小段工具调用，合并到按序号保存的完整调用里。"""
     call = calls.setdefault(piece.index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
     if piece.id:
-        call["id"] = piece.id
+        call["id"] = clean_text(piece.id)
     if piece.function is not None:
-        call["function"]["name"] += piece.function.name or ""
-        call["function"]["arguments"] += piece.function.arguments or ""
+        call["function"]["name"] += clean_text(piece.function.name or "")
+        call["function"]["arguments"] += clean_text(piece.function.arguments or "")
     # 标准字段之外的东西（比如 Gemini 的签名）也要留着，之后原样发回去
     for key, value in (piece.model_extra or {}).items():
         if value is not None:
-            call[key] = value
+            call[key] = clean(value)
 
 
 def _usage(raw: Any) -> Usage:

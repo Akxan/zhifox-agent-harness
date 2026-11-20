@@ -12,6 +12,7 @@
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
+  POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
   POST /api/model      用户换了模型
   POST /api/key        用户填写或删除了一家的 API key
   POST /api/models     用户点了"同步模型"
@@ -29,7 +30,9 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import secrets
 import subprocess
 import sys
@@ -37,19 +40,25 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
 from ..app import App, build_app, run_turn
 from ..config import APP_NAME, Config
 from ..conversations import ConversationError
+from ..permissions import MODES
 from ..pricing import estimate, price_of
 from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
+from ..safe import clean, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
+from ..tools.shell import SECRET_ENV_VARS
 from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
+MAX_DISCARD_BYTES = 16_000_000  # 请求体太大时，最多读掉这么多再回答（见 Handler._read_json）
+SHUTDOWN_WAIT_SECONDS = 5  # 退出时最多等这么久，让正在进行的一轮收尾存盘
 MAX_MESSAGE_CHARS = 100_000
 KEEPALIVE_SECONDS = 15
 LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
@@ -69,7 +78,16 @@ def reveal_in_file_manager(path: Path) -> None:
     else:
         # Linux 上没有通用的"选中某个文件"的办法，退一步，打开它所在的文件夹
         command = ["xdg-open", str(path if path.is_dir() else path.parent)]
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        # 有的系统上文件管理器会作为我们的子进程启动、一直开着。不让它带着各家的 API key
+        # （从它里面打开的终端都能看到环境变量），也不让它因为我们退出而被一起关掉
+        env={name: value for name, value in os.environ.items() if name not in SECRET_ENV_VARS},
+        start_new_session=True,
+    )
     try:
         if process.wait(timeout=5) != 0:
             raise OSError(f"{command[0]} 没有成功（退出码 {process.returncode}）")
@@ -85,6 +103,11 @@ class WebApp:
         self.ui = ui
         self.token = token
         self._turn = threading.Lock()  # 谁拿着这把锁，谁就在进行一轮对话（或者正在改设置）
+        # 发状态快照时用的小锁："算出快照"和"发出去"要一口气做完。同步模型、改价格这些不拿对话锁的操作
+        # 可能和一轮对话同时发快照，不这样的话，先算的旧快照可能反而后发出去，把新的盖掉。
+        self._publishing = threading.Lock()
+        self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
+        self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         self.publish_state()
@@ -94,6 +117,10 @@ class WebApp:
 
         注意这里永远不包含 API key 本身，只有"有没有设置"和最后 4 位。
         """
+        with self._publishing:
+            self._publish_state()
+
+    def _publish_state(self) -> None:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
         cost, unpriced = estimate(agent.usage_by_model, settings.prices)
@@ -133,6 +160,7 @@ class WebApp:
             cost=round(cost, 4),
             unpriced=unpriced,
             tools=[{"name": name, "local": local} for name, local in agent.backend.tool_names()],
+            approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
         )
 
     def _models(self, provider_id: str) -> list[str]:
@@ -158,6 +186,7 @@ class WebApp:
 
     def _run_turn(self, text: str) -> None:
         try:
+            self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
             self.app.name_conversation(text)  # 新会话用第一句话当标题
             self.ui.begin_turn(text)
             self.publish_state()  # 让新会话马上出现在列表里
@@ -174,26 +203,70 @@ class WebApp:
                 self._turn.release()
 
     def _save(self) -> None:
+        """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
+        problem = self._try_save()
+        if problem:
+            self.ui.error(f"保存会话失败：{problem}")
+
+    def _try_save(self) -> str:
+        """存盘。返回失败的原因（成功返回空字符串），并记下当前会话是不是还有没存上的内容。"""
         try:
             self.app.save_conversation(self.ui.export_events())
-        except OSError as exc:
-            self.ui.error(f"保存会话失败：{exc}")
+        except Exception as exc:  # noqa: BLE001 —— 什么错都要接住：这是在一轮对话收尾时调用的，漏出去的话页面永远等不到"结束"
+            self._unsaved = str(exc) or type(exc).__name__
+        else:
+            self._unsaved = ""
+            self._discard_ok = ""
+        return self._unsaved
+
+    def _before_leaving(self, action: str) -> str:
+        """要离开当前会话了（新对话、打开别的会话、换到另一家）。返回不让走的原因；空字符串表示可以走。
+
+        当前会话要是有没存上的内容（上一次存盘失败了），一走这些内容就没了，所以先再存一次。
+        还是存不上的话拦一下、把话说清楚；用户紧接着再做一次同样的操作，就当他确认要放弃。
+        """
+        if not self._unsaved or not self._try_save():
+            return ""
+        if self._discard_ok == action:
+            return ""
+        self._discard_ok = action
+        return f"当前这段会话还没能保存（{self._unsaved}），现在离开会丢掉它的内容。可以先解决保存的问题；确实要放弃的话，再点一次。"
+
+    def _left(self) -> None:
+        """已经离开了原来的会话：关于它的"没存上"和"确认放弃"都不用再记着。"""
+        self._unsaved = self._discard_ok = ""
+
+    def _show_warnings(self) -> None:
+        """把助手攒下的提醒（比如"没能记住这次选的模型"）显示出来。只显示，不存进会话。"""
+        for text in self.app.take_warnings():
+            self.ui.hint(text, level="error")
 
     def stop(self) -> None:
         if self._turn.locked():
             self.ui.request_stop()
 
-    def new_conversation(self) -> bool:
-        """清空对话。有一轮对话正在进行时返回 False。"""
-        if not self._turn.acquire(blocking=False):
+    def wait_idle(self, timeout: float) -> bool:
+        """等正在进行的一轮对话结束（包括它收尾时的存盘）。等到了返回 True，超时返回 False。"""
+        if not self._turn.acquire(timeout=timeout):
             return False
+        self._turn.release()
+        return True
+
+    def new_conversation(self) -> str:
+        """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。"""
+        if not self._turn.acquire(blocking=False):
+            return self.BUSY
         try:
+            blocked = self._before_leaving("new")
+            if blocked:
+                return blocked
             self.app.new_conversation()
+            self._left()
             self.ui.reset()
             self.publish_state()
         finally:
             self._turn.release()
-        return True
+        return ""
 
     # ---- 会话 --------------------------------------------------------------
 
@@ -204,16 +277,21 @@ class WebApp:
         try:
             if conversation_id == self.app.conversation.id:
                 return ""  # 已经开着了
+            blocked = self._before_leaving(f"open:{conversation_id}")
+            if blocked:
+                return blocked
             try:
                 conversation = self.app.open_conversation(conversation_id)
             except ConversationError as exc:
                 return str(exc)
+            self._left()
             self.ui.load_events(conversation.events)
             if conversation.context_tokens >= LARGE_CONTEXT_TOKENS:
                 self.ui.hint(
                     f"这段会话的历史约有 {conversation.context_tokens:,} 个 token。"
                     "接着聊的第一条消息需要把它重新发给模型，会按这个量计费。"
                 )
+            self._show_warnings()
             self.publish_state()
         finally:
             self._turn.release()
@@ -243,6 +321,7 @@ class WebApp:
             except ConversationError as exc:
                 return str(exc)
             if was_current:
+                self._left()  # 删的就是当前这一段：它有没有存上都无所谓了
                 self.ui.reset()
             self.publish_state()
         finally:
@@ -282,11 +361,17 @@ class WebApp:
         if not self._turn.acquire(blocking=False):
             return self.BUSY
         try:
+            if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
+                blocked = self._before_leaving(f"model:{provider_id}:{model}")
+                if blocked:
+                    return blocked
             continued = self.app.select_model(provider_id, model)
             if not continued:
+                self._left()
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
             label = PROVIDERS[provider_id].label
             self.ui.info(f"已换成 {label} · {model}。" + ("对话继续。" if continued else "换了一家，开始新对话。"))
+            self._show_warnings()
             if continued:
                 self._save()  # 这段会话以后用新模型，记下来
             self.publish_state()
@@ -311,8 +396,7 @@ class WebApp:
                 except ProviderError as exc:
                     warning = f"key 已保存，但同步模型列表失败：{exc}"
             else:
-                self.app.settings.models.pop(provider_id, None)
-                self.app.settings.save()
+                self.app.settings.set_models(provider_id, None)
             self.publish_state()
         finally:
             self._turn.release()
@@ -327,11 +411,16 @@ class WebApp:
         return ""
 
     def set_price(self, model: str, price: dict | None) -> None:
-        if price is None:
-            self.app.settings.prices.pop(model, None)
-        else:
-            self.app.settings.prices[model] = price
-        self.app.settings.save()
+        self.app.settings.set_price(model, price)
+        self.publish_state()
+
+    def set_approval(self, mode: str) -> None:
+        """更改"要不要每次都问"。不用拿对话的锁：对话进行中也可以改，比如看到第五张确认卡片时决定全部放开。
+
+        已经显示出来、正在等答复的那一张卡片不受影响，还是要点；从下一次需要确认的操作开始按新的来。
+        这个选择只记在内存里，下次启动回到"每次都问"（原因见 permissions.py）。
+        """
+        self.app.agent.permissions.mode = mode
         self.publish_state()
 
 
@@ -342,6 +431,7 @@ class Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server: Server
+    _responded = False  # 这个请求是不是已经开始回答了
 
     def log_message(self, format: str, *args: object) -> None:
         pass  # 不在终端里打印每一个请求
@@ -365,6 +455,18 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_json()
         if body is None:
             return
+        try:
+            self._route(body)
+        except Exception as exc:  # noqa: BLE001 —— 故意接住所有异常，原因见下
+            # 处理请求时出了意料之外的错（比如磁盘写不进去）。一定要给浏览器一个回答：
+            # 不回答的话连接会被直接掐断，页面只能当成"助手程序退出了"，让用户去重启一个其实好好的程序。
+            if not self._responded:
+                try:
+                    self._send_json(500, {"error": f"助手程序处理这个请求时出错了：{str(exc) or type(exc).__name__}"})
+                except OSError:
+                    pass  # 浏览器已经不在了
+
+    def _route(self, body: dict) -> None:
         web = self.server.web
         path = urlsplit(self.path).path
 
@@ -386,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
             web.stop()
             self._send_json(200, {"ok": True})
         elif path == "/api/new":
-            self._finish("" if web.new_conversation() else WebApp.BUSY)
+            self._finish(web.new_conversation())
         elif path.startswith("/api/conversation/"):
             conversation_id, title = body.get("id"), body.get("title")
             action = path.removeprefix("/api/conversation/")
@@ -413,6 +515,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 # 只读内存里的索引，不改任何东西，所以对话进行中也可以搜
                 self._send_json(200, {"ok": True, "results": web.app.store.search(query)})
+        elif path == "/api/approval":
+            mode = body.get("mode")
+            if not isinstance(mode, str) or mode not in MODES:
+                self._send_json(400, {"error": "参数不正确"})
+            else:
+                web.set_approval(mode)
+                self._send_json(200, {"ok": True})
         elif path == "/api/model":
             provider, model = body.get("provider"), body.get("model")
             if provider not in PROVIDERS or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
@@ -496,6 +605,7 @@ class Handler(BaseHTTPRequestHandler):
             cursor = int(self.headers.get("Last-Event-ID") or 0)
         except ValueError:
             cursor = 0
+        self._responded = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -513,8 +623,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not caught_up:
                     events = latest_state_only(events)  # 补发的这一批里，过时的状态不用发
                 for event in events:
-                    data = json.dumps(event, ensure_ascii=False, default=str)
-                    self.wfile.write(f"id: {event['id']}\ndata: {data}\n\n".encode())
+                    # to_json 保证编码不会失败（见 safe.py）。要是在这里抛了异常，浏览器重连后会从同一个事件
+                    # 接着要、我们再抛一次，这段会话的页面就再也连不上了
+                    self.wfile.write(f"id: {event['id']}\ndata: {to_json(event)}\n\n".encode())
                 if not caught_up:
                     caught_up = True
                     self.wfile.write(b"event: synced\ndata: {}\n\n")
@@ -527,24 +638,40 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if not 0 <= length <= MAX_BODY_BYTES:
-            self._send_json(413, {"error": "请求太大"})
+            self._discard(length)
+            self._send_json(413, {"error": "请求太大：一次最多发送约 1MB 的内容"})
             return None
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
-        except ValueError:
+            # clean：浏览器送来的文字（消息、标题……）在进门的地方统一洗一遍，见 safe.py
+            body = clean(json.loads(self.rfile.read(length) or b"{}"))
+        except (ValueError, RecursionError):  # RecursionError：嵌套了上千层的 JSON
             body = None
         if not isinstance(body, dict):
             self._send_json(400, {"error": "请求格式不正确"})
             return None
         return body
 
+    def _discard(self, length: int) -> None:
+        """把一个不打算处理的请求体读掉扔了。
+
+        不读的话，浏览器还在往这边发数据，连接就被我们关掉了：它来不及读到我们的回答，只会报"连接断开"。
+        读掉再回答，页面才能把"请求太大"显示出来。读的量设了上限，免得被一个巨大的请求拖住。
+        """
+        remaining = min(max(length, 0), MAX_DISCARD_BYTES)
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 65536))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
     def _send_json(self, status: int, payload: dict) -> None:
-        self._send(status, "application/json; charset=utf-8", json.dumps(payload, ensure_ascii=False).encode())
+        self._send(status, "application/json; charset=utf-8", to_json(payload, readable=True).encode())
 
     def _send_text(self, status: int, text: str) -> None:
         self._send(status, "text/plain; charset=utf-8", text.encode())
 
     def _send(self, status: int, content_type: str, body: bytes, headers: dict | None = None) -> None:
+        self._responded = True
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -578,7 +705,49 @@ def create_server(app: App, ui: WebUI, port: int | None = None, token: str | Non
     return server, f"http://127.0.0.1:{server.server_address[1]}/?token={server.web.token}"
 
 
+def claim_data_dir(data_dir: Path) -> IO | None:
+    """占住数据目录：同一个数据目录同一时间只给一个网页界面用。占到了返回锁文件（要一直留着不关），已经被别人占了返回 None。
+
+    两个同时运行的程序各自在内存里记着会话列表，看不见对方的改动：同一段会话，后存盘的会把先存的那一轮盖掉；
+    一边删掉的会话，另一边一存盘又冒出来。
+    锁由操作系统管着，程序退出时（哪怕是崩溃）自动放开，不会出现"程序没了、锁还在"的情况。
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    handle = open(data_dir / ".lock", "a")  # noqa: SIM115 —— 故意不用 with：这个文件要开着直到程序退出
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    except OSError:
+        pass  # 少数文件系统（比如某些网络盘）不支持这种锁：那就不拦了，照常启动
+    return handle
+
+
+def shut_down(server: Server, app: App) -> None:
+    """退出前的收尾：让正在进行的一轮停下来、存好盘，再关掉服务器。"""
+    server.web.stop()
+    app.shell.kill_running()
+    # stop() 只是通知这一轮尽快收尾，收尾（包括存盘）是在另一个线程里做的。不等它的话，程序一退出那个线程就没了：
+    # 这一轮里助手已经做过的事（执行过的命令、改过的文件）在保存的会话里不留一点记录。
+    # 模型一直没有输出时等不到它停下，所以只等有限的几秒。
+    server.web.wait_idle(SHUTDOWN_WAIT_SECONDS)
+    server.server_close()
+
+
 def run_web(config: Config, port: int | None = None, open_browser: bool = True) -> int:
+    lock = claim_data_dir(config.data_dir)
+    if lock is None:
+        print(f"已经有一个{APP_NAME}的网页界面在运行，用的是同一个数据目录：{config.data_dir}")
+        print("两个一起运行会互相覆盖对方保存的会话。请直接用已经打开的那个页面，或者先到它的终端里按 Ctrl-C 把它关掉。")
+        return 1
+    try:
+        return _serve(config, port, open_browser)
+    finally:
+        lock.close()
+
+
+def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     ui = WebUI()
     app = build_app(config, ui)
     try:
@@ -602,8 +771,6 @@ def run_web(config: Config, port: int | None = None, open_browser: bool = True) 
     except KeyboardInterrupt:
         pass
     finally:
-        server.web.stop()
-        app.shell.kill_running()
-        server.server_close()
+        shut_down(server, app)
     print("\n再见。")
     return 0

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,27 @@ def test_passage_keeps_the_text_as_written_next_to_a_folded_copy():
     assert (make_passage("title", "").shown, make_passage("title", "").folded) == ("", "")
 
 
+def test_the_same_text_written_two_ways_is_found_and_marked_in_the_right_place():
+    # macOS 的文件名和有些输入法给的是"字母 + 单独的重音符号"这种拆开的写法，看起来和合在一起的一模一样。
+    # 这句话里既有统一写法后会变短的字符（拆开的 é），又有会变长的（…）：以前靠"总长度没变"来判断位置对得上，
+    # 两种正好抵消时就会标错地方
+    split_up = "Re\u0301sume\u0301… 明天再改，文件叫 cafe\u0301.txt"
+    joined = unicodedata.normalize("NFC", split_up)
+    passage = make_passage("user", split_up)
+    assert passage.shown == joined and len(passage.folded) == len(passage.shown)
+
+    index = index_of(a=[said(split_up)])
+    for query in ("r\u00e9sum\u00e9", "re\u0301sume\u0301", "R\u00c9SUM\u00c9"):  # 合着写、拆着写、大写，都找得到
+        (found,) = index.search(query)
+        snippet = found["snippet"]
+        assert found["exact"] is True and snippet["find"] == "R\u00e9sum\u00e9"
+        assert marked(snippet["text"], snippet["marks"]) == ["R\u00e9sum\u00e9"]
+    (found,) = index.search("明天")
+    assert marked(found["snippet"]["text"], found["snippet"]["marks"]) == ["明天"]
+    (found,) = index.search("caf\u00e9.txt")
+    assert marked(found["snippet"]["text"], found["snippet"]["marks"]) == ["caf\u00e9.txt"]
+
+
 # ---- 第一档：原样包含 -----------------------------------------------------
 
 
@@ -203,6 +225,36 @@ def test_similar_words_come_from_everything_indexed_right_now():
     assert index.search("hraness") == []
 
 
+def test_the_word_list_keeps_only_things_that_look_like_words():
+    # 工具的输出里常有哈希值、base64 这样的长串。把它们切成一段段收进词表，只会让词表变大、
+    # 每次"猜相近的词"变慢，还可能猜到这些碎片头上
+    index = index_of(
+        a=[
+            returned(
+                "commit 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b token QWxhZGRpbjpvcGVuIHNlc2FtZQ== "
+                "和 abcdefghijklmnopqrstuvwxyz，调用 run_command 重启 kubernetes_cluster9"
+            )
+        ]
+    )
+    # 只收 4 到 16 个字母（可以带下划线）、前后不挨着别的字母数字的词：数字混在里面的、太长的都不算
+    assert index._documents["a"].words == {"commit", "token", "run_command"}
+    assert ids(index.search("tokne")) == ["a"]  # 像单词的照样能猜
+    # 哈希和 base64 里的碎片不在词表里，敲得差一点就猜不到它们头上（原样敲对了当然还是找得到）
+    assert index.search("feaab") == [] and index.search("qwxhzgrq") == []
+    assert ids(index.search("feaa0c55")) == ["a"]
+
+
+def test_a_word_list_computed_from_an_old_snapshot_is_not_kept():
+    # 搜索先拍下"现在有哪些会话"，再去算词表。如果算的这会儿正好又收录了一段会话，
+    # 按旧快照算出来的词表不能当成最新的记下来，否则新会话里的词以后一直猜不到
+    index = index_of(a=[said("harness")])
+    old_version, old_documents = index._version, list(index._documents.values())
+    index.put("b", "", [said("kubernetes")], updated_at=5.0)  # 快照之后又收录了一段
+    assert index._words(old_documents, old_version) == ["harness"]  # 旧快照的词表这时才算完、写回去
+    assert ids(index.search("kubernets")) == ["b"]
+    assert ids(index.search("hraness")) == ["a"]
+
+
 # ---- 第三档：隔字包含 -----------------------------------------------------
 
 
@@ -238,25 +290,72 @@ def test_loose_matches_must_stay_tight():
 
 def test_very_short_terms_are_only_matched_exactly():
     index = index_of(a=[said("harness 交了报告")])
-    # 英文不到 3 个字母、中文不到 2 个字：隔着字去找几乎什么都能对上，所以只认原样包含。
+    # 英文不到 4 个字母、中文不到 2 个字：隔着字去找几乎什么都能对上，所以只认原样包含。
     # "hr" 要是也隔着字找，就会对上 "har"
     assert index.search("hr") == [] and ids(index.search("ha")) == ["a"]
+    assert index.search("hns") == [] and ids(index.search("har")) == ["a"]
     assert index.search("叫") == [] and ids(index.search("交")) == ["a"]
-    # 英文 3 个字母起、中文 2 个字起，可以隔着字找
-    assert [(item["id"], item["exact"]) for item in index.search("hns")] == [("a", False)]
+    # 英文 4 个字母起、中文 2 个字起，可以隔着字找
+    assert [(item["id"], item["exact"]) for item in index.search("hrns")] == [("a", False)]
     assert [(item["id"], item["exact"]) for item in index.search("交报")] == [("a", False)]
+
+
+def test_short_english_words_do_not_match_across_other_words():
+    # 这几个都是真实会话里常见的词。隔字包含管得不严的话，搜一个三个字母的词会把一大批不相干的会话带出来：
+    # "css" 对上 pro[c]e[ss]、"ssh" 对上 cla[ss] [H]andler、"vim" 对上 arg[v] [im]port
+    index = index_of(
+        a=[answered("use subprocess to process the queue")],
+        b=[answered("class Handler(BaseHTTPRequestHandler): pass")],
+        c=[answered("from sys import argv; import os")],
+        d=[answered("用 ssh 连上去，再用 vim 改 main.css")],
+    )
+    assert ids(index.search("css")) == ["d"] and ids(index.search("ssh")) == ["d"] and ids(index.search("vim")) == ["d"]
+
+    # 四个字母以上才隔着字找，而且夹进来的字不能跨过空格：只在一个单词里面找
+    index = index_of(inside=[said("a harness for it")], across=[said("har ness"), said("h a r n e s s")])
+    assert ids(index.search("hrns")) == ["inside"]
+    # 英文里夹进来的字不能超过关键词长度的一半（hrns 最多夹 2 个）
+    index = index_of(two=[said("harnes")], three=[said("haarnes")], many=[said("hxrxnxs")])
+    assert ids(index.search("hrns")) == ["two"]
 
 
 def test_the_tightest_loose_match_wins():
     # 同一句话里有好几处都对得上：取夹的字最少的那一处
-    index = index_of(a=[said("先是 axbxc 后来又有 abxc 和 axxbc")])
-    assert index.search("abc")[0]["snippet"]["find"] == "abxc"
+    index = index_of(a=[said("先是 axbxcd 后来又有 abxcd 和 axxbcd")])
+    assert index.search("abcd")[0]["snippet"]["find"] == "abxcd"
     # 分散在好几句话里也一样
-    index = index_of(a=[said("这里是 axbxc"), said("这里是 abxc"), said("这里是 axxbc")])
-    assert index.search("abc")[0]["snippet"]["text"] == "这里是 abxc"
-    # 几处互相重叠时也要挑得出来：从第一个 a 开始也对得上（a--ab-cd），但从第二个 a 开始的那一处更紧凑
+    index = index_of(a=[said("这里是 axbxcd"), said("这里是 abxcd"), said("这里是 axxbcd")])
+    assert index.search("abcd")[0]["snippet"]["text"] == "这里是 abxcd"
+    # 几处互相重叠时也要挑得出来：从第一个 a 开始也对得上（a--ab-cd），但夹的字太多；从第二个 a 开始的那一处才紧凑
     index = index_of(a=[said("a--ab-cd")])
     assert index.search("abcd")[0]["snippet"]["find"] == "ab-cd"
+
+
+def test_only_terms_that_matched_loosely_are_marked_loosely():
+    # "hrns" 在回复里原样就有，所以这段会话是原样命中的。标题里的 harness 虽然也能隔着字对上，
+    # 但不该被标出来：那不是找到它的原因，标了只会让人摸不着头脑
+    index = index_of(a=("harness 笔记", [answered("缩写 hrns 是什么意思")]))
+    (found,) = index.search("hrns")
+    assert found["exact"] is True and found["title_marks"] == []
+    assert marked(found["snippet"]["text"], found["snippet"]["marks"]) == ["hrns"]
+
+    # 真的是靠隔字包含找到的时候，标题和摘录里都按隔字的办法标
+    index = index_of(a=("harness 笔记", [answered("harness 是外面那层")]))
+    (found,) = index.search("hrns")
+    assert found["exact"] is False and marked(found["title"], found["title_marks"]) == ["h", "rn", "s"]
+
+
+def test_stricter_tiers_come_first_whatever_the_score():
+    # 三档里越严格的排得越靠前。只按分数排的话，下面的 loose（用户的话里隔着字对上，0.39 分）
+    # 会排到 typo（工具输出里是相近的词，0.24 分）前面，和"相近的词比隔字包含更可信"正好反过来
+    index = index_of(
+        typo=[returned("harness started")],
+        loose=[said("hr9aness")],  # 中间夹着一个 9：不是单词，进不了"相近的词"的词表，只能隔着字对上
+    )
+    assert [(item["id"], item["exact"]) for item in index.search("hraness")] == [("typo", False), ("loose", False)]
+    # 原样命中的永远在最前面，哪怕它在分量最轻的工具输出里
+    index.put("exact", "", [returned("hraness")], updated_at=0.0)
+    assert ids(index.search("hraness")) == ["exact", "loose"]  # 这个词现在原样找得到了，不再去猜相近的词
 
 
 STALL_SCRIPT = """
@@ -509,6 +608,10 @@ def test_only_what_was_said_and_done_is_searchable():
                 returned("结果里的己"),
                 answered("回复里的庚"),
                 {"type": "notice", "level": "info", "text": "提示里的辛"},
+                # 在厂商服务器上执行的工具（联网搜索）是以提示的形式记下来的：level 是 tool 的那一条是它的关键词
+                {"type": "notice", "level": "tool", "text": 'web_search {"query": "要查的壬"}'},
+                {"type": "notice", "level": "result", "text": "找到 5 条癸"},
+                {"type": "notice", "level": "error", "text": "搜索失败子"},
                 {"type": "turn_end"},
             ],
         )
@@ -518,17 +621,17 @@ def test_only_what_was_said_and_done_is_searchable():
         found = index.search(query)
         return found[0]["snippet"]["kind"] if found else None
 
-    # 收录的：用户的话、助手的回复、思考、工具调用在界面上显示的那一行、工具结果
-    assert [where(query) for query in "甲乙丙己庚"] == ["user", "thinking", "tool", "result", "assistant"]
-    # 不收录的：工具调用的原始参数、确认卡片、提示
-    assert [where(query) for query in "丁戊辛"] == [None, None, None]
+    # 收录的：用户的话、助手的回复、思考、工具调用在界面上显示的那一行、工具结果、联网搜索的关键词
+    assert [where(query) for query in "甲乙丙己庚壬"] == ["user", "thinking", "tool", "result", "assistant", "tool"]
+    # 不收录的：工具调用的原始参数、确认卡片、别的提示（"找到几条结果"、出错、"已中断"之类）
+    assert [where(query) for query in "丁戊辛癸子"] == [None, None, None, None, None]
     assert index.search("turn_start") == [] and index.search("allowed") == []
 
 
 def test_long_tool_results_are_indexed_only_at_the_start():
-    assert RESULT_CHARS == 2000
+    assert RESULT_CHARS == 600
     index = index_of(
-        inside=[returned("甲" * (RESULT_CHARS - 2) + "尾巴")],  # 正好在前 2000 个字符之内
+        inside=[returned("甲" * (RESULT_CHARS - 2) + "尾巴")],  # 正好在收录的范围之内
         outside=[returned("甲" * (RESULT_CHARS - 1) + "尾巴")],  # "巴"字落在了外面
         long_talk=[said("甲" * 5000 + "尾巴")],  # 只有工具结果会被截短，说的话再长也全部收录
     )
@@ -710,3 +813,40 @@ def test_untitled_conversations_show_the_same_name_as_in_the_list(store):
     # 会话列表里没有标题的会话显示成"新对话"，搜索结果里也一样（而不是一行空白）
     assert found["id"] == conversation.id and found["title_marks"] == []
     assert found["title"] == "新对话" == store.summaries()[0]["title"]
+
+
+# ---- 编码不了的字符 -------------------------------------------------------
+
+
+def test_half_an_emoji_does_not_break_the_search():
+    # "\ud83d" 是半个表情（另一半丢了）。这样的字符没法编码，以前换算标记位置时会让整次搜索失败
+    index = index_of(a=("标题里也有 \ud83d", [said("表情只剩一半 \ud83d 后面还有字")]))
+    (found,) = index.search("后面")
+    assert found["snippet"]["marks"] == [[9, 11]] and found["snippet"]["find"] == "后面"
+    (found,) = index.search("标题")
+    assert found["title_marks"] == [[0, 2]]
+
+
+def test_half_an_emoji_in_a_file_is_replaced_when_it_is_read(store):
+    kept = keep(store, "正常的一段", said("没有问题"))
+    # 手写一个文件：JSON 本身是合法的，但里面用转义写着半个表情（"\ud83d"）。标题、对话历史、界面事件里各有一处
+    path = store.directory / "20261120-140000-abcdef.json"
+    path.write_text(
+        '{"provider": "anthropic", "model": "claude-opus-5-5", "title": "坏了一半 \\ud83d 的标题", "updated_at": 5,'
+        ' "messages": [{"role": "user", "content": [{"type": "text", "text": "历史里 \\ud83d 也有"}]}],'
+        ' "events": [{"type": "user", "text": "界面上 \\ud83d 的话"}, {"type": "text", "text": "完整的表情 \\ud83d\\ude00 不受影响"}]}',
+        encoding="utf-8",
+    )
+
+    reopened = ConversationStore(store.directory)
+    loaded = reopened.load("20261120-140000-abcdef")
+    # 读进来的时候就换成了"�"：不换的话，这段会话之后既搜不了、存不了，也发不出下一次请求
+    assert loaded.title == "坏了一半 \ufffd 的标题"
+    assert loaded.messages[0]["content"][0]["text"] == "历史里 \ufffd 也有"
+    assert [event["text"] for event in loaded.events] == ["界面上 \ufffd 的话", "完整的表情 \U0001f600 不受影响"]
+    assert [item["id"] for item in reopened.search("的话")] == [loaded.id]
+    assert [item["id"] for item in reopened.search("没有问题")] == [kept.id]
+    # 再存一次，写出来的是可以正常读回来的文件
+    reopened.save(loaded, touch=False)
+    assert "\ufffd" in path.read_text(encoding="utf-8")
+    assert ConversationStore(store.directory).load(loaded.id).title == loaded.title

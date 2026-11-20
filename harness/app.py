@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .agent import Agent
@@ -47,11 +47,17 @@ class App:
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     conversation: Conversation  # 当前正在进行的这一段
+    warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
 
     @property
     def provider(self) -> Provider:
         """当前使用的是哪一家。"""
         return PROVIDERS[self.settings.provider]
+
+    # 换模型、打开会话都要同时换掉好几样东西：循环背后的适配层、当前会话、记住的选择。
+    # 规矩是"要么全换，要么都不动"：可能失败的步骤（读会话文件、建新的适配层）先做完，
+    # 都成了，再一口气把内存里的东西换掉。不然中途出错会留下"适配层已经是另一家、会话还是原来那段"的
+    # 半截状态，下一轮对话就会把原来那段会话的文件写坏。
 
     def select_model(self, provider_id: str, model: str) -> bool:
         """换模型。返回 True 表示对话可以接着进行，False 表示开始了一段新对话。
@@ -59,27 +65,37 @@ class App:
         同一家之内换模型，历史的格式不变，可以接着聊。换到另一家时，
         历史的格式不通用，只能从头开始（记忆和待办在磁盘上，不受影响）。
         """
-        same_provider = self._use(provider_id, model)
-        if same_provider:
-            self.conversation.model = model
-        else:
-            self.conversation = self.store.new(provider_id, model)
-            self.agent.usage.context_tokens = 0
-        return same_provider
-
-    def _use(self, provider_id: str, model: str) -> bool:
-        """把循环背后的模型换成指定的那个，并记住这个选择。返回"是不是还在同一家"。"""
-        provider = PROVIDERS[provider_id]
         same_provider = provider_id == self.agent.backend.provider
         if same_provider:
             self.agent.backend.model = model
+            self.conversation.model = model
         else:
-            self.agent.backend = make_backend(
-                provider, model, self.config, self.tools, self.system_prompt, self.client_factory(provider)
-            )
-        self.settings.provider, self.settings.model = provider_id, model
-        self.settings.save()
+            backend = self._backend_for(provider_id, model)  # 会失败的先做
+            self.agent.backend = backend
+            self.conversation = self.store.new(provider_id, model)
+            self.agent.usage.context_tokens = 0
+        self._remember_choice(provider_id, model)
         return same_provider
+
+    def _backend_for(self, provider_id: str, model: str) -> Any:
+        """建一个连着指定模型的新适配层（历史是空的）。"""
+        provider = PROVIDERS[provider_id]
+        return make_backend(provider, model, self.config, self.tools, self.system_prompt, self.client_factory(provider))
+
+    def _remember_choice(self, provider_id: str, model: str) -> None:
+        """把"现在用的是哪个模型"写进设置文件，下次启动还用它。
+
+        写不进去（磁盘满了、没有权限）只是"没记住"，不该让已经完成的切换半途而废，所以接住错误、留一句提醒。
+        """
+        try:
+            self.settings.choose(provider_id, model)
+        except OSError as exc:
+            self.warnings.append(f"没能把这次选择的模型记下来（{exc}），下次启动时用的还是之前记住的那个。")
+
+    def take_warnings(self) -> list[str]:
+        """取走攒下的提醒（取走就清空）。"""
+        taken, self.warnings = self.warnings, []
+        return taken
 
     # ---- 会话 -------------------------------------------------------------
 
@@ -98,10 +114,15 @@ class App:
         conversation = self.store.load(conversation_id)
         if conversation.provider not in PROVIDERS:
             raise ConversationError("这段会话用的模型提供方，这个版本的程序已经不支持了。")
-        self._use(conversation.provider, conversation.model)
-        self.agent.backend.restore(conversation.messages)
+        # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
+        same_provider = conversation.provider == self.agent.backend.provider
+        backend = self.agent.backend if same_provider else self._backend_for(conversation.provider, conversation.model)
+        backend.model = conversation.model
+        backend.restore(conversation.messages)
+        self.agent.backend = backend
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
+        self._remember_choice(conversation.provider, conversation.model)
         return conversation
 
     def save_conversation(self, events: list) -> bool:
@@ -124,13 +145,24 @@ class App:
         if not self.conversation.title:
             self.conversation.title = make_title(first_message)
 
+    def _is_unsaved_current(self, conversation_id: str) -> bool:
+        """是不是"列在会话栏里、但还没有写到磁盘上"的当前会话（第一轮还没存，或者存盘失败了）。"""
+        current = self.conversation
+        return conversation_id == current.id and not current.saved and bool(current.title)
+
     def rename_conversation(self, conversation_id: str, title: str) -> None:
+        if self._is_unsaved_current(conversation_id):
+            self.conversation.title = make_title(title)  # 磁盘上还没有它：先改内存里的，下次存盘自然带上
+            return
         self.store.rename(conversation_id, title)
         if conversation_id == self.conversation.id:
             self.conversation.title = make_title(title)
 
     def delete_conversation(self, conversation_id: str) -> bool:
         """删除一段会话。返回 True 表示删的是当前这一段（这时会自动开始一段新的）。"""
+        if self._is_unsaved_current(conversation_id):
+            self.new_conversation()  # 磁盘上没有东西可删，丢掉内存里的这一段就是删除
+            return True
         self.store.delete(conversation_id)
         if conversation_id != self.conversation.id:
             return False
@@ -157,8 +189,7 @@ class App:
         if not has_key(provider):
             raise ProviderError(f"还没有设置 {provider.label} 的 API key。")
         models = list_models(provider, self.client_factory(provider))
-        self.settings.models[provider_id] = models
-        self.settings.save()
+        self.settings.set_models(provider_id, models)
         return models
 
 
@@ -175,7 +206,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
 
     provider = PROVIDERS[settings.provider]
     backend = make_backend(provider, settings.model, config, tools, system_prompt, client_factory(provider))
-    agent = Agent(backend=backend, config=config, tools=tools, permissions=Permissions(files), ui=ui)
+    permissions = Permissions(files, private=[config.data_dir])
+    agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     store = ConversationStore(config.conversations_dir)
     return App(
         config=config,
@@ -199,3 +231,5 @@ def run_turn(agent: Agent, ui: Any, text: str) -> None:
         ui.info("已中断。")
     except ProviderError as exc:
         ui.error(str(exc))
+    except Exception as exc:  # noqa: BLE001 —— 故意接住所有异常：哪里出了意料之外的错，都要让用户看到，而不是让程序退出
+        ui.error(f"这一轮出错了：{type(exc).__name__}: {exc}")

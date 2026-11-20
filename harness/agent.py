@@ -24,6 +24,7 @@ from typing import Protocol
 from .config import Config
 from .permissions import Permissions
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
+from .safe import clean_text
 from .tools import ToolError, ToolRegistry
 
 WEEKDAYS = "一二三四五六日"
@@ -35,6 +36,7 @@ class UI(StreamUI, Protocol):
     def tool_call(self, name: str, tool_input: object) -> None: ...
     def tool_result(self, text: str, is_error: bool) -> None: ...
     def confirm(self, description: str) -> tuple[bool, str]: ...
+    def auto_allowed(self) -> None: ...  # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许
 
 
 class Agent:
@@ -70,6 +72,9 @@ class Agent:
 
     def run_turn(self, user_text: str) -> None:
         """处理用户的一条消息，直到模型给出最终答复。"""
+        # 粘贴进来的文字里可能有半个表情这样编码不了的字符。它一旦进了历史，之后每次请求都发不出去，
+        # 所以在入口处换掉（见 safe.py）
+        user_text = clean_text(user_text)
         start = self.backend.mark()
         # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）
         self.backend.add_user([self._context_note(), user_text])
@@ -130,6 +135,7 @@ class Agent:
                     text, is_error = "这次调用的参数在生成中途被截断，没有执行。请重新调用。", True
                 else:
                     text, is_error = self._run_one(call)
+                text = clean_text(text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
                 results.append(ToolResult(call.id, text, is_error))
                 self.ui.tool_result(text, is_error)
         finally:
@@ -153,9 +159,12 @@ class Agent:
         # 先过权限这一关
         question = self.permissions.review(call.name, call.input)
         if question is not None:
-            allowed, feedback = self.ui.confirm(question)
-            if not allowed:
-                return "用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), True
+            if self.permissions.auto_allows(call.name, call.input):
+                self.ui.auto_allowed()  # 没有问用户就放行了：告诉界面一声，记录里要看得出来
+            else:
+                allowed, feedback = self.ui.confirm(question)
+                if not allowed:
+                    return "用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), True
 
         # 工具出错不会让程序崩溃：错误信息作为结果返回给模型，由它决定怎么办
         try:

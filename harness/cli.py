@@ -7,6 +7,7 @@ import sys
 
 from .app import App, build_app, run_turn
 from .config import APP_NAME, Config, load_config
+from .permissions import MODES
 from .pricing import estimate
 from .providers import has_key
 from .tools.todo import format_todos
@@ -29,13 +30,44 @@ HELP = """\
 /tools   查看模型可以使用的工具
 /usage   查看本次运行的 token 用量和估算费用
 /model   查看当前使用的模型
+/auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
 /exit    退出"""
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model"}
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model", "/auto"}
+
+# /auto 换成每种模式之后各说一句话，让用户清楚自己放开了什么
+AUTO_NOTES = {
+    "ask": "已改成：每次都问。助手要改文件、执行命令之前，都会先请你确认。",
+    "edits": "已改成：创建和修改工作目录里的文件不再问你。执行命令、读写工作目录之外的文件，照常先问。",
+    "all": "已改成：全部自动允许。助手改文件、执行命令都不会再问你（保存密钥的 .env 仍然碰不了）。",
+}
+AUTO_RISK = (
+    "注意：确认是你和模型之间唯一的一道关卡，现在它关掉了。网页或文件里如果藏着误导模型的话，"
+    "它照做的时候不会有人拦着。用完请输入 /auto ask 关掉；这个设置不会保存，下次启动会回到每次都问。"
+)
+
+
+def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
+    """/auto：查看或更改"哪些操作不用问就可以做"。"""
+    permissions = app.agent.permissions
+    if not argument:
+        ui.plain(f"现在是：{MODES[permissions.mode]}（{permissions.mode}）")
+        ui.info("更改：/auto ask 每次都问；/auto edits 改工作目录里的文件不用问；/auto all 全部自动允许。")
+    elif argument not in MODES:
+        ui.error(f"没有 {argument} 这种模式。可以用的是：{'、'.join(MODES)}。")
+    else:
+        permissions.mode = argument
+        ui.plain(AUTO_NOTES[argument])
+        if argument == "all":
+            ui.error(AUTO_RISK)
 
 
 def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     """处理斜杠命令。返回 False 表示要退出程序。"""
+    name, _, argument = command.partition(" ")
+    if name == "/auto":
+        set_auto(argument.strip(), app, ui)
+        return True
     if command in ("/exit", "/quit"):
         return False
     if command == "/help":
@@ -91,7 +123,7 @@ def run_terminal(config: Config) -> int:
         text = text.strip()
         if not text:
             continue
-        if text in COMMANDS:
+        if text in COMMANDS or text.startswith("/auto "):  # 只有 /auto 可以带参数
             if not handle_command(text, app, ui):
                 break
             continue
