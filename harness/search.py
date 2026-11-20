@@ -3,7 +3,7 @@
 要解决两个问题。
 
 找得快。不能每敲一个字就把所有会话文件重新读一遍。所以把每段会话里值得搜的文字（标题、你说的话、
-助手的回复、工具调用……）抽出来放在内存里，这就是"索引"（SearchIndex）。会话保存、改名、删除时
+助手的回复、工具调用……）抽出来放在内存里，这就是"索引"（SearchIndex）。附件只收录文件名。会话保存、改名、删除时
 索引跟着更新，搜索只在内存里进行。
 
 找得到。人记得的往往只是个大概，所以匹配分三档，一档比一档宽松，越严格的结果排得越靠前：
@@ -175,6 +175,13 @@ class SearchIndex:
             value = event.get(name) if kind else None
             if isinstance(value, str) and value.strip():
                 passages.append(make_passage(kind, value[:RESULT_CHARS] if kind == "result" else value))
+            if event["type"] == "user" and isinstance(event.get("attachments"), list):
+                # 附件只收录文件名，算作"你说的话"：人常常记得"发过一张叫某某的截图"。
+                # 附件的内容不在事件里（只在发给模型的历史里），所以 base64 这样的东西不会混进索引
+                for item in event["attachments"]:
+                    attached = item.get("name") if isinstance(item, dict) else None
+                    if isinstance(attached, str) and attached.strip():
+                        passages.append(make_passage("user", attached))
         heading = make_passage("title", title if isinstance(title, str) else "")
         # 字符和单词各记一份"出现过哪些"，用来快速排除。拼起来的这一长串只是临时用一下，不留在内存里
         everything = "\n".join([heading.folded, *(passage.folded for passage in passages)])

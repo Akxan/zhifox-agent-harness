@@ -6,8 +6,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from fake_api import reply, text, thinking, tool_use
+from fake_api import failure, reply, text, thinking, tool_use
+from sample_files import PDF, PNG, THUMB, image, pdf, text_file
 
+from harness.attachments import parse
 from harness.providers import ProviderError
 from harness.providers.claude import blocks_to_keep
 from harness.ui import TerminalUI
@@ -500,3 +502,77 @@ def test_usage_is_accumulated(start):
     assert (usage.cache_read_tokens, usage.cache_write_tokens) == (80, 20)
     assert usage.context_tokens == 100 + 40 + 10 + 20  # 最近一次请求的输入加输出
     assert h.agent.usage_by_model["claude-opus-5-5"].requests == 2
+
+
+# ---- 附件 -----------------------------------------------------------------
+
+NOTE = "<context>当前时间：2026-11-20 14:03 星期五</context>"
+
+
+def test_attachments_go_before_the_words_images_first(start):
+    h = start(reply(text("看到了。")), reply(text("不客气。")))
+    # 故意按"文本、PDF、图片"的顺序给：发出去的顺序由程序定，和用户添加的顺序无关
+    files = parse([text_file('笔记 "v2".md'), pdf(), image(thumb=THUMB)])
+    h.agent.run_turn("这些是什么？", files)
+
+    (request,) = h.api.requests
+    assert request["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG}},
+                {
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf", "data": PDF},
+                    "title": "报告.pdf",
+                },
+                # 文件名里的引号转义了，不会提前结束 name 这个属性
+                {"type": "text", "text": '<attachment name="笔记 &quot;v2&quot;.md">\n第一行\n第二行\n</attachment>'},
+                {"type": "text", "text": NOTE},
+                {"type": "text", "text": "这些是什么？"},
+            ],
+        }
+    ]
+    assert THUMB.split(",")[1] not in json.dumps(request)  # 预览图只给页面看，不发给模型
+    # 缓存靠的是请求上的自动缓存，消息里没有手动的标记，所以带了图片和 PDF 也照样落在最后一块上
+    assert request["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in json.dumps(request["messages"])
+    # 历史里是普通的字典，能原样存成 JSON 再读回来
+    assert json.loads(json.dumps(h.agent.messages)) == h.agent.messages
+
+    # 下一条消息没有附件：前面带附件的那条原样留在历史里，新消息只在末尾追加
+    h.agent.run_turn("谢谢")
+    second = h.api.requests[1]["messages"]
+    assert second[0] == request["messages"][0]
+    assert second[2] == {"role": "user", "content": [{"type": "text", "text": NOTE}, {"type": "text", "text": "谢谢"}]}
+
+
+def test_a_message_can_be_only_an_attachment(start):
+    h = start(reply(text("是一张图。")))
+    h.agent.run_turn("", parse([image()]))
+
+    (message,) = h.api.requests[0]["messages"]
+    # 没写字：只有图片和时间说明，没有空的文字块（API 不接受空的文字块）
+    assert [block["type"] for block in message["content"]] == ["image", "text"]
+    assert message["content"][1]["text"] == NOTE
+
+
+def test_an_api_error_withdraws_the_attachments_with_the_message(start):
+    h = start()  # 没有预设回复：假 API 返回 500
+    with pytest.raises(ProviderError, match="500"):
+        h.agent.run_turn("看看这两个", parse([image(), pdf()]))
+    assert h.agent.messages == []
+
+    # 再发一条：上一次的附件没有留在历史里
+    h.api.replies.append(reply(text("好的。")))
+    h.agent.run_turn("算了，说点别的")
+    (message,) = h.api.requests[-1]["messages"]
+    assert [block["type"] for block in message["content"]] == ["text", "text"]
+
+
+def test_a_request_that_is_too_large_is_explained(start):
+    h = start(failure(413, "request_too_large", "Request exceeds the maximum allowed number of bytes."))
+    with pytest.raises(ProviderError, match="开一段新对话") as raised:
+        h.agent.run_turn("看图", parse([image()]))
+    assert "Claude" in str(raised.value)
+    assert h.agent.messages == []

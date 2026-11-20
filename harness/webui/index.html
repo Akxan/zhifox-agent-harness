@@ -401,6 +401,36 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .busy .box::before { opacity: 1; animation: glow 2.4s ease-in-out infinite; }  /* 助手工作时，光环缓缓明暗 */
 .box textarea { flex: 1; min-width: 0; height: 42px; max-height: 210px; padding: 9px 0; overflow-y: hidden; font-size: 15.5px; line-height: 24px; resize: none; background: none; border: 0; outline: 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .box textarea::placeholder { color: var(--ink-3); }
+
+/* ---- 附件 ---------------------------------------------------------------- */
+/* 框换成可以折行的：附件那一排占满第一行，下面才是回形针、输入框和发送按钮 */
+.box { flex-wrap: wrap; padding-left: 7px; }
+.attach { display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: 50%; transition: transform .2s var(--ease); }
+.attach:hover { color: var(--ink); background: var(--hover); }
+.attach:active { transform: scale(.9); }
+.attach .icon { width: 19px; height: 19px; }
+.tray { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 4px 4px 6px; }
+.att { position: relative; display: flex; align-items: center; gap: 9px; height: 56px; max-width: 240px; padding: 0 14px 0 10px; font-size: 13px; background: var(--sunken); border: 1px solid var(--line); border-radius: 12px; }
+.att.image { width: 56px; padding: 0; }
+.att.image img { width: 100%; height: 100%; object-fit: cover; border-radius: 11px; }
+.att > .icon { width: 20px; height: 20px; color: var(--accent); }
+.att-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.att-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.att-size { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.att .remove { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: var(--on-ink); background: var(--ink); border: 2px solid var(--surface); border-radius: 50%; opacity: 0; transform: scale(.7); transition: opacity .15s ease, transform .2s var(--ease); }
+.att .remove .icon { width: 11px; height: 11px; stroke-width: 2.6; }
+.att:hover .remove, .att:focus-within .remove { opacity: 1; transform: none; }
+@media (hover: none) { .att .remove { opacity: 1; transform: none; } }  /* 触屏上没有"悬停"，删除按钮一直显示 */
+.att.busy-att { opacity: .55; }  /* 还在读取、压缩的那一个 */
+/* 把文件拖到页面上时，输入框亮起来，并说明松手会发生什么 */
+.drop-hint { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; font-size: 14px; font-weight: 500; color: var(--accent); background: var(--surface); border-radius: inherit; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.composer.dropping .drop-hint { opacity: .96; }
+.composer.dropping .box { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+/* 对话里，用户消息上方显示这条消息带的附件 */
+.msg-atts { align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: min(86%, 600px); margin-top: 12px; }
+.msg-atts + .msg.user { margin-top: 6px; }
+.msg-atts .att.image { width: auto; height: 120px; max-width: 220px; }
+.msg-atts .att.image img { width: auto; max-width: 100%; height: 100%; }
 .send { position: relative; display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: var(--sunken); border: 0; border-radius: 50%; overflow: hidden; transition: transform .2s var(--ease); }
 .send::before, .send::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s ease; }
 .send::before { background: var(--aurora-solid); }
@@ -648,6 +678,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
   <symbol id="i-auto" viewBox="0 0 24 24"><path d="M4 5h16v11H4zM9 20h6M12 16v4"/></symbol>
   <symbol id="i-calm" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM5 19.5h14"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20.5 11.2l-8.4 8.4a5.3 5.3 0 0 1-7.5-7.5l8.4-8.4a3.5 3.5 0 0 1 5 5l-8.3 8.3a1.8 1.8 0 0 1-2.5-2.5l7.7-7.7"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 16.5h4"/></symbol>
   <symbol id="i-motion" viewBox="0 0 24 24"><path d="M15.5 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3.5 9.5h5M2.5 12h5M3.5 14.5h5"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2a3 3 0 0 0 2 2L21 12l-5.2 1.8a3 3 0 0 0-2 2L12 21l-1.8-5.2a3 3 0 0 0-2-2L3 12l5.2-1.8a3 3 0 0 0 2-2z"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
@@ -741,6 +773,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <button id="to-bottom" class="to-bottom" type="button" title="回到最新的内容" aria-label="回到最新的内容" data-i18n-title data-i18n-aria-label tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
         <form id="form">
           <div class="box">
+            <div id="tray" class="tray" hidden></div>
+            <button id="attach" class="attach" type="button" title="添加附件：图片、PDF 或文本文件（截图可以直接粘贴进来）" aria-label="添加附件" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-clip"/></svg></button>
+            <input id="file-input" type="file" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/*,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.yaml,.yml,.toml,.ini,.log,.py,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.sh,.c,.h,.cpp,.java,.go,.rs,.rb,.php,.swift,.sql">
+            <div class="drop-hint" aria-hidden="true" data-i18n>松开鼠标，把文件添加到这条消息里</div>
             <textarea id="input" rows="1" placeholder="给助手发消息" aria-label="消息" data-i18n-placeholder data-i18n-aria-label autofocus></textarea>
             <button id="send" class="send" type="submit" title="发送" aria-label="发送" disabled>
               <svg class="icon i-send" aria-hidden="true"><use href="#i-up"/></svg>
@@ -1199,7 +1235,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function refreshStatus() {
     const label = busy ? k('停止') : k('发送');
     sendButton.classList.toggle('stop', busy);
-    sendButton.disabled = !busy && !input.value.trim();
+    sendButton.disabled = !busy && !input.value.trim() && !pending.length;  // 只带附件、不写字也能发
     tattr(sendButton, 'title', label);
     tattr(sendButton, 'aria-label', label);
     newButton.disabled = $('new-compact').disabled = busy;
@@ -1255,7 +1291,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // 在对话里找到搜索命中的那一块，滚到屏幕中间，背后亮一下。
   // 服务器告诉了我们命中的原文（find）和它属于哪一类内容（kind），这里按文字去对。
-  const FOUND_IN = { user: '.msg.user', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call, :scope > .notice.tool', result: '.call' };
+  // 附件的文件名也算"你说的话"（搜索按文件名找到的，要能跳到那一排附件上）
+  const FOUND_IN = { user: '.msg.user, :scope > .msg-atts', assistant: '.msg.assistant', thinking: '.thinking', tool: '.call, :scope > .notice.tool', result: '.call' };
   const squash = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');  // 比较时不管大小写、全角半角和空白
 
   // 在一块内容里找到命中的那几个字，返回它们的位置（一个 Range）；找不到返回 null。
@@ -1441,18 +1478,26 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
       if (replaying) {  // 重放的旧内容到这里就画完了
         replaying = false;
+        refreshStatus();  // 重放期间没有刷新过，这里按最终的状态刷新一次
         if (synced) settle();
       }
     },
 
-    user(event) { add(el('div', 'msg user', event.text)); },
-    turn_start() { busy = true; stopping = false; refreshStatus(); },
+    user(event) {
+      const attachments = Array.isArray(event.attachments) ? event.attachments : [];
+      if (attachments.length) add(attachmentRow(attachments));
+      if (event.text || !attachments.length) add(el('div', 'msg user', event.text));
+    },
+    // 重放旧会话时不在每一轮都刷新"正在工作"：一段 150 轮的会话会把 body.busy 来回切换 300 次，
+    // 而 Chrome 在用户真的在输入框里打过字之后，每切换一次就同步重算一遍整页的样式（实测卡 1.4 秒）。
+    // 重放是在同一个任务里画完的，中间状态本来就看不到；画完之后按最终状态刷新一次（见 state）
+    turn_start() { busy = true; stopping = false; if (!replaying) refreshStatus(); },
 
     turn_end() {
       endBlock();
       if (toolCard) finishTool('stopped', k('没有执行完'));  // 这一轮结束时工具还没给出结果（比如被中断了）
       busy = stopping = false;
-      refreshStatus();
+      if (!replaying) refreshStatus();
     },
 
     thinking(event) { stream('thinking', event.text); },
@@ -1562,6 +1607,211 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     },
   };
 
+  // ---- 附件 ----------------------------------------------------------------
+  // 图片（截图可以直接粘贴）、PDF、文本文件可以跟着一条消息发给模型。文件在浏览器里先读好：
+  // 图片太大的缩小一些、再做一张小缩略图，然后和消息一起发给助手程序。助手程序会再检查一遍（大小、格式、
+  // 当前的模型看不看得了），所以这里的检查只是为了早点告诉用户，不是唯一的关卡。
+  //
+  // 为什么要在这里缩小图片：Claude 看图片时，长边最多用到 2576 像素，更大的会被它自己缩小，
+  // 多传的那些像素只会让请求变大、让每一轮都多重发一遍。按 28×28 像素算一个 token，一张图最多约 4800 个。
+
+  const ATTACH_LIMIT = 10;
+  const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  const IMAGE_BYTES = 7.5e6, PDF_BYTES = 25e6, TEXT_CHARS = 400000;  // 和助手程序那边的上限一致
+  const IMAGE_EDGE = 2576, THUMB_EDGE = 240;
+  const TEXT_FILE = /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|ya?ml|toml|ini|cfg|conf|log|py|js|mjs|cjs|ts|tsx|jsx|html?|css|scss|sh|bash|zsh|c|h|cc|cpp|hpp|java|kt|go|rs|rb|php|swift|sql|r|lua|pl|tex|srt|vtt|env\.example)$/i;
+  const THUMB_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+  const tray = $('tray'), fileInput = $('file-input');
+  let pending = [];   // 还没发出去的附件：{id, kind, name, media_type, size, data | text, thumb}
+  let attachSeq = 0;
+
+  function formatSize(bytes) {
+    const units = [[1e6, ' MB'], [1e3, ' KB']];
+    for (const [unit, label] of units) {
+      if (bytes >= unit) return (bytes / unit).toLocaleString(LOCALES[language], { maximumFractionDigits: 1 }) + label;
+    }
+    return bytes.toLocaleString(LOCALES[language]) + ' B';
+  }
+
+  // 当前的模型能不能收这种附件。助手程序是旧版本、状态里没有这两项时，交给它自己去判断
+  function canTake(kind) {
+    const current = state && state.providers.find((provider) => provider.id === state.provider);
+    if (!current || kind === 'text') return '';
+    if (kind === 'image' && current.vision === false) return t('当前的模型（{provider}）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。', { provider: current.label });
+    if (kind === 'pdf' && current.pdf === false) return t('当前的模型（{provider}）读不了 PDF，只有 Claude 能读。', { provider: current.label });
+    return '';
+  }
+
+  const readDataUrl = (blob) => new Promise((done, fail) => {
+    const reader = new FileReader();
+    reader.onload = () => done(reader.result);
+    reader.onerror = () => fail(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  const base64Of = async (blob) => String(await readDataUrl(blob)).split(',')[1] || '';
+  const toBlob = (canvas, type, quality) => new Promise((done) => canvas.toBlob(done, type, quality));
+
+  // 画到一张指定大小的画布上。存成 JPEG 时先铺一层白底，否则透明的地方会变成黑色
+  function drawScaled(bitmap, width, height, opaque) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    const context = canvas.getContext('2d');
+    if (opaque) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height); }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  async function readImage(file) {
+    let bitmap;
+    try { bitmap = await createImageBitmap(file); } catch (_) { throw new Error(t('读不了这张图片：{name}', { name: file.name })); }
+    const { width, height } = bitmap;
+    const scale = Math.min(1, IMAGE_EDGE / Math.max(width, height));
+    let blob = file, type = file.type;
+    // 尺寸合适、格式也是模型认的，就原样发；否则画到画布上重新存一份。截图存 PNG（文字清楚），照片存 JPEG
+    if (scale < 1 || file.size > IMAGE_BYTES || !IMAGE_TYPES.includes(file.type)) {
+      type = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+      blob = await toBlob(drawScaled(bitmap, width * scale, height * scale, type === 'image/jpeg'), type, .9);
+      if (!blob || blob.size > IMAGE_BYTES) {
+        type = 'image/jpeg';
+        blob = await toBlob(drawScaled(bitmap, width * scale, height * scale, true), type, .85);
+      }
+      if (!blob || blob.size > IMAGE_BYTES) throw new Error(t('{name} 太大了：图片最大约 7 MB。', { name: file.name }));
+    }
+    const thumbScale = Math.min(1, THUMB_EDGE / Math.max(width, height));
+    const thumb = drawScaled(bitmap, width * thumbScale, height * thumbScale, true).toDataURL('image/jpeg', .8);
+    bitmap.close();
+    return { kind: 'image', media_type: type, size: blob.size, data: await base64Of(blob), thumb };
+  }
+
+  async function readAttachment(file) {
+    const name = file.name || t('截图');
+    if (IMAGE_TYPES.includes(file.type) || file.type.startsWith('image/')) return { name, ...(await readImage(file)) };
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(name)) {
+      if (file.size > PDF_BYTES) throw new Error(t('{name} 太大了：PDF 最大 25 MB。', { name }));
+      return { name, kind: 'pdf', media_type: 'application/pdf', size: file.size, data: await base64Of(file) };
+    }
+    if (file.type.startsWith('text/') || /json|xml|yaml|javascript|x-sh/.test(file.type) || TEXT_FILE.test(name)) {
+      const text = await file.text();
+      if (text.includes('\u0000')) throw new Error(t('这种文件还不支持：{name}。可以发图片、PDF 或文本文件。', { name }));
+      if (text.length > TEXT_CHARS) throw new Error(t('{name} 太长了：文本文件最多 40 万字。', { name }));
+      return { name, kind: 'text', media_type: file.type || 'text/plain', size: text.length, text };
+    }
+    throw new Error(t('这种文件还不支持：{name}。可以发图片、PDF 或文本文件。', { name }));
+  }
+
+  const kindOf = (file) => (file.type.startsWith('image/') ? 'image' : file.type === 'application/pdf' || /\.pdf$/i.test(file.name) ? 'pdf' : 'text');
+
+  // 一个个读进来。读的时候先摆一张"读取中"的卡片，读完换成真的；出错的那个说一声，不影响别的
+  async function addFiles(files) {
+    for (const file of files) {
+      if (pending.length >= ATTACH_LIMIT) { toast(t('一条消息最多带 {n} 个附件。', { n: ATTACH_LIMIT })); break; }
+      const refused = canTake(kindOf(file));
+      if (refused) { toast(refused); continue; }
+      const item = { id: ++attachSeq, name: file.name || t('截图'), kind: kindOf(file), loading: true };
+      pending.push(item);
+      renderTray(item.id);
+      try {
+        Object.assign(item, await readAttachment(file), { loading: false });
+      } catch (problem) {
+        pending = pending.filter((other) => other !== item);
+        toast(problem.message || String(problem));
+      }
+      renderTray();
+    }
+    refreshStatus();
+  }
+
+  function attachmentCard(item, removable) {
+    const card = el('div', 'att ' + (item.kind === 'image' && item.thumb ? 'image' : 'file') + (item.loading ? ' busy-att' : ''));
+    card.title = item.name;
+    if (item.kind === 'image' && item.thumb && THUMB_URL.test(item.thumb)) {
+      const image = card.appendChild(el('img'));
+      image.alt = item.name;
+      image.src = item.thumb;  // 只接受 data: 开头的图片（页面的安全策略也只允许这种）
+      card.appendChild(el('span', 'sr-only', item.name));  // 文件名：读屏软件读它，搜索跳转也靠它找到这张图
+    } else {
+      card.appendChild(icon(item.kind === 'image' ? 'bookmark' : 'file'));
+      const text = card.appendChild(el('span', 'att-text'));
+      text.appendChild(el('span', 'att-name', item.name));
+      text.appendChild(item.loading ? tel('span', 'att-size', k('读取中…')) : el('span', 'att-size', item.kind === 'pdf' ? 'PDF · ' + formatSize(item.size) : formatSize(item.size)));
+    }
+    if (removable) {
+      const remove = card.appendChild(el('button', 'remove'));
+      remove.type = 'button';
+      remove.setAttribute('aria-label', t('移除 {name}', { name: item.name }));
+      remove.appendChild(icon('x'));
+      remove.addEventListener('click', () => {
+        pending = pending.filter((other) => other.id !== item.id);
+        renderTray();
+        refreshStatus();
+        input.focus();
+      });
+    }
+    return card;
+  }
+
+  // 输入框上方那一排。fresh 是刚加进来的那一个：只有它播入场动画
+  function renderTray(fresh) {
+    tray.hidden = !pending.length;
+    tray.replaceChildren(...pending.map((item) => {
+      const card = attachmentCard(item, !item.loading);
+      if (item.id === fresh) card.classList.add('enter');
+      return card;
+    }));
+  }
+
+  // 对话里：一条用户消息带的附件，排在消息上方。来自助手程序的记录（可能是旧会话里存下的），每一项都先检查
+  function attachmentRow(list) {
+    const row = el('div', 'msg-atts');
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue;
+      const kind = ['image', 'pdf', 'text'].includes(item.kind) ? item.kind : 'text';
+      row.appendChild(attachmentCard({ kind, name: String(item.name || ''), size: Number(item.size) || 0, thumb: typeof item.thumb === 'string' ? item.thumb : '' }, false));
+    }
+    return row;
+  }
+
+  $('attach').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';  // 清空，同一个文件删掉后还能再选一次
+    addFiles(files);
+  });
+  // 粘贴：剪贴板里只有图片（比如刚截的图）就当附件；同时有文字的（从网页、文档里复制的）照常粘贴文字
+  input.addEventListener('paste', (paste) => {
+    const files = [...(paste.clipboardData ? paste.clipboardData.files : [])];
+    if (!files.length || paste.clipboardData.getData('text/plain')) return;
+    paste.preventDefault();
+    addFiles(files);
+  });
+  // 拖放：文件拖到页面上任何地方都行。浏览器默认会直接打开拖进来的文件、离开这个页面，这里要拦下来
+  let dragDepth = 0;
+  const carriesFiles = (drag) => drag.dataTransfer && [...drag.dataTransfer.types].includes('Files');
+  window.addEventListener('dragenter', (drag) => {
+    if (!carriesFiles(drag)) return;
+    drag.preventDefault();
+    dragDepth += 1;
+    composer.classList.add('dropping');
+  });
+  window.addEventListener('dragleave', (drag) => {
+    if (!carriesFiles(drag)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) composer.classList.remove('dropping');
+  });
+  window.addEventListener('dragover', (drag) => {
+    if (!carriesFiles(drag)) return;
+    drag.preventDefault();
+    drag.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('drop', (drag) => {
+    if (!carriesFiles(drag)) return;
+    drag.preventDefault();
+    dragDepth = 0;
+    composer.classList.remove('dropping');
+    addFiles([...drag.dataTransfer.files]);
+  });
+
   // ---- 发送消息 ------------------------------------------------------------
 
   // 输入框跟着内容长高，到上限为止；超过上限才出现滚动条
@@ -1583,12 +1833,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   async function sendMessage() {
     const text = input.value.trim();
-    if (busy && text) { toast(t(BUSY_HINT)); return; }
-    if (!text || busy || sending) return;
+    if (pending.some((item) => item.loading)) { toast(t('附件还在读取，请稍等一下再发送。')); return; }
+    const files = pending.slice();
+    if (busy && (text || files.length)) { toast(t(BUSY_HINT)); return; }
+    if ((!text && !files.length) || busy || sending) return;
+    // 整条消息（连同附件）最多约 64 MB，超过的助手程序会直接退回。base64 编码后的大小就是要发的字节数，文字按最坏情况算
+    const bytes = files.reduce((sum, item) => sum + (item.data || '').length + (item.thumb || '').length + (item.text || '').length * 3, text.length * 3);
+    if (bytes > 62e6) { toast(t('附件加起来太大了：一条消息连同附件最多约 64 MB。可以分成几条发。')); return; }
     sending = true;
-    const sent = await post('/api/message', { text });
+    const attachments = files.map(({ kind, name, media_type, data, text: content, thumb }) => ({ kind, name, media_type, data, text: content, thumb }));
+    const sent = await post('/api/message', files.length ? { text, attachments } : { text });
     sending = false;
-    if (!sent) return;
+    if (!sent) return;  // 没发出去（比如当前的模型看不了图片）：附件和文字都留着，改一改还能再发
+    pending = pending.filter((item) => !files.includes(item));
+    renderTray();
     sentAt = performance.now();
     input.value = '';
     resizeInput();
@@ -2212,6 +2470,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     strings = (I18N.tables || {})[code] || {};
     translatePage();
     refreshStatus();    // 发送按钮、"正在工作"
+    renderTray();       // 附件卡片上"移除 某某"的提示
     if (languageDialog.open) renderLanguageOptions();
   }
 

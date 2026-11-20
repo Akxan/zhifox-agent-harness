@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from ..attachments import Attachment
+from ..i18n import t
 
 ERROR_CHARS = 300  # 厂商返回的出错说明最多显示这么多字
 
@@ -39,6 +43,18 @@ def brief(message: object) -> str:
         text = html.unescape(body if body.strip() else title.group(1) if title else "")
     text = " ".join(text.split())
     return text if len(text) <= ERROR_CHARS else text[: ERROR_CHARS - 1] + "…"
+
+
+def too_large(provider: str) -> str:
+    """请求超过了厂商规定的大小（HTTP 413）时给用户看的话。
+
+    平时很难碰到，有了附件就容易了：对话历史每次都要整个重发，里面的图片和 PDF 也一样，
+    所以附件一多、聊得一久，请求就会越来越大。
+    """
+    return t(
+        "请求太大，超过了 {provider} 的上限。对话里的图片和 PDF 每次请求都要整份重发：可以开一段新对话，或者把附件缩小一些再发。",
+        provider=provider,
+    )
 
 
 @dataclass
@@ -121,7 +137,9 @@ class Backend(Protocol):
     def restore(self, messages: list) -> None: ...  # 换上一份以前保存的对话历史
     def mark(self) -> int: ...  # 记下历史现在的位置
     def rollback(self, mark: int) -> None: ...  # 把历史退回到某个位置（只会从末尾去掉内容）
-    def add_user(self, parts: list[str]) -> None: ...  # 追加一条用户消息
+    # 追加一条用户消息。parts 是几段文字（时间说明、用户的话），attachments 是随消息发来的附件。
+    # 附件怎么放进消息由各家自己决定；这一家收不了的附件（比如看不了图片）抛出 ProviderError，什么都不追加
+    def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None: ...
     def add_tool_results(self, results: list[ToolResult]) -> None: ...  # 追加工具结果
     def step(self, ui: StreamUI) -> Step: ...  # 调用一次模型，边收边显示，并把回复追加进历史
     def tool_names(self) -> list[tuple[str, bool]]: ...  # 这家模型能用的工具：（名字，是否在本地执行）

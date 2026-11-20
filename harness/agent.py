@@ -17,10 +17,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Protocol
 
+from .attachments import Attachment
 from .config import Config
 from .i18n import t
 from .permissions import Permissions
@@ -71,14 +72,17 @@ class Agent:
 
     # ---- 一轮对话 ---------------------------------------------------------
 
-    def run_turn(self, user_text: str) -> None:
-        """处理用户的一条消息，直到模型给出最终答复。"""
+    def run_turn(self, user_text: str, attachments: Sequence[Attachment] | None = None) -> None:
+        """处理用户的一条消息，直到模型给出最终答复。attachments 是随消息发来的附件（已经检查过，见 attachments.py）。"""
         # 粘贴进来的文字里可能有半个表情这样编码不了的字符。它一旦进了历史，之后每次请求都发不出去，
         # 所以在入口处换掉（见 safe.py）
         user_text = clean_text(user_text)
         start = self.backend.mark()
-        # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）
-        self.backend.add_user([self._context_note(), user_text])
+        # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。
+        # 只发了附件、没写字的时候，没有"用户的话"这一段（API 不接受空的文字块）
+        parts = [self._context_note()] + ([user_text] if user_text.strip() else [])
+        # 附件和文字是同一条消息：出错撤回时一起撤回，不会只剩下半条
+        self.backend.add_user(parts, attachments or ())
         try:
             self._loop(start)
         except BaseException:

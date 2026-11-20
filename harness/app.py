@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from . import i18n
 from .agent import Agent
+from .attachments import Attachment, unsupported
 from .config import Config
 from .conversations import (
     Conversation,
@@ -142,10 +144,15 @@ class App:
         self.store.save(conversation)
         return True
 
-    def name_conversation(self, first_message: str) -> None:
-        """新会话用用户的第一句话当标题。"""
+    def name_conversation(self, first_message: str, attachments: Sequence[Attachment] = ()) -> None:
+        """新会话用用户的第一句话当标题。第一条消息只有附件、没有文字时，用第一个附件的文件名。"""
         if not self.conversation.title:
-            self.conversation.title = make_title(first_message)
+            self.conversation.title = make_title(first_message) or (make_title(attachments[0].name) if attachments else "")
+
+    def attachment_problem(self, attachments: Sequence[Attachment]) -> str:
+        """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。"""
+        provider = self.provider
+        return unsupported(attachments, provider.label, provider.vision, provider.pdf)
 
     def _is_unsaved_current(self, conversation_id: str) -> bool:
         """是不是"列在会话栏里、但还没有写到磁盘上"的当前会话（第一轮还没存，或者存盘失败了）。"""
@@ -226,10 +233,10 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     )
 
 
-def run_turn(agent: Agent, ui: Any, text: str) -> None:
-    """跑一轮对话。出错后程序不退出，把原因显示出来，可以接着聊。"""
+def run_turn(agent: Agent, ui: Any, text: str, attachments: Sequence[Attachment] | None = None) -> None:
+    """跑一轮对话。出错后程序不退出，把原因显示出来，可以接着聊。附件只有网页界面会传。"""
     try:
-        agent.run_turn(text)
+        agent.run_turn(text, attachments)
     except KeyboardInterrupt:
         ui.info(t("已中断。"))
     except ProviderError as exc:

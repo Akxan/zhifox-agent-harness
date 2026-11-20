@@ -42,13 +42,25 @@ class Provider:
     key_env: str  # API key 保存在哪个环境变量里
     base_url: str | None  # 服务器地址；None 表示用 SDK 默认的
     key_page: str  # 去哪里申请 API key
+    # 能收哪些附件（文本文件哪一家都能收）。默认都不能：新接入的一家先当它只认文字，确认支持了再打开
+    vision: bool = False  # 看得懂图片
+    pdf: bool = False  # 读得了 PDF。OpenAI 格式的接口里没有通用的 PDF 写法，所以目前只有 Claude 能读
 
 
 PROVIDERS: dict[str, Provider] = {
     provider.id: provider
     for provider in [
-        Provider("anthropic", "Claude (Anthropic)", "anthropic", "ANTHROPIC_API_KEY", None, "https://platform.claude.com"),
-        Provider("openai", "GPT (OpenAI)", "openai", "OPENAI_API_KEY", None, "https://platform.openai.com"),
+        Provider(
+            "anthropic",
+            "Claude (Anthropic)",
+            "anthropic",
+            "ANTHROPIC_API_KEY",
+            None,
+            "https://platform.claude.com",
+            vision=True,
+            pdf=True,
+        ),
+        Provider("openai", "GPT (OpenAI)", "openai", "OPENAI_API_KEY", None, "https://platform.openai.com", vision=True),
         Provider(
             "gemini",
             "Gemini (Google)",
@@ -56,6 +68,7 @@ PROVIDERS: dict[str, Provider] = {
             "GEMINI_API_KEY",
             "https://generativelanguage.googleapis.com/v1beta/openai/",
             "https://aistudio.google.com",
+            vision=True,
         ),
         Provider(
             "deepseek", "DeepSeek", "openai", "DEEPSEEK_API_KEY", "https://api.deepseek.com", "https://platform.deepseek.com"
@@ -120,4 +133,6 @@ def make_backend(
 ) -> Backend:
     if provider.kind == "anthropic":
         return AnthropicBackend(client, model, config, tools, system_prompt)
-    return OpenAICompatBackend(client, provider.id, provider.label, model, config, tools, system_prompt)
+    return OpenAICompatBackend(
+        client, provider.id, provider.label, model, config, tools, system_prompt, vision=provider.vision, pdf=provider.pdf
+    )

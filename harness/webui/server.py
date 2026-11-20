@@ -5,7 +5,7 @@
   GET  /               页面本身（index.html）
   GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去。
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
-  POST /api/message    用户发了一条消息
+  POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"
@@ -47,6 +47,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from .. import i18n
 from ..app import App, build_app, run_turn
+from ..attachments import Attachment, AttachmentError
+from ..attachments import parse as parse_attachments
 from ..config import APP_NAME, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
@@ -61,6 +63,8 @@ from .ui import WebUI, latest_state_only
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
+# 发消息的请求可以带附件（base64 编码后比原文件大三分之一），所以单独放宽到这么多。别的请求都是几行设置，1MB 足够
+MAX_MESSAGE_BODY_BYTES = 64_000_000
 MAX_DISCARD_BYTES = 16_000_000  # 请求体太大时，最多读掉这么多再回答（见 Handler._read_json）
 SHUTDOWN_WAIT_SECONDS = 5  # 退出时最多等这么久，让正在进行的一轮收尾存盘
 MAX_MESSAGE_CHARS = 100_000
@@ -144,6 +148,9 @@ class WebApp:
                     "key_hint": key_hint(provider.key_env),
                     "key_page": provider.key_page,
                     "models": self._models(provider.id),
+                    # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收
+                    "vision": provider.vision,
+                    "pdf": provider.pdf,
                 }
                 for provider in PROVIDERS.values()
             ],
@@ -177,7 +184,7 @@ class WebApp:
 
     # ---- 对话 --------------------------------------------------------------
 
-    def send(self, text: str) -> str:
+    def send(self, text: str, attachments: list[Attachment] | None = None) -> str:
         """开始一轮对话。成功返回空字符串，否则返回不能开始的原因。"""
         provider = self.app.provider
         if not has_key(provider):
@@ -186,16 +193,16 @@ class WebApp:
             return t("上一轮对话还没有结束")
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
         # 这样服务器还能继续响应浏览器的其他请求，比如"允许"和"停止"。
-        threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
+        threading.Thread(target=self._run_turn, args=(text, attachments or []), daemon=True).start()
         return ""
 
-    def _run_turn(self, text: str) -> None:
+    def _run_turn(self, text: str, attachments: list[Attachment]) -> None:
         try:
             self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
-            self.app.name_conversation(text)  # 新会话用第一句话当标题
-            self.ui.begin_turn(text)
+            self.app.name_conversation(text, attachments)  # 新会话用第一句话当标题（没写字的话用第一个附件的名字）
+            self.ui.begin_turn(text, attachments)
             self.publish_state()  # 让新会话马上出现在列表里
-            run_turn(self.app.agent, self.ui, text)
+            run_turn(self.app.agent, self.ui, text, attachments)
         finally:
             try:
                 self.ui.end_stream()
@@ -477,7 +484,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._allowed(self.headers.get("X-Harness-Token", "")):
             return
-        body = self._read_json()
+        # 只有发消息可以带附件，所以只有它的请求体上限放宽了
+        message = urlsplit(self.path).path == "/api/message"
+        body = self._read_json(MAX_MESSAGE_BODY_BYTES if message else MAX_BODY_BYTES)
         if body is None:
             return
         try:
@@ -497,10 +506,22 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/message":
             text = body.get("text")
-            if not isinstance(text, str) or not text.strip() or len(text) > MAX_MESSAGE_CHARS:
-                self._send_json(400, {"error": t("消息不能为空，也不能太长")})
+            try:
+                # 附件逐个检查：个数、大小、格式、编码（见 attachments.py）。有一个不合格，整条消息都不发，
+                # 免得用户以为模型看到了其实被丢掉的那个文件
+                attachments = parse_attachments(body.get("attachments"))
+            except AttachmentError as exc:
+                self._send_json(400, {"error": i18n.message_of(exc)})
+                return
+            if not isinstance(text, str) or len(text) > MAX_MESSAGE_CHARS or not (text.strip() or attachments):
+                self._send_json(400, {"error": t("消息不能为空，也不能太长")})  # 只发附件、不写字是可以的
+                return
+            # 当前的模型收不了的附件（DeepSeek 看不了图片，只有 Claude 读得了 PDF），在开始这一轮之前就退回去
+            problem = web.app.attachment_problem(attachments)
+            if problem:
+                self._send_json(400, {"error": problem})
             else:
-                self._finish(web.send(text.strip()))
+                self._finish(web.send(text.strip(), attachments))
         elif path == "/api/confirm":
             confirm_id, allow, feedback = body.get("id"), body.get("allow"), body.get("feedback", "")
             if not isinstance(confirm_id, int) or not isinstance(allow, bool) or not isinstance(feedback, str):
@@ -668,14 +689,20 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass  # 浏览器关掉了页面
 
-    def _read_json(self) -> dict | None:
+    def _read_json(self, limit: int) -> dict | None:
+        """读出请求体并解析成字典。请求体超过 limit 个字节时回答 413，返回 None。"""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        if not 0 <= length <= MAX_BODY_BYTES:
-            self._discard(length)
-            self._send_json(413, {"error": t("请求太大：一次最多发送约 1MB 的内容")})
+        if not 0 <= length <= limit:
+            if limit > MAX_BODY_BYTES:
+                # 发消息的请求：上限本来就大，多读掉的量也跟着放宽，不然页面还是只能看到"连接断开"
+                self._discard(length, limit + MAX_DISCARD_BYTES)
+                self._send_json(413, {"error": t("请求太大：一条消息连同附件最多发送约 64MB 的内容")})
+            else:
+                self._discard(length, MAX_DISCARD_BYTES)
+                self._send_json(413, {"error": t("请求太大：一次最多发送约 1MB 的内容")})
             return None
         try:
             # clean：浏览器送来的文字（消息、标题……）在进门的地方统一洗一遍，见 safe.py
@@ -687,13 +714,13 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return body
 
-    def _discard(self, length: int) -> None:
-        """把一个不打算处理的请求体读掉扔了。
+    def _discard(self, length: int, most: int) -> None:
+        """把一个不打算处理的请求体读掉扔了，最多读 most 个字节。
 
         不读的话，浏览器还在往这边发数据，连接就被我们关掉了：它来不及读到我们的回答，只会报"连接断开"。
         读掉再回答，页面才能把"请求太大"显示出来。读的量设了上限，免得被一个巨大的请求拖住。
         """
-        remaining = min(max(length, 0), MAX_DISCARD_BYTES)
+        remaining = min(max(length, 0), most)
         while remaining > 0:
             chunk = self.rfile.read(min(remaining, 65536))
             if not chunk:

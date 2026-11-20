@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import threading
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
+from ..attachments import Attachment, from_saved
 from ..display import describe_call
 from ..i18n import Message, t
 
@@ -157,6 +158,11 @@ class WebUI:
                 continue  # 不认识的东西不重放（见 REPLAYABLE 的说明）
             # 编号由这里重新分配，文件里即使带着也不用
             data = {key: value for key, value in entry.items() if key not in ("id", "type", "outcome")}
+            if kind == "user" and "attachments" in data:
+                # 附件的概要会变成页面上的预览图和文件名，所以和浏览器送来的一样，重新查一遍（见 attachments.py）
+                shown = from_saved(data.pop("attachments"))
+                if shown:
+                    data["attachments"] = shown
             event_id = self.publish(kind, **data)
             if kind == "confirm":
                 outcome = entry.get("outcome", "stopped")
@@ -171,11 +177,14 @@ class WebUI:
 
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
-    def begin_turn(self, user_text: str) -> None:
+    def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = ()) -> None:
         with self._changed:
             self._stop_requested = False
             self._drop_stale_states()
-        self.publish("user", text=user_text)
+        # 附件只放概要（名字、大小、小预览图）：事件会存进会话文件、每次刷新都要重发，放不下几十 MB 的原件。
+        # 原件在对话历史里，发给模型用
+        extra = {"attachments": [item.summary() for item in attachments]} if attachments else {}
+        self.publish("user", text=user_text, **extra)
         self.publish("turn_start")
 
     def end_turn(self) -> None:

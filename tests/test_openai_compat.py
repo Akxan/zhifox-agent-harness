@@ -7,7 +7,9 @@ import json
 import openai
 import pytest
 from fake_openai import FakeOpenAI, call, chat
+from sample_files import PNG, image, pdf, text_file
 
+from harness.attachments import parse
 from harness.providers import PROVIDERS, ProviderError, list_models
 
 FILE_TOOL = "str_replace_based_edit_tool"
@@ -206,3 +208,53 @@ def test_switching_models_and_providers(start):
     assert (saved["provider"], saved["model"]) == ("gemini", "gemini-4-neon")
     assert sorted(h.agent.usage_by_model) == ["deepseek-flash", "deepseek-v4-pro", "gemini-4-neon"]
     assert h.agent.usage.requests == 3
+
+
+# ---- 附件 -----------------------------------------------------------------
+
+NOTE = "<context>当前时间：2026-11-20 14:03 星期五</context>"
+
+
+def test_gpt_gets_images_as_data_urls_before_the_words(start):
+    h = start(chat("一张很小的图。"), chat("不客气。"))
+    assert h.app.select_model("openai", "gpt-6-luna") is False  # 换到 GPT（还是同一个假服务器）
+    h.agent.run_turn("看看这个", parse([text_file("a.txt", "hello"), image()]))
+
+    user = h.api.requests[0]["messages"][1]
+    # 带附件时内容是一个列表：图片在前，然后是文本文件，最后是时间说明和用户的话
+    assert user == {
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG}"}},
+            {"type": "text", "text": '<attachment name="a.txt">\nhello\n</attachment>'},
+            {"type": "text", "text": f"{NOTE}\n\n看看这个"},
+        ],
+    }
+    # 没有附件的消息还是一段文字，和以前一样
+    h.agent.run_turn("谢谢")
+    assert h.api.requests[1]["messages"][3] == {"role": "user", "content": f"{NOTE}\n\n谢谢"}
+    assert h.api.requests[1]["messages"][:3] == h.api.requests[0]["messages"] + [h.agent.messages[2]]
+
+
+def test_text_files_work_with_every_provider(start):
+    h = start(chat("读完了。"))  # DeepSeek 看不了图片，但文本文件就是一段文字
+    h.agent.run_turn("", parse([text_file()]))
+    assert h.api.requests[0]["messages"][1]["content"] == [
+        {"type": "text", "text": '<attachment name="笔记.md">\n第一行\n第二行\n</attachment>'},
+        {"type": "text", "text": NOTE},
+    ]
+
+
+def test_models_that_cannot_take_an_attachment_refuse_it_before_sending(start):
+    h = start()
+    with pytest.raises(ProviderError, match="看不了图片") as raised:
+        h.agent.run_turn("看图", parse([image()]))
+    assert str(raised.value) == "当前的模型（DeepSeek）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。"
+
+    h.app.select_model("openai", "gpt-6-luna")  # GPT 看得了图片，但读不了 PDF
+    with pytest.raises(ProviderError) as raised:
+        h.agent.run_turn("读一下", parse([pdf()]))
+    assert str(raised.value) == "当前的模型（GPT (OpenAI)）读不了 PDF，只有 Claude 能读。"
+
+    assert h.api.requests == []  # 一个请求都没有发出去
+    assert h.agent.backend.export() == []  # 历史里什么都没留下

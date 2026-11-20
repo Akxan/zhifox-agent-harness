@@ -7,31 +7,54 @@
   - 工具调用不是"内容块"，而是助手消息上的 tool_calls 字段；参数是一段 JSON 文本，要自己解析。
   - 每个工具结果是单独的一条消息（role 为 tool），而不是合在一条消息里。
   - 没有服务器端的联网搜索，没有自动压缩历史，缓存是各家自动做的、不用我们管。
+  - 用户消息带图片时，内容是一个列表，图片写成 data: 地址；这套格式里没有各家通用的 PDF 写法。
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import openai
 
+from ..attachments import Attachment, unsupported, wrap_text
 from ..config import Config
 from ..i18n import t
 from ..safe import clean, clean_text, loads_strict
 from ..tools import ToolRegistry
-from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage, brief
+from .base import (
+    ProviderError,
+    Step,
+    StreamUI,
+    ToolCall,
+    ToolResult,
+    Usage,
+    brief,
+    too_large,
+)
 
 
 class OpenAICompatBackend:
     def __init__(
-        self, client: Any, provider: str, label: str, model: str, config: Config, tools: ToolRegistry, system_prompt: str
+        self,
+        client: Any,
+        provider: str,
+        label: str,
+        model: str,
+        config: Config,
+        tools: ToolRegistry,
+        system_prompt: str,
+        *,
+        vision: bool = False,
+        pdf: bool = False,
     ):
         self.client = client
         self.provider = provider
         self.label = label  # 给用户看的名字，如 "DeepSeek"
         self.model = model
         self.config = config
+        self.vision, self.pdf = vision, pdf  # 这一家能不能收图片、PDF（见 providers/__init__.py 的 PROVIDERS）
         self._local_tools = [tool for tool in tools if tool.portable is not None and tool.run is not None]
         # 各家通用的"函数"格式的工具说明书
         self.tool_specs = [{"type": "function", "function": tool.portable} for tool in self._local_tools]
@@ -59,8 +82,25 @@ class OpenAICompatBackend:
     def rollback(self, mark: int) -> None:
         del self._messages[max(mark, 1) :]  # 第一条是系统提示词，永远保留
 
-    def add_user(self, parts: list[str]) -> None:
-        self._messages.append({"role": "user", "content": "\n\n".join(parts)})
+    def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
+        text = "\n\n".join(parts)
+        if not attachments:
+            self._messages.append({"role": "user", "content": text})  # 只有文字时用最简单的写法：一段文字
+            return
+        # 网页那边发送之前已经查过当前的模型收不收得了。这里再把一次关：真的漏过来了，
+        # 宁可当场说清楚，也不要把几 MB 的图片发给一个看不了图的模型，换回一句看不懂的报错
+        problem = unsupported(attachments, self.label, self.vision, self.pdf)
+        if problem:
+            raise ProviderError(problem)
+        # 和 Claude 一样，附件在前、文字在后：先是图片，然后是文本文件，最后是时间说明和用户的话
+        content: list[dict] = [
+            {"type": "image_url", "image_url": {"url": f"data:{item.media_type};base64,{item.data}"}}
+            for item in attachments
+            if item.kind == "image"
+        ]
+        content += [{"type": "text", "text": wrap_text(item)} for item in attachments if item.kind == "text"]
+        content.append({"type": "text", "text": text})
+        self._messages.append({"role": "user", "content": content})
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
         for result in results:
@@ -190,6 +230,8 @@ def _explain(exc: openai.APIError, label: str, model: str) -> str:
         return t("{provider} 提示请求太频繁，或者账号余额、额度不足。", provider=label)
     if isinstance(exc, openai.BadRequestError):
         return t("请求被 {provider} 拒绝：{error}", provider=label, error=brief(exc.message))
+    if isinstance(exc, openai.APIStatusError) and exc.status_code == 413:
+        return too_large(label)
     if isinstance(exc, openai.APIStatusError):
         return t("{provider} 的 API 出错（状态码 {status}）：{error}", provider=label, status=exc.status_code, error=brief(exc.message))
     if isinstance(exc, openai.APIConnectionError):

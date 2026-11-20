@@ -17,12 +17,35 @@ import openai
 import pytest
 from fake_api import FakeAPI, reply, text, thinking, tool_use
 from fake_openai import FakeOpenAI, chat
+from sample_files import (
+    JPEG_BYTES,
+    PDF,
+    PDF_BYTES,
+    PNG,
+    PNG_BYTES,
+    THUMB,
+    b64,
+    image,
+    pdf,
+    text_file,
+)
 
 import harness.webui.server as server_module
 from harness.app import build_app
+from harness.attachments import (
+    MAX_IMAGE_BYTES,
+    MAX_PDF_BYTES,
+    MAX_TEXT_CHARS,
+    MAX_THUMB_CHARS,
+)
 from harness.conversations import ConversationStore
 from harness.search import MAX_QUERY_CHARS
-from harness.webui.server import LARGE_CONTEXT_TOKENS, create_server
+from harness.webui.server import (
+    LARGE_CONTEXT_TOKENS,
+    MAX_BODY_BYTES,
+    MAX_MESSAGE_BODY_BYTES,
+    create_server,
+)
 from harness.webui.ui import MAX_RESULT_CHARS, WebUI, latest_state_only
 
 
@@ -1833,3 +1856,176 @@ def test_messages_from_the_program_carry_their_original_text(serve, monkeypatch)
     replayed, _ = open_conversation(s, first["id"])
     (card,) = [event for event in replayed if event["type"] == "confirm"]
     assert card["key"] == entry["key"] and card["values"] == entry["values"]
+
+
+# ---- 附件 -----------------------------------------------------------------
+
+
+def send_files(s, *attachments, text: str = "看看这些") -> tuple[int, dict]:
+    return s.browser.post("/api/message", {"text": text, "attachments": list(attachments)})
+
+
+def test_attachments_are_checked_before_anything_is_sent(serve):
+    s = serve()
+    png_header = b"\x89PNG\r\n\x1a\n"
+    too_big_png = b64(png_header + bytes(MAX_IMAGE_BYTES - len(png_header) + 1))
+    bad_encoding = "附件“截图.png”的内容编码不正确（应该是 base64）。"
+    unsupported_image = "图片“截图.png”的格式不支持，只能是 PNG、JPEG、GIF 或 WebP。"
+    malformed = "附件的格式不正确。"
+    rejected = [
+        ([image()] * 11, "一条消息最多带 10 个附件。"),
+        ([image(data="不是 base64!")], bad_encoding),
+        ([image(data=PNG[:-1])], bad_encoding),  # 少了结尾的补齐
+        ([image(data=PNG[:40] + "\n" + PNG[40:])], bad_encoding),  # 夹着换行：API 同样不接受
+        ([image(data="")], "附件“截图.png”是空的。"),
+        ([image(media_type="image/bmp")], unsupported_image),
+        ([image(data=b64(b"BM" + bytes(64)))], unsupported_image),  # 说是 PNG，内容其实是 BMP
+        ([image(data=too_big_png)], "图片“截图.png”太大了，一张图片最大 7.5 MB。"),
+        ([pdf(data=b64(b"%PDF-" + bytes(MAX_PDF_BYTES - 4)))], "PDF“报告.pdf”太大了，一个 PDF 最大 25 MB。"),
+        ([pdf(data=b64(b"just some text"))], "“报告.pdf”不是有效的 PDF 文件。"),
+        ([text_file("长.txt", "字" * (MAX_TEXT_CHARS + 1))], "文本文件“长.txt”太长了，一个文件最多 40 万个字符。"),
+        ([{**pdf(), "media_type": "image/png"}], malformed),
+        ([{"kind": "video", "name": "a.mp4", "data": PNG}], malformed),
+        ([image(name="")], malformed),
+        ([image(name="  /  ")], malformed),  # 只有路径分隔符，去掉以后什么都不剩
+        ([text_file(text=None)], malformed),
+        (["截图.png"], malformed),
+    ]
+    for attachments, error in rejected:
+        assert send_files(s, *attachments) == (400, {"error": error}), error
+    assert s.browser.post("/api/message", {"text": "看看", "attachments": "截图.png"}) == (400, {"error": malformed})
+    # 有一个不合格，整条消息都不发：哪怕别的附件都没问题
+    assert send_files(s, image(), pdf(data="坏的"))[0] == 400
+    # 没写字也没有附件，还是不行
+    assert s.browser.post("/api/message", {"text": " ", "attachments": []}) == (400, {"error": "消息不能为空，也不能太长"})
+
+    assert s.api.requests == [] and s.app.agent.messages == []
+    assert "user" not in s.browser.types()  # 一轮都没有开始
+
+
+def test_a_message_with_attachments_from_the_page_to_the_model_and_back(serve):
+    s = serve(reply(text("一张截图、一张照片、一份报告和一些笔记。")), reply(text("另一段。")))
+    photo = image("拍的照片.png", data=b64(JPEG_BYTES), thumb=THUMB)  # 扩展名说是 PNG，内容其实是 JPEG
+    notes = text_file("C:\\Users\\me\\笔记.md")  # 带着路径的名字
+    status, _ = send_files(s, image("季度报表截图.png", thumb=THUMB), photo, pdf(thumb=THUMB), notes, text="  ")
+    assert status == 200
+    s.browser.wait_for("turn_end")
+
+    # 页面收到的是概要：名字、类型、大小、预览图，没有内容本身
+    (user,) = s.browser.of_type("user")
+    assert user["text"] == ""
+    assert user["attachments"] == [
+        {"kind": "image", "name": "季度报表截图.png", "media_type": "image/png", "size": len(PNG_BYTES), "thumb": THUMB},
+        {"kind": "image", "name": "拍的照片.png", "media_type": "image/jpeg", "size": len(JPEG_BYTES), "thumb": THUMB},
+        {"kind": "pdf", "name": "报告.pdf", "media_type": "application/pdf", "size": len(PDF_BYTES)},  # PDF 不要预览图
+        {"kind": "text", "name": "笔记.md", "media_type": "text/plain", "size": len("第一行\n第二行")},  # 路径去掉了
+    ]
+    # 发给模型的是完整的内容，而且以文件的真实格式为准：说的格式和实际的对不上，API 会拒绝整个请求
+    content = s.api.requests[0]["messages"][0]["content"]
+    assert [block["type"] for block in content] == ["image", "image", "document", "text", "text"]
+    assert content[0]["source"]["data"] == PNG
+    assert content[1]["source"] == {"type": "base64", "media_type": "image/jpeg", "data": b64(JPEG_BYTES)}
+    assert content[2]["source"]["data"] == PDF and content[2]["title"] == "报告.pdf"
+    assert content[3]["text"].startswith('<attachment name="笔记.md">')
+    # 没写字：新会话用第一个附件的名字当标题
+    state = latest_state(s.browser)
+    first = state["conversation"]
+    assert state["title"] == "季度报表截图.png"
+
+    # 存下来的会话：事件里只有概要，完整的内容只在对话历史里
+    saved = saved_file(s.config, first)
+    assert saved["title"] == "季度报表截图.png"
+    assert saved["events"][0] == {"type": "user", "text": "", "attachments": user["attachments"]}
+    assert PNG not in json.dumps(saved["events"]) and PNG in json.dumps(saved["messages"])
+
+    # 刷新页面：附件跟着用户的话一起重放
+    reloaded = Browser(s.url)
+    reloaded.wait_for("turn_end")
+    assert reloaded.of_type("user") == [user]
+
+    # 换一段再打开它：附件也在。会话文件要是被改过，不认识的项和不合格的预览图不会被放进页面
+    act(s, "/api/new")
+    say(s, "另一段")
+    path = s.config.conversations_dir / f"{first}.json"
+    tampered = json.loads(path.read_text(encoding="utf-8"))
+    tampered["events"][0]["attachments"] += [
+        {"kind": "exe", "name": "x.exe", "media_type": "x", "size": 1},
+        {"kind": "image", "name": "坏的.png", "media_type": "image/png", "size": True},
+        {"kind": "image", "name": "x.png", "media_type": "image/png", "size": 1, "thumb": "javascript:alert(1)"},
+    ]
+    path.write_text(json.dumps(tampered, ensure_ascii=False), encoding="utf-8")
+    replayed, _ = open_conversation(s, first)
+    (again,) = [event for event in replayed if event["type"] == "user"]
+    survivor = {"kind": "image", "name": "x.png", "media_type": "image/png", "size": 1}
+    assert again["attachments"] == [*user["attachments"], survivor]
+    assert s.app.agent.messages[0]["content"][0]["source"]["data"] == PNG  # 接着聊时，模型还看得到这些附件
+
+    # 搜索能按附件的名字找到这段会话，算作"你说的话"；附件的内容（base64）和预览图不会被搜到
+    (found,) = search(s, "笔记")
+    assert found["id"] == first
+    assert found["snippet"] == {"kind": "user", "text": "笔记.md", "marks": [[0, 2]], "find": "笔记"}
+    assert [item["id"] for item in search(s, "拍的照片")] == [first]
+    assert search(s, PNG[:12]) == [] and search(s, "base64") == []
+
+
+def test_bad_thumbnails_are_dropped_and_the_message_still_goes(serve):
+    s = serve(reply(text("收到。")))
+    thumbs = [
+        THUMB,
+        "javascript:alert(1)",
+        "data:image/svg+xml;base64,PHN2Zz4=",  # SVG 里可以带脚本，不要
+        'data:image/png;base64,AAAA"onerror="x',
+        "data:image/png;base64," + "A" * MAX_THUMB_CHARS,  # 太长
+        42,
+    ]
+    status, _ = send_files(s, *(image(f"{index}.png", thumb=thumb) for index, thumb in enumerate(thumbs)))
+    assert status == 200
+    s.browser.wait_for("turn_end")
+    (user,) = s.browser.of_type("user")
+    assert [item.get("thumb") for item in user["attachments"]] == [THUMB, None, None, None, None, None]
+    assert user["text"] == "看看这些"
+    assert len(s.api.requests[0]["messages"][0]["content"]) == len(thumbs) + 2  # 图片一张不少地发了出去
+
+
+def test_only_messages_may_carry_a_large_body(serve):
+    s = serve(reply(text("好大一张图。")))
+    big = PNG_BYTES + bytes(1_500_000)  # 加上 base64 的膨胀，请求体有 2MB 多，超过了别的请求的上限
+    status, _ = send_files(s, image("大图.png", data=b64(big)))
+    assert status == 200
+    s.browser.wait_for("turn_end")
+    assert s.api.requests[0]["messages"][0]["content"][0]["source"]["data"] == b64(big)
+
+    # 别的请求还是最多 1MB；回答 413 之前把请求体读掉了，页面能收到这个回答
+    status, body = s.browser.post("/api/search", {"query": "x" * (MAX_BODY_BYTES + 1)})
+    assert (status, body) == (413, {"error": "请求太大：一次最多发送约 1MB 的内容"})
+
+    # 发消息也有上限
+    connection = http.client.HTTPConnection(s.browser.host, timeout=30)
+    headers = {"X-Harness-Token": s.browser.token, "Origin": f"http://{s.browser.host}", "Content-Type": "application/json"}
+    connection.request("POST", "/api/message", body=b" " * (MAX_MESSAGE_BODY_BYTES + 1), headers=headers)
+    response = connection.getresponse()
+    assert response.status == 413
+    assert json.loads(response.read()) == {"error": "请求太大：一条消息连同附件最多发送约 64MB 的内容"}
+    connection.close()
+    assert len(s.api.requests) == 1
+
+
+def test_each_provider_says_what_it_can_take_and_the_rest_is_refused(serve, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    s = serve(others=[chat("读完了。")])
+    flags = {item["id"]: (item["vision"], item["pdf"]) for item in latest_state(s.browser)["providers"]}
+    assert flags == {"anthropic": (True, True), "openai": (True, False), "gemini": (True, False), "deepseek": (False, False)}
+
+    act(s, "/api/model", {"provider": "deepseek", "model": "deepseek-flash"})
+    refused = (400, {"error": "当前的模型（DeepSeek）看不了图片。可以在设置里换成 Claude、GPT 或 Gemini。"})
+    assert send_files(s, image()) == refused
+    act(s, "/api/model", {"provider": "openai", "model": "gpt-6-luna"})
+    assert send_files(s, pdf()) == (400, {"error": "当前的模型（GPT (OpenAI)）读不了 PDF，只有 Claude 能读。"})
+    assert s.other_api.requests == [] and "user" not in s.browser.types()  # 一轮都没有开始
+
+    # 文本文件哪一家都能收
+    assert send_files(s, text_file())[0] == 200
+    s.browser.wait_for("turn_end")
+    (request,) = s.other_api.requests
+    assert request["model"] == "gpt-6-luna" and request["messages"][1]["content"][0]["type"] == "text"

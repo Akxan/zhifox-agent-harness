@@ -470,6 +470,17 @@ This starts a small server on your computer and opens the chat page in your brow
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
   **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
   shown below the input.
+- **Attachments.** Click the paper clip left of the input, drop files anywhere on the page, or paste a screenshot
+  straight into the input (⌘V / Ctrl+V). Before you send, attachments sit above the input as small cards you can
+  remove; a message can carry up to 10, and you can send attachments without any text.
+  - Images (PNG, JPEG, GIF, WebP): the model sees them. Anything with a long edge over 2,576 px is scaled down in the
+    browser first; each image can be up to about 7 MB.
+  - PDFs (up to 25 MB): Claude only. It reads both the text and what's drawn on the pages.
+  - Text and code files (up to 400,000 characters): sent to the model as text; works with every provider.
+
+  Claude, GPT and Gemini can see images; DeepSeek takes text only. If the current model can't take an attachment,
+  ZhiFox tells you when you add it. Attachments are saved with the conversation, so their thumbnails come back when
+  you reopen it.
 - **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, and enter model prices.
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
@@ -601,6 +612,9 @@ What the program does to keep cost under control:
   a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
   30,000 tokens shows a notice about this.
 - **Automatic compaction.** In very long conversations with Claude, earlier content is condensed into a summary.
+- **Attachments.** Images are billed by size: every 28×28-pixel patch is one token, so a full-size screenshot costs at
+  most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens. Like the rest of the
+  history, attachments are resent on every turn, and caching is what keeps that cheap.
 - You can click **Stop** at any time, or start a **New conversation** to clear the history.
 
 Built-in prices cover only these Claude models (public prices at the time of writing, in USD per million tokens):
@@ -693,6 +707,8 @@ page.
 - macOS and Linux only (running commands depends on bash).
 - GPT, Gemini and DeepSeek have not been tested with real keys (see [Supported models](#supported-models)).
 - With GPT, Gemini and DeepSeek there is no web search, and long conversations are not compacted automatically.
+- Attachments work in the web UI only, not in the terminal. Image input with GPT and Gemini has not been tested with
+  real keys, and only Claude can read PDFs.
 - GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
 - Only the three Claude models the program has been adapted to are listed; other Anthropic models accept slightly
   different parameters.

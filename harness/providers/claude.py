@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import anthropic
@@ -15,6 +16,7 @@ try:  # anthropic 的 SDK 用这个库收发网络请求。回复收到一半断
 except ImportError:  # 旧一些的 SDK 用的是它的前身
     import httpx as transport
 
+from ..attachments import Attachment, wrap_text
 from ..config import (
     ENABLE_COMPACTION,
     ENABLE_FALLBACKS,
@@ -26,7 +28,16 @@ from ..display import describe_call
 from ..i18n import t
 from ..safe import clean, has_bad_number, tame
 from ..tools import ToolRegistry
-from .base import ProviderError, Step, StreamUI, ToolCall, ToolResult, Usage, brief
+from .base import (
+    ProviderError,
+    Step,
+    StreamUI,
+    ToolCall,
+    ToolResult,
+    Usage,
+    brief,
+    too_large,
+)
 
 
 class AnthropicBackend:
@@ -74,8 +85,25 @@ class AnthropicBackend:
     def rollback(self, mark: int) -> None:
         del self._messages[mark:]
 
-    def add_user(self, parts: list[str]) -> None:
-        self._messages.append({"role": "user", "content": [{"type": "text", "text": part} for part in parts]})
+    def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
+        # 附件放在文字前面：文档建议先给图片和文档、再提问题，模型读得更好。
+        # 顺序是图片、PDF、文本文件，然后才是时间说明和用户的话。
+        # 缓存不受影响：请求用的是自动缓存（见 step 里的 cache_control），标记落在这条消息的最后一块上，
+        # 图片、PDF 块本身也都能被缓存。
+        content: list[dict] = []
+        for item in attachments:
+            if item.kind == "image":
+                content.append(
+                    {"type": "image", "source": {"type": "base64", "media_type": item.media_type, "data": item.data}}
+                )
+        for item in attachments:
+            if item.kind == "pdf":
+                # title：模型回答时能说出"这份 PDF"指的是哪个文件
+                source = {"type": "base64", "media_type": item.media_type, "data": item.data}
+                content.append({"type": "document", "source": source, "title": item.name})
+        content += [{"type": "text", "text": wrap_text(item)} for item in attachments if item.kind == "text"]
+        content += [{"type": "text", "text": part} for part in parts]
+        self._messages.append({"role": "user", "content": content})
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
         # 所有结果必须放在同一条消息里，并且这条消息里只有结果。
@@ -265,6 +293,8 @@ def _explain(exc: anthropic.APIError, model: str) -> str:
         return t("请求太频繁，或者超出了账号的用量限制。请稍后再试。")
     if isinstance(exc, anthropic.BadRequestError):
         return t("请求被 API 拒绝：{error}", error=brief(exc.message))
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code == 413:
+        return too_large("Claude")
     if isinstance(exc, anthropic.APIStatusError):
         return t("API 出错（状态码 {status}）：{error}", status=exc.status_code, error=brief(exc.message))
     if isinstance(exc, anthropic.APIConnectionError):

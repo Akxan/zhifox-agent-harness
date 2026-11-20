@@ -32,6 +32,11 @@ def reply(
     return {"blocks": list(blocks), "stop_reason": stop_reason, "stop_details": stop_details, "cut_after": cut_after}
 
 
+def failure(status: int, kind: str, message: str) -> dict:
+    """一次失败的请求：服务器按真实 API 的格式回答一个错误（比如 413 请求太大）。"""
+    return {"status": status, "error": {"type": "error", "error": {"type": kind, "message": message}}}
+
+
 def _events(scripted: dict) -> list[dict]:
     """把一条写好的回复拆成真实 API 会发出的事件序列。"""
     events: list[dict] = [
@@ -106,6 +111,14 @@ class FakeAPI:
                     self.send_error(500, "no scripted reply left")
                     return
                 scripted = api.replies.pop(0)
+                if scripted.get("status"):
+                    payload = json.dumps(scripted["error"]).encode()
+                    self.send_response(scripted["status"])
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 if scripted.get("cut_after") is not None:
                     # 回复发到一半就断线：用分块传输发出前几个事件，不发结束标记，直接关连接
                     self.send_response(200)
