@@ -105,6 +105,15 @@ class WebUI:
         latest = max((index for index, event in enumerate(self._events) if event["type"] == "state"), default=-1)
         self._events = [event for index, event in enumerate(self._events) if event["type"] != "state" or index == latest]
 
+    def forget_old_states(self) -> None:
+        """现在就把过时的"状态"清掉（平时是每轮对话开始时清）。
+
+        定时任务运行时，进度每秒要刷新好几次，每次都是一张新的状态快照；这期间你没在对话，
+        等不到下一轮开始时再清，所以由运行任务的那一边每发一次就清一次（见 scheduler.py）。
+        """
+        with self._changed:
+            self._drop_stale_states()
+
     def reset(self) -> None:
         """开始新对话：清空日志，并通知浏览器把页面也清空。"""
         with self._changed:

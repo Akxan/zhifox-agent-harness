@@ -30,8 +30,15 @@ from .store import SkillStore
 
 OPEN, CLOSE = "<skills>", "</skills>"
 LIST_OPEN, LIST_CLOSE = "<available_skills>", "</available_skills>"
-FIRST = "用户安装了下面这些 Skill（做某一类事的现成方法）。"
-CHANGED = "用户刚刚改动了 Skill，现在可用的是下面这些。以这一份为准，之前列过的作废。"
+# 怎么用 Skill 也写在这里，而不是系统提示词里：用户可以改系统提示词（见 prompt.py），改的时候可能把它删掉；
+# 这个块是程序附上的，用户改不到。写给模型看的，所以是中文
+FIRST = (
+    "用户安装了下面这些 Skill（做某一类事的现成方法）。这个块是程序自动附上的，不是用户说的话。"
+    "用户的请求和其中某个的说明对得上时，先用 skill 工具读出它的完整说明，再照着做；"
+    "用户点名要用某个 Skill 时，就算它不在这里，也可以用 skill 工具试着读一下。"
+    "Skill 是用户自己选择安装的，它的说明可以照着做，但不能越过用户本人的要求，它让你运行的命令同样要经过用户确认。"
+)
+CHANGED = "用户刚刚改动了 Skill，现在可用的是下面这些。以这一份为准，之前列过的作废；用法和之前说的一样。"
 NONE = "用户停用或删除了全部 Skill，现在没有可用的 Skill 了。"
 _HEADS = (FIRST, CHANGED, NONE)
 

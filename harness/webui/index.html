@@ -155,6 +155,24 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-3); border-radius: 10px; outline: 0; }
 .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field::placeholder { color: var(--ink-3); opacity: 1; }
+/* 下拉框：浏览器自带的箭头紧贴着右边框，和左边的留白不对称，深色模式下颜色也不跟着变。
+   换成自己画的：两道斜着的渐变拼成一个"⌄"，离右边框和文字离左边框一样远，颜色用主题里的变量。
+   不用图片（页面的安全策略只允许 data: 图片，而且图片的颜色跟不了主题） */
+select.field {
+  /* 每道斜线是一格 6×6 里沿对角线的一条细带（两边透明）：左格是"\"，右格是"/"，拼起来就是"⌄" */
+  --chevron: var(--ink-3);
+  appearance: none; -webkit-appearance: none; padding-right: 38px; cursor: pointer;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, transparent calc(50% - .8px), var(--chevron) calc(50% - .8px), var(--chevron) calc(50% + .8px), transparent calc(50% + .8px)),
+    linear-gradient(135deg, transparent calc(50% - .8px), var(--chevron) calc(50% - .8px), var(--chevron) calc(50% + .8px), transparent calc(50% + .8px));
+  background-position: calc(100% - 22px) 52%, calc(100% - 16px) 52%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+select.field:hover:not(:disabled), select.field:focus { --chevron: var(--ink); }
+select.field:disabled { opacity: .55; cursor: default; }
+select.field option { color: var(--ink); background: var(--surface); }
 
 /* 渐变描边：一个盖在边框位置上的渐变环，平时透明，需要时淡入。
    只改透明度，所以淡入淡出不用重画。新对话按钮、输入框、建议卡片共用这一条。 */
@@ -225,6 +243,7 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .conv-confirm span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini { flex: none; height: 26px; padding: 0 10px; font-size: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 7px; }
 .mini.danger { color: #fff; background: var(--danger); border-color: transparent; }
+.mini.primary { color: var(--on-ink); background: var(--ink); border-color: transparent; }
 .conv-empty { padding: 18px 12px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
 .nav-foot { flex: none; display: flex; align-items: center; gap: 7px; margin: 4px 6px 0; padding: 6px 8px; font-size: 11.5px; text-align: left; color: var(--ink-3); background: none; border: 0; border-radius: 8px; }
 .nav-foot:hover { color: var(--ink); background: var(--hover); }
@@ -501,9 +520,31 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .usage dt { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
 .usage dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .swatch { width: 8px; height: 8px; flex: none; border-radius: 3px; }
-.todo { display: flex; align-items: baseline; gap: 9px; padding: 5px 0; font-size: 13.5px; }
-.todo-mark { width: 13px; height: 13px; flex: none; border: 1.6px solid var(--line-2); border-radius: 50%; transform: translateY(2px); }
-.todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* 待办：和记忆、会话一样，悬停时浮起成卡片，右边是"在访达中显示 / 编辑 / 删除"；前面的圆圈点一下就是完成 */
+#todos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 -8px; padding: 0; list-style: none; }
+.todo { position: relative; display: flex; align-items: flex-start; gap: 9px; min-height: 34px; padding: 6px 8px; font-size: 13.5px; border-radius: 10px; transition: background-color .15s ease, box-shadow .15s ease; }
+.todo:hover, .todo:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.todo-mark { position: relative; flex: none; width: 15px; height: 15px; margin-top: 2px; padding: 0; background: none; border: 1.6px solid var(--line-2); border-radius: 50%; transition: border-color .15s ease, background-color .15s ease; }
+.todo-mark::after { content: ""; position: absolute; left: 3.5px; top: 1px; width: 4px; height: 7px; border: solid var(--accent); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); opacity: 0; transition: opacity .15s ease; }
+.todo-mark:hover { border-color: var(--accent); }
+.todo-mark:hover::after { opacity: .6; }
+.todo.done .todo-mark { border-color: var(--accent); background: var(--accent-soft); }
+.todo.done .todo-mark::after { opacity: 1; }
+.todo.done .todo-text { color: var(--ink-3); text-decoration: line-through; }
+.todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.todo .due { flex: none; line-height: 1.5; }
+/* 待办的文字可能有好几行。按钮不给文字让位（让位会让整行重新排版、跳一下），而是浮在右上角，左边一段渐隐的底色盖住文字的末尾 */
+.todo-actions { position: absolute; right: 4px; top: 3px; display: flex; gap: 2px; padding-left: 20px; background: linear-gradient(90deg, transparent, var(--surface) 20px); border-radius: 0 10px 10px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.todo:hover .todo-actions, .todo:focus-within .todo-actions { opacity: 1; pointer-events: auto; }
+.todo:hover .due, .todo:focus-within .due { visibility: hidden; }  /* 截止日期让位给按钮；文字照常显示 */
+@media (hover: none) { .todo-actions { position: static; transform: none; opacity: 1; pointer-events: auto; } .todo .due { display: none; } }
+.todo-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.todo-edit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; width: 100%; }
+.todo-edit .field { height: 32px; font-size: 13px; }
+.todo-edit .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.todo-edit input[type="date"] { width: auto; flex: 1 1 140px; }
+.todo-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; font-size: 13px; }
+.todo-confirm span { flex: 1 1 110px; min-width: 0; }
 .due { flex: none; padding: 1px 8px; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
 .none { font-size: 13px; color: var(--ink-3); }
 .tool-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -515,7 +556,36 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .path { font: 12px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
 /* 记忆：一个文件一行，上面是文件名，下面是所在的文件夹 · 大小 · 修改时间。鼠标移上去（或者键盘移到这一行）出现删除按钮 */
-.side .memories { display: grid; gap: 1px; margin: 0 -8px; }  /* 两边各伸出去一点：悬停的底色比文字宽，图标和标题对齐 */
+/* 左边栏顶部的固定入口：点开"记忆"窗口。放在这里而不是右边的信息栏：记忆多了以后，信息栏会被拉得很长 */
+.nav-link { flex: none; display: flex; align-items: center; gap: 10px; margin: 0 6px 6px; padding: 7px 12px; font-size: 13.5px; color: var(--ink-2); text-align: left; background: none; border: 0; border-radius: 10px; transition: color .15s ease, background-color .15s ease; }
+.nav-link:hover { color: var(--ink); background: var(--hover); }
+.nav-link .icon { width: 15px; height: 15px; color: var(--ink-3); transition: transform .3s var(--spring); }
+.nav-link:hover .icon { color: var(--accent); transform: translateY(-1px) rotate(-6deg); }
+.nav-link-count { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 记忆窗口：左边是列表（可以搜），右边是选中的那一条（看、改）。窄屏上一次只显示一边 */
+.memory-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); border-top: 1px solid var(--line); }
+.memory-list-pane { display: flex; flex-direction: column; min-height: 0; padding: 12px 10px 10px; border-right: 1px solid var(--line); }
+.memory-search { margin: 0 0 6px; background: var(--surface); border-color: var(--line); }
+.memory-list-pane .memories { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0; padding: 0; list-style: none; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.memory-list-message { margin: 6px 4px 0; font-size: 12px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.memory-list-message:empty { display: none; }
+.memory-list-message.bad { color: var(--err); }
+.memory-list-pane .side-foot { margin: 6px 0 0; }
+.memory-view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.memory-view-head { flex: none; display: flex; align-items: flex-start; gap: 6px; padding: 14px 22px 10px; }
+.memory-view-head h3 { margin: 0; font: 600 18px/1.3 var(--serif); overflow-wrap: anywhere; }
+.memory-view-head:has(#memory-name:empty) { display: none; }
+#memory-back { display: none; flex: none; margin: -2px 0 0 -8px; }
+.icon.back { transform: rotate(180deg); }
+.memory-empty { margin: 0; padding: 72px 20px; font-size: 13px; line-height: 1.7; color: var(--ink-3); text-align: center; }
+.memory.selected { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.memory.selected::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(var(--a1), var(--a3)); }
+@media (max-width: 760px) {
+  .memory-split { grid-template-columns: minmax(0, 1fr); }
+  .memory-list-pane { border-right: 0; }
+  .memory-split.showing .memory-list-pane, .memory-split:not(.showing) .memory-view { display: none; }
+  #memory-back { display: inline-grid; }
+}
 .memory { position: relative; display: flex; align-items: center; min-height: 48px; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
 /* 和会话栏里选中的那一行同一种样子：一张浮起来的卡片 */
 .memory:hover, .memory:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
@@ -542,7 +612,137 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .side-foot:hover { color: var(--ink); background: var(--hover); }
 .side-foot .icon { width: 13px; height: 13px; }
 /* 看一条记忆：和设置面板同一种对话框，正文是文件的原文。设置面板的样式写在后面，所以这里多带一个类名，才盖得过它 */
-.settings.memory-dialog { width: min(720px, calc(100vw - 32px)); }
+.settings.memory-dialog { width: min(1040px, calc(100vw - 32px)); height: min(760px, calc(100vh - 48px)); }
+/* ---- 左边栏的"会话 / 任务" ---- */
+.nav-tabs[hidden], .nav-tab[hidden] { display: none; }
+.nav-tabs { flex: none; display: flex; gap: 2px; margin: 0 6px 6px; padding: 3px; background: var(--hover); border-radius: 11px; }
+.nav-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: var(--ink-3); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.nav-tab:hover { color: var(--ink); }
+.nav-tab[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
+.nav-badge { min-width: 17px; height: 17px; padding: 0 5px; font-size: 11px; line-height: 17px; font-weight: 600; color: #fff; background: var(--accent); border-radius: 9px; font-variant-numeric: tabular-nums; }
+body.tasks-tab .search, body.tasks-tab .conversations { display: none; }
+.tasks-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.tasks-view[hidden] { display: none; }
+.task-new { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 8px 12px; font-size: 13px; color: var(--ink-2); text-align: left; background: none; border: 1px dashed var(--line-3); border-radius: 12px; transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
+.task-new:hover { color: var(--ink); border-color: var(--ink-3); background: var(--hover); }
+.task-new .icon { width: 14px; height: 14px; }
+/* minmax(0, 1fr)：网格里的格子默认至少和里面最宽的东西一样宽，一条很长的命令就会把整列撑出栏外 */
+.task-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; padding: 0; list-style: none; }
+.task { position: relative; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+.task:hover, .task:focus-within, .task.running { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.task.running::before { content: ""; position: absolute; left: 0; top: 14px; height: 22px; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(var(--a1), var(--a3)); }
+.task-main { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.task-main > .icon { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--ink-3); }
+/* 类型写成 kind-…：不能直接叫 reminder，那是"到点的提醒卡片"的样式名，撞上了，"只提醒"的任务那一行就会被画成一张提醒卡片 */
+.task.kind-agent .task-main > .icon { color: var(--accent); }
+.task.off .task-main { opacity: .55; }
+.task-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-title { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-meta { font-size: 11.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.task-last { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--hover); border-radius: 6px; white-space: nowrap; }
+.chip.done { color: var(--ok, #1a7f37); background: color-mix(in srgb, var(--ok, #1a7f37) 12%, transparent); }
+.chip.failed, .chip.missed { color: var(--err); background: var(--err-soft); }
+.chip.waiting { color: var(--warn); background: var(--warn-soft); }
+.chip.running { color: var(--accent); background: var(--accent-soft); }
+.task-actions { position: absolute; right: 6px; top: 7px; display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; pointer-events: auto; }
+.task:hover .task-words > *, .task:focus-within .task-words > * { padding-right: 112px; }
+.task.running .task-words > * { padding-right: 0; }
+@media (hover: none) { .task-actions { opacity: 1; pointer-events: auto; } .task-words > * { padding-right: 112px; } }
+.task-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.task-confirm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 9px 10px; font-size: 13px; }
+.task-confirm-row span { flex: 1 1 120px; min-width: 0; }
+/* 正在运行的那一项展开的进度 */
+.task-progress { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; margin: 0 10px; padding: 2px 0 11px; }
+.task-bar { position: relative; height: 3px; overflow: hidden; background: var(--hover); border-radius: 2px; }
+.task-bar i { position: absolute; inset: 0; width: 40%; border-radius: 2px; background: linear-gradient(90deg, var(--a1), var(--a3)); animation: task-slide 1.6s cubic-bezier(.4, 0, .2, 1) infinite; }
+.task.waiting .task-bar i { width: 100%; animation: none; background: var(--warn); opacity: .5; }
+.task.queued .task-bar i { width: 100%; animation: none; background: var(--line-3); }
+@keyframes task-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+:root[data-motion="reduce"] .task-bar i { width: 100%; transform: none; opacity: .45; animation: none; }
+.task-activity { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.task-figures { display: flex; gap: 10px; margin: 0; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.task-log { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font: 11.5px/1.45 var(--mono); color: var(--ink-3); }
+.task-log li { display: flex; gap: 6px; min-width: 0; }
+.task-log li span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-log .mark { flex: none; width: 12px; text-align: center; }
+.task-log .ok .mark { color: var(--ok, #1a7f37); }
+.task-log .bad .mark { color: var(--err); }
+.task-ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 11px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 10px; }
+.task-ask code { font: 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.task-ask .row, .task-progress .row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 到点的提醒 */
+.reminders { display: grid; gap: 6px; }
+.reminders:not(:empty) { margin-bottom: 10px; }
+.reminder { display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; padding: 10px 11px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 12px; }
+.reminder > .icon { grid-row: span 3; width: 15px; height: 15px; margin-top: 2px; color: var(--accent); }
+.reminder b { font-size: 13.5px; font-weight: 600; }
+.reminder p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.reminder .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--ink-3); }
+.reminders .all { justify-self: end; }
+.task-notify { display: grid; gap: 6px; margin-top: 12px; padding: 10px 11px; font-size: 12px; line-height: 1.55; color: var(--ink-3); border: 1px solid var(--line); border-radius: 12px; }
+.task-empty { padding: 6px 6px 2px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
+.task-example { display: block; width: 100%; margin-top: 8px; padding: 9px 11px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; transition: border-color .15s ease; }
+.task-example:hover { border-color: var(--ink-3); color: var(--ink); }
+.task-example b { display: block; font-weight: 600; color: var(--ink); }
+/* 主区域顶部：任务在等你确认或者正在运行 */
+.task-alert { position: absolute; z-index: 5; top: 62px; left: 50%; display: inline-flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 7px 14px; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
+.task-alert[hidden] { display: none; }
+.task-alert span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-alert-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.task-alert.waiting .task-alert-dot { background: var(--warn); }
+/* 编辑任务 */
+.settings.task-editor { width: min(600px, calc(100vw - 32px)); }
+.task-form { display: grid; gap: 16px; padding-bottom: 16px; }
+.settings .task-field { display: grid; gap: 7px; }
+.task-label { font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.task-prompt { height: auto; min-height: 96px; padding: 9px 12px; line-height: 1.6; resize: vertical; }
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 3px; width: fit-content; max-width: 100%; padding: 3px; background: var(--hover); border-radius: 11px; }
+.segmented button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.segmented button .icon { width: 14px; height: 14px; }
+.segmented button[aria-checked="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
+.task-when { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.task-when [hidden] { display: none !important; }
+.settings .task-inline { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); }
+.task-inline input { width: 74px; }
+.task-inline select { width: auto; }
+.task-days { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-days button { min-width: 38px; height: 32px; padding: 0 8px; font-size: 12.5px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-3); border-radius: 9px; }
+.task-days button[aria-pressed="true"] { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.task-preview { margin: 2px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.task-preview.bad { color: var(--err); }
+.settings .task-check { gap: 9px; font-size: 13px; color: var(--ink-2); }
+/* 任务详情 */
+.settings.task-detail { width: min(680px, calc(100vw - 32px)); }
+.task-detail-body { display: grid; gap: 4px; padding-bottom: 16px; }
+.task-detail-body section { padding: 14px 0; }
+.task-detail-body section:first-child { border-top: 0; padding-top: 4px; }
+.task-detail-body pre { margin: 0; padding: 12px 14px; font: 13px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.task-next { margin: 0; font-size: 13.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.task-next small { color: var(--ink-3); font-size: 12px; }
+.runs { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.run { display: grid; gap: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.run .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.run .row .open { margin-left: auto; }
+.run p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); overflow-wrap: anywhere; }
+.run p.bad { color: var(--err); }
+
+/* ---- 提示词 ---- */
+.settings.prompt-dialog { width: min(860px, calc(100vw - 32px)); height: min(780px, calc(100vh - 48px)); }
+.prompt-body { padding-top: 14px; padding-bottom: 16px; }
+.prompt-pane[hidden] { display: none; }
+.prompt-pane { display: grid; gap: 10px; }
+.prompt-textarea { min-height: 360px; max-height: none; height: 46vh; }
+.prompt-preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 360px; }
+.prompt-placeholders { display: flex; flex-wrap: wrap; gap: 6px; }
+.prompt-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 4px 9px; font-size: 12px; color: var(--ink-2); text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; transition: border-color .15s ease; }
+.prompt-chip:hover { border-color: var(--ink-3); color: var(--ink); }
+.prompt-chip code { font: 12px var(--mono); color: var(--accent); }
+.prompt-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; color: var(--ink-3); }
+.button.with-icon { display: inline-flex; align-items: center; gap: 7px; }
+.button.with-icon .icon { width: 14px; height: 14px; }
+
 /* 扩展：比设置面板宽一些、高度固定（切换标签页时对话框不跟着内容忽大忽小） */
 .settings.extensions { width: min(860px, calc(100vw - 32px)); height: min(720px, calc(100vh - 48px)); }
 .extensions-head { min-width: 0; }
@@ -590,22 +790,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .skill-flag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
 .skill-flag.bad { color: var(--err); background: var(--err-soft); }
 .skill-flag.manual { color: var(--warn); background: var(--warn-soft); }
-/* 右边的三个按钮（在访达中显示、编辑、删除），和会话行、记忆行的一模一样：同样的大小、顺序和位置，悬停时才出现。
-   启用开关一直看得见：平时贴着右边，按钮出现时往左让开（只是平移，不重新排版） */
-.skill-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+/* 右边的三个按钮（在访达中显示、编辑、删除），和会话行、记忆行一样的图标、顺序和位置，悬停（或者键盘移到这一行）时才出现。
+   它们浮在文字上面，左边一段渐隐的底色把底下的字盖住，所以出现的时候文字不用让位、整行不会重新排版。
+   启用开关一直看得见：平时贴着右边（文字一直给它留着位置），按钮出现时它往左平移到三个按钮前面 */
+.skill-actions { position: absolute; z-index: 1; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 70px; background: linear-gradient(90deg, transparent, var(--surface) 24px); border-radius: 0 14px 14px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
 .skill-row:hover .skill-actions, .skill-row:focus-within .skill-actions { opacity: 1; pointer-events: auto; }
-.skill-row:hover .skill-words, .skill-row:focus-within .skill-words { padding-right: 84px; }
-.skill-row > .skill-switch { position: absolute; right: 14px; top: 50%; margin-top: -11px; transition: transform .25s var(--ease); }
-.skill-row:hover > .skill-switch, .skill-row:focus-within > .skill-switch { transform: translateX(-80px); }
-/* 助手工作时编辑和删除藏起来（服务器这时也不让改），只剩"在访达中显示" */
-.busy .skill-row:hover .skill-words, .busy .skill-row:focus-within .skill-words { padding-right: 30px; }
-.busy .skill-row:hover > .skill-switch, .busy .skill-row:focus-within > .skill-switch { transform: translateX(-28px); }
-@media (hover: none) {  /* 触屏上没有"悬停"，按钮一直显示 */
-  .skill-actions { opacity: 1; pointer-events: auto; }
-  .skill-words { padding-right: 84px; }
-  .skill-row > .skill-switch { transform: translateX(-80px); }
-  .busy .skill-words { padding-right: 30px; }
-  .busy .skill-row > .skill-switch { transform: translateX(-28px); }
+.skill-row > .skill-switch { position: absolute; z-index: 2; right: 14px; top: 50%; margin-top: -11px; transition: transform .25s var(--ease); }
+.skill-row:hover > .skill-switch, .skill-row:focus-within > .skill-switch { transform: translateX(-82px); }
+/* 助手工作时编辑和删除藏起来（服务器这时也不让改），只剩"在访达中显示"，开关少挪一点 */
+.busy .skill-row:hover > .skill-switch, .busy .skill-row:focus-within > .skill-switch { transform: translateX(-26px); }
+@media (hover: none) {  /* 触屏上没有"悬停"：按钮一直显示，文字一直给按钮和开关留着位置 */
+  .skill-open { padding-right: 160px; }
+  .skill-actions { opacity: 1; pointer-events: auto; background: none; }
+  .skill-row > .skill-switch { transform: translateX(-82px); }
+  .busy .skill-row > .skill-switch { transform: translateX(-26px); }
 }
 .skill-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
 .skill-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 66px; padding: 10px 12px; font-size: 13px; }
@@ -652,7 +850,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .skill-fill .skill-browser { flex: 1 1 auto; height: auto; min-height: 220px; }
 /* 不写 min-height: 0：让这一块最矮也装得下标签、编辑框的最小高度和下面的提示，地方不够时整页往下翻，而不是叠在按钮上 */
 .skill-fill .skill-field.grow { flex: 1 1 auto; display: flex; flex-direction: column; }
-.skill-fill textarea.skill-code { flex: 1 1 auto; height: auto; min-height: 220px; }
+/* 多带一个 .skill-view：下面"编辑和新建"一节里给编辑框定了固定的高度，同样的写法写在后面，不这样盖不过它 */
+.skill-view.skill-fill textarea.skill-code { flex: 1 1 auto; height: auto; min-height: 220px; }
 .skill-files { margin: 0; padding: 6px; overflow: auto; list-style: none; border-right: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .skill-file { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 6px 8px; font: 12px/1.45 var(--mono); text-align: left; color: var(--ink-2); background: none; border: 0; border-radius: 8px; }
 .skill-file:hover { color: var(--ink); background: var(--hover); }
@@ -664,7 +863,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 @media (max-width: 640px), (max-height: 620px) {
   .skill-view.skill-fill { height: auto; }  /* 地方太小：不硬塞进一屏，整页往下翻 */
   .skill-fill .skill-browser { height: 460px; flex: none; }
-  .skill-fill textarea.skill-code { height: 360px; flex: none; }
+  .skill-view.skill-fill textarea.skill-code { height: 360px; flex: none; }
 }
 @media (max-width: 640px) {
   .skill-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
@@ -728,7 +927,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .skill-stick { position: sticky; bottom: -18px; z-index: 1; margin: auto -22px -18px; padding: 12px 22px 18px; background: var(--sheet); border-top: 1px solid var(--line); }
 .skill-form { display: flex; flex-direction: column; gap: 14px; }
 .skill-fill .skill-form { flex: 1 1 auto; }
-.skill-create.skill-fill textarea.skill-code { min-height: 120px; }
+.skill-view.skill-create.skill-fill textarea.skill-code { min-height: 120px; }
 .skill-cand summary { width: fit-content; font-size: 12px; color: var(--ink-3); cursor: pointer; border-radius: 6px; }
 .skill-cand summary:hover { color: var(--ink); }
 .skill-filelist { margin: 6px 0 0; padding: 8px 12px; max-height: 168px; overflow: auto; font: 11.5px/1.75 var(--mono); color: var(--ink-2); list-style: none; background: var(--sunken); border-radius: 10px; }
@@ -769,6 +968,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .memory-body .hint:empty { display: none; }
 .memory-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 62px; padding: 12px 22px 14px; border-top: 1px solid var(--line); }
 .memory-message { flex: 1 1 200px; min-width: 0; margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink-3); }
+.memory-message:empty { display: none; }
+.memory-foot { justify-content: flex-end; }  /* 没有提示的时候，按钮靠右排，不会被一段空白挤到第二行 */
 .memory-message.bad { color: var(--err); }
 .memory-foot .button { display: inline-flex; align-items: center; gap: 7px; }
 .memory-foot .button .icon { width: 14px; height: 14px; }
@@ -815,6 +1016,81 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .settings-message { flex: none; min-height: 46px; padding: 12px 22px 14px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); }
 .settings-message.bad { color: var(--err); }
 .settings-message.good { color: var(--ok); }
+
+/* ---- 花费：今天、本月、预算、花费明细、导出 -------------------------------- */
+/* 数字都来自助手程序的花费账本（ledger.py）。会动的只有柱子和比例条，都是用 transform 缩放到位 */
+.spend { position: relative; display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.spend[hidden] { display: none; }
+.spend-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.spend-stats div { min-width: 0; }
+.spend-stats dt { font-size: 11.5px; color: var(--ink-3); }
+.spend-stats dd { margin: 1px 0 0; overflow: hidden; font-size: 18px; font-weight: 620; letter-spacing: -.015em; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.budget-meter { position: relative; height: 5px; overflow: hidden; background: var(--hover); border-radius: 3px; }
+.budget-meter i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--a1), var(--a2)); border-radius: inherit; transform: scaleX(0); transform-origin: 0 50%; transition: transform .6s var(--ease); }
+.budget-meter.near i { background: var(--warn-dot); }
+.budget-meter.over i { background: var(--err); }
+.spend-note { margin: -3px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.spend-note.over { color: var(--err); }
+.spend-open { justify-self: start; display: inline-flex; align-items: center; gap: 6px; margin: -2px -8px -6px; padding: 5px 8px; font-size: 12.5px; color: var(--ink-2); background: none; border: 0; border-radius: 8px; }
+.spend-open:hover { color: var(--ink); background: var(--hover); }
+.spend-open .icon { width: 14px; height: 14px; }
+.spend-open .chev { width: 12px; height: 12px; color: var(--ink-3); transition: transform .25s var(--spring); }
+.spend-open:hover .chev { transform: translateX(2px); }
+#foot-cost.over::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; vertical-align: 1px; border-radius: 50%; background: var(--err); }
+/* 设置里的导出按钮：图标和字排一行；打包的时候图标转起来 */
+.button.with-icon { display: inline-flex; align-items: center; gap: 7px; }
+.button.with-icon .icon { width: 14px; height: 14px; }
+.button.packing .icon { animation: spin 1s linear infinite; }
+.export-size { font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* 花费明细窗口 */
+.settings.spend-dialog { width: min(760px, calc(100vw - 32px)); height: min(820px, calc(100vh - 48px)); }
+.spend-body { padding-bottom: 20px; }
+.spend-body > section:first-of-type { border-top: 0; padding-top: 4px; }
+.spend-hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 32px; padding: 4px 0 20px; }
+.spend-hero small { display: block; margin-bottom: 3px; font-size: 12px; color: var(--ink-3); }
+.spend-hero .big { font-size: 44px; font-weight: 680; line-height: 1.04; letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: transparent; -webkit-text-fill-color: transparent; background: var(--aurora-text); -webkit-background-clip: text; background-clip: text; }
+.spend-hero .mid { font-size: 19px; font-weight: 620; letter-spacing: -.015em; font-variant-numeric: tabular-nums; }
+.spend-hero .mid.over { color: var(--err); }
+.spend-hero .link { padding: 0; font-size: 13px; color: var(--accent); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; }
+.spend-body h3 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.spend-body h3 small { font-variant-numeric: tabular-nums; }
+.chart-readout { min-height: 1.6em; margin: 0 0 10px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chart-readout b { font-weight: 620; color: var(--ink); }
+.chart { position: relative; display: grid; grid-template-columns: repeat(var(--days, 30), minmax(0, 1fr)); align-items: stretch; gap: 3px; height: 156px; padding-top: 20px; border-bottom: 1px solid var(--line-2); }
+.chart-max { position: absolute; top: 0; left: 0; font-size: 11px; line-height: 1; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chart-grid { position: absolute; left: 0; right: 0; top: 20px; border-top: 1px dashed var(--line-2); pointer-events: none; }
+.chart-grid.half { top: calc(20px + (100% - 20px) / 2); border-top-color: var(--line); }
+.spend-bar { position: relative; min-width: 0; padding: 0; background: none; border: 0; border-radius: 5px 5px 0 0; outline-offset: 1px; }
+.spend-bar::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--hover); opacity: 0; transition: opacity .15s ease; }
+.spend-bar i { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; border-radius: 4px 4px 1px 1px; background: var(--accent); opacity: .34; transform: scaleY(var(--h, 0)); transform-origin: 50% 100%; transition: opacity .15s ease; }
+.spend-bar.today i { background: linear-gradient(var(--a3), var(--a2) 45%, var(--a1)); opacity: .85; }
+.spend-bar.on::before, .spend-bar:hover::before { opacity: 1; }
+.spend-bar.on i { opacity: 1; }
+.chart.grow-in .spend-bar i { animation: grow .62s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 11ms); }
+@keyframes grow { from { transform: scaleY(0); } }
+.chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 7px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.spend-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.spend-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 14px; padding: 9px 10px 10px; border-radius: 11px; transition: background-color .15s ease; }
+.spend-row:hover { background: var(--hover); }
+.spend-row .name { min-width: 0; overflow: hidden; font-size: 13.5px; white-space: nowrap; text-overflow: ellipsis; }
+.spend-row .name.mono { font: 12.5px/1.6 var(--mono); }
+.spend-row .figure { font-size: 13.5px; font-weight: 620; text-align: right; font-variant-numeric: tabular-nums; }
+.spend-row .meta { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.spend-row .share { grid-column: 1 / -1; height: 3px; margin-top: 5px; overflow: hidden; background: var(--hover); border-radius: 2px; }
+.spend-row .share i { display: block; height: 100%; background: var(--accent); opacity: .6; border-radius: inherit; transform: scaleX(var(--w, 0)); transform-origin: 0 50%; }
+.spend-row.muted .figure { font-weight: 400; color: var(--ink-3); }
+.spend-list.grow-in .share i { animation: stretch .7s var(--ease) backwards; animation-delay: .12s; }
+@keyframes stretch { from { transform: scaleX(0); } }
+.spend-sub { margin: 18px 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.spend-empty { display: grid; justify-items: center; gap: 10px; padding: 56px 16px 40px; font-size: 13px; line-height: 1.7; color: var(--ink-3); text-align: center; }
+.spend-empty .icon { width: 30px; height: 30px; padding: 12px; box-sizing: content-box; color: var(--accent); background: var(--accent-soft); border-radius: 50%; }
+.spend-empty p { max-width: 420px; margin: 0; }
+.spend-body .memory-problem { margin: 0 0 14px; }
+.spend-period { margin: 0 0 6px; }
+@media (max-width: 560px) {
+  .chart { gap: 2px; height: 132px; }
+  .spend-hero .big { font-size: 36px; }
+}
 
 /* ---- 外观面板：颜色和动效 ------------------------------------------------- */
 /* 点右上角的外观按钮，在按钮下面弹出来。它是一个 popover：浏览器把它放在所有内容的最上层，
@@ -942,6 +1218,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2H5zM10 20.5a2.2 2.2 0 0 0 4 0"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17zM12 7.5V12l3 2"/></symbol>
   <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M9 4.5a2 2 0 1 1 4 0V6h4v4h1.5a2 2 0 1 1 0 4H17v4h-4v-1.5a2 2 0 1 0-4 0V18H5v-4h1.5a2 2 0 1 0 0-4H5V6h4z"/></symbol>
   <symbol id="i-skill" viewBox="0 0 24 24"><path d="M12 3.5l2.1 5 5.4.5-4.1 3.6 1.2 5.3L12 15.1l-4.6 2.8 1.2-5.3L4.5 9l5.4-.5z"/></symbol>
   <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5V8M15 3.5V8M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5v4"/></symbol>
@@ -974,6 +1253,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 5.5L4.5 12 11 18.5"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
 </svg>
 
 <div id="banner" class="banner" role="alert" hidden></div>
@@ -987,6 +1268,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
     </div>
     <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新对话</span></button>
+    <button id="memory-open" class="nav-link" type="button" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><span data-i18n>记忆</span><span id="memory-count" class="nav-link-count"></span></button>
+    <div id="nav-tabs" class="nav-tabs" role="tablist" aria-label="会话和任务" data-i18n-aria-label hidden>
+      <button id="nav-tab-chats" class="nav-tab" type="button" role="tab" aria-selected="true" aria-controls="conversations"><span data-i18n>会话</span></button>
+      <button id="nav-tab-tasks" class="nav-tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" tabindex="-1" hidden><span data-i18n>任务</span><span id="tasks-badge" class="nav-badge" hidden></span></button>
+    </div>
     <label class="search">
       <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
       <input id="search" type="search" maxlength="200" placeholder="搜索标题和内容" aria-label="搜索会话的标题和内容" data-i18n-placeholder data-i18n-aria-label autocomplete="off" spellcheck="false">
@@ -996,6 +1282,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       <div id="pill" class="conv-pill" aria-hidden="true"></div>
       <div id="conversation-rows"></div>
     </nav>
+    <section id="tasks-view" class="tasks-view" role="tabpanel" aria-labelledby="nav-tab-tasks" hidden>
+      <div id="reminders" class="reminders" aria-live="polite"></div>
+      <button id="task-new" class="task-new" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新建定时任务</span></button>
+      <ul id="task-list" class="task-list" aria-label="定时任务" data-i18n-aria-label></ul>
+      <div id="task-notify" class="task-notify" hidden></div>
+    </section>
     <button id="open-folder" class="nav-foot" type="button"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="nav-count">会话只保存在这台电脑上</span></button>
   </aside>
 
@@ -1003,6 +1295,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     <div id="sheet" class="sheet"></div>
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="stage">
+      <button id="task-alert" class="task-alert" type="button" hidden><i class="task-alert-dot"></i><span id="task-alert-text"></span></button>
       <header class="bar">
         <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
         <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
@@ -1098,6 +1391,15 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         <h2><span data-i18n>估算费用</span><span class="sub" data-i18n>本次运行</span></h2>
         <div id="cost" class="cost-figure">$0.0000</div>
         <p id="cost-note" class="fine"></p>
+        <div id="spend" class="spend" hidden>
+          <dl class="spend-stats">
+            <div><dt data-i18n>今天</dt><dd id="spend-today">$0.00</dd></div>
+            <div><dt data-i18n>本月</dt><dd id="spend-month">$0.00</dd></div>
+          </dl>
+          <div id="budget-meter" class="budget-meter" aria-hidden="true" hidden><i></i></div>
+          <p id="budget-note" class="spend-note" hidden></p>
+          <button id="spend-open" class="spend-open" type="button"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span data-i18n>花费明细</span><svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+        </div>
       </section>
       <section>
         <h2 data-i18n>Token 用量</h2>
@@ -1108,11 +1410,6 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       <section>
         <h2 data-i18n>未完成的待办</h2>
         <ul id="todos"></ul>
-      </section>
-      <section>
-        <h2><span id="memory-title" data-i18n>记忆</span><span id="memory-count" class="sub"></span></h2>
-        <ul id="memories" class="memories" aria-labelledby="memory-title"></ul>
-        <button id="memory-folder" class="side-foot" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span id="memory-folder-label"></span></button>
       </section>
       <section>
         <h2 data-i18n>模型可以使用的工具</h2>
@@ -1153,8 +1450,102 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       <div id="price" class="row"></div>
       <p id="price-note" class="hint"></p>
     </section>
+    <section>
+      <h3><span data-i18n>提示词</span> <small id="prompt-state"></small></h3>
+      <p class="hint" data-i18n>告诉助手“你是谁、在什么环境里、该怎么做事”的那段话（系统提示词）。改了以后，从下一段新对话开始生效。</p>
+      <button id="prompt-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span data-i18n>编辑提示词</span></button>
+    </section>
+    <section>
+      <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
+      <div class="row">
+        <input id="budget-amount" class="field" type="number" min="0" step="any" inputmode="decimal" aria-label="每月预算（美元）" data-i18n-aria-label>
+        <button id="budget-save" class="button" type="button" data-i18n>保存预算</button>
+        <button id="budget-clear" class="button" type="button" data-i18n>不设预算</button>
+      </div>
+      <p class="hint" data-i18n>这个月的花费超过它时提醒你一次，不会拦住任何操作。调高以后又超过了，会再提醒一次。</p>
+    </section>
+    <section>
+      <h3 data-i18n>导出全部数据</h3>
+      <div class="row">
+        <button id="export-run" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>导出全部数据</span></button>
+        <span id="export-size" class="export-size"></span>
+      </div>
+      <p class="hint" data-i18n>会话、记忆、待办、设置、花费记录……整个数据文件夹打成一个 zip，下载到你的电脑。不含 API 密钥；MCP 配置里的密钥会换成占位符。恢复时先退出智狐，再把压缩包解压到数据文件夹里。</p>
+    </section>
   </div>
   <div id="settings-message" class="settings-message" role="status"></div>
+</dialog>
+
+<dialog id="prompt-dialog" class="settings prompt-dialog" aria-labelledby="prompt-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="prompt-title" data-i18n>提示词</h2>
+      <p class="memory-sub" data-i18n>每段对话开始时发给模型的说明：它是谁、在什么环境里、该怎么做事。</p>
+    </div>
+    <button id="close-prompt" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="编辑或预览" data-i18n-aria-label>
+    <button id="prompt-tab-edit" class="tab" type="button" role="tab" aria-selected="true" aria-controls="prompt-edit-pane"><span data-i18n>编辑</span></button>
+    <button id="prompt-tab-preview" class="tab" type="button" role="tab" aria-selected="false" aria-controls="prompt-preview-pane" tabindex="-1"><span data-i18n>实际发给模型的内容</span></button>
+  </div>
+  <div class="settings-body prompt-body">
+    <div id="prompt-edit-pane" class="prompt-pane" role="tabpanel" aria-labelledby="prompt-tab-edit">
+      <textarea id="prompt-text" class="memory-text memory-textarea prompt-textarea" spellcheck="false" aria-label="提示词" data-i18n-aria-label></textarea>
+      <p class="task-label" data-i18n>可以用的占位符，发给模型之前会换成实际的值（点一下插到光标处）：</p>
+      <div id="prompt-placeholders" class="prompt-placeholders"></div>
+      <p class="hint" data-i18n>改过的版本不会跟着程序升级自动更新。想用新版本的内置提示词，点“恢复默认”。改过的版本存在数据目录的 prompt.md 里，也可以直接打开来改。</p>
+    </div>
+    <div id="prompt-preview-pane" class="prompt-pane" role="tabpanel" aria-labelledby="prompt-tab-preview" hidden>
+      <pre id="prompt-preview" class="memory-text prompt-preview"></pre>
+    </div>
+  </div>
+  <div class="memory-foot"><p id="prompt-message" class="memory-message" role="status"></p><button id="prompt-reveal" class="icon-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></button><button id="prompt-reset" class="button" type="button" data-i18n>恢复默认</button><button id="prompt-cancel" class="button" type="button" data-i18n>取消</button><button id="prompt-save" class="button primary" type="button" data-i18n>保存</button></div>
+</dialog>
+
+<dialog id="task-editor" class="settings task-editor" aria-labelledby="task-editor-title">
+  <div class="settings-head">
+    <h2 id="task-editor-title"></h2>
+    <button id="close-task-editor" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body task-form">
+    <div class="task-field"><span class="task-label" id="task-kind-label" data-i18n>到点以后</span>
+      <div class="segmented" role="radiogroup" aria-labelledby="task-kind-label">
+        <button type="button" role="radio" data-kind="agent"><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>让助手去做</span></button>
+        <button type="button" role="radio" data-kind="reminder"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span data-i18n>只提醒我</span></button>
+      </div>
+    </div>
+    <label class="task-field"><span class="task-label" data-i18n>标题</span><input id="task-title" class="field" type="text" maxlength="80" autocomplete="off"></label>
+    <label class="task-field"><span id="task-prompt-label" class="task-label"></span><textarea id="task-prompt" class="field task-prompt" rows="4" maxlength="8000"></textarea></label>
+    <div class="task-field"><span class="task-label" id="task-when-label" data-i18n>什么时候</span>
+      <div class="segmented wrap" role="radiogroup" aria-labelledby="task-when-label">
+        <button type="button" role="radio" data-type="once" data-i18n>一次</button>
+        <button type="button" role="radio" data-type="daily" data-i18n>每天</button>
+        <button type="button" role="radio" data-type="weekly" data-i18n>每周</button>
+        <button type="button" role="radio" data-type="monthly" data-i18n>每月</button>
+        <button type="button" role="radio" data-type="interval" data-i18n>每隔一段时间</button>
+      </div>
+      <div class="task-when">
+        <input id="task-date" class="field" type="date" aria-label="日期" data-i18n-aria-label>
+        <div id="task-days" class="task-days" role="group" aria-label="星期几" data-i18n-aria-label></div>
+        <label id="task-day-box" class="task-inline"><span data-i18n>每月的第</span><input id="task-day" class="field" type="number" min="1" max="31" step="1"><span data-i18n>天</span></label>
+        <label id="task-every-box" class="task-inline"><span data-i18n>每隔</span><input id="task-every" class="field" type="number" min="1" step="1"><select id="task-unit" class="field"><option value="60" data-i18n>小时</option><option value="1" data-i18n>分钟</option></select></label>
+        <input id="task-time" class="field" type="time" aria-label="时间" data-i18n-aria-label>
+      </div>
+      <p id="task-preview" class="task-preview" aria-live="polite"></p>
+    </div>
+    <label class="task-check"><input id="task-enabled" type="checkbox"><span data-i18n>启用（关掉以后先不运行，设置都留着）</span></label>
+    <p id="task-cost-note" class="hint" data-i18n>每次运行都会调用模型，会产生费用（不设上限，每次花了多少都会记下来）。遇到要你确认的操作，任务会停下来等你。只有智狐开着的时候任务才会运行；错过的，下次打开时补跑一次。</p>
+  </div>
+  <div class="memory-foot"><p id="task-editor-message" class="memory-message" role="status"></p><button id="task-cancel" class="button" type="button" data-i18n>取消</button><button id="task-save" class="button primary" type="button" data-i18n>保存</button></div>
+</dialog>
+
+<dialog id="task-detail" class="settings task-detail" aria-labelledby="task-detail-title">
+  <div class="settings-head">
+    <div class="memory-head"><h2 id="task-detail-title"></h2><p id="task-detail-sub" class="memory-sub"></p></div>
+    <button id="close-task-detail" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="task-detail-body" class="settings-body task-detail-body"></div>
+  <div id="task-detail-foot" class="memory-foot"></div>
 </dialog>
 
 <dialog id="extensions" class="settings extensions" aria-labelledby="extensions-title">
@@ -1176,15 +1567,34 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   <div id="extensions-message" class="settings-message" role="status"></div>
 </dialog>
 
-<dialog id="memory-dialog" class="settings memory-dialog" aria-labelledby="memory-name" aria-describedby="memory-meta">
+<dialog id="memory-dialog" class="settings memory-dialog" aria-labelledby="memory-dialog-title">
   <div class="settings-head">
     <div class="memory-head">
-      <h2 id="memory-name"></h2>
-      <p id="memory-meta" class="memory-sub"></p>
+      <h2 id="memory-dialog-title" data-i18n>记忆</h2>
+      <p class="memory-sub" data-i18n>助手跨会话记住的东西。每一条都是记忆文件夹里的一个文件，助手每段对话开始时会先看一眼。</p>
     </div>
     <button id="close-memory" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
+  <div id="memory-split" class="memory-split">
+  <div class="memory-list-pane">
+    <label class="search memory-search">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="memory-search" type="search" maxlength="200" placeholder="搜索记忆" aria-label="按名字搜索记忆" data-i18n-placeholder data-i18n-aria-label autocomplete="off" spellcheck="false">
+    </label>
+    <ul id="memories" class="memories" aria-label="记忆" data-i18n-aria-label></ul>
+    <p id="memory-list-message" class="memory-list-message" role="status"></p>
+    <button id="memory-folder" class="side-foot" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span id="memory-folder-label"></span></button>
+  </div>
+  <section id="memory-view" class="memory-view" aria-labelledby="memory-name" aria-describedby="memory-meta">
+  <div class="memory-view-head">
+    <button id="memory-back" class="icon-button" type="button" title="返回列表" aria-label="返回列表" data-i18n-title data-i18n-aria-label><svg class="icon back" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+    <div class="memory-head">
+      <h3 id="memory-name"></h3>
+      <p id="memory-meta" class="memory-sub"></p>
+    </div>
+  </div>
   <div class="settings-body memory-body">
+    <p id="memory-empty" class="memory-empty" hidden></p>
     <pre id="memory-text" class="memory-text"></pre>
     <div id="memory-editor" class="memory-editor" hidden>
       <label class="memory-field"><span data-i18n>文件名</span>
@@ -1198,6 +1608,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     <p id="memory-note" class="hint"></p>
   </div>
   <div id="memory-foot" class="memory-foot"></div>
+  </section>
+  </div>
+</dialog>
+
+<dialog id="spend-dialog" class="settings spend-dialog" aria-labelledby="spend-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="spend-title" data-i18n>花费明细</h2>
+      <p class="memory-sub" data-i18n>每调用一次模型记一笔，按当时的价格估算。重启程序也不会清零。</p>
+    </div>
+    <button id="close-spend" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="spend-body" class="settings-body spend-body"></div>
 </dialog>
 
 <dialog id="approval-dialog" class="settings approval-dialog" aria-labelledby="approval-title">
@@ -1811,7 +2234,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       renderTodos(event.todos);
       renderMemories(event.memories);
       renderSkills(event.skills);
+      renderTasks(event.tasks, event.reminders);
+      retext($('prompt-state'), event.prompt_custom ? k('（已改过）') : k('（内置的）'));
       renderUsage(event);
+      renderSpend(event.spend);
       renderTools(event.tools);
       if (settings.open) renderSettings();
       renderApproval(event.approval);
@@ -2820,7 +3246,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] ? t(KINDS[hit.kind]) : ''));
       paint(line, hit.text, hit.marks);
     } else {
-      open.appendChild(el('span', 'conv-meta', item.model + ' · ' + timeLabel(item.updated_at)));
+      // 定时任务跑出来的会话标一下，免得以为是自己聊的
+      open.appendChild(el('span', 'conv-meta', (item.task ? t('定时任务') + ' · ' : '') + item.model + ' · ' + timeLabel(item.updated_at)));
     }
     open.addEventListener('click', () => {
       const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
@@ -2860,7 +3287,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (first) first.click();
     }
   });
-  $('search-key').textContent = ON_MAC ? '⌘K' : 'Ctrl K';
+  $('search-key').textContent = ON_MAC ? '⌘F' : 'Ctrl F';
   tattr($('open-folder'), 'title', k('打开保存会话的文件夹'));
   $('open-folder').addEventListener('click', () => showFile(''));
 
@@ -2916,20 +3343,149 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     return date.toLocaleDateString(LOCALES[language], sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  // 待办：和会话、记忆一样，每一行悬停时有"在访达中显示 / 编辑 / 删除"；前面的圆圈点一下就是完成。
+  // 改动都请助手程序去做（/api/todo/*），它改完会发来新的状态，列表照常跟着状态走
+  let todoList = [], todoEditing = null, todoRemoving = null;
+
   function renderTodos(todos) {
-    const print = JSON.stringify([todos, language]);
+    todoList = Array.isArray(todos) ? todos : [];
+    if (todoEditing && !todoList.some((item) => item.id === todoEditing.id)) todoEditing = null;
+    if (todoRemoving && !todoList.some((item) => item.id === todoRemoving)) todoRemoving = null;
+    const print = JSON.stringify([todoList, language, todoEditing && todoEditing.id, todoRemoving]);
     if (print === todosDrawn) return;
     todosDrawn = print;
-    const fresh = knownTodos && isLive() ? todos.filter((item) => !knownTodos.has(item.id)).map((item) => item.id) : [];
-    knownTodos = new Set(todos.map((item) => item.id));
-    const items = todos.map((item) => {
-      const row = el('li', 'todo' + (fresh.includes(item.id) ? ' enter' : ''));  // 刚加上的那一条浮现出来
-      row.appendChild(el('span', 'todo-mark'));
-      row.appendChild(el('span', 'todo-text', item.title));
-      if (item.due) row.appendChild(el('span', 'due', dueText(item.due))).title = item.due;
+    const fresh = knownTodos && isLive() ? todoList.filter((item) => !knownTodos.has(item.id)).map((item) => item.id) : [];
+    knownTodos = new Set(todoList.map((item) => item.id));
+    const box = $('todos'), active = document.activeElement;
+    const keep = box.contains(active) && active.closest('.todo') ? [Number(active.closest('.todo').dataset.id), active.dataset.role] : null;
+    box.replaceChildren(...(todoList.length ? todoList.map((item) => todoRow(item, fresh.includes(item.id))) : [el('li', 'none', t('没有未完成的待办'))]));
+    if (keep) {
+      const row = [...box.children].find((node) => Number(node.dataset.id) === keep[0]);
+      const target = row && (row.querySelector(`[data-role="${keep[1]}"]`) || row.querySelector('.todo-mark'));
+      if (target) target.focus();
+    }
+  }
+
+  function todoRow(item, fresh) {
+    const row = el('li', 'todo' + (fresh ? ' enter' : ''));  // 刚加上的那一条浮现出来
+    row.dataset.id = String(item.id);
+    if (todoRemoving === item.id) {  // 删除前在原地确认一下
+      const box = row.appendChild(el('div', 'todo-confirm'));
+      box.appendChild(el('span', null, t('删除这条待办？')));
+      const yes = box.appendChild(el('button', 'mini danger', t('删除')));
+      const no = box.appendChild(el('button', 'mini cancel', t('取消')));
+      yes.type = no.type = 'button';
+      no.dataset.role = 'cancel';
+      yes.addEventListener('click', async () => {
+        yes.disabled = no.disabled = true;
+        const reply = await call('/api/todo/delete', { id: item.id });
+        todoRemoving = null;
+        todosDrawn = '';
+        if (!reply.ok) { toast(reply.error); renderTodos(todoList); return; }
+        renderTodos(todoList.filter((other) => other.id !== item.id));
+        toast(t('已删除待办：{title}', { title: item.title }));
+      });
+      no.addEventListener('click', () => { todoRemoving = null; todosDrawn = ''; renderTodos(todoList); });
+      box.addEventListener('keydown', (key) => { if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); no.click(); } });
+      setTimeout(() => { if (row.isConnected) no.focus(); });
       return row;
+    }
+    if (todoEditing && todoEditing.id === item.id) {  // 编辑：标题和截止日期，就地改
+      const form = row.appendChild(el('div', 'todo-edit'));
+      const title = form.appendChild(el('input', 'field'));
+      title.type = 'text';
+      title.maxLength = 200;
+      title.value = todoEditing.title;
+      tattr(title, 'aria-label', k('待办的内容'));
+      const line = form.appendChild(el('div', 'row'));
+      const due = line.appendChild(el('input', 'field'));
+      due.type = 'date';
+      due.value = todoEditing.due || '';
+      tattr(due, 'aria-label', k('截止日期（可以不填）'));
+      const save = line.appendChild(el('button', 'mini primary', t('保存')));
+      const cancel = line.appendChild(el('button', 'mini', t('取消')));
+      save.type = cancel.type = 'button';
+      title.addEventListener('input', () => { todoEditing.title = title.value; });
+      due.addEventListener('input', () => { todoEditing.due = due.value; });
+      const finish = async (keep) => {
+        if (!keep) { todoEditing = null; todosDrawn = ''; renderTodos(todoList); focusTodo(item.id); return; }
+        if (!title.value.trim()) { title.focus(); return; }
+        save.disabled = true;
+        const reply = await call('/api/todo/update', { id: item.id, title: title.value.trim(), due: due.value || null });
+        todoEditing = null;
+        todosDrawn = '';
+        if (!reply.ok) toast(reply.error);
+        renderTodos(todoList);
+        focusTodo(item.id);
+      };
+      save.addEventListener('click', () => finish(true));
+      cancel.addEventListener('click', () => finish(false));
+      form.addEventListener('keydown', (key) => {
+        if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+        if (key.key === 'Enter') { key.preventDefault(); finish(true); }
+        if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); finish(false); }
+      });
+      setTimeout(() => { if (row.isConnected) { title.focus(); title.select(); } });
+      return row;
+    }
+    const mark = row.appendChild(el('button', 'todo-mark'));
+    mark.type = 'button';
+    mark.dataset.role = 'done';
+    mark.title = t('标记为完成');
+    mark.setAttribute('aria-label', t('完成：{title}', { title: item.title }));
+    mark.addEventListener('click', () => completeTodo(item, row));
+    row.appendChild(el('span', 'todo-text', item.title));
+    if (item.due) row.appendChild(el('span', 'due', dueText(item.due))).title = item.due;
+    const actions = row.appendChild(el('div', 'todo-actions'));
+    const button = (iconName, title, label, role, extra) => {
+      const node = actions.appendChild(el('button', 'icon-button small' + (extra ? ' ' + extra : '')));
+      node.type = 'button';
+      node.dataset.role = role;
+      node.title = t(title);
+      node.setAttribute('aria-label', t(label, { name: item.title }));
+      node.appendChild(icon(iconName));
+      return node;
+    };
+    button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示待办的文件') : k('在文件夹中显示待办的文件'), 'reveal').addEventListener('click', () => revealData('todos'));
+    button('edit', k('编辑'), k('编辑待办：{name}'), 'edit').addEventListener('click', () => {
+      todoRemoving = null;
+      todoEditing = { id: item.id, title: item.title, due: item.due || '' };
+      todosDrawn = '';
+      renderTodos(todoList);
     });
-    $('todos').replaceChildren(...(items.length ? items : [el('li', 'none', t('没有未完成的待办'))]));
+    button('trash', k('删除'), k('删除待办：{name}'), 'delete', 'danger-hover').addEventListener('click', () => {
+      todoEditing = null;
+      todoRemoving = item.id;
+      todosDrawn = '';
+      renderTodos(todoList);
+    });
+    return row;
+  }
+
+  function focusTodo(id) {
+    const row = [...$('todos').children].find((node) => Number(node.dataset.id) === id);
+    if (row) (row.querySelector('.todo-mark') || row).focus();
+  }
+
+  // 完成：先在这一行上打个勾、划掉，再请助手程序记下来；它发来的新状态里这一条就不在"未完成"里了
+  async function completeTodo(item, row) {
+    row.classList.add('done');
+    const [reply] = await Promise.all([call('/api/todo/update', { id: item.id, done: true }), new Promise((done) => setTimeout(done, calm() ? 0 : 420))]);
+    if (!reply.ok) { row.classList.remove('done'); toast(reply.error); return; }
+    await leave(row);
+    todosDrawn = '';
+    renderTodos(todoList.filter((other) => other.id !== item.id));
+    toast(t('已完成：{title}', { title: item.title }));
+  }
+
+  // 在文件管理器里显示助手的一个数据文件。页面只说是哪一个（tasks / todos / prompt），在哪儿由助手程序定。
+  // say：说结果的地方。开着对话框的时候，浮在页面上的提示会被它挡住，所以由调用的地方给
+  async function revealData(what, say = toast) {
+    const reply = await call('/api/reveal', { what });
+    if (!reply.ok) { say(reply.error, true); return; }
+    const parts = String(reply.data.path || '').split('/');
+    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
+    say(ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
   }
 
   function renderTools(tools) {
@@ -2946,7 +3502,410 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     $('legend-remote').hidden = tools.every((tool) => tool.local);
   }
 
-  // ---- 信息栏：记忆 --------------------------------------------------------
+  // ---- 花费：今天、本月、明细、预算和导出 ----------------------------------
+  // 这一节管四处：信息栏费用卡片的下半部分（今天、本月、预算还剩多少）、"花费明细"窗口，
+  // 以及设置里的"每月预算"和"导出全部数据"。
+  //
+  // 数字都来自助手程序的花费账本（见 ledger.py）：每调用一次模型记一笔，重启也不清零。页面不自己算钱、不自己数日子：
+  //   - 今天、本月、超没超预算跟着状态走（state.spend），每调用一次模型就更新一次；
+  //   - 明细（最近 30 天每天多少、每个月、每个模型、每种来源）打开窗口时才去要（/api/ledger），
+  //     窗口开着的时候又调用了模型，就再要一次。
+  // 超过预算的提示只弹一次：助手程序记着"这个月为多少预算提醒过了"（state.spend.alert），页面记着自己为哪一次
+  // 弹过（存在浏览器里）。刷新页面不会再弹；超预算的时候页面没开着，下次打开时弹一次。弹过以后，
+  // 超没超预算还一直写在费用卡片上，底部的费用按钮上也有一个红点。
+
+  const spendDialog = $('spend-dialog'), spendBody = $('spend-body');
+  const SOURCES = { chat: k('对话'), task: k('定时任务') };
+  const PERIODS = { month: k('本月'), recent: k('最近 {n} 天'), all: k('全部') };
+  let spendReport = null, spendProblem = '', spendLoading = false, spendAgain = false;
+  let spendPick = -1;        // 柱状图上选中的是哪一天（下标）；-1 表示还没选，默认是今天
+  let spendEnter = false;    // 下一次画出明细时播放入场动画（只在刚打开窗口时；之后的更新不再播）
+  let spendSeen = '';        // 上一次的 state.spend 和请求次数：变了才去重新要明细
+  let spendPeriod = recall('harness.spend-period');
+  if (!(spendPeriod in PERIODS)) spendPeriod = 'month';
+  let budgetShown = recall('harness.budget-alert') || '';  // 为哪一次超预算弹过提示
+  let exportInfo = null;     // 数据文件夹有多大（打开设置时问一次）
+
+  const callsText = (n) => (n === 1 ? t('1 次调用') : t('{n} 次调用', { n: n.toLocaleString(LOCALES[language]) }));
+  const tokensText = (n) => new Intl.NumberFormat(LOCALES[language], { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+  const tokenMeta = (row) => t('输入 {input} · 输出 {output} token', { input: tokensText(row.input + row.cache_read + row.cache_write), output: tokensText(row.output) });
+  const dayDate = (text) => { const [year, month, day] = text.split('-').map(Number); return new Date(year, month - 1, day); };
+  const dayText = (text, long) => dayDate(text).toLocaleDateString(LOCALES[language], long ? { month: 'short', day: 'numeric', weekday: 'short' } : { month: 'short', day: 'numeric' });
+  const monthText = (text) => dayDate(text + '-01').toLocaleDateString(LOCALES[language], { year: 'numeric', month: 'long' });
+  const providerLabel = (id) => { const found = state && state.providers.find((one) => one.id === id); return found ? found.label : id; };
+  const sourceText = (source) => (SOURCES[source] ? t(SOURCES[source]) : source);
+
+  // 信息栏：今天、本月；填了预算的话，再加一条进度和一句"还剩多少"
+  function renderSpend(spend) {
+    $('spend').hidden = !spend;
+    $('foot-cost').classList.toggle('over', Boolean(spend && spend.over));
+    if (!spend) return;  // 助手程序是旧版本、还没有账本
+    $('spend-today').textContent = costText(spend.today);
+    $('spend-month').textContent = costText(spend.month);
+    const meter = $('budget-meter'), note = $('budget-note');
+    meter.hidden = !spend.budget;
+    if (spend.budget) {
+      const ratio = spend.month / spend.budget;
+      meter.classList.toggle('near', !spend.over && ratio >= 0.8);
+      meter.classList.toggle('over', spend.over);
+      meter.firstElementChild.style.transform = 'scaleX(' + Math.min(1, ratio) + ')';
+    }
+    note.textContent = spend.error ? t('花费记录写不进磁盘：{error}。这次运行里的数还在，重启以后会少掉这一部分。', { error: spend.error })
+      : !spend.budget ? ''
+      : spend.over ? t('超出每月预算 {budget}，多花了 {over}', { budget: costText(spend.budget), over: costText(spend.month - spend.budget) })
+      : t('每月预算 {budget}，还剩 {left}', { budget: costText(spend.budget), left: costText(spend.budget - spend.month) });
+    note.classList.toggle('over', Boolean(spend.over || spend.error));
+    note.hidden = !note.textContent;
+    $('budget-clear').disabled = !spend.budget;
+    noticeBudget(spend);
+    // 明细窗口开着的时候又调用了模型（或者换了语言）：重新要一次明细
+    const print = JSON.stringify([spend, state.usage.requests, language]);
+    if (spendDialog.open && print !== spendSeen) loadSpend();
+    spendSeen = print;
+    if (settings.open) renderDataSize();
+  }
+
+  function noticeBudget(spend) {
+    if (!spend.alert || !spend.over || spend.alert === budgetShown) return;
+    budgetShown = spend.alert;
+    remember('harness.budget-alert', budgetShown);
+    const text = t('这个月已经花了 {spent}，超过了每月预算 {budget}。只是提醒，不会拦住任何操作。', { spent: costText(spend.month), budget: costText(spend.budget) });
+    toast(text);
+    systemNotify(t('超出每月预算'), text);  // 页面不在眼前、又允许了系统通知的时候（比如定时任务在夜里跑）
+  }
+
+  // ---- 花费明细窗口 ----
+
+  function openSpend() {
+    spendReport = null;
+    spendProblem = '';
+    spendPick = -1;
+    spendEnter = true;
+    drawSpend();
+    if (!spendDialog.open) spendDialog.showModal();
+    loadSpend();
+  }
+
+  async function loadSpend() {
+    if (spendLoading) { spendAgain = true; return; }  // 正在要：等这一次回来再要一次，不同时发好几个
+    spendLoading = true;
+    const reply = await call('/api/ledger');
+    spendLoading = false;
+    if (reply.ok) { spendReport = reply.data.report; spendProblem = ''; }
+    else if (!spendReport) spendProblem = reply.error;  // 已经画着一份的话，留着它，不换成一句出错
+    if (spendDialog.open) drawSpend();
+    if (spendAgain) { spendAgain = false; loadSpend(); }
+  }
+
+  function drawSpend() {
+    const focusKey = spendBody.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+    const report = spendReport;
+    let parts;
+    if (spendProblem) parts = [spendEmpty('alert', spendProblem, true)];
+    else if (!report) parts = [spendEmpty('chart', t('正在读取花费记录……'))];
+    else if (!report.first) parts = [spendEmpty('chart', t('还没有花费记录。从现在起，每调用一次模型都会记一笔：花了多少、用的哪个模型、是对话还是定时任务。'))];
+    else parts = spendContent(report, spendEnter);
+    if (report) spendEnter = false;
+    spendBody.replaceChildren(...parts);
+    if (focusKey) {
+      const again = spendBody.querySelector('[data-focus="' + focusKey + '"]');
+      if (again) again.focus();
+    }
+  }
+
+  function spendEmpty(name, text, failed) {
+    const box = el('div', 'spend-empty');
+    box.appendChild(icon(name));
+    box.appendChild(el('p', null, text));
+    if (failed) {
+      const retry = box.appendChild(el('button', 'button', t('再试一次')));
+      retry.type = 'button';
+      retry.addEventListener('click', () => { spendProblem = ''; drawSpend(); loadSpend(); });
+    }
+    return box;
+  }
+
+  function spendContent(report, animate) {
+    const parts = [];
+    if (report.error) parts.push(el('div', 'memory-problem', t('花费记录写不进磁盘：{error}。这次运行里的数还在，重启以后会少掉这一部分。', { error: report.error })));
+    parts.push(spendHero(report), spendChart(report, animate), spendMonths(report, animate), spendBreakdown(report, animate));
+    const notes = [t('按每次调用当时的价格估算，实际以各家的账单为准。记录从 {day} 开始。', { day: dayDate(report.first).toLocaleDateString(LOCALES[language], { year: 'numeric', month: 'long', day: 'numeric' }) })];
+    if (report.skipped) notes.push(t('账本里有 {n} 行读不懂（可能是写到一半时断电了），已经跳过。', { n: report.skipped }));
+    parts.push(el('p', 'hint', notes.join(' ')));
+    return parts;
+  }
+
+  // 最上面：本月花了多少（最大的那个数），今天，预算
+  function spendHero(report) {
+    const hero = el('div', 'spend-hero');
+    const figure = (label, value, className) => {
+      const box = hero.appendChild(el('div'));
+      box.appendChild(el('small', null, label));
+      return box.appendChild(el('div', className, value));
+    };
+    const spend = state && state.spend;
+    figure(t('本月'), costText(report.periods.month.cost), 'big');
+    figure(t('今天'), costText(report.days[report.days.length - 1].cost), 'mid');
+    if (spend && spend.budget) {
+      figure(t('每月预算'), costText(spend.budget), 'mid' + (spend.over ? ' over' : ''));
+    } else {
+      const box = hero.appendChild(el('div'));
+      box.appendChild(el('small', null, t('每月预算')));
+      const set = box.appendChild(el('button', 'link', t('设一个预算')));
+      set.type = 'button';
+      set.addEventListener('click', () => { spendDialog.close(); openSettings(); $('budget-amount').focus(); });
+    }
+    return hero;
+  }
+
+  // 最近 30 天的柱状图。每根柱子是一个按钮：鼠标移上去、点一下、或者用左右方向键（Home / End 到头尾），
+  // 上面那行字就换成那一天的数。只有选中的那一根在 Tab 键的顺序里，整张图只占一个 Tab 位置
+  function spendChart(report, animate) {
+    const days = report.days, last = days.length - 1;
+    const section = el('section');
+    const head = section.appendChild(el('h3', null, t('最近 {n} 天', { n: days.length })));
+    head.appendChild(el('small', null, t('合计 {cost}', { cost: costText(report.periods.recent.cost) })));
+    const readout = section.appendChild(el('p', 'chart-readout'));
+    const chart = section.appendChild(el('div', 'chart' + (animate ? ' grow-in' : '')));
+    chart.setAttribute('role', 'group');
+    chart.setAttribute('aria-label', t('最近 {n} 天每天的花费', { n: days.length }));
+    chart.style.setProperty('--days', days.length);
+    const most = Math.max(0, ...days.map((day) => day.cost));
+    chart.appendChild(el('span', 'chart-max', most ? costText(most) : ''));
+    chart.appendChild(el('span', 'chart-grid'));
+    chart.appendChild(el('span', 'chart-grid half'));
+    if (spendPick < 0 || spendPick > last) spendPick = last;
+
+    const describe = (day) => {
+      const bits = [dayText(day.day, true), costText(day.cost), callsText(day.requests)];
+      if (day.unpriced) bits.push(t('其中 {n} 次没有价格', { n: day.unpriced }));
+      return bits;
+    };
+    const bars = days.map((day, index) => {
+      const bar = el('button', 'spend-bar' + (index === last ? ' today' : ''));
+      bar.type = 'button';
+      bar.dataset.focus = 'bar-' + index;
+      bar.setAttribute('aria-label', describe(day).join(' · '));
+      bar.style.setProperty('--i', index);
+      // 有花费的日子至少露出一小截，不然几分钱的那天和一分没花的那天看起来一样
+      bar.appendChild(el('i')).style.setProperty('--h', most && day.cost ? Math.max(0.025, day.cost / most) : 0);
+      return bar;
+    });
+    const pick = (index) => {
+      spendPick = index;
+      bars.forEach((bar, at) => { bar.classList.toggle('on', at === index); bar.tabIndex = at === index ? 0 : -1; });
+      const [date, cost, ...rest] = describe(days[index]);
+      readout.replaceChildren(document.createTextNode(date + ' · '), el('b', null, cost), document.createTextNode(' · ' + rest.join(' · ')));
+    };
+    bars.forEach((bar, index) => {
+      bar.addEventListener('pointerenter', () => pick(index));
+      bar.addEventListener('focus', () => pick(index));
+      bar.addEventListener('click', () => pick(index));
+    });
+    chart.append(...bars);
+    chart.addEventListener('keydown', (key) => {
+      const next = { ArrowLeft: spendPick - 1, ArrowRight: spendPick + 1, Home: 0, End: last }[key.key];
+      if (next === undefined) return;
+      key.preventDefault();
+      pick(Math.max(0, Math.min(last, next)));
+      bars[spendPick].focus();
+    });
+    pick(spendPick);
+
+    const axis = section.appendChild(el('div', 'chart-axis'));
+    axis.appendChild(el('span', null, dayText(days[0].day)));
+    axis.appendChild(el('span', null, dayText(days[Math.floor(last / 2)].day)));
+    axis.appendChild(el('span', null, t('今天')));
+    return section;
+  }
+
+  // 一行：名字、金额，下面一行小字，再下面一条按比例缩放的细条（share 是 0 到 1；不给就没有）
+  function spendRow(name, figure, meta, share, mono) {
+    const row = el('li', 'spend-row' + (share === null ? ' muted' : ''));
+    row.appendChild(el('span', 'name' + (mono ? ' mono' : ''), name)).title = name;
+    row.appendChild(el('span', 'figure', figure));
+    if (meta) row.appendChild(el('span', 'meta', meta));
+    if (share !== null) {
+      const bar = row.appendChild(el('span', 'share'));
+      bar.setAttribute('aria-hidden', 'true');
+      bar.appendChild(el('i')).style.setProperty('--w', Math.min(1, Math.max(0, share)));
+    }
+    return row;
+  }
+
+  function spendList(rows, animate) {
+    const list = el('ul', 'spend-list' + (animate ? ' grow-in' : ''));
+    list.append(...rows);
+    return list;
+  }
+
+  function spendMonths(report, animate) {
+    const section = el('section');
+    section.appendChild(el('h3', null, t('每个月')));
+    const most = Math.max(0, ...report.months.map((month) => month.cost));
+    section.appendChild(spendList(report.months.map((month) =>
+      spendRow(monthText(month.month), costText(month.cost), callsText(month.requests), most ? month.cost / most : 0)), animate));
+    return section;
+  }
+
+  // 按模型、按来源分开看。上面三个按钮切换时间段（本月、最近 30 天、全部），三份数字一次都拿来了，切换时不用再要
+  function spendBreakdown(report, animate) {
+    const section = el('section');
+    section.appendChild(el('h3', null, t('按模型和来源')));
+    const group = section.appendChild(el('div', 'segmented spend-period'));
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', t('时间段'));
+    const keys = Object.keys(PERIODS);
+    const choose = (key, focus) => {
+      spendPeriod = key;
+      remember('harness.spend-period', key);
+      drawSpend();
+      if (focus) spendBody.querySelector('[data-focus="period-' + key + '"]').focus();
+    };
+    for (const key of keys) {
+      const button = group.appendChild(el('button', null, t(PERIODS[key], { n: report.days.length })));
+      button.type = 'button';
+      button.dataset.focus = 'period-' + key;
+      button.setAttribute('role', 'radio');
+      button.setAttribute('aria-checked', String(key === spendPeriod));
+      button.tabIndex = key === spendPeriod ? 0 : -1;
+      button.addEventListener('click', () => { if (key !== spendPeriod) choose(key, false); });
+    }
+    group.addEventListener('keydown', (key) => {
+      const at = keys.indexOf(spendPeriod);
+      const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: keys.length - 1 }[key.key];
+      if (next === undefined) return;
+      key.preventDefault();
+      choose(keys[(next + keys.length) % keys.length], true);
+    });
+
+    const period = report.periods[spendPeriod];
+    if (!period.requests) {
+      section.appendChild(el('p', 'none', t('这段时间里没有调用过模型。')));
+      return section;
+    }
+    if (period.models.length) {
+      const top = Math.max(...period.models.map((row) => row.cost));
+      section.appendChild(el('p', 'spend-sub', t('模型')));
+      section.appendChild(spendList(period.models.map((row) =>
+        spendRow(row.model, costText(row.cost), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].join(' · '), top ? row.cost / top : 0, true)), animate));
+    }
+    const topSource = Math.max(...period.sources.map((row) => row.cost));
+    section.appendChild(el('p', 'spend-sub', t('来源')));
+    section.appendChild(spendList(period.sources.map((row) =>
+      spendRow(sourceText(row.source), costText(row.cost), callsText(row.requests), topSource ? row.cost / topSource : 0)), animate));
+    if (period.unpriced.length) {
+      section.appendChild(el('p', 'spend-sub', t('没有价格的模型')));
+      section.appendChild(spendList(period.unpriced.map((row) =>
+        spendRow(row.model, t('未计入'), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].join(' · '), null, true)), false));
+      section.appendChild(el('p', 'hint', t('这些调用发生时，模型还没有价格，只记下了 token 数，没有算进上面的金额。在“设置”里给它填上价格以后，之后的调用就会计入。')));
+    }
+    return section;
+  }
+
+  $('spend-open').addEventListener('click', openSpend);
+  $('close-spend').addEventListener('click', () => spendDialog.close());
+
+  // ---- 设置里的"每月预算"和"导出全部数据" ----
+  // 预算是多少、有没有超，由助手程序判断（见 budget.py），这里只负责把你填的数交过去。
+  // 导出时用 fetch 拿到压缩包、变成 Blob，再交给一个带 download 属性的链接存盘：请求照样带着口令，
+  // 地址里不用露出口令，页面的安全策略也不用为下载放宽什么。
+
+  function fillDataSettings() {  // 每次打开设置时调用
+    const spend = state && state.spend;
+    $('budget-amount').value = spend && spend.budget ? String(spend.budget) : '';
+    $('budget-clear').disabled = !(spend && spend.budget);
+    exportInfo = null;
+    renderDataSize();
+    refreshDataSize();
+  }
+
+  async function saveBudget(amount) {
+    const reply = await call('/api/budget', { amount });
+    if (!reply.ok) { say(reply.error, 'bad'); return; }
+    if (amount === null) { $('budget-amount').value = ''; say(t('已经不设每月预算了。'), 'good'); return; }
+    // 设的比这个月已经花的还少：当场说一声（弹出的提示在设置面板后面，看不见）
+    const spend = reply.data.spend;
+    if (spend && spend.over) say(t('每月预算已保存：{amount}。这个月已经花了 {spent}，超过了它。', { amount: costText(amount), spent: costText(spend.month) }), 'bad');
+    else say(t('每月预算已保存：{amount}。', { amount: costText(amount) }), 'good');
+  }
+
+  $('budget-save').addEventListener('click', () => {
+    const field = $('budget-amount');
+    if (field.value === '' && !field.validity.badInput) {
+      say(t('先填一个金额。不想设预算的话，点“不设预算”。'), 'bad');
+      field.focus();
+      return;
+    }
+    const amount = Number(field.value);
+    saveBudget(Number.isFinite(amount) && !field.validity.badInput ? amount : field.value);  // 不合格的原样交过去，由助手程序说明原因
+  });
+  $('budget-amount').addEventListener('keydown', (key) => {
+    if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); $('budget-save').click(); }
+  });
+  $('budget-clear').addEventListener('click', () => saveBudget(null));
+
+  async function refreshDataSize() {
+    const reply = await call('/api/export/info');
+    exportInfo = reply.ok ? reply.data : null;
+    renderDataSize();
+  }
+
+  function renderDataSize() {
+    const box = $('export-size');
+    box.textContent = !exportInfo ? ''
+      : exportInfo.files === 1 ? t('数据文件夹 {size}，1 个文件', { size: formatSize(exportInfo.bytes) })
+      : t('数据文件夹 {size}，{n} 个文件', { size: formatSize(exportInfo.bytes), n: exportInfo.files.toLocaleString(LOCALES[language]) });
+    box.title = exportInfo ? exportInfo.path : '';
+  }
+
+  async function runExport() {
+    const button = $('export-run'), mark = button.querySelector('use');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.classList.add('packing');
+    mark.setAttribute('href', '#i-loop');
+    say(t('正在打包数据文件夹……'));
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
+        body: '{}',
+      });
+      if (!response.ok) {
+        const reply = await response.json().catch(() => ({}));
+        say(response.status === 403 && !reply.error ? t('链接无效或已经过期。请使用终端里显示的完整地址重新打开。')
+          : reply.error || t('请求失败（{status}）', { status: response.status }), 'bad');
+        return;
+      }
+      const blob = await response.blob();
+      const name = (/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') || '') || [])[1] || 'zhifox-backup.zip';
+      const url = URL.createObjectURL(blob);
+      const link = el('a');
+      link.href = url;
+      link.download = name;
+      link.hidden = true;
+      body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);  // 浏览器开始存盘以后就不需要它了；留一分钟，慢的机器也来得及
+      say(exportInfo
+        ? t('已导出 {name}：{before} 压缩成了 {after}。里面的 README-backup.txt 写着怎么恢复。', { name, before: formatSize(exportInfo.bytes), after: formatSize(blob.size) })
+        : t('已导出 {name}（{after}）。里面的 README-backup.txt 写着怎么恢复。', { name, after: formatSize(blob.size) }), 'good');
+    } catch (_) {
+      say(t('连接不上助手程序'), 'bad');
+    } finally {
+      button.disabled = false;
+      button.classList.remove('packing');
+      mark.setAttribute('href', '#i-download');
+    }
+  }
+
+  $('export-run').addEventListener('click', runExport);
+
+  // ---- 记忆 ----------------------------------------------------------------
+  // 入口在左边栏顶部（"记忆"），点开是一个左右两栏的窗口：左边是全部记忆（可以按名字搜），右边是选中的那一条。
+  // 以前放在右边的信息栏里，记忆一多信息栏就被拉得很长。
   // 助手的长期记忆是 data/memories/ 下的普通文件，模型用 memory 工具读写。这里把它们列出来：点一条看内容，
   // 每一行悬停时有三个按钮（和会话行一样）：在文件管理器里显示这个文件、编辑（名字和内容）、删除。
   // 列表跟着状态走：服务器每次发状态都重新看一遍文件夹，所以模型在这一轮里记下的东西，下一次刷新状态时就出现了，
@@ -2964,8 +3923,19 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
                               // edit：正在编辑时是 {force, saving, armed, base}，base 是开始编辑时的名字和内容（用来判断改没改过）
   let viewSeq = 0;            // 每读一次加一。回来得晚的旧内容靠它认出来、丢掉
   let viewDrawn = '';
+  let memoryQuery = '';       // 搜索框里的字（已经转成小写）
+  const narrowMemory = matchMedia('(max-width: 760px)');  // 窄屏：列表和内容一次只显示一边
 
   retext($('memory-folder-label'), MEMORY_FOLDER);
+
+  // 窗口里没有浮在页面上的提示（被窗口的暗底挡着），所以说明写在窗口里：正看着一条的，写在它下面；否则写在列表下面
+  function memorySay(text, bad) {
+    if (viewing && memoryDialog.open) { viewing.message = { text, bad: Boolean(bad) }; drawViewer(); return; }
+    if (!memoryDialog.open) { toast(text); return; }
+    const line = $('memory-list-message');
+    line.textContent = text;
+    line.classList.toggle('bad', Boolean(bad));
+  }
 
   // "projects/zhifox.md" → ["projects", "zhifox.md"]
   function splitPath(path) {
@@ -2982,7 +3952,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     if (forgetting && !memories.some((item) => item.path === forgetting)) forgetting = null;
     syncViewer();
     // 状态隔一会儿就来一次，记忆多半没变。没变就不重画，免得正在确认删除、或者键盘正停在某一行上时被打断
-    const print = JSON.stringify([memories, forgetting, language, startOfDay(new Date())]);
+    const print = JSON.stringify([memories, forgetting, language, startOfDay(new Date()), memoryQuery, viewing && viewing.path]);
     if (print === memoriesDrawn) {
       // 删掉一条之后，服务器的新状态常常比删除请求的回答先到，列表已经按它重画过了。焦点还是要挪过去
       if (focusAfter !== false) focusMemory(focusAfter);
@@ -2997,8 +3967,10 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
     const fresh = knownMemories && isLive() ? memories.filter((item) => !knownMemories.has(item.path)).map((item) => item.path) : [];
     knownMemories = new Set(memories.map((item) => item.path));
-    const items = memories.map((item) => memoryRow(item, fresh.includes(item.path)));
-    if (!items.length) items.push(el('li', 'none', t('还没有记忆。对助手说“记住……”，它会把要点写成文件放在这里，以后的每段对话都用得上。')));
+    const shown = memoryQuery ? memories.filter((item) => item.path.toLowerCase().includes(memoryQuery)) : memories;
+    const items = shown.map((item) => memoryRow(item, fresh.includes(item.path)));
+    if (!memories.length) items.push(el('li', 'none', t('还没有记忆。对助手说“记住……”，它会把要点写成文件放在这里，以后的每段对话都用得上。')));
+    else if (!items.length) items.push(el('li', 'none', t('没有名字里带“{query}”的记忆。', { query: $('memory-search').value.trim() })));
     if (memories.length >= MAX_MEMORIES) items.push(el('li', 'none', t('只列出了前 {n} 个文件，其余的请在文件夹里查看。', { n: MAX_MEMORIES })));
     memoryList.replaceChildren(...items);
     $('memory-count').textContent = memories.length ? memories.length.toLocaleString(LOCALES[language]) : '';
@@ -3024,7 +3996,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   function memoryRow(item, fresh) {
     const [folder, name] = splitPath(item.path);
-    const row = el('li', 'memory' + (fresh ? ' enter' : ''));
+    const selected = Boolean(viewing && viewing.path === item.path);
+    const row = el('li', 'memory' + (fresh ? ' enter' : '') + (selected ? ' selected' : ''));
     row.dataset.path = item.path;
 
     // 删除前先在原地确认一下，和删除会话一样，不弹对话框
@@ -3040,7 +4013,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
         const after = neighbor(item.path);
         // 这一行先淡出去，同时请助手程序删掉。删不掉的话（比如助手正在工作）它再回来
         const [reply] = await Promise.all([forget(item.path), leave(row)]);
-        if (!reply.ok) { toast(reply.error); memoriesDrawn = ''; cancel(); return; }
+        if (!reply.ok) { memorySay(reply.error, true); memoriesDrawn = ''; cancel(); return; }
         dropMemory(item.path, after);
       });
       no.addEventListener('click', cancel);
@@ -3055,6 +4028,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const open = row.appendChild(el('button', 'memory-open'));
     open.type = 'button';
     open.title = item.path;
+    if (selected) open.setAttribute('aria-current', 'true');
     open.appendChild(icon('file'));
     const words = open.appendChild(el('span', 'memory-words'));
     words.appendChild(el('span', 'memory-name', name));
@@ -3100,7 +4074,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   function dropMemory(path, after) {
     focusAfter = after;
     renderMemories(memories.filter((item) => item.path !== path));
-    toast(t('已删除记忆：{name}', { name: splitPath(path)[1] }));
+    memorySay(t('已删除记忆：{name}', { name: splitPath(path)[1] }));
   }
 
   // ---- 看一条记忆 ----
@@ -3108,11 +4082,40 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 
   // edit：点的是铅笔，读出来之后直接进入编辑
   function openMemory(path, edit) {
+    if (viewing && viewing.path !== path && !leaveEdit(true)) return;  // 正在改另一条、还没保存：先提醒，不换
     viewing = { path, data: null, error: '', loading: true, gone: false, confirm: false, message: null, edit: null, wantEdit: Boolean(edit) };
     viewDrawn = '';
+    $('memory-list-message').textContent = '';
+    if (!memoryDialog.open) memoryDialog.showModal();
+    $('memory-split').classList.add('showing');
     drawViewer();
-    memoryDialog.showModal();
+    renderMemories(memories);  // 列表里标出选中的这一条
+    // 窄屏上列表这时藏起来了，刚点的那一行接不住焦点（焦点会掉到窗口外面，Esc 之类的按键就到不了这里），放到"返回"上
+    if (narrowMemory.matches) $('memory-back').focus();
     loadMemory();
+  }
+
+  // 从左边栏的入口打开：先不选哪一条，光标放在搜索框里
+  function openMemories() {
+    viewing = null;
+    viewDrawn = '';
+    $('memory-split').classList.remove('showing');
+    drawViewer();
+    renderMemories(memories);
+    memoryDialog.showModal();
+    (memories.length ? $('memory-search') : $('memory-folder')).focus();
+  }
+
+  // 窄屏上从内容回到列表
+  function backToMemories() {
+    if (viewing && viewing.edit && !leaveEdit()) return;
+    const path = viewing && viewing.path;
+    viewing = null;
+    viewDrawn = '';
+    $('memory-split').classList.remove('showing');
+    drawViewer();
+    renderMemories(memories);
+    if (path) focusMemory(path);
   }
 
   async function loadMemory() {
@@ -3165,7 +4168,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   function drawViewer() {
-    if (!viewing) return;
+    if (!viewing) { drawNothingViewed(); return; }
+    $('memory-empty').hidden = true;
     const { path, data, error, gone, confirm, message, edit } = viewing;
     const waiting = viewing.loading && !data;
     // 每来一次状态都会走到这里。没有变化就不动，正文可能有几十万字
@@ -3190,6 +4194,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     problem.textContent = error || (gone ? t('这条记忆已经不在了：可能被助手删掉或改了名字，也可能是在文件夹里被删掉了。') : '');
     $('memory-note').textContent = data && data.truncated ? t('文件比较长，这里只显示了开头的一部分。完整的内容请在记忆文件夹里打开。') : '';
     drawViewerFoot();
+  }
+
+  function drawNothingViewed() {
+    viewDrawn = '';
+    $('memory-name').textContent = '';
+    $('memory-meta').textContent = '';
+    $('memory-text').hidden = true;
+    $('memory-editor').hidden = true;
+    $('memory-problem').hidden = true;
+    $('memory-note').textContent = '';
+    $('memory-foot').replaceChildren();
+    const empty = $('memory-empty');
+    empty.hidden = false;
+    retext(empty, memories.length ? k('在左边选一条记忆，就能在这里查看和编辑。') : k('还没有记忆。对助手说“记住……”，它会把要点写成文件放在这里，以后的每段对话都用得上。'));
   }
 
   // 对话框底部：平时是一句提示、"打开文件夹"和"删除"；点了删除，换成确认的问话和两个按钮
@@ -3342,6 +4360,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   memoryDialog.addEventListener('keydown', (key) => {
+    if (key.key === 'Escape' && !key.isComposing && viewing && !viewing.edit && !viewing.confirm && narrowMemory.matches) {
+      key.preventDefault();  // 窄屏上正看着一条：Esc 先回到列表，再按一次才关窗口
+      key.stopPropagation();
+      backToMemories();
+      return;
+    }
     if (!viewing || !viewing.edit || key.isComposing || key.keyCode === 229) return;  // 输入法正在组字时，Esc 和回车是给输入法的
     if (key.key === 'Escape') {
       // 编辑时按 Esc 先回到"看"的样子，不直接关掉对话框；拦在 keydown 上，浏览器就不会发出关闭对话框的 cancel
@@ -3370,7 +4394,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const parts = String(reply.data.path || '').split('/');
     const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
     const said = reply.ok ? (ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown })) : reply.error;
-    if (viewing && memoryDialog.open) { viewing.message = { text: said, bad: !reply.ok }; drawViewer(); } else toast(said);
+    memorySay(said, !reply.ok);
   }
 
   async function forgetViewed() {
@@ -3387,8 +4411,9 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       $('memory-delete').focus();
       return;
     }
-    viewing = null;  // 先放下，免得关对话框时又去找它
-    memoryDialog.close();
+    viewing = null;
+    $('memory-split').classList.remove('showing');
+    drawViewer();
     dropMemory(path, after);
   }
 
@@ -3398,8 +4423,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     const parts = String(reply.data.path || '').split('/');
     const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
     const said = reply.ok ? (ON_MAC ? t('已在访达中打开：{path}', { path: shown }) : t('已打开文件夹：{path}', { path: shown })) : reply.error;
-    // 对话框开着的时候，浮在页面上的提示被它挡着，所以写在对话框里
-    if (viewing && memoryDialog.open) { viewing.message = { text: said, bad: !reply.ok }; drawViewer(); } else toast(said);
+    memorySay(said, !reply.ok);
   }
 
   // 你在访达里删了、改了记忆文件，助手程序是不知道的，列表就旧了。所以在页面刚连上、和你切回这个窗口的时候，
@@ -3417,16 +4441,915 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('memory-folder').addEventListener('click', openMemoryFolder);
   $('close-memory').addEventListener('click', requestCloseMemory);
   memoryDialog.addEventListener('close', () => {
-    const path = viewing ? viewing.path : false;
     viewing = null;
     viewSeq += 1;
     viewDrawn = '';
     $('memory-text').textContent = '';  // 放开可能很长的正文
     $('memory-edit-text').value = '';
-    // 浏览器会把焦点还给打开它的那一行。那一行要是在这期间重画过（换成了新的元素），就由这里放回去。
-    // 还不回去的时候，焦点这一刻可能还停在已经关上的对话框里（浏览器稍后才把它挪到 body 上），所以两种都算
+    $('memory-list-message').textContent = '';
+    $('memory-split').classList.remove('showing');
+    memoriesDrawn = '';
+    // 焦点回到左边栏的"记忆"入口。焦点这一刻可能还停在已经关上的窗口里（浏览器稍后才把它挪到 body 上），所以两种都算
     const lost = !document.activeElement || document.activeElement === body || memoryDialog.contains(document.activeElement);
-    if (path !== false && lost) focusMemory(path);
+    if (lost) $('memory-open').focus();
+  });
+  $('memory-open').addEventListener('click', openMemories);
+  // 保险：焦点不在窗口里的时候按 Esc，浏览器直接发 cancel（不经过上面的 keydown）。窄屏上正看着一条，同样先回到列表
+  memoryDialog.addEventListener('cancel', (event) => {
+    if (viewing && viewing.edit && editChanged() && !viewing.edit.armed) { event.preventDefault(); leaveEdit(); return; }  // 有没保存的修改：先提醒
+    if (!viewing || !narrowMemory.matches || viewing.confirm) return;
+    event.preventDefault();
+    if (viewing.edit) leaveEdit(); else backToMemories();
+  });
+  $('memory-back').addEventListener('click', backToMemories);
+  $('memory-search').addEventListener('input', (typed) => {
+    if (typed.isComposing) return;  // 输入法还在组字
+    memoryQuery = $('memory-search').value.trim().toLowerCase();
+    renderMemories(memories);
+  });
+  $('memory-search').addEventListener('compositionend', () => { memoryQuery = $('memory-search').value.trim().toLowerCase(); renderMemories(memories); });
+
+  // ---- 定时任务 ------------------------------------------------------------
+  // 左边栏的第二个标签。任务有两种：到点让助手去做一件事（会调用模型、花钱），或者只是提醒你（不花钱）。
+  // 任务在助手程序里排着、到点由它去跑（见 tasks.py），页面只负责看和改：列表、正在运行的那一个的进度、
+  // 等你确认的操作、到点的提醒、运行记录。和记忆一样，这些都跟着状态走（state.tasks、state.reminders），页面不轮询。
+  // 页面自己每秒走一下的只有"已经用了多久"这一个数字（改的是文字，不是动画），和每半分钟一次的"还有多久"。
+
+  const taskList = $('task-list'), taskEditor = $('task-editor'), taskDetail = $('task-detail');
+  let tasks = [], reminders = [];
+  let tasksDrawn = '', remindersDrawn = '', detailDrawn = '';
+  let knownReminders = null, knownWaits = null;  // 上一次画的时候有哪些提醒、哪些等你确认的操作。新出现的才弹通知
+  let navTab = 'chats';
+  try { if (localStorage.getItem('harness.nav-tab') === 'tasks') navTab = 'tasks'; } catch (_) { /* 记不住就用默认的 */ }
+  let removingTask = null, focusCancelTask = false;  // 正在原地确认删除的任务
+  let detailId = null, detailConfirm = false, detailMessage = '';  // 详情框里看的是哪一个
+  let editing = null;  // 编辑框：{id, kind, type, days, base, armed, saving}
+  let taskTimer = 0, taskTicks = 0;
+
+  const pad2 = (number) => String(number).padStart(2, '0');
+  const RUN_STATUS = { running: k('正在运行'), waiting: k('等你确认'), queued: k('排队中'), done: k('完成'), failed: k('失败'), stopped: k('已停止'), missed: k('错过了') };
+  // 助手程序说 waiting 有两种：排在你这一轮（或别的任务）后面，和停下来等你确认。看有没有待确认的操作来分
+  const runStatus = (task, run) => (run.status === 'waiting' && !(task.running && task.running.confirm) ? 'queued' : run.status);
+
+  // "09:00" 按界面语言写：英文是 9:00 AM，中文和西班牙语是 09:00
+  function clockText(hhmm) {
+    const [hours, minutes] = String(hhmm || '').split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return hhmm || '';
+    if (language !== 'en') return pad2(hours) + ':' + pad2(minutes);
+    return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  // 一个时刻：今天、明天的写"今天 09:00"，别的写上日期和星期
+  function momentText(seconds) {
+    const date = new Date(seconds * 1000), now = new Date();
+    const clock = clockText(pad2(date.getHours()) + ':' + pad2(date.getMinutes()));
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (startOfDay(date) === startOfDay(now)) return t('今天 {time}', { time: clock });
+    if (startOfDay(date) === startOfDay(tomorrow)) return t('明天 {time}', { time: clock });
+    const options = { month: 'short', day: 'numeric', weekday: 'short' };
+    if (date.getFullYear() !== now.getFullYear()) options.year = 'numeric';
+    return date.toLocaleDateString(LOCALES[language], options) + ' ' + clock;
+  }
+
+  // "3 小时后""5 分钟前"：交给浏览器按界面语言写
+  function fromNow(seconds) {
+    const diff = seconds - Date.now() / 1000, size = Math.abs(diff);
+    if (size < 60) return diff >= 0 ? t('马上') : t('刚刚');
+    const words = new Intl.RelativeTimeFormat(LOCALES[language], { numeric: 'auto' });
+    if (size < 3600) return words.format(Math.round(diff / 60), 'minute');
+    if (size < 86400) return words.format(Math.round(diff / 3600), 'hour');
+    return words.format(Math.round(diff / 86400), 'day');
+  }
+
+  function durationText(seconds) {
+    const total = Math.max(0, Math.round(seconds)), minutes = Math.floor(total / 60);
+    return minutes >= 60 ? Math.floor(minutes / 60) + ':' + pad2(minutes % 60) + ':' + pad2(total % 60) : minutes + ':' + pad2(total % 60);
+  }
+
+  const costText = (value) => new Intl.NumberFormat(LOCALES[language], {
+    style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: value && value < 0.1 ? 4 : 2,
+  }).format(value || 0);
+
+  // 1 = 周一 …… 7 = 周日。2024 年 1 月 1 日正好是星期一
+  const weekdayName = (number) => new Date(2024, 0, number).toLocaleDateString(LOCALES[language], { weekday: 'short' });
+
+  function scheduleText(schedule) {
+    const plan = schedule || {};
+    const time = clockText(plan.time);
+    if (plan.type === 'daily') return t('每天 {time}', { time });
+    if (plan.type === 'weekly') {
+      const days = [...new Set(plan.days || [])].sort();
+      if (days.length === 7) return t('每天 {time}', { time });
+      if (days.join() === '1,2,3,4,5') return t('工作日 {time}', { time });
+      if (days.join() === '6,7') return t('周末 {time}', { time });
+      const names = new Intl.ListFormat(LOCALES[language], { style: 'short', type: 'conjunction' }).format(days.map(weekdayName));
+      return t('每{days} {time}', { days: names, time });
+    }
+    if (plan.type === 'monthly') return t('每月 {day} 日 {time}', { day: plan.day, time });
+    if (plan.type === 'interval') {
+      const minutes = Number(plan.minutes) || 0;
+      return minutes % 60 === 0 ? t('每 {n} 小时', { n: minutes / 60 }) : t('每 {n} 分钟', { n: minutes });
+    }
+    if (plan.type === 'once') {
+      const at = Date.parse(plan.at);  // "2026-11-21T09:00"：不带时区的写法，按本地时间算
+      return Number.isFinite(at) ? t('{when}，只一次', { when: momentText(at / 1000) }) : String(plan.at || '');
+    }
+    return '';
+  }
+
+  function activityText(running) {
+    const doing = running.activity || {};
+    if (running.confirm) return t('等你确认：{what}', { what: [running.confirm.tool, running.confirm.summary].filter(Boolean).join(' · ') });
+    if (doing.kind === 'tool') return doing.summary ? t('正在调用 {tool}：{summary}', { tool: doing.tool, summary: doing.summary }) : t('正在调用 {tool}', { tool: doing.tool });
+    if (doing.kind === 'waiting') return doing.summary || t('排队中');  // 助手程序写好了在等什么（"等你这一轮对话结束"）
+    if (doing.kind === 'thinking') return t('正在思考……');
+    if (doing.kind === 'writing') return t('正在写回复……');
+    return t('正在准备……');
+  }
+
+  // ---- 左边栏的两个标签 ----
+
+  // 哪几个标签能用：助手程序发来的状态里带着任务（state.tasks），"任务"标签才出现。
+  // 只剩"会话"一个的时候，整条标签栏都藏起来
+  function syncNavTabs() {
+    const visible = [...document.querySelectorAll('#nav-tabs [role="tab"]')].filter((tab) => !tab.hidden);
+    $('nav-tabs').hidden = visible.length < 2;
+    if (navTab === 'tasks' && $('nav-tab-tasks').hidden) setNavTab('chats');
+  }
+
+  function setNavTab(name, focus) {
+    navTab = name === 'tasks' && !$('nav-tab-tasks').hidden ? 'tasks' : 'chats';
+    try { localStorage.setItem('harness.nav-tab', navTab); } catch (_) { /* 记不住也没关系 */ }
+    const onTasks = navTab === 'tasks';
+    body.classList.toggle('tasks-tab', onTasks);
+    $('tasks-view').hidden = !onTasks;
+    for (const [id, on] of [['nav-tab-chats', !onTasks], ['nav-tab-tasks', onTasks]]) {
+      $(id).setAttribute('aria-selected', on ? 'true' : 'false');
+      $(id).tabIndex = on ? 0 : -1;
+    }
+    if (focus) $(onTasks ? 'nav-tab-tasks' : 'nav-tab-chats').focus();
+    if (onTasks) { tasksDrawn = ''; renderTasks(tasks, reminders); }
+    syncTaskTimer();
+  }
+
+  $('nav-tab-chats').addEventListener('click', () => setNavTab('chats', true));
+  $('nav-tab-tasks').addEventListener('click', () => setNavTab('tasks', true));
+  document.querySelector('.nav-tabs').addEventListener('keydown', (key) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key.key)) return;
+    key.preventDefault();
+    setNavTab(key.key === 'Home' ? 'chats' : key.key === 'End' ? 'tasks' : navTab === 'tasks' ? 'chats' : 'tasks', true);
+  });
+
+  // ---- 列表 ----
+
+  // 先是正在运行的，然后是开着的（按下次运行的时间），最后是暂停的
+  function taskOrder(a, b) {
+    const rank = (task) => (task.running ? 0 : task.enabled && task.next_run ? 1 : task.enabled ? 2 : 3);
+    return rank(a) - rank(b) || (a.next_run || 0) - (b.next_run || 0) || a.title.localeCompare(b.title);
+  }
+
+  function renderTasks(list, fired) {
+    if ($('nav-tab-tasks').hidden === Array.isArray(list)) { $('nav-tab-tasks').hidden = !Array.isArray(list); syncNavTabs(); }
+    tasks = (Array.isArray(list) ? list : []).filter((task) => task && typeof task.id === 'string').sort(taskOrder);
+    reminders = (Array.isArray(fired) ? fired : []).filter((item) => item && typeof item.id === 'string');
+    if (removingTask && !tasks.some((task) => task.id === removingTask)) removingTask = null;
+    noticeNewThings();
+    renderReminders();
+    renderTaskAlert();
+    renderNotifyOffer();
+    const waiting = tasks.filter((task) => task.running && task.running.confirm).length;
+    const badge = reminders.length + waiting;
+    $('tasks-badge').hidden = !badge;
+    $('tasks-badge').textContent = badge ? String(badge) : '';
+    if (taskDetail.open) drawDetail();
+    syncTaskTimer();
+
+    const print = JSON.stringify([tasks, removingTask, language, navTab]);
+    if (print === tasksDrawn) return;
+    tasksDrawn = print;
+    if (navTab !== 'tasks') return;  // 看不见就不画，换到这个标签时再画
+    // 重画会换掉整个列表。焦点原来在哪一行的哪个按钮上，画完放回去
+    const active = document.activeElement;
+    const row = taskList.contains(active) ? active.closest('.task') : null;
+    const keep = row ? [row.dataset.id, active.dataset.role || ''] : null;
+    taskList.replaceChildren(...(tasks.length ? tasks.map(taskRow) : [emptyTasks()]));
+    const target = keep && [...taskList.children].find((node) => node.dataset.id === keep[0]);
+    if (focusCancelTask && target) { focusCancelTask = false; (target.querySelector('.cancel') || target).focus(); }
+    else if (target) (target.querySelector(`[data-role="${keep[1]}"]`) || target.querySelector('.task-main') || $('task-new')).focus();
+    else if (keep) $('task-new').focus();
+  }
+
+  function taskRow(task) {
+    const running = task.running;
+    const queued = running && !running.confirm && running.activity && running.activity.kind === 'waiting';
+    const row = el('li', 'task ' + (task.kind === 'agent' ? 'kind-agent' : 'kind-reminder') + (task.enabled ? '' : ' off') + (running ? ' running' : '') + (running && running.confirm ? ' waiting' : '') + (queued ? ' queued' : ''));
+    row.dataset.id = task.id;
+
+    if (removingTask === task.id) {  // 删除前先在原地确认，和会话、记忆一样
+      const box = row.appendChild(el('div', 'task-confirm-row'));
+      box.appendChild(el('span', null, t('删除“{title}”？以前运行留下的会话不会删。', { title: task.title })));
+      const yes = box.appendChild(el('button', 'mini danger', t('删除')));
+      const no = box.appendChild(el('button', 'mini cancel', t('取消')));
+      yes.type = no.type = 'button';
+      no.dataset.role = 'cancel';
+      yes.addEventListener('click', () => deleteTask(task, yes, no));
+      no.addEventListener('click', () => { removingTask = null; tasksDrawn = ''; renderTasks(tasks, reminders); focusTask(task.id); });
+      box.addEventListener('keydown', (key) => { if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); no.click(); } });
+      return row;
+    }
+
+    const main = row.appendChild(el('button', 'task-main'));
+    main.type = 'button';
+    main.dataset.role = 'main';
+    main.appendChild(icon(task.kind === 'agent' ? 'bot' : 'bell'));
+    const words = main.appendChild(el('span', 'task-words'));
+    words.appendChild(el('span', 'task-title', task.title));
+    words.appendChild(el('span', 'task-meta', taskMeta(task)));
+    const last = !running && task.runs && task.runs[0];
+    if (last) words.appendChild(lastRunLine(task, last));
+    main.addEventListener('click', () => openDetail(task.id));
+
+    if (running) {
+      row.appendChild(progressBlock(task));
+      return row;  // 正在运行的不显示右边的三个按钮：停止、确认都在下面的进度里
+    }
+    const actions = row.appendChild(el('div', 'task-actions'));
+    const button = (iconName, title, label, role, extra) => {
+      const node = actions.appendChild(el('button', 'icon-button small' + (extra ? ' ' + extra : '')));
+      node.type = 'button';
+      node.dataset.role = role;
+      node.title = t(title);
+      node.setAttribute('aria-label', t(label, { name: task.title }));
+      node.appendChild(icon(iconName));
+      return node;
+    };
+    button('play', k('立即运行'), k('立即运行：{name}'), 'run').addEventListener('click', () => runTask(task));
+    button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示任务的文件') : k('在文件夹中显示任务的文件'), 'reveal').addEventListener('click', () => revealData('tasks'));
+    button('edit', k('编辑'), k('编辑任务：{name}'), 'edit').addEventListener('click', () => openEditor(task));
+    button('trash', k('删除'), k('删除任务：{name}'), 'delete', 'danger-hover').addEventListener('click', () => {
+      removingTask = task.id;
+      focusCancelTask = true;
+      tasksDrawn = '';
+      renderTasks(tasks, reminders);
+    });
+    return row;
+  }
+
+  function taskMeta(task) {
+    let next;
+    if (!task.enabled) next = t('已暂停');
+    else if (task.next_run) next = t('下次 {when}', { when: momentText(task.next_run) }) + ' · ' + fromNow(task.next_run);
+    else next = t('不会再运行了');
+    return scheduleText(task.schedule) + ' · ' + next;
+  }
+
+  function lastRunLine(task, run) {
+    const line = el('span', 'task-last');
+    const status = runStatus(task, run);
+    line.appendChild(el('span', 'chip ' + status, t(RUN_STATUS[status] || status)));
+    const bits = [momentText(run.started_at)];
+    if (run.catch_up) bits.push(run.missed > 1 ? t('补跑（错过了 {n} 次）', { n: run.missed }) : t('补跑'));
+    if (run.manual) bits.push(t('手动运行'));
+    if (task.kind === 'agent' && typeof run.cost === 'number') bits.push(costText(run.cost));
+    line.appendChild(el('span', null, bits.join(' · ')));
+    return line;
+  }
+
+  // 正在运行的那一个：进度条（不知道一共几步，所以是来回走的那种）、第几步、在做什么、用了多久、花了多少、用过的工具
+  function progressBlock(task) {
+    const running = task.running;
+    const box = el('div', 'task-progress');
+    const bar = box.appendChild(el('div', 'task-bar'));
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', t('任务进度'));
+    bar.setAttribute('aria-valuetext', activityText(running));
+    bar.appendChild(el('i'));
+    box.appendChild(el('p', 'task-activity', activityText(running)));
+    const figures = box.appendChild(el('p', 'task-figures'));
+    figures.appendChild(el('span', null, running.max_steps ? t('第 {n} 步（最多 {max} 步）', { n: running.step, max: running.max_steps }) : t('第 {n} 步', { n: running.step })));
+    const clock = figures.appendChild(el('span', null, t('已用 {time}', { time: durationText(Date.now() / 1000 - running.started_at) })));
+    clock.dataset.since = String(running.started_at);
+    if (task.kind === 'agent') figures.appendChild(el('span', null, costText(running.cost)));
+    if (running.log && running.log.length) {
+      const log = box.appendChild(el('ol', 'task-log'));
+      log.setAttribute('aria-label', t('用过的工具'));
+      for (const entry of running.log.slice(-6)) {
+        const item = log.appendChild(el('li', entry.ok === true ? 'ok' : entry.ok === false ? 'bad' : ''));
+        item.appendChild(el('span', 'mark', entry.ok === true ? '✓' : entry.ok === false ? '✕' : '…'));
+        item.appendChild(el('span', null, [entry.tool, entry.summary].filter(Boolean).join('  ')));
+      }
+    }
+    if (running.confirm) {
+      const ask = box.appendChild(el('div', 'task-ask'));
+      ask.appendChild(el('span', null, t('任务停下来等你确认这一步：')));
+      ask.appendChild(el('code', null, [running.confirm.tool, running.confirm.summary].filter(Boolean).join('  ')));
+      const choices = ask.appendChild(el('div', 'row'));
+      const allow = choices.appendChild(el('button', 'mini primary', t('允许')));
+      const deny = choices.appendChild(el('button', 'mini', t('拒绝')));
+      allow.type = deny.type = 'button';
+      allow.dataset.role = 'allow';
+      deny.dataset.role = 'deny';
+      allow.addEventListener('click', () => answerTask(task, running.confirm.id, true, allow, deny));
+      deny.addEventListener('click', () => answerTask(task, running.confirm.id, false, allow, deny));
+    }
+    const end = box.appendChild(el('div', 'row'));
+    const stop = end.appendChild(el('button', 'mini', t('停止')));
+    stop.type = 'button';
+    stop.dataset.role = 'stop';
+    stop.addEventListener('click', async () => {
+      stop.disabled = true;
+      const reply = await call('/api/task/stop', { id: task.id });
+      if (!reply.ok) { toast(reply.error); stop.disabled = false; }
+    });
+    return box;
+  }
+
+  function focusTask(id) {
+    const row = [...taskList.children].find((node) => node.dataset.id === id);
+    (row ? row.querySelector('.task-main') : $('task-new')).focus();
+  }
+
+  function emptyTasks() {
+    const item = el('li', 'task-empty');
+    item.appendChild(el('p', null, t('到点让助手自动做一件事，或者按时提醒你。可以只做一次，也可以每天、每周、每月重复。')));
+    const examples = [
+      { title: k('今天的安排'), kind: 'agent', prompt: k('看看我的待办，按轻重缓急给我写一份今天的安排。'), schedule: { type: 'weekly', days: [1, 2, 3, 4, 5], time: '09:00' } },
+      { title: k('写日记'), kind: 'reminder', prompt: k('花五分钟写写今天的日记。'), schedule: { type: 'daily', time: '21:30' } },
+    ];
+    for (const example of examples) {
+      const button = item.appendChild(el('button', 'task-example'));
+      button.type = 'button';
+      button.appendChild(el('b', null, t(example.title)));
+      button.appendChild(el('span', null, scheduleText(example.schedule) + ' · ' + (example.kind === 'agent' ? t('让助手去做') : t('只提醒我'))));
+      button.addEventListener('click', () => openEditor(null, { ...example, title: t(example.title), prompt: t(example.prompt) }));
+    }
+    return item;
+  }
+
+  async function runTask(task) {
+    const reply = await call('/api/task/run', { id: task.id });
+    if (!reply.ok) { toast(reply.error); return; }
+    toast(task.kind === 'reminder' ? t('已经提醒了：{title}', { title: task.title })
+      : busy ? t('排好了：等这一轮对话结束就开始运行“{title}”。', { title: task.title }) : t('开始运行：{title}', { title: task.title }));
+  }
+
+  async function answerTask(task, confirmId, allow, ...buttons) {
+    for (const button of buttons) button.disabled = true;
+    const reply = await call('/api/task/confirm', { id: task.id, confirm_id: confirmId, allow });
+    if (!reply.ok) { toast(reply.error); for (const button of buttons) button.disabled = false; }
+  }
+
+  async function deleteTask(task, ...buttons) {
+    for (const button of buttons) button.disabled = true;
+    const reply = await call('/api/task/delete', { id: task.id });
+    removingTask = null;
+    tasksDrawn = '';
+    if (!reply.ok) { toast(reply.error); renderTasks(tasks, reminders); focusTask(task.id); return; }
+    renderTasks(tasks.filter((other) => other.id !== task.id), reminders);
+    toast(t('已删除任务：{title}', { title: task.title }));
+    if (taskDetail.open && detailId === task.id) taskDetail.close();
+  }
+
+  // ---- 提醒、通知、主区域顶部的那条提示 ----
+
+  function renderReminders() {
+    const print = JSON.stringify([reminders, language]);
+    if (print === remindersDrawn) return;
+    remindersDrawn = print;
+    const cards = reminders.map((item) => {
+      const card = el('div', 'reminder');
+      card.appendChild(icon('bell'));
+      card.appendChild(el('b', null, item.title));
+      if (item.text && item.text !== item.title) card.appendChild(el('p', null, item.text));
+      const row = card.appendChild(el('div', 'row'));
+      row.appendChild(el('span', null, momentText(item.at)));
+      const done = row.appendChild(el('button', 'mini', t('知道了')));
+      done.type = 'button';
+      done.addEventListener('click', () => dismiss({ reminder_id: item.id }));
+      return card;
+    });
+    if (reminders.length > 1) {
+      const all = el('button', 'mini all', t('全部知道了'));
+      all.type = 'button';
+      all.addEventListener('click', () => dismiss({ all: true }));
+      cards.push(all);
+    }
+    $('reminders').replaceChildren(...cards);
+  }
+
+  async function dismiss(data) {
+    const reply = await call('/api/task/dismiss', data);
+    if (!reply.ok) toast(reply.error);
+  }
+
+  // 新到的提醒、新出现的"等你确认"：页面上弹一条提示；页面不在眼前、又允许了系统通知的话，再弹一个系统通知。
+  // 刚打开页面时重放出来的那些不算"新"，不弹
+  function noticeNewThings() {
+    const live = isLive();
+    for (const item of reminders) {
+      if (!knownReminders || !live || knownReminders.has(item.id)) continue;
+      toast(t('提醒：{title}', { title: item.title }));
+      systemNotify(t('提醒：{title}', { title: item.title }), item.text || '');
+    }
+    knownReminders = new Set(reminders.map((item) => item.id));
+    const waits = tasks.filter((task) => task.running && task.running.confirm);
+    for (const task of waits) {
+      if (!knownWaits || !live || knownWaits.has(task.running.confirm.id)) continue;
+      announce(t('定时任务“{title}”在等你确认', { title: task.title }));
+      systemNotify(t('定时任务“{title}”在等你确认', { title: task.title }), task.running.confirm.summary || '');
+    }
+    knownWaits = new Set(waits.map((task) => task.running.confirm.id));
+  }
+
+  function systemNotify(title, text) {
+    if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;  // 页面就在眼前时，页面里的提示就够了
+    try { new Notification(title, { body: text }); } catch (_) { /* 有的浏览器不让在这里直接创建，就算了 */ }
+  }
+
+  function renderNotifyOffer() {
+    const box = $('task-notify');
+    const show = 'Notification' in window && Notification.permission === 'default' && tasks.length > 0;
+    box.hidden = !show;
+    if (!show || box.dataset.language === language) return;
+    box.dataset.language = language;
+    const ask = el('button', 'mini', t('开启系统通知'));
+    ask.type = 'button';
+    ask.addEventListener('click', async () => {
+      try { await Notification.requestPermission(); } catch (_) { /* 用户关掉了询问 */ }
+      box.dataset.language = '';
+      renderNotifyOffer();
+    });
+    box.replaceChildren(el('span', null, t('到点的时候，就算这个页面不在眼前，也可以弹出系统通知。')), ask);
+  }
+
+  function renderTaskAlert() {
+    const alert = $('task-alert');
+    const waiting = tasks.find((task) => task.running && task.running.confirm);
+    const running = waiting || tasks.find((task) => task.running);
+    alert.hidden = !running;
+    if (!running) return;
+    alert.classList.toggle('waiting', Boolean(waiting));
+    const queued = !waiting && running.running.activity && running.running.activity.kind === 'waiting';
+    $('task-alert-text').textContent = waiting ? t('定时任务“{title}”在等你确认', { title: waiting.title })
+      : queued ? t('定时任务“{title}”在排队：{what}', { title: running.title, what: activityText(running.running) })
+        : t('定时任务“{title}”正在运行 · 第 {n} 步', { title: running.title, n: running.running.step });
+    alert.dataset.id = running.id;
+  }
+
+  $('task-alert').addEventListener('click', () => {
+    const id = $('task-alert').dataset.id;
+    setNavTab('tasks');
+    if (overlayNav.matches && body.classList.contains('nav-closed')) setNav(true, false);
+    if (id) focusTask(id);
+  });
+
+  // 只在有东西要走字的时候开着：有任务在运行，或者正看着任务列表、任务详情
+  function syncTaskTimer() {
+    const need = tasks.some((task) => task.running) || navTab === 'tasks' || taskDetail.open;
+    if (need && !taskTimer) taskTimer = setInterval(onTaskTick, 1000);
+    if (!need && taskTimer) { clearInterval(taskTimer); taskTimer = 0; }
+  }
+
+  function onTaskTick() {
+    if (document.hidden) return;
+    for (const node of document.querySelectorAll('[data-since]')) {
+      node.textContent = t('已用 {time}', { time: durationText(Date.now() / 1000 - Number(node.dataset.since)) });
+    }
+    taskTicks += 1;
+    if (taskTicks % 30 === 0) {  // "还有多久"每半分钟重写一次
+      tasksDrawn = detailDrawn = '';
+      renderTasks(tasks, reminders);
+    }
+  }
+
+  // ---- 任务详情 ----
+
+  function openDetail(id) {
+    detailId = id;
+    detailConfirm = false;
+    detailMessage = '';
+    detailDrawn = '';
+    drawDetail();
+    if (!taskDetail.open) taskDetail.showModal();
+    syncTaskTimer();
+  }
+
+  function drawDetail() {
+    const task = tasks.find((item) => item.id === detailId);
+    if (!task) {
+      if (taskDetail.open && detailId) { detailId = null; taskDetail.close(); toast(t('这个任务已经不在了。')); }
+      return;
+    }
+    const print = JSON.stringify([task, language, detailConfirm, detailMessage]);
+    if (print === detailDrawn) return;
+    detailDrawn = print;
+    $('task-detail-title').textContent = task.title;
+    $('task-detail-sub').textContent = (task.kind === 'agent' ? t('让助手去做') : t('只提醒我')) + ' · ' + scheduleText(task.schedule);
+
+    const parts = [];
+    const section = (title) => { const node = el('section'); node.appendChild(el('h3', null, title)); parts.push(node); return node; };
+    if (task.running) section(t('正在运行')).appendChild(progressBlock(task));
+    section(t('下次运行')).appendChild(el('p', 'task-next', !task.enabled ? t('已暂停，不会运行。')
+      : task.next_run ? momentText(task.next_run) + ' · ' + fromNow(task.next_run) : t('不会再运行了')));
+    if (task.prompt) section(task.kind === 'agent' ? t('让助手做什么') : t('提醒的内容')).appendChild(el('pre', null, task.prompt));
+    const history = section(t('运行记录'));
+    if (!task.runs || !task.runs.length) history.appendChild(el('p', 'hint', t('还没有运行过。')));
+    else {
+      const list = history.appendChild(el('ol', 'runs'));
+      for (const run of task.runs) list.appendChild(runItem(task, run));
+    }
+    const keep = taskDetail.contains(document.activeElement) ? document.activeElement.id || document.activeElement.dataset.role : '';
+    $('task-detail-body').replaceChildren(...parts);
+    drawDetailFoot(task);
+    if (keep) { const again = $(keep) || taskDetail.querySelector(`[data-role="${keep}"]`); if (again) again.focus(); }
+  }
+
+  function runItem(task, run) {
+    const item = el('li', 'run');
+    const row = item.appendChild(el('div', 'row'));
+    const status = runStatus(task, run);
+    row.appendChild(el('span', 'chip ' + status, t(RUN_STATUS[status] || status)));
+    row.appendChild(el('span', null, momentText(run.started_at)));
+    if (run.catch_up) row.appendChild(el('span', 'chip', run.missed > 1 ? t('补跑（错过了 {n} 次）', { n: run.missed }) : t('补跑')));
+    if (run.manual) row.appendChild(el('span', 'chip', t('手动运行')));
+    if (run.finished_at && run.finished_at > run.started_at) row.appendChild(el('span', null, t('用时 {time}', { time: durationText(run.finished_at - run.started_at) })));
+    if (run.steps) row.appendChild(el('span', null, t('{n} 步', { n: run.steps })));
+    if (task.kind === 'agent' && typeof run.cost === 'number') row.appendChild(el('span', null, costText(run.cost)));
+    if (run.conversation) {
+      const open = row.appendChild(el('button', 'mini open', t('打开对话')));
+      open.type = 'button';
+      open.addEventListener('click', () => openRunConversation(run.conversation));
+    }
+    if (run.summary) item.appendChild(el('p', null, run.summary));
+    if (run.error) item.appendChild(el('p', 'bad', run.error));
+    return item;
+  }
+
+  async function openRunConversation(id) {
+    if (busy) { toast(t(BUSY_HINT)); return; }
+    const reply = await call('/api/conversation/open', { id });
+    if (!reply.ok) { toast(reply.error); return; }
+    taskDetail.close();
+    setNavTab('chats');
+    if (overlayNav.matches) setNav(false, false);
+  }
+
+  function drawDetailFoot(task) {
+    const words = el('p', 'memory-message' + (detailMessage ? ' bad' : ''), detailConfirm ? t('删除这个任务？以前运行留下的会话不会删。') : detailMessage);
+    words.setAttribute('role', 'status');
+    const nodes = [words];
+    const button = (id, label, iconName, className) => {
+      const node = el('button', 'button' + (className ? ' ' + className : ''));
+      node.id = id;
+      node.type = 'button';
+      if (iconName) node.appendChild(icon(iconName));
+      node.appendChild(document.createTextNode(label));
+      nodes.push(node);
+      return node;
+    };
+    if (detailConfirm) {
+      button('task-detail-yes', t('删除'), '', 'danger').addEventListener('click', (click) => deleteTask(task, click.currentTarget));
+      button('task-detail-no', t('取消'), '', 'cancel').addEventListener('click', () => { detailConfirm = false; drawDetail(); $('task-detail-delete').focus(); });
+    } else {
+      const run = button('task-detail-run', t('立即运行'), 'play');
+      run.disabled = Boolean(task.running);
+      run.addEventListener('click', () => runTask(task));
+      button('task-detail-toggle', task.enabled ? t('暂停') : t('恢复')).addEventListener('click', async () => {
+        const reply = await call('/api/task/toggle', { id: task.id, enabled: !task.enabled });
+        detailMessage = reply.ok ? '' : reply.error;
+        drawDetail();
+      });
+      button('task-detail-edit', t('编辑'), 'edit').addEventListener('click', () => { taskDetail.close(); openEditor(task); });
+      button('task-detail-delete', t('删除'), 'trash').addEventListener('click', () => {
+        detailConfirm = true;
+        drawDetail();
+        $('task-detail-no').focus();  // 默认停在"取消"上
+      });
+    }
+    $('task-detail-foot').replaceChildren(...nodes);
+  }
+
+  taskDetail.addEventListener('close', () => {
+    const id = detailId;
+    detailId = null;
+    detailConfirm = false;
+    detailDrawn = '';
+    $('task-detail-body').replaceChildren();
+    syncTaskTimer();
+    if (id && navTab === 'tasks' && (!document.activeElement || document.activeElement === body)) focusTask(id);
+  });
+  $('close-task-detail').addEventListener('click', () => taskDetail.close());
+
+  // ---- 新建、编辑任务 ----
+
+  const localIso = (date) => date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) + 'T' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+
+  function openEditor(task, preset) {
+    const base = task || { kind: 'agent', title: '', prompt: '', enabled: true, schedule: { type: 'daily', time: '09:00' }, ...(preset || {}) };
+    const plan = base.schedule || {};
+    editing = { id: task ? task.id : null, kind: base.kind === 'reminder' ? 'reminder' : 'agent', type: plan.type || 'daily', days: new Set(plan.days || [1, 2, 3, 4, 5]), armed: false, saving: false };
+    retext($('task-editor-title'), task ? k('编辑任务') : k('新建定时任务'));
+    $('task-title').value = base.title || '';
+    $('task-prompt').value = base.prompt || '';
+    // 没写过的时间：一次性的默认是"明天的这个时候"，其余的默认早上 9 点
+    const soon = localIso(new Date(Date.now() + 86400000));
+    const [date, clock] = (plan.type === 'once' && plan.at ? plan.at : soon).split('T');
+    $('task-date').value = date;
+    $('task-time').value = plan.time || (plan.type === 'once' ? clock.slice(0, 5) : '09:00');
+    $('task-day').value = plan.day || 1;
+    const minutes = Number(plan.minutes) || 60;
+    $('task-unit').value = minutes % 60 === 0 ? '60' : '1';
+    $('task-every').value = minutes % 60 === 0 ? minutes / 60 : minutes;
+    $('task-enabled').checked = base.enabled !== false;
+    $('task-editor-message').textContent = '';
+    $('task-editor-message').classList.remove('bad');
+    drawEditor();
+    editing.base = editorPrint();
+    if (taskDetail.open) taskDetail.close();
+    taskEditor.showModal();
+    $('task-title').focus();
+    previewSoon();
+  }
+
+  function editorSchedule() {
+    const type = editing.type, time = $('task-time').value || '09:00';
+    if (type === 'once') return { type, at: ($('task-date').value || '') + 'T' + time };
+    if (type === 'daily') return { type, time };
+    if (type === 'weekly') return { type, days: [...editing.days].sort(), time };
+    if (type === 'monthly') return { type, day: Number($('task-day').value), time };
+    return { type: 'interval', minutes: Number($('task-every').value) * Number($('task-unit').value) };
+  }
+
+  const editorPrint = () => JSON.stringify([editing.kind, $('task-title').value, $('task-prompt').value, editorSchedule(), $('task-enabled').checked]);
+
+  function drawEditor() {
+    if (!editing) return;
+    for (const choice of taskEditor.querySelectorAll('[data-kind]')) {
+      const on = choice.dataset.kind === editing.kind;
+      choice.setAttribute('aria-checked', String(on));
+      choice.tabIndex = on ? 0 : -1;
+    }
+    for (const choice of taskEditor.querySelectorAll('[data-type]')) {
+      const on = choice.dataset.type === editing.type;
+      choice.setAttribute('aria-checked', String(on));
+      choice.tabIndex = on ? 0 : -1;
+    }
+    const agent = editing.kind === 'agent';
+    retext($('task-prompt-label'), agent ? k('让助手做什么') : k('提醒的内容（可以不写）'));
+    tattr($('task-prompt'), 'placeholder', agent ? k('比如：看看我的待办，按轻重缓急给我写一份今天的安排。') : k('比如：起来走走，喝杯水。'));
+    $('task-cost-note').hidden = !agent;
+    $('task-date').hidden = editing.type !== 'once';
+    $('task-days').hidden = editing.type !== 'weekly';
+    $('task-day-box').hidden = editing.type !== 'monthly';
+    $('task-every-box').hidden = editing.type !== 'interval';
+    $('task-time').hidden = editing.type === 'interval';
+    // 星期几：七个可以按下、弹起的按钮。重画时焦点放回原来那一个
+    const days = $('task-days'), was = [...days.children].indexOf(document.activeElement);
+    days.replaceChildren(...[1, 2, 3, 4, 5, 6, 7].map((number) => {
+      const day = el('button', null, weekdayName(number));
+      day.type = 'button';
+      day.setAttribute('aria-pressed', String(editing.days.has(number)));
+      day.addEventListener('click', () => {
+        if (editing.days.has(number)) editing.days.delete(number); else editing.days.add(number);
+        drawEditor();
+        editorChanged();
+      });
+      return day;
+    }));
+    if (was >= 0) days.children[was].focus();
+  }
+
+  function editorChanged() {
+    if (!editing) return;
+    if (editing.armed) { editing.armed = false; editorMessage(''); }
+    previewSoon();
+  }
+
+  function editorMessage(text, bad) {
+    $('task-editor-message').textContent = text;
+    $('task-editor-message').classList.toggle('bad', Boolean(bad));
+  }
+
+  // 保存之前，请助手程序按同一套规则算出接下来三次的时间（时区、夏令时、大小月都在那边算，页面不重复写一遍）
+  let previewTimer = 0, previewSeq = 0;
+  function previewSoon() { clearTimeout(previewTimer); previewTimer = setTimeout(preview, 250); }
+  async function preview() {
+    if (!editing) return;
+    const mine = ++previewSeq;
+    const reply = await call('/api/task/preview', { schedule: editorSchedule() });
+    if (mine !== previewSeq || !editing) return;
+    const box = $('task-preview');
+    box.classList.toggle('bad', !reply.ok);
+    const next = reply.ok ? reply.data.next || [] : [];
+    box.textContent = !reply.ok ? reply.error : next.length ? t('接下来：{times}', { times: next.map(momentText).join(' · ') }) : t('按这个时间不会再运行了。');
+  }
+
+  async function saveTask() {
+    if (!editing || editing.saving) return;
+    const title = $('task-title').value.trim(), prompt = $('task-prompt').value.trim();
+    if (!title) { editorMessage(t('写个标题吧，列表里靠它认出这个任务。'), true); $('task-title').focus(); return; }
+    if (editing.kind === 'agent' && !prompt) { editorMessage(t('写上要助手做什么。'), true); $('task-prompt').focus(); return; }
+    if (editing.type === 'weekly' && !editing.days.size) { editorMessage(t('至少选一天。'), true); return; }
+    editing.saving = true;
+    $('task-save').disabled = true;
+    const reply = await call('/api/task/save', {
+      ...(editing.id ? { id: editing.id } : {}), title, kind: editing.kind, prompt, schedule: editorSchedule(), enabled: $('task-enabled').checked,
+    });
+    if (!editing) return;
+    editing.saving = false;
+    $('task-save').disabled = false;
+    if (!reply.ok) { editorMessage(reply.error, true); return; }
+    const added = !editing.id;
+    editing = null;
+    taskEditor.close();
+    setNavTab('tasks');
+    toast(added ? t('已添加任务：{title}', { title }) : t('已保存任务：{title}', { title }));
+  }
+
+  // 关掉编辑框（×、取消、Esc、点外面）。改过还没保存的，先提醒一次
+  function requestCloseEditor() {
+    if (editing && !editing.armed && editorPrint() !== editing.base) {
+      editing.armed = true;
+      editorMessage(t('还有没保存的修改，再按一次就放弃。'), true);
+      return;
+    }
+    taskEditor.close();
+  }
+
+  for (const group of taskEditor.querySelectorAll('.segmented')) {
+    // 单选的一组：点一下选中；左右方向键在选项之间移动（选中跟着走）
+    group.addEventListener('click', (click) => {
+      const choice = click.target.closest('button');
+      if (!choice || !editing) return;
+      if (choice.dataset.kind) editing.kind = choice.dataset.kind; else editing.type = choice.dataset.type;
+      drawEditor();
+      editorChanged();
+    });
+    group.addEventListener('keydown', (key) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key.key) || !editing) return;
+      key.preventDefault();
+      const choices = [...group.querySelectorAll('button')];
+      const at = choices.indexOf(group.querySelector('[aria-checked="true"]'));
+      const next = choices[(at + (key.key === 'ArrowLeft' || key.key === 'ArrowUp' ? -1 : 1) + choices.length) % choices.length];
+      next.click();
+      next.focus();
+    });
+  }
+  for (const id of ['task-title', 'task-prompt', 'task-date', 'task-time', 'task-day', 'task-every', 'task-unit', 'task-enabled']) {
+    $(id).addEventListener(id === 'task-unit' || id === 'task-enabled' ? 'change' : 'input', editorChanged);
+  }
+  taskEditor.addEventListener('keydown', (key) => {
+    if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+    if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); requestCloseEditor(); }
+    else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) { key.preventDefault(); saveTask(); }
+  });
+  // 保险：换"什么时候"时，正拿着焦点的那个输入框可能被藏起来，焦点掉到窗口外面，Esc 就直接变成 cancel
+  taskEditor.addEventListener('cancel', (event) => {
+    if (editing && !editing.armed && editorPrint() !== editing.base) { event.preventDefault(); requestCloseEditor(); }
+  });
+  taskEditor.addEventListener('close', () => {
+    const id = editing && editing.id;
+    editing = null;
+    clearTimeout(previewTimer);
+    $('task-preview').textContent = '';
+    if (navTab === 'tasks' && (!document.activeElement || document.activeElement === body)) id ? focusTask(id) : $('task-new').focus();
+  });
+  $('task-save').addEventListener('click', saveTask);
+  $('task-cancel').addEventListener('click', requestCloseEditor);
+  $('close-task-editor').addEventListener('click', requestCloseEditor);
+  $('task-new').addEventListener('click', () => openEditor(null));
+  setNavTab(navTab);
+  syncNavTabs();
+
+  // ---- 提示词 --------------------------------------------------------------
+  // 设置里的"编辑提示词"：改系统提示词（告诉模型它是谁、怎么做事的那段话）。改的是模板，里面可以写占位符，
+  // 发给模型之前由助手程序换成实际的值（见 prompt.py）；预览也请它来算，页面不重复写一遍替换的规则。
+  // 改了以后从下一段新对话开始生效：一段对话里提示词不能变（缓存、思考内容的校验）。当前这段还没聊的话，马上用上。
+
+  const promptDialog = $('prompt-dialog');
+  let promptBase = null;   // 打开时读到的：{text, default, custom, preview, placeholders}
+  let promptArmed = '';    // 'close'：提醒过"有没保存的修改"；'reset'：提醒过"恢复默认会丢掉改过的内容"
+  let promptPreviewSeq = 0;
+  const PLACEHOLDER_LABELS = { name: k('名字'), latin: k('英文名'), workspace: k('工作目录'), system: k('操作系统'), web_line: k('联网的那一行说明（关掉联网搜索时是空的）') };
+
+  function promptSay(text, bad) {
+    $('prompt-message').textContent = text;
+    $('prompt-message').classList.toggle('bad', Boolean(bad));
+  }
+
+  async function openPrompt() {
+    const reply = await call('/api/prompt');
+    if (!reply.ok) { say(reply.error, 'bad'); return; }
+    if (settings.open) settings.close();
+    promptBase = reply.data;
+    promptArmed = '';
+    $('prompt-text').value = promptBase.text;
+    drawPlaceholders();
+    promptSay('');
+    showPromptPane('edit');
+    promptDialog.showModal();
+    $('prompt-text').focus();
+    $('prompt-text').setSelectionRange(0, 0);
+    $('prompt-text').scrollTop = 0;
+  }
+
+  function drawPlaceholders() {
+    const box = $('prompt-placeholders');
+    box.replaceChildren(...(promptBase ? promptBase.placeholders : []).map(({ name, value }) => {
+      const chip = el('button', 'prompt-chip');
+      chip.type = 'button';
+      chip.appendChild(el('code', null, '{' + name + '}'));
+      chip.appendChild(el('span', null, t(PLACEHOLDER_LABELS[name] || name) + (value.trim() ? ' · ' + value.trim() : '')));
+      chip.title = value;
+      chip.addEventListener('click', () => {
+        const area = $('prompt-text'), at = area.selectionStart, end = area.selectionEnd;
+        area.setRangeText('{' + name + '}', at, end, 'end');
+        area.focus();
+        promptEdited();
+      });
+      return chip;
+    }));
+  }
+
+  async function showPromptPane(pane) {
+    const preview = pane === 'preview';
+    for (const [id, on] of [['prompt-tab-edit', !preview], ['prompt-tab-preview', preview]]) {
+      $(id).setAttribute('aria-selected', String(on));
+      $(id).tabIndex = on ? 0 : -1;
+    }
+    // 藏起来的那一边要是正拿着焦点，焦点会掉到窗口外面（之后的 Esc 就绕过了下面的"有没保存的修改"），先挪到标签上
+    if (promptDialog.contains(document.activeElement) && document.activeElement.closest('.prompt-pane:not([hidden])')) $(preview ? 'prompt-tab-preview' : 'prompt-tab-edit').focus();
+    $('prompt-edit-pane').hidden = preview;
+    $('prompt-preview-pane').hidden = !preview;
+    if (!preview) return;
+    const mine = ++promptPreviewSeq;
+    const reply = await call('/api/prompt/preview', { text: $('prompt-text').value });
+    if (mine !== promptPreviewSeq) return;
+    $('prompt-preview').textContent = reply.ok ? reply.data.preview : reply.error;
+  }
+
+  function promptEdited() {
+    if (promptArmed) { promptArmed = ''; promptSay(''); }
+  }
+
+  const promptChanged = () => Boolean(promptBase) && $('prompt-text').value !== promptBase.text;
+
+  function requestClosePrompt() {
+    if (promptChanged() && promptArmed !== 'close') {
+      promptArmed = 'close';
+      promptSay(t('还有没保存的修改，再按一次就放弃。'), true);
+      return;
+    }
+    promptDialog.close();
+  }
+
+  async function savePrompt(reset) {
+    if (reset && promptArmed !== 'reset' && (promptBase.custom || promptChanged())) {
+      promptArmed = 'reset';
+      promptSay(t('恢复成内置的提示词？你改过的内容会丢掉。再点一次“恢复默认”确认。'), true);
+      return;
+    }
+    const buttons = [$('prompt-save'), $('prompt-reset')];
+    for (const button of buttons) button.disabled = true;
+    const reply = reset ? await call('/api/prompt/reset') : await call('/api/prompt/save', { text: $('prompt-text').value });
+    for (const button of buttons) button.disabled = false;
+    if (!reply.ok) { promptArmed = ''; promptSay(reply.error, true); return; }
+    promptBase = null;
+    promptDialog.close();
+    toast(reset ? (reply.data.applied ? t('已恢复内置的提示词，这段对话就用它。') : t('已恢复内置的提示词，从下一段新对话开始生效。'))
+      : reply.data.applied ? t('提示词已保存，这段对话就用新的。') : t('提示词已保存，从下一段新对话开始生效。'));
+  }
+
+  $('prompt-open').addEventListener('click', openPrompt);
+  tattr($('prompt-reveal'), 'title', ON_MAC ? k('在访达中显示 prompt.md') : k('在文件夹中显示 prompt.md'));
+  tattr($('prompt-reveal'), 'aria-label', ON_MAC ? k('在访达中显示 prompt.md') : k('在文件夹中显示 prompt.md'));
+  $('prompt-reveal').addEventListener('click', () => revealData('prompt', promptSay));
+  $('prompt-save').addEventListener('click', () => savePrompt(false));
+  $('prompt-reset').addEventListener('click', () => savePrompt(true));
+  $('prompt-cancel').addEventListener('click', requestClosePrompt);
+  $('close-prompt').addEventListener('click', requestClosePrompt);
+  $('prompt-text').addEventListener('input', promptEdited);
+  $('prompt-tab-edit').addEventListener('click', () => showPromptPane('edit'));
+  $('prompt-tab-preview').addEventListener('click', () => showPromptPane('preview'));
+  promptDialog.querySelector('.tabs').addEventListener('keydown', (key) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key.key)) return;
+    key.preventDefault();
+    const preview = key.key === 'End' || (key.key !== 'Home' && $('prompt-tab-edit').getAttribute('aria-selected') === 'true');
+    showPromptPane(preview ? 'preview' : 'edit');
+    $(preview ? 'prompt-tab-preview' : 'prompt-tab-edit').focus();
+  });
+  promptDialog.addEventListener('keydown', (key) => {
+    if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
+    if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); requestClosePrompt(); }
+    else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) { key.preventDefault(); savePrompt(false); }
+  });
+  // 保险：焦点不在窗口里的时候按 Esc，浏览器直接发 cancel（不经过上面的 keydown）。照样先看有没有没保存的修改
+  promptDialog.addEventListener('cancel', (event) => { if (promptChanged() && promptArmed !== 'close') { event.preventDefault(); requestClosePrompt(); } });
+  promptDialog.addEventListener('close', () => {
+    promptBase = null;
+    promptArmed = '';
+    $('prompt-text').value = '';
+    $('prompt-preview').textContent = '';
   });
 
   // ---- 扩展：Skill、MCP、Agent -----------------------------------------------
@@ -3477,7 +5400,8 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   }
 
   // 想关掉对话框（×、点外面、Esc）时先问一声当前这一页：有没保存的修改的，先提醒一次（见各页的 canClose）
-  const extensionsMayClose = () => { const tab = extensionTabs[extensionTab]; return !tab || !tab.canClose || tab.canClose(); };
+  // 每一页都问：切到别的标签页时，被藏起来的那一页里可能还有没保存的修改（它会自己切回去，把提醒显示出来）
+  const extensionsMayClose = () => Object.values(extensionTabs).every((tab) => !tab.canClose || tab.canClose());
   function requestCloseExtensions() {
     if (extensionsMayClose()) extensionsDialog.close();
   }
@@ -4619,7 +6543,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       if (token) call('/api/skill/refresh');
       if (skillView.kind === 'list') { skillsDrawn = ''; drawSkillList(); }
     },
-    canClose: () => skillMayLeave(),
+    canClose() {
+      if (skillMayLeave()) return true;
+      if (extensionTab !== 'skills') showExtensionTab('skills', false);  // 提醒写在 Skill 这一页上：切过来才看得到
+      focusSkill(skillView.kind === 'create' ? 'name' : 'text');
+      return false;
+    },
     close() {
       // 关掉对话框：下次打开从列表开始。还没回来的请求，回来了也不要了
       skillSeq += 1;
@@ -4860,9 +6789,11 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       const result = await call('/api/price', { model: state.model, price: values });
       say(result.ok ? t('{model} 的价格已保存。', { model: state.model }) : result.error, result.ok ? 'good' : 'bad');
     });
-    $('price-note').textContent = state.price
-      ? t('这是 {model} 现在用来估算的价格，可以改成你实际的价格。', { model: state.model })
-      : t('{model} 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。', { model: state.model });
+    const offpeak = state.price_offpeak;
+    $('price-note').textContent = !state.price ? t('{model} 还没有价格，所以它的用量没有计入估算费用。填上后就会计入。', { model: state.model })
+      : offpeak ? t('{model} 分时段计价：上面是高峰价（北京时间工作日 9:00–12:00、14:00–18:00），其余时间按闲时价估算（输入 ${input}、命中缓存 ${cached}、输出 ${output}，每百万 token）。每次调用按当时的时段算。自己填了价格以后，全天都按你填的算。',
+        { model: state.model, input: offpeak.input, cached: offpeak.cache_read, output: offpeak.output })
+      : t('这是 {model} 现在用来估算的价格，可以改成你实际的价格。', { model: state.model });
 
     if (focused) {
       const again = settings.querySelector('input[data-keep="' + focused + '"]');
@@ -4877,6 +6808,7 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
     $('price').replaceChildren();
     say('');
     renderSettings();
+    fillDataSettings();
     settings.showModal();
   }
 
@@ -4884,13 +6816,14 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
   $('setup-open').addEventListener('click', openSettings);
   $('close-settings').addEventListener('click', () => settings.close());
   // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-  for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog]) {
+  for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog]) {
     let pressedOutside = false;
     dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
     dialog.addEventListener('click', (click) => {
       if (click.target !== dialog || !pressedOutside) return;
-      // 记忆、Skill 正在编辑、还没保存的，先提醒
-      if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === extensionsDialog) requestCloseExtensions(); else dialog.close();
+      // 记忆、任务、提示词、Skill 正在编辑、还没保存的，先提醒
+      if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor();
+      else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else dialog.close();
     });
   }
   pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
@@ -4909,13 +6842,20 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
       return;
     }
     const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
-    if (command && !key.altKey && !key.shiftKey && key.key.toLowerCase() === 'k') {
-      key.preventDefault();  // ⌘K / Ctrl+K：搜索会话
-      if (settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open) return;
+    const letter = key.key.toLowerCase();
+    if (command && !key.altKey && !key.shiftKey && (letter === 'f' || letter === 'k')) {
+      // ⌘F / Ctrl+F：搜索会话（"查找"大家最熟的就是这个键）；⌘K / Ctrl+K 也照样能用。
+      // 搜的是所有会话，当前这一段也在里面，比浏览器自带的"在页面里查找"管用。但浏览器那个不该就此没了：
+      // 光标已经在搜索框里时再按一次 ⌘F，或者开着对话框的时候，就不拦，交给浏览器
+      const dialogOpen = settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open || taskEditor.open || taskDetail.open || promptDialog.open || spendDialog.open;
+      if (letter === 'f' && (dialogOpen || document.activeElement === search)) return;
+      key.preventDefault();
+      if (dialogOpen) return;
+      if (navTab === 'tasks') setNavTab('chats');  // 搜索框在"会话"标签里
       setNav(true, false);
       search.focus();
       search.select();
-    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open && !memoryDialog.open && !extensionsDialog.open) {
+    } else if (key.key === 'Escape' && !key.defaultPrevented && !settings.open && !approvalDialog.open && !languageDialog.open && !viewer.open && !memoryDialog.open && !extensionsDialog.open && !taskEditor.open && !taskDetail.open && !promptDialog.open && !spendDialog.open) {
       if (overlayNav.matches && !body.classList.contains('nav-closed')) { setNav(false, false); refocus($('nav-open'), nav); }
       if (overlaySide.matches && body.classList.contains('side-open')) { setSide(false, false); refocus($('side-toggle'), side); }
     }

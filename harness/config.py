@@ -40,6 +40,36 @@ ENABLE_COMPACTION = True
 # API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
 ENABLE_THINKING_DROP = True
 
+# 下面几项只对 GPT、Gemini、DeepSeek 生效（OpenAI 格式的适配层）。这几家的 API 不会替我们压缩历史，
+# 所以由智狐自己做：上一次请求占用的上下文超过了模型上限的一定比例，就在下一次请求之前，
+# 请同一个模型把较早的对话写成摘要，换掉原文。做法和理由见 providers/compaction.py。
+# 改成 False 就不压缩：对话每一轮都整段重发，越聊越贵，直到超出模型的上限、请求被拒绝。
+ENABLE_OPENAI_COMPACTION = True
+# 各个模型的上下文上限（token）。DeepSeek 的数字来自它的定价页（https://api-docs.deepseek.com/quick_start/pricing）。
+# 不在表里的模型按 DEFAULT_CONTEXT_WINDOW 算：这个数取得保守，宁可早一点压缩，也不要等到请求被拒绝
+CONTEXT_WINDOWS = {
+    "deepseek-flash": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,  # deepseek-flash 的旧名字，官方说照样能用
+    "deepseek-v4-pro": 1_000_000,
+}
+DEFAULT_CONTEXT_WINDOW = 128_000
+# 上下文用到上限的这个比例就压缩。剩下的余量要装得下下一条消息、工具的结果和模型的回复
+COMPACTION_THRESHOLD = 0.7
+# 压缩时，最近的这几轮对话保持原样，不写进摘要。"一轮"从用户的一条消息开始，到下一条之前；
+# 正在进行的那一轮也算在里面，而且总是保留（所以至少是 1）
+COMPACTION_KEEP_TURNS = 2
+
+
+# 用户自己写的提示词最长多少个字符。提示词每一轮都要发给模型（命中缓存时便宜，但第一次和缓存过期后按原价），
+# 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
+MAX_PROMPT_CHARS = 20_000
+
+# 花费账本（见 ledger.py）。超过这么多天的明细，合并成"每天、每个模型、每种来源一行"，账本文件不会无限变大；
+# 每天、每月、每个模型花了多少都不变，只是看不到一笔一笔的时间了
+LEDGER_DETAIL_DAYS = 90
+# 网页上"花费明细"的柱状图显示最近这么多天
+LEDGER_CHART_DAYS = 30
+
 
 @dataclass(frozen=True)
 class Config:
@@ -47,7 +77,7 @@ class Config:
     max_tokens: int  # 单次回复的上限（思考也算在里面）
     max_steps: int  # 一轮对话里最多调用模型多少次，防止死循环
     workspace: Path  # 工作目录：助手可以直接读取这里面的文件
-    data_dir: Path  # 助手自己的数据：记忆、待办、文件备份、设置
+    data_dir: Path  # 助手自己的数据：记忆、待办、定时任务、文件备份、设置
     env_file: Path  # 保存各家 API key 的文件
     web: bool  # 是否启用联网搜索（只有 Claude 有）
     max_searches: int = 5  # 用户每发一条消息，最多联网搜索几次；0 表示不限制
@@ -57,6 +87,10 @@ class Config:
     @property
     def todo_file(self) -> Path:
         return self.data_dir / "todos.json"
+
+    @property
+    def tasks_file(self) -> Path:
+        return self.data_dir / "tasks.json"
 
     @property
     def backup_dir(self) -> Path:
@@ -71,8 +105,16 @@ class Config:
         return self.data_dir / "settings.json"
 
     @property
+    def prompt_file(self) -> Path:
+        return self.data_dir / "prompt.md"  # 用户改过的提示词（见 prompt.py）
+
+    @property
     def conversations_dir(self) -> Path:
         return self.data_dir / "conversations"
+
+    @property
+    def ledger_file(self) -> Path:
+        return self.data_dir / "ledger.jsonl"
 
 
 def load_env_file(path: Path) -> None:

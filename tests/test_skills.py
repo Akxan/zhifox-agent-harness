@@ -1329,12 +1329,31 @@ def test_the_first_message_carries_the_catalog_for_claude(start):
     assert h.api.requests[3]["messages"][6]["content"][1]["text"] == f"<skills>\n{catalog.NONE}\n</skills>"
 
 
+def test_scheduled_task_runs_get_the_catalog_too(start):
+    # 定时任务用的是另一个助手（新的适配层、空的历史，见 App.unattended_agent）。它也要知道有哪些 Skill，
+    # 而且它的第一条消息就该带上目录：它没有"之前看过的那一份"
+    from conftest import RecordingUI
+
+    h = start(reply(text("好")), reply(text("任务做完了")))
+    h.app.skills.create("pdf-tools", DESCRIPTION, "# PDF\n")
+    h.agent.run_turn("你好")
+    task_agent = h.app.unattended_agent(RecordingUI())
+    task_agent.run_turn("<task>每天整理一下</task>")
+    first_of_task = h.api.requests[1]["messages"][0]["content"]
+    assert len(h.api.requests[1]["messages"]) == 1  # 任务的历史和对话不相干
+    assert first_of_task[1]["text"].startswith("<skills>\n" + catalog.FIRST) and "<name>pdf-tools</name>" in first_of_task[1]["text"]
+    assert [tool["name"] for tool in h.api.requests[1]["tools"]] == [tool["name"] for tool in h.api.requests[0]["tools"]]
+
+
 def test_no_skills_no_block(start):
     h = start(reply(text("好")))
     h.agent.run_turn("你好")
     assert [block["text"] for block in h.api.requests[0]["messages"][0]["content"]][1:] == ["你好"]
-    # 系统提示词里说明了 <skills> 是什么（一直都在，不随 Skill 变化）
-    assert "<skills>" in h.api.requests[0]["system"][0]["text"]
+    # 怎么用 Skill 不写在系统提示词里（用户可以改提示词，改的时候可能把它删掉），而是写在工具说明和 <skills> 块里。
+    # skill 工具一直都在，哪怕一个 Skill 都没装：工具说明书在一段对话里不能变
+    (tool,) = [tool for tool in h.api.requests[0]["tools"] if tool["name"] == "skill"]
+    assert "<skills>" in tool["description"]
+    assert "Skill" not in h.api.requests[0]["system"][0]["text"]
 
 
 def test_the_catalog_for_openai_style_models(start_openai):

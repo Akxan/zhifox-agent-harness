@@ -47,6 +47,9 @@ class Provider:
     # 读得了 PDF。OpenAI 格式的接口里没有通用的 PDF 写法：GPT 有自己的写法（见 openai_compat.py），
     # Gemini 和 DeepSeek 的兼容接口文档里没有写，所以目前只有 Claude 和 GPT 能读
     pdf: bool = False
+    # 有没有联网搜索。联网搜索是 Anthropic 在它的服务器上执行的工具（见 tools/web.py），别家拿不到，
+    # 系统提示词里"可以联网"那一行也只写给有的那一家，不然模型会去调用一个不存在的工具
+    web: bool = False
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -61,6 +64,7 @@ PROVIDERS: dict[str, Provider] = {
             "https://platform.claude.com",
             vision=True,
             pdf=True,
+            web=True,
         ),
         Provider(
             "openai", "GPT (OpenAI)", "openai", "OPENAI_API_KEY", None, "https://platform.openai.com", vision=True, pdf=True

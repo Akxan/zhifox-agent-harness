@@ -160,7 +160,7 @@ class SkillsAPI:
         """会改动 Skill 的操作：和对话共用一把锁，做完发一次新的状态（列表跟着状态走）。"""
         web = self.web
         if not web._turn.acquire(blocking=False):
-            return 409, {"error": t(web.BUSY)}
+            return 409, {"error": web._busy()}
         try:
             try:
                 result = action() or {}
