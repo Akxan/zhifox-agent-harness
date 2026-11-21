@@ -1,5 +1,5 @@
 // ---- 定时任务 · 详情 --------------------------------------------------------
-// 点开一个任务：它要做什么、什么时候跑、动手之前要不要先问你，以及运行记录（每一次都能打开它存下的那段会话）。
+// 点开一个任务：它要做什么、什么时候跑、动手之前要不要先问你，以及历次运行（每一次都能打开它存下的那段会话）。
 // 底下一排是立即运行、暂停或恢复、编辑、删除（删除先在原地确认）。
 
 function openDetail(id) {
@@ -38,7 +38,7 @@ function drawDetail() {
         : t('要确认的操作会停下来，等你在任务列表里批准。')));
   }
   if (task.prompt) section(task.kind === 'agent' ? t('让助手做什么') : t('提醒的内容')).appendChild(el('pre', null, task.prompt));
-  const history = section(t('运行记录'));
+  const history = section(t('历次运行'));
   if (!task.runs || !task.runs.length) history.appendChild(el('p', 'hint', t('还没有运行过。')));
   else {
     const list = history.appendChild(el('ol', 'runs'));

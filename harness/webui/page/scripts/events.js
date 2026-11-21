@@ -24,6 +24,7 @@ const handlers = {
     toolCard = null;
     subRuns.clear();
     confirms.clear();
+    forgetTraces();
     busy = stopping = false;
     replaying = unsettled = true;
     refreshStatus();
@@ -211,6 +212,7 @@ const handlers = {
   },
 
   subagent(event) { subagentStep(event); },
+  trace(event) { traceTurn(event); },  // 一轮结束时的运行记录：在这一轮上放一个入口（见 trace.js）
 
   confirm_done(event) {
     const pending = confirms.get(event.confirm);

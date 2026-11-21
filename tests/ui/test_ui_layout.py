@@ -20,6 +20,8 @@ def _surfaces(page):
     """(名字, 打开它, 要查的范围, 查完要关上的窗口：窗口的 id，或者一个收起它的函数)。"""
     return [
         ("对话", lambda: None, [".stage"], None),
+        # 运行记录：窄屏上从底下升起来，瀑布图变成一列（名字在上，时间轴在下）
+        ("运行记录", lambda: steps.open_trace(page), ["#trace-dialog"], "trace-dialog"),
         ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
         ("定时任务", lambda: steps.nav_tab(page, "tasks"), ["#nav"], None),
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
