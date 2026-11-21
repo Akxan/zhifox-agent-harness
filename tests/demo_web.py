@@ -27,6 +27,11 @@
     任务的回复不占下面那一串（几个任务和你的对话同时跑，按顺序就分不清谁是谁了）：每次运行先要执行一条命令
     （"每次确认"的任务会停下来等你批准），然后交代做完了。所以可以一边聊天，一边让好几个任务一起跑。
 
+  - 也带着一个假的 Telegram（tests/fake_telegram.py，只在这台电脑上，不连真正的 Telegram）。启动时打印两样东西：
+    假机器人的 token（在"扩展 → 通道"的向导里粘贴它）和一个"手机"页面的地址（在另一个标签页里打开，
+    就像拿着手机：发配对码、聊天、点"允许 / 拒绝"）。聊天里的回复也不占下面那一串：单数轮打个招呼，
+    双数轮执行一条要你批准的命令（"每次确认"时会发来按钮，网页上也能答复）。
+
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
 一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
@@ -54,6 +59,7 @@ parser.add_argument("--port", type=int, default=8766)
 parser.add_argument("--data", type=Path, help="数据放在哪个目录（默认新建一个临时目录）。想保留会话、下次接着看时用")
 parser.add_argument("--delay", type=float, default=0.035, help="逐字输出时每一小段之间隔多少秒")
 parser.add_argument("--no-key", action="store_true", help="不设置任何密钥，看第一次使用时的样子")
+parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram（\"手机\"页面）用的端口，默认随便挑一个空闲的")
 options = parser.parse_args()
 
 # 这个脚本绝不能碰到真正的密钥：先把环境变量里的都清掉，再放一个编造的
@@ -67,12 +73,14 @@ import openai
 from fake_api import _events, reply, text, thinking, tool_use
 from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
+from fake_telegram import TOKEN, FakeTelegram
 
 import harness.webui.server as server_module
 from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.config import Config
 from harness.tasks import new_run
+from harness.webui import lifecycle
 from harness.webui.ui import WebUI
 
 
@@ -104,6 +112,23 @@ def task_reply(body: dict) -> dict:
     return reply(text("做完了：看过了工作目录，里面有 notes.txt。"))
 
 
+def channel_reply(body: dict) -> dict:
+    """聊天通道（假 Telegram）里的请求怎么回答：刚执行完命令就交代结果；不然单数轮打招呼，双数轮执行一条命令。"""
+    messages = body.get("messages") or []
+    last = messages[-1] if messages else {}
+    results = [block for block in (last.get("content") or []) if isinstance(block, dict) and block.get("type") == "tool_result"]
+    if results:
+        if any(block.get("is_error") for block in results):  # 你点了"拒绝"
+            return reply(text("好的，不看了。需要的时候再叫我。"))
+        return reply(text("看完了：磁盘还剩 **120 GB**，一切正常。\n\n- 系统盘：用了 38%\n- 数据盘：用了 61%"))
+    asked = sum(1 for message in messages if message.get("role") == "user" and not any(
+        isinstance(block, dict) and block.get("type") == "tool_result" for block in (message.get("content") or [])
+    ))
+    if asked % 2 == 1:
+        return reply(text("你好！我是智狐，现在在 Telegram 里陪你。可以让我：\n\n1. 查资料、写东西\n2. 看看待办和日程\n3. 在电脑上执行命令（每次都先问你）\n\n试试发一句“看看磁盘还剩多少”。"))
+    return reply(text("我来看一下磁盘。"), tool_use(f"toolu_chat_{asked}", "run_command", {"command": "df -h . && du -sh ~/Downloads"}), stop_reason="tool_use")
+
+
 class SlowClaude:
     """假的 Anthropic API：按顺序回放写好的回复，但是慢慢地发。定时任务的请求另外回答（见 task_reply）。"""
 
@@ -119,7 +144,12 @@ class SlowClaude:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 first = json.dumps((body.get("messages") or [None])[0], ensure_ascii=False)
                 with api.lock:
-                    scripted = task_reply(body) if "<task>" in first else api.replies.pop(0) if api.replies else None
+                    if "<task>" in first:
+                        scripted = task_reply(body)
+                    elif "<channel>" in first:
+                        scripted = channel_reply(body)
+                    else:
+                        scripted = api.replies.pop(0) if api.replies else None
                 if scripted is None:
                     self.send_error(500, "no scripted reply left")  # 回复用完了：页面上会看到一条出错提示
                     return
@@ -415,6 +445,8 @@ for name, body in {
     (claude_home / name).parent.mkdir(parents=True, exist_ok=True)
     (claude_home / name).write_text(body, encoding="utf-8")
 
+# 假的 Telegram：机器人的 token 是编造的（tests/fake_telegram.py 里的 TOKEN），消息只在这台电脑上转
+telegram = FakeTelegram(max_poll=1.0).start(options.telegram_port)
 config = Config(
     effort="medium",
     max_tokens=64000,
@@ -423,6 +455,7 @@ config = Config(
     data_dir=root / "data",
     env_file=root / "env-file",  # 在页面上保存的密钥写到这里，不是项目里真正的 .env
     web=True,
+    telegram_api=telegram.base_url,  # 通道连的是上面那个假的 Telegram，不是 api.telegram.org
 )
 
 
@@ -466,12 +499,14 @@ if fresh:
     app.tasks.add({"title": "整理下载文件夹", "kind": "agent", "prompt": "把下载文件夹里超过 30 天的文件列出来，按类型分好，先别删", "schedule": {"type": "weekly", "days": [5], "time": "18:00"}, "enabled": False})
     app.tasks.add({"title": "站起来活动一下", "kind": "reminder", "prompt": "", "schedule": {"type": "interval", "minutes": 45}})
 server, url = server_module.create_server(app, ui, port=options.port)
-server.web.tasks.start()  # 和正式程序一样，定时任务只在网页界面开着的时候运行
+lifecycle.start(server.web)  # 和正式程序一样，定时任务和聊天通道只在网页界面开着的时候运行
 print(f"演示已启动，所有回复都是预设的，不花钱。在浏览器里打开：\n\n    {url}\n\n数据在 {root}。按 Ctrl-C 退出。", flush=True)
+print(f"\n假的 Telegram：机器人的 token 是\n\n    {TOKEN}\n\n“手机”页面（在另一个标签页里打开）：\n\n    {telegram.base_url}/\n", flush=True)
 try:
     server.serve_forever()
 except KeyboardInterrupt:
     pass
 finally:
-    app.close()  # 关掉启动过的假 MCP 服务器进程
+    lifecycle.stop(server.web, 3)  # 停下通道和任务（也会关掉启动过的假 MCP 服务器进程）
+    telegram.stop()
     docs_server.stop()

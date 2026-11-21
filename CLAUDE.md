@@ -123,6 +123,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
 | `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
 | `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
+| `harness/channels/` | 聊天通道（先做了 Telegram）：通道的接口、配对、设置（channels.json）、收发、每个聊天的会话、确认、命令行 `harness channels …` |
+| `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
+| `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -147,13 +150,14 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （pytest 也会跑）；演示页面第 6 条消息是一段用齐各种 Markdown 写法的回复。
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
-  `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt）、
+  `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
   `/api/mcp/reveal`、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
   **只有 `/api/media/file` 会把文件的字节发给浏览器**：只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
   （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
   `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。
+  在没有文件管理器的机器上（服务器），状态里的 `file_manager` 为假，这些按钮改成告诉你文件的完整路径。
   页面最多只能给编号、列表里的名字或固定的几个词，路径由服务器算，命令用参数列表、不经过 shell。
   另一类是保存、启用、重启、导入一个 stdio 的 MCP 服务器，这会让电脑运行用户配置的命令：只有带口令的页面能做；
   命令用参数列表启动、不经过 shell；子进程的环境里去掉各家模型的密钥，配置里引用它们（`${ANTHROPIC_API_KEY}`）会被拒绝；
@@ -198,6 +202,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （定时任务用 source="task"），不要另算价格。
 - **导出不能带出密钥。** 新增存着密钥的配置文件时，把它加进 `export.MASKED_FILES`，并在 `tests/test_export.py` 里
   加一条"压缩包里找不到这个密钥"的测试。
+- **聊天通道和定时任务是同一个做法。** 每个聊天的每一轮用 `App.channel_agent`（和 `unattended_agent` 共用 `_side_run`：
+  自己的 shell、自己名下的 MCP 调用、`Permissions.unattended(通道的档位)`，记账 source=`channel`），不拿 `WebApp._turn`；
+  开始之前先用 `Claims.take` 占住这段会话，网页这时不能写它（409），一轮结束放开、网页上开着的话重新读一遍。
+  只有配对过的主人能用：不是主人的消息不处理（不在配对的时候一个字都不回），群聊一律不理，按钮也只认主人点的。
+  确认请求在聊天里写明是谁在问（主助手还是哪个子 Agent）、完整的命令和工作目录；网页上也能答，先到的算数。
+- **`channels.json` 里是密钥。** 机器人的 token 和配对码：文件权限 600、在文件工具的 protected 名单里、在
+  `export.MASKED_FILES` 里，从不进状态、日志和错误信息（页面只看到最后 4 位）；命令看不到 `TELEGRAM_BOT_TOKEN`。
+  Telegram 的地址只能用环境变量 `TELEGRAM_API_BASE` 改（token 会发到那里去），页面上改不了。
+- **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
+  `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
 - **子 Agent 只会更少，不会更多。** 子 Agent 的工具用 `agents/tools.allowed` 从叫它的那一方手里的工具里挑，再给它自己的
   shell 和自己名下的 MCP 快照；权限用叫它的那一方的同一个 `Permissions`（对话里是你选的那一档，定时任务里是那次运行的）；
   停止靠 `ui.on_stop` 临时登记、做完取消；记账 source=`subagent`。层数和步数的上限是 `config.AGENT_MAX_DEPTH`、`AGENT_MAX_STEPS`。
@@ -223,5 +237,5 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   没有密钥、刷新重放、输出到一半往上翻这几种情况每次都要过一遍。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道只对着 `tests/fake_telegram.py` 测过，没有接过真的 Telegram 机器人；journald 和 systemd 只是模拟过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。

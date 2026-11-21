@@ -117,8 +117,11 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     # 测试看不到真实的 API key；测试里设置的 key 也会在测试结束后被清掉
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "TELEGRAM_BOT_TOKEN"):
         monkeypatch.setenv(name, "")
+    # 调用 load_config() 的测试（命令行）不能读到项目里真正的 .env：换成临时目录里一个不存在的文件
+    monkeypatch.setenv("HARNESS_ENV_FILE", str(tmp_path / "no-such.env"))
+    monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     # 界面语言是整个程序共用的一个值（见 harness/i18n.py）。每个测试都从中文开始，测试里换了语言也会被换回来
     monkeypatch.setattr(i18n, "current", i18n.DEFAULT)

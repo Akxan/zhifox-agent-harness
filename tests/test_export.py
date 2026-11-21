@@ -191,3 +191,32 @@ def test_plan_reports_size_and_count_without_writing_anything(tmp_path):
     assert work.size == expected
     assert sorted(path.name for path in data.rglob("*")) == before
     assert plan(tmp_path / "no-such-folder").count == 0
+
+
+def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
+    """channels.json 里有聊天机器人的 token（谁拿到它谁就能冒充这个机器人）和正在用的配对码：导出时都换成占位符。"""
+    from harness.channels.store import ChannelStore
+
+    data = tmp_path / "data"
+    token = "555000111:" + "Q" * 35  # 编造的、样子像真的 token
+    store = ChannelStore(data / "channels.json")
+    store.connect("telegram", token, {"id": "555000111", "username": "backup_test_bot", "name": "Backup"})
+    secret = store.start_pairing("telegram")["code"]
+    store.remember_chat("telegram", "111", "20261121-0800-abc")
+    assert (data / "channels.json.lock").exists()  # 改设置时用的文件锁就在旁边
+
+    raw, work = export_bytes(data)
+    archive = zipfile.ZipFile(io.BytesIO(raw))
+    assert sorted(archive.namelist()) == sorted(["channels.json", NOTE])  # 锁文件不导出
+    assert list(work.masked) == ["channels.json"]
+    entry = json.loads(archive.read("channels.json"))["platforms"]["telegram"]
+    assert entry["token"] == PLACEHOLDER and entry["pairing"]["secret"] == PLACEHOLDER
+    # 别的设置照样留着，恢复以后只要重新填 token
+    assert entry["bot"]["username"] == "backup_test_bot" and entry["approval"] == "ask" and entry["enabled"] is True
+    assert entry["chats"]["111"]["conversation"] == "20261121-0800-abc"
+    everything = b"".join(archive.read(name) for name in archive.namelist())
+    assert token.encode() not in everything and b"Q" * 35 not in everything
+    assert f'"{secret}"'.encode() not in everything
+    assert "channels.json" in archive.read(NOTE).decode()  # 说明里写着哪个文件要重新填
+    # 导出不改原来的文件
+    assert ChannelStore(data / "channels.json").get("telegram")["token"] == token

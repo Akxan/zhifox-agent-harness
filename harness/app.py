@@ -176,20 +176,35 @@ class App:
         别的工具和对话共用：背后是同一份待办、任务、记忆和工作目录里的文件，它们各自有锁（见 TodoStore、TaskStore、
         tools/files.py、tools/memory.py），几边同时改也不会互相冲掉。
         """
+        return self._side_run(ui, approval, self.settings.provider, self.settings.model, source="task")
+
+    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str) -> UnattendedRun:
+        """给聊天通道里的一个聊天（比如你和 Telegram 机器人的私聊）准备一个助手，以及只属于这个聊天的那几样东西。
+
+        和定时任务的一次运行是同一个做法（见上面的 unattended_agent），区别只有三处：
+          - 用的是这个聊天自己那段会话的那一家、那个模型（provider_id、model），历史由调用的人交还给它（见 channels/session.py）；
+          - 权限是这个通道自己的那一档（channels.json 里的 approval），和网页对话、定时任务的都无关；
+          - 花的钱记在 channel 名下。
+        在聊天里发 /stop，只结束这个聊天自己的命令和 MCP 调用；网页上的"停止"、别的聊天、定时任务都碰不到它。
+        """
+        return self._side_run(ui, approval, provider_id, model, source="channel")
+
+    def _side_run(self, ui: Any, approval: str, provider_id: str, model: str, source: str) -> UnattendedRun:
+        """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、记在 source 名下的账。"""
         shell = Shell(self.config.workspace)
         owner = object()  # 这次运行的 MCP 调用都记在它名下（见 McpManager.call）
         tools = self.tools.replaced(make_shell_tool(shell))
-        backend = self._backend_for(self.settings.provider, self.settings.model)
+        backend = self._backend_for(provider_id, model)
         permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
-        # 任务也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这个任务的那一档，停止只停这次运行，见 agents/runner.py）
+        # 也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这次运行的那一档，停止只停这次运行，见 agents/runner.py）
         delegate = self.delegator.tool_for(agent)
-        # 任务的这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
+        # 这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
         # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
         agent.use_tools(ToolRegistry([*tools, *([delegate] if delegate else []), *self.mcp.snapshot(owner).tools]))
-        # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
-        agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
-        # 任务也能用 Skill：它的历史是空的，所以第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
+        # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
+        agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source=source)
+        # 也能用 Skill：历史是空的话，第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
         agent.notes.append(notifier(self.skills))
         agent.notes.append(agent_notifier(self.agents, lambda: agent.tools))  # 有哪些 Agent 可以交给，也一样
 
@@ -416,8 +431,9 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         settings.provider, settings.model = "anthropic", "claude-opus-5-5"
     i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
 
-    # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序
-    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file, config.mcp_file])
+    # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序。
+    # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上
+    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file, config.mcp_file, config.channels_file])
     todos = TodoStore(config.todo_file)
     tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)

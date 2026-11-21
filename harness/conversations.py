@@ -3,7 +3,7 @@
 每段会话是 data/conversations/ 下的一个 JSON 文件，里面有三样东西：
 
   基本信息   标题、用的是哪家的哪个模型、创建和更新时间（定时任务运行出来的，还记着是哪个任务；
-             用一个自定义 Agent 当角色开始的，记着是哪个 Agent）
+             在 Telegram 这类聊天通道里聊的，记着是哪个通道；用一个自定义 Agent 当角色开始的，记着是哪个 Agent）
   messages   发给模型的对话历史。格式因厂商而异，这里原样保存，读回来就能接着聊
   events     界面上显示过的内容，用来把页面重新画出来
 
@@ -53,6 +53,7 @@ class Conversation:
     events: list = field(default_factory=list)
     saved: bool = False  # 有没有写到磁盘上（新会话在第一轮对话完成之前只在内存里）
     task: str = ""  # 由哪个定时任务运行出来的（任务的编号）；你自己开的会话是空字符串
+    channel: str = ""  # 在哪个聊天通道里聊的（"telegram"……，见 channels/）；在网页上开的是空字符串
     # 用哪个自定义 Agent 当角色开始的（Agent 的名字，见 agents/）；普通的会话是空字符串。
     # 一段会话的角色从头到尾不变：想换一个，就用它开始一段新对话（见 App.new_conversation）
     agent: str = ""
@@ -68,6 +69,8 @@ class Conversation:
         }
         if self.task:
             summary["task"] = self.task  # 页面据此给它标上"定时任务"
+        if self.channel:
+            summary["channel"] = self.channel  # 页面据此给它标上"Telegram"
         if self.agent:
             summary["agent"] = self.agent  # 页面据此给它标上是哪个 Agent
         return summary
@@ -173,6 +176,8 @@ class ConversationStore:
         }
         if conversation.task:
             data["task"] = conversation.task
+        if conversation.channel:
+            data["channel"] = conversation.channel
         if conversation.agent:
             data["agent"] = conversation.agent
         # 会话是私人的内容：目录和文件都只有自己的账号能读（和保存密钥的 .env 一样）
@@ -270,6 +275,7 @@ class ConversationStore:
                 events=data.get("events", []),
                 saved=True,
                 task=data.get("task") if isinstance(data.get("task"), str) else "",
+                channel=data.get("channel")[:40] if isinstance(data.get("channel"), str) else "",
                 agent=data.get("agent") if isinstance(data.get("agent"), str) else "",
             )
         except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:

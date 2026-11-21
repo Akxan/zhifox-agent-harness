@@ -74,6 +74,19 @@ LEDGER_DETAIL_DAYS = 90
 # 网页上"花费明细"的柱状图显示最近这么多天
 LEDGER_CHART_DAYS = 30
 
+# 聊天通道：在 Telegram 这类聊天软件里和智狐说话（见 channels/）。
+# 配对码：网页或命令行上显示一个 6 位数字，你从自己的账号发给机器人，这个账号就绑定成了"主人"，只有主人能用。
+PAIRING_SECONDS = 600  # 配对码多久过期
+# 一个配对码最多能猜错几次，错满了就作废、要重新生成。6 位数字只有一百万种，不限次数的话，知道机器人名字的人
+# 可以在十分钟里一个个试；限成 5 次，猜中的机会是二十万分之一
+PAIRING_ATTEMPTS = 5
+CHANNEL_QUEUE = 5  # 一个聊天里最多排着几条还没开始处理的消息（正在跑的那一轮不算）。再多就请你等一等
+CHANNEL_POLL_SECONDS = 25  # Telegram 的长轮询：一次 getUpdates 最多在服务器那边等这么久（有消息会马上返回）
+CHANNEL_TIMEOUT = 20  # 发消息、下载文件这类普通请求的超时（秒）
+CHANNEL_RETRY_SECONDS = 60  # 连不上时，重试的间隔从 1 秒起每次翻倍，最多隔这么久
+CHANNEL_TYPING_SECONDS = 4  # 一轮还在进行时，每隔这么久发一次"正在输入"（Telegram 的这个状态只维持 5 秒）
+CHANNEL_DOWNLOAD_BYTES = 20_000_000  # 聊天里发来的文件最多下载这么大（Telegram 机器人能下载的上限就是 20 MB）
+CHANNEL_SHUTDOWN_SECONDS = 5  # 退出时最多等聊天里正在进行的几轮这么久，让它们收尾存盘
 # 自定义 Agent（见 agents/）。主助手可以用 agent 工具把一项任务交给一个 Agent（"子 Agent"）去做：
 # 子 Agent 能不能再往下交，最多交几层。1 表示只有主助手能交，子 Agent 自己不能再叫别的 Agent。
 # 调大之前想一想：每多一层，花的钱、要你点的确认都会翻倍，出了问题也更难看清是谁做的
@@ -102,6 +115,9 @@ class Config:
     default_provider: str = "anthropic"  # 还没在界面上选过模型时用哪一家
     default_model: str = "claude-opus-5-5"
     max_parallel_tasks: int = MAX_PARALLEL_TASKS  # 定时任务最多同时运行几个（测试里会改小）
+    # Telegram Bot API 的地址。一般不用改；在连不上 api.telegram.org 的地方可以换成自建的 Bot API 服务器，
+    # 测试和演示把它指向本地的假服务器。只能用环境变量 TELEGRAM_API_BASE 改，页面上改不了：token 会发到这个地址去
+    telegram_api: str = "https://api.telegram.org"
 
     @property
     def todo_file(self) -> Path:
@@ -148,6 +164,10 @@ class Config:
     def ledger_file(self) -> Path:
         return self.data_dir / "ledger.jsonl"
 
+    @property
+    def channels_file(self) -> Path:
+        return self.data_dir / "channels.json"  # 聊天通道的设置：机器人的 token（密钥）、绑定的账号（见 channels/store.py）
+
 
 def load_env_file(path: Path) -> None:
     """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""
@@ -171,18 +191,23 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-def load_config() -> Config:
-    env_file = PROJECT_ROOT / ".env"
+def load_config(workspace: Path | None = None) -> Config:
+    """workspace：工作目录，不给的话是现在所在的目录（在服务器上用 --workspace 指定，见 cli.py）。
+
+    密钥默认在项目里的 .env；HARNESS_ENV_FILE 可以换一个位置（服务器上放在 /etc 下、测试里放在临时目录里）。
+    """
+    env_file = Path(os.environ.get("HARNESS_ENV_FILE") or PROJECT_ROOT / ".env").expanduser().resolve()
     load_env_file(env_file)
     return Config(
         effort=os.environ.get("HARNESS_EFFORT", "medium"),
         max_tokens=64000,
         max_steps=50,
-        workspace=Path.cwd().resolve(),
+        workspace=(workspace or Path.cwd()).expanduser().resolve(),
         data_dir=Path(os.environ.get("HARNESS_DATA_DIR") or PROJECT_ROOT / "data").expanduser().resolve(),
         env_file=env_file,
         web=os.environ.get("HARNESS_WEB", "1") != "0",
         max_searches=_int_env("HARNESS_MAX_SEARCHES", 5),
         default_provider=os.environ.get("HARNESS_PROVIDER", "anthropic"),
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
+        telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
     )

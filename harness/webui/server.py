@@ -42,6 +42,8 @@
   POST /api/budget     用户填写或清除了每月预算（见 budget.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
+  POST /api/channel/connect、pair、cancel、approval、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
+  POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -65,7 +67,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import webbrowser
 import zlib
 from datetime import datetime
@@ -81,6 +82,9 @@ from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
 from ..budget import valid_budget
+from ..channels.base import ChannelError
+from ..channels.hub import ChannelHub
+from ..claims import Claims
 from ..config import APP_NAME, LEDGER_CHART_DAYS, MAX_PROMPT_CHARS, Config
 from ..conversations import ConversationError
 from ..i18n import k, t
@@ -97,6 +101,7 @@ from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
+from . import lifecycle
 from .agents_api import AgentsAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
@@ -118,8 +123,16 @@ PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
 
 
+def has_file_manager() -> bool:
+    """这台电脑上能不能打开文件管理器。服务器上通常没有图形界面（没有 DISPLAY），也没有 xdg-open。"""
+    if sys.platform == "darwin":
+        return True
+    return bool(shutil.which("xdg-open")) and bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def reveal_in_file_manager(path: Path) -> None:
     """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
+    没有文件管理器的电脑（服务器）上什么都不做：回答里的 opened 是 false，页面改成告诉你文件在哪儿（见 Handler._send_json）。
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
     路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory、reveal_media 和
@@ -127,6 +140,8 @@ def reveal_in_file_manager(path: Path) -> None:
     附件的编号（查过格式，文件名由内容的 SHA-256 定）、一个 Skill 的名字（只能是 Skill 文件夹里的一个子文件夹），
     或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
+    if not has_file_manager():
+        return
     if sys.platform == "darwin":
         command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
     else:
@@ -170,6 +185,10 @@ class WebApp:
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
+        # 聊天通道（Telegram……）：聊天里的对话和你在网页上的对话同时进行，也不拿 self._turn。
+        # 同一段会话不能两边同时写，所以每一轮开始前先认领它（见 claims.py）
+        self.claims = Claims()
+        self.channels = ChannelHub(app, self.claims, changed=self.publish_state, saved=self.conversation_saved_elsewhere)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用：只是对话自己的，任务的各自管各自的（见 McpManager.call）
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
@@ -256,6 +275,11 @@ class WebApp:
             # 以及已经弹出、你还没关掉的提醒
             tasks=tasks,
             reminders=reminders,
+            # 聊天通道：每个平台的设置和连接情况、各个聊天在做什么、聊天里等你批准的操作（格式见 channels/hub.py 的 snapshot）。
+            # 机器人的 token 不在里面，只有最后 4 位
+            channels=self.channels.snapshot(),
+            # 这台电脑能不能打开文件管理器。服务器上不能：页面上"在访达中显示"之后改成告诉你文件在哪儿
+            file_manager=has_file_manager(),
         )
 
     def _mcp_state(self) -> dict:
@@ -290,10 +314,55 @@ class WebApp:
             return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label)
         if not self._turn.acquire(blocking=False):
             return self._busy(t("上一轮对话还没有结束"))
+        elsewhere = self._claim()
+        if elsewhere:
+            self._turn.release()
+            return elsewhere
         # agent 循环是阻塞的（等模型、等用户确认），所以放到后台线程里跑，
         # 这样服务器还能继续响应浏览器的其他请求，比如"允许"和"停止"。
         threading.Thread(target=self._run_turn, args=(text, attachments or []), daemon=True).start()
         return ""
+
+    def _claim(self) -> str:
+        """认领当前这段会话（见 claims.py）。它正在聊天通道里跑一轮的话返回原因，不认领。调用的人拿着 self._turn。"""
+        conversation = self.app.conversation
+        holder = self.claims.take(conversation.id, "web")
+        if holder is not None:
+            return t("这段会话正在 {platform} 上进行。等那边这一轮结束再发。", platform=self.channels.holder(conversation.id) or holder)
+        if conversation.saved and not self._unsaved:
+            # 聊天那边可能刚在这段会话里聊过一轮（存到了磁盘上，这里的还是旧的）：先读回来，不然这一轮存盘时会把那一轮盖掉
+            try:
+                newer = self.app.store.load(conversation.id).updated_at > conversation.updated_at
+            except ConversationError:
+                newer = False
+            if newer:
+                self._reload_current()
+        return ""
+
+    def _reload_current(self) -> None:
+        """从磁盘把当前这段会话重新读一遍，页面跟着重画。调用的人拿着 self._turn。"""
+        try:
+            conversation = self.app.open_conversation(self.app.conversation.id)
+        except ConversationError:
+            return
+        self.ui.load_events(conversation.events)
+        self.publish_state()
+
+    def conversation_saved_elsewhere(self, conversation_id: str) -> None:
+        """聊天通道刚把一段会话存了盘。网页正开着它、手上又没事的话，跟着刷新：页面上看到的就是最新的，
+        你接着在网页上聊，也不会用一份旧的历史把聊天里的那一轮盖掉。"""
+        if conversation_id != self.app.conversation.id or self._unsaved or not self._turn.acquire(blocking=False):
+            return
+        try:
+            if conversation_id == self.app.conversation.id:
+                self._reload_current()
+        finally:
+            self._turn.release()
+
+    def _held_elsewhere(self, conversation_id: str) -> str:
+        """这段会话正在聊天通道里跑一轮的话，返回不能打开、改名、删除的原因。"""
+        platform = self.channels.holder(conversation_id)
+        return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform) if platform else ""
 
     def _run_turn(self, text: str, attachments: list[Attachment]) -> None:
         try:
@@ -312,6 +381,7 @@ class WebApp:
                 # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
                 # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
                 self.ui.end_turn()
+                self.claims.release(self.app.conversation.id, "web")
                 self._turn.release()
 
     def _save(self) -> None:
@@ -413,7 +483,7 @@ class WebApp:
         try:
             if conversation_id == self.app.conversation.id:
                 return ""  # 已经开着了
-            blocked = self._before_leaving(f"open:{conversation_id}")
+            blocked = self._held_elsewhere(conversation_id) or self._before_leaving(f"open:{conversation_id}")
             if blocked:
                 return blocked
             try:
@@ -441,6 +511,9 @@ class WebApp:
         if not self._turn.acquire(blocking=False):
             return self._busy()
         try:
+            blocked = self._held_elsewhere(conversation_id)
+            if blocked:
+                return blocked
             try:
                 self.app.rename_conversation(conversation_id, title)
             except ConversationError as exc:
@@ -454,6 +527,9 @@ class WebApp:
         if not self._turn.acquire(blocking=False):
             return self._busy()
         try:
+            blocked = self._held_elsewhere(conversation_id)
+            if blocked:
+                return blocked
             # 这段会话用过的原件。删完以后，别的会话不再用的就从多媒体库里删掉
             used = self.app.store.media().hashes(conversation_id)
             if conversation_id == self.app.conversation.id:
@@ -671,7 +747,7 @@ class WebApp:
         文件还不存在（还没建过任务、提示词用的是内置的），就打开它将来所在的文件夹，并说一声
         """
         config = self.app.config
-        target = {"tasks": config.tasks_file, "todos": config.todo_file, "prompt": config.prompt_file}[what]
+        target = {"tasks": config.tasks_file, "todos": config.todo_file, "prompt": config.prompt_file, "channels": config.channels_file}[what]
         shown = target if target.exists() else target.parent
         try:
             private_dir(config.data_dir)
@@ -886,6 +962,7 @@ class WebApp:
         也不用拿对话的锁：对话进行中也可以换。之后程序发给页面的话（提示、确认卡片上的说明）都用新的语言。
         """
         i18n.choose(language)
+        self.channels.relabel()  # 聊天软件里命令菜单上的说明，也换成新的语言
         try:
             self.app.settings.set_language(language)
         except OSError as exc:
@@ -1002,7 +1079,7 @@ class Handler(BaseHTTPRequestHandler):
                 if error:
                     self._send_json(409, {"error": error})
                 else:
-                    self._send_json(200, {"ok": True, "path": shown})
+                    self._send_json(200, {"ok": True, "path": shown, "opened": has_file_manager()})
             elif action == "rename" and isinstance(title, str) and 0 < len(title.strip()) <= 200:
                 self._finish(web.rename_conversation(conversation_id, title.strip()))
             else:
@@ -1017,7 +1094,7 @@ class Handler(BaseHTTPRequestHandler):
                 if error:
                     self._send_json(409, {"error": error})
                 else:
-                    self._send_json(200, {"ok": True, "path": shown})
+                    self._send_json(200, {"ok": True, "path": shown, "opened": has_file_manager()})
             elif action not in ("read", "save", "delete", "show") or not isinstance(relative, str):
                 self._send_json(400, {"error": t("参数不正确")})
             elif action == "delete":
@@ -1027,7 +1104,7 @@ class Handler(BaseHTTPRequestHandler):
                 if error:
                     self._send_json(409, {"error": error})
                 else:
-                    self._send_json(200, {"ok": True, "path": shown})
+                    self._send_json(200, {"ok": True, "path": shown, "opened": has_file_manager()})
             elif action == "save":
                 name, text, modified, force = body.get("name"), body.get("text"), body.get("modified"), body.get("force", False)
                 number = isinstance(modified, (int, float)) and not isinstance(modified, bool)
@@ -1108,14 +1185,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "preview": prompts.render(text, config, config.web and web.app.provider.web)})
         elif path == "/api/reveal":
             what = body.get("what")
-            if what not in ("tasks", "todos", "prompt"):
+            if what not in ("tasks", "todos", "prompt", "channels"):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 error, shown = web.reveal_data(what)
                 if error:
                     self._send_json(409, {"error": error})
                 else:
-                    self._send_json(200, {"ok": True, "path": shown})
+                    self._send_json(200, {"ok": True, "path": shown, "opened": has_file_manager()})
         elif path in ("/api/todo/update", "/api/todo/delete"):
             todo_id = body.get("id")
             changes: dict | None = None
@@ -1202,6 +1279,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
         elif path.startswith("/api/task/"):
             self._route_task(web, path.removeprefix("/api/task/"), body)
+        elif path.startswith("/api/channel/"):
+            self._route_channel(web, path.removeprefix("/api/channel/"), body)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -1306,6 +1385,54 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": i18n.message_of(exc)})
         else:
             self._send_json(200, reply)
+
+    def _route_channel(self, web: WebApp, action: str, body: dict) -> None:
+        """聊天通道的几个操作（见 channels/hub.py）。参数不对回答 400，现在做不了（token 不对、确认已经答复过了……）回答 409。
+
+        这些都不拿对话的锁：聊天里的对话和网页上的对话各跑各的，你正在网页上聊的时候也能连上 Telegram、答复它的确认。
+        """
+        hub, platform = web.channels, body.get("platform")
+        checks = {
+            "connect": lambda: isinstance(body.get("token"), str) and 0 < len(body["token"].strip()) <= 400,
+            "pair": lambda: True,
+            "cancel": lambda: True,
+            "approval": lambda: body.get("mode") in MODES,
+            "enable": lambda: isinstance(body.get("enabled"), bool),
+            "unbind": lambda: True,
+            "remove": lambda: True,
+            "confirm": lambda: isinstance(body.get("chat"), str) and _valid_answer(body),
+            "stop": lambda: isinstance(body.get("chat"), str),
+        }
+        if action not in checks:
+            self._send_json(404, {"error": "not found"})
+            return
+        if not isinstance(platform, str) or not platform or not checks[action]():
+            self._send_json(400, {"error": t("参数不正确")})
+            return
+        reply: dict = {"ok": True}
+        try:
+            if action == "connect":
+                reply["bot"] = hub.connect(platform, body["token"])
+            elif action == "pair":
+                reply.update(hub.pair(platform))
+            elif action == "cancel":
+                hub.cancel_pairing(platform)
+            elif action == "approval":
+                hub.set_approval(platform, body["mode"])
+            elif action == "enable":
+                hub.set_enabled(platform, body["enabled"])
+            elif action == "unbind":
+                hub.unbind(platform)
+            elif action == "remove":
+                hub.remove(platform)
+            elif action == "confirm":
+                hub.confirm(platform, body["chat"], body["confirm_id"], body["allow"])
+            else:
+                hub.stop_chat(platform, body["chat"])
+        except ChannelError as exc:
+            self._send_json(409, {"error": i18n.message_of(exc)})
+            return
+        self._send_json(200, reply)
 
     def _send_export(self) -> None:
         """导出全部数据：把 zip 先写进一个临时文件，再整个发给浏览器（见 export.py）。
@@ -1539,18 +1666,8 @@ def claim_data_dir(data_dir: Path) -> IO | None:
 
 
 def shut_down(server: Server, app: App) -> None:
-    """退出前的收尾：让正在进行的一轮和正在运行的定时任务停下来、存好盘，再关掉服务器。"""
-    server.web.tasks.close()  # 排队的不跑了，正在跑的各自停下（连同它们自己的命令）
-    server.web.stop()
-    app.shell.kill_running()
-    app.mcp.cancel_all()  # 正在等的 MCP 调用，不管是对话的还是任务的，都取消
-    # 停止只是通知它们尽快收尾，收尾（包括存盘）是在别的线程里做的。不等的话，程序一退出那些线程就没了：
-    # 助手已经做过的事（执行过的命令、改过的文件）在保存的会话里不留一点记录。
-    # 模型一直没有输出时等不到它停下，所以对话和任务加起来只等有限的几秒。
-    deadline = time.monotonic() + SHUTDOWN_WAIT_SECONDS
-    server.web.wait_idle(SHUTDOWN_WAIT_SECONDS)
-    server.web.tasks.wait_idle(max(0.0, deadline - time.monotonic()))
-    app.close()  # 关掉 MCP 服务器的进程
+    """退出前的收尾：让正在进行的一轮、正在运行的定时任务、聊天里正在进行的对话停下来、存好盘，再关掉服务器。"""
+    lifecycle.stop(server.web, SHUTDOWN_WAIT_SECONDS)
     server.server_close()
 
 
@@ -1582,8 +1699,8 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     if not has_key(provider):
         print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
     print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
-    # 定时任务只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的，补跑一次
-    server.web.tasks.start()
+    # 定时任务和聊天通道只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的任务，补跑一次
+    lifecycle.start(server.web)
     if open_browser:
         webbrowser.open(url)
 

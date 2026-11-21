@@ -1,0 +1,130 @@
+"""聊天里的一段对话用的"界面"。
+
+agent 循环只认那几个方法（thinking、text、tool_call、confirm……，见 ../agent.py 的 UI），不知道自己连着的是
+终端、网页还是 Telegram。这里和网页界面用的是同一个类（WebUI）：事件照样记成日志，一轮结束时整理成会话里
+保存的样子（export_events），所以聊天里的对话在网页的会话列表里打开，和网页上聊的看起来一样。
+
+区别是这份日志不推给浏览器，而是在几个时刻告诉 session.py 一声，由它把话发到聊天里：
+
+  一段文字写完了（end_stream）      → 把这段文字发出去。模型边想边写，写完一段发一段，不用等整轮结束
+  要你确认一个操作（confirm）       → 发一条带"允许 / 拒绝"按钮的消息，然后等答复（网页上也能答）
+  确认答复了（confirm_done）        → 把那条消息上的按钮去掉，写上结果
+  没问你就放行了（auto_allowed）    → 发一行"已自动允许：$ 命令"，在聊天里也看得到它做了什么
+  提示和出错（info、error）         → 原样发一句
+  交给一个子 Agent（subagent）      → 开始、没问你就放行的一步、结束时各发一行简短的进展（它在做的每一步完整地记在会话里）
+
+思考的内容不发（太长，而且只是过程）。工具的输出也不发：完整的在会话里，模型会在回答里说结果。
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+from ..display import short
+from ..i18n import t
+from ..webui.ui import WebUI
+
+
+class ChannelUI(WebUI):
+    def __init__(
+        self,
+        on_text: Callable[[str], None],
+        on_notice: Callable[[str, str], None],
+        on_confirm: Callable[[int, str], None],
+        on_settled: Callable[[int, bool, bool], None],
+        on_auto: Callable[[str], None],
+    ):
+        """on_confirm 收到（确认的编号，要做的事，哪个子 Agent 在问——主助手自己问时是空的）。"""
+        super().__init__()
+        self._on_text = on_text
+        self._on_notice = on_notice
+        self._on_confirm = on_confirm
+        self._on_settled = on_settled
+        self._on_auto = on_auto
+        self._pending = ""  # 正在写、还没发出去的那段文字
+        self.activity = ""  # 现在在做什么（最近一次工具调用的一行说明），/status 用
+        self.answer = ""  # 最后一次调用工具之后写的文字
+        self._replaying = False  # 正在把保存过的会话重放进日志（load_events）：重放出来的确认请求不能再发到聊天里
+        self._sub_doing: dict[str, str] = {}  # 每个子 Agent（按这一次交给它的编号）正在调用的工具，"已自动允许"那一行要写是哪一步
+
+    def publish(self, type: str, **data: Any) -> int:
+        """记下事件（父类做的），再看看是不是要告诉 session 一声。
+
+        confirm 这个事件是 WebUI.confirm 拿着它自己的锁时发的，所以这里的回调不能做慢的事、更不能反过来找 WebUI：
+        session 收到以后只是把"发一条确认请求"排进发送队列（见 router.Outbox），马上返回。
+        """
+        event_id = super().publish(type, **data)
+        if self._replaying:
+            return event_id
+        if type == "confirm":
+            self._on_confirm(event_id, data["description"], data.get("agent", ""))
+        elif type == "confirm_done":
+            self._on_settled(data["confirm"], data["allowed"], data.get("stopped", False))
+        elif type == "tool_call":
+            self.activity = data["summary"]
+            self.answer = ""
+        elif type == "subagent":
+            self._subagent(data)
+        return event_id
+
+    def _subagent(self, data: dict) -> None:
+        """子 Agent 的一步进展（WebUI.subagent 发的事件）。聊天里只说三件事：交给了谁、哪一步没问你就放行了、做完了没有。"""
+        step, name, run = data.get("step"), str(data.get("agent", "")), str(data.get("run", ""))
+        if step == "start":
+            self._on_notice("info", t("交给「{agent}」：{task}", agent=name, task=short(str(data.get("task", "")), 200)))
+        elif step == "tool_call":
+            self._sub_doing[run] = str(data.get("summary", ""))
+            self.activity = t("「{agent}」：{summary}", agent=name, summary=data.get("summary", ""))
+        elif step == "auto":
+            self._on_auto(t("「{agent}」：{summary}", agent=name, summary=self._sub_doing.get(run, "")))
+        elif step == "done":
+            self._sub_doing.pop(run, None)
+            status = data.get("status")
+            if status == "failed":
+                error = data.get("error")
+                self._on_notice("error", t("「{agent}」出错了：{error}", agent=name, error=error.get("text", "") if isinstance(error, dict) else error or ""))
+            elif status == "stopped":
+                self._on_notice("info", t("「{agent}」被中断了。", agent=name))
+            else:
+                self._on_notice("info", t("「{agent}」做完了，回答交给了主助手。", agent=name))
+
+    def load_events(self, saved: list[dict]) -> None:
+        """接着一段保存过的会话聊：把它的事件放回日志（之后存盘时才不会丢了以前的），但不往聊天里发任何东西。"""
+        self._replaying = True
+        try:
+            super().load_events(saved)
+        finally:
+            self._replaying = False
+
+    def begin_turn(self, user_text: str, attachments=()) -> None:
+        self.activity = ""
+        self.answer = ""
+        super().begin_turn(user_text, attachments)
+
+    def text(self, text: str) -> None:
+        super().text(text)
+        self._pending += text
+        self.answer += text
+
+    def end_stream(self) -> None:
+        super().end_stream()
+        if self._pending.strip():
+            self._on_text(self._pending)
+        self._pending = ""
+
+    def auto_allowed(self) -> None:
+        super().auto_allowed()
+        self._on_auto(self.activity)
+
+    def info(self, text: str) -> None:
+        super().info(text)
+        self._on_notice("info", text)
+
+    def error(self, text: str) -> None:
+        super().error(text)
+        self._on_notice("error", text)
+
+    def notice(self, level: str, text: str) -> None:
+        super().notice(level, text)
+        self._on_notice(level, text)

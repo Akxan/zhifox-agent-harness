@@ -184,6 +184,8 @@ def serve(make_config, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # 默认只有 Claude 的 key 是设置好的
     # 测试里绝不真的去打开访达：把"在文件管理器里显示"换成只记下路径
     monkeypatch.setattr(server_module, "reveal_in_file_manager", revealed.append)
+    # 当作这台电脑有文件管理器（CI 的 Linux 机器上没有图形界面）。没有的时候怎么回答，见 test_reveal_without_a_desktop
+    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
 
     def serve(*replies, others=(), other_models=("deepseek-flash", "deepseek-v4-pro"), **config_overrides):
         api = FakeAPI(list(replies)).start()
@@ -1545,10 +1547,10 @@ def test_revealing_a_conversation_shows_its_own_file(serve):
     folder = s.config.conversations_dir
 
     # 页面只给编号，路径是服务器自己算出来的
-    assert s.browser.post("/api/conversation/reveal", {"id": first}) == (200, {"ok": True, "path": str(folder / f"{first}.json")})
-    assert s.browser.post("/api/conversation/reveal", {"id": second}) == (200, {"ok": True, "path": str(folder / f"{second}.json")})
+    assert s.browser.post("/api/conversation/reveal", {"id": first}) == (200, {"ok": True, "path": str(folder / f"{first}.json"), "opened": True})
+    assert s.browser.post("/api/conversation/reveal", {"id": second}) == (200, {"ok": True, "path": str(folder / f"{second}.json"), "opened": True})
     # 编号为空：显示保存会话的那个文件夹
-    assert s.browser.post("/api/conversation/reveal", {"id": ""}) == (200, {"ok": True, "path": str(folder)})
+    assert s.browser.post("/api/conversation/reveal", {"id": ""}) == (200, {"ok": True, "path": str(folder), "opened": True})
     assert s.revealed == [folder / f"{first}.json", folder / f"{second}.json", folder]
     # 只是看一眼文件在哪儿：会话本身和列表都没有变化
     assert listed(latest_state(s.browser)) == [(second, "第二段"), (first, "第一段")]
@@ -1634,6 +1636,7 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
     for file in (plain, tricky):
         file.write_text("{}", encoding="utf-8")
 
+    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
     monkeypatch.setattr(server_module.sys, "platform", "darwin")
     server_module.reveal_in_file_manager(plain)
     server_module.reveal_in_file_manager(tricky)
@@ -1903,7 +1906,7 @@ def test_showing_one_memory_file(serve, monkeypatch):
     s = serve()
     root = s.config.memory_dir
     write(root / "projects" / "zhifox.md")
-    assert s.browser.post("/api/memory/show", {"path": "projects/zhifox.md"}) == (200, {"ok": True, "path": str(root.resolve() / "projects" / "zhifox.md")})
+    assert s.browser.post("/api/memory/show", {"path": "projects/zhifox.md"}) == (200, {"ok": True, "path": str(root.resolve() / "projects" / "zhifox.md"), "opened": True})
     assert s.revealed == [root.resolve() / "projects" / "zhifox.md"]
     # 记忆文件夹以外的、不存在的：不打开
     for path in ("../settings.json", "/etc/passwd", "nope.md"):
@@ -1984,13 +1987,13 @@ def test_revealing_the_memory_folder(serve, monkeypatch):
     host = s.browser.host
 
     # 页面什么都不用给，打开哪个文件夹由服务器定；请求里多带一个路径也没用
-    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root)})
-    assert s.browser.post("/api/memory/reveal", {"path": "/etc/passwd", "id": "../.."}) == (200, {"ok": True, "path": str(root)})
+    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root), "opened": True})
+    assert s.browser.post("/api/memory/reveal", {"path": "/etc/passwd", "id": "../.."}) == (200, {"ok": True, "path": str(root), "opened": True})
     assert s.revealed == [root, root]
 
     # 文件夹不在了：先建一个空的（只有自己的账号能进），再打开
     shutil.rmtree(root)
-    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root)})
+    assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root), "opened": True})
     assert root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
     assert s.revealed == [root, root, root]
 
@@ -3402,9 +3405,9 @@ def test_data_files_are_revealed_by_name_only(serve):
     s = serve()
     config = s.config
     # 还没有这个文件：打开它将来所在的文件夹
-    assert s.browser.post("/api/reveal", {"what": "prompt"}) == (200, {"ok": True, "path": str(config.data_dir)})
+    assert s.browser.post("/api/reveal", {"what": "prompt"}) == (200, {"ok": True, "path": str(config.data_dir), "opened": True})
     s.app.todos.add("交报告")
-    assert s.browser.post("/api/reveal", {"what": "todos"}) == (200, {"ok": True, "path": str(config.todo_file)})
+    assert s.browser.post("/api/reveal", {"what": "todos"}) == (200, {"ok": True, "path": str(config.todo_file), "opened": True})
     assert s.revealed == [config.data_dir, config.todo_file]
     # 只认那几个名字，页面给不了路径
     for bad in ({"what": "../../etc/passwd"}, {"what": "env"}, {}, {"what": str(config.todo_file)}):

@@ -1,12 +1,23 @@
-"""程序入口：读取配置，然后启动终端界面或网页界面。"""
+"""程序入口：读取配置，然后启动终端界面、网页界面，或者在服务器上作为服务运行。
+
+    harness                       终端界面
+    harness --web                 网页界面（在浏览器里打开）
+    harness serve [--web]         服务器上的服务：定时任务和聊天通道，没有浏览器（见 serve.py）
+    harness channels ...          设置聊天通道（见 channels/cli.py）
+
+--workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
+"""
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
+from pathlib import Path
 
 from . import i18n
 from .app import App, build_app, run_turn
+from .channels import cli as channels_cli
 from .config import APP_NAME, Config, load_config
 from .i18n import k, t
 from .permissions import MODES
@@ -174,7 +185,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--web", action="store_true", help=t("使用浏览器里的图形界面，而不是终端界面"))
     parser.add_argument("--port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
     parser.add_argument("--no-browser", action="store_true", help=t("启动网页界面时不自动打开浏览器"))
+    parser.add_argument("--workspace", type=Path, default=None, help=t("工作目录：助手读写文件、执行命令的地方（默认是现在所在的目录）"))
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    serve = commands.add_parser("serve", help=t("在服务器上一直运行：定时任务和聊天通道，不开浏览器"))
+    serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))
+    serve.add_argument("--port", dest="serve_port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
+    channels_cli.add_parser(commands)
     args = parser.parse_args(argv)
+    if args.workspace is not None:
+        workspace = args.workspace.expanduser().resolve()
+        if not workspace.is_dir():
+            print(t("工作目录不存在：{path}", path=workspace), file=sys.stderr)
+            return 2
+        config = dataclasses.replace(config, workspace=workspace)
+    if args.command == "serve":
+        from .serve import run_serve  # 用到时才导入
+
+        return run_serve(config, web=args.serve_web, port=args.serve_port)
+    if args.command == "channels":
+        return channels_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

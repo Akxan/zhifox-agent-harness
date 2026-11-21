@@ -1003,6 +1003,12 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .tab[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
 .tab-count { font-size: 11.5px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .tab-count:empty { display: none; }
+/* 四个标签在窄窗口里放不下：不许把字挤成两行，放不下就横着滑（滚动条藏起来，方向键切换时会自己滚到那一个）；
+   再窄一点，图标先收起来 */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; white-space: nowrap; }
+@media (max-width: 520px) { .tab { gap: 5px; padding: 0 10px; } .tab .icon { display: none; } }
 /* 前面要带上 .settings-body：它的 padding 写在后面（padding-top 是 0），只写 .tab-panel 盖不过它，每一页的内容都会贴着标签 */
 .settings-body.tab-panel { padding-top: 14px; }
 .tab-panel[hidden] { display: none; }
@@ -1341,6 +1347,208 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   .mcp-pair .field:nth-child(2) { grid-column: 1; }
   .mcp-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .mcp-facts dd { margin-bottom: 6px; }
+}
+/* ---- 扩展 · 通道 --------------------------------------------------------------
+   在 Telegram 这类聊天软件里和智狐说话。两种视图：列表（已经接上的通道、聊天里等你批准的操作、可以接入的平台），
+   和设置向导（建机器人 → 填 token → 配对 → 确认方式）。动画只改 transform 和 opacity：换视图时淡入、
+   配对码的数字一个个落下、倒计时的那根线从右往左收（scaleX）、配对成功时对勾弹一下。 */
+.chan-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.chan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chan-lead { flex: 1 1 260px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+.settings .chan-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0; border: 0; }  /* 设置面板的 section 自带一条分隔线和上下留白，这里不要 */
+.settings .chan-section h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.chan-note { display: flex; gap: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.6; border-radius: 12px; overflow-wrap: anywhere; }
+.chan-note .icon { flex: none; margin-top: 2px; width: 15px; height: 15px; }
+.chan-note.bad { color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); }
+.chan-note.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.chan-note.calm { color: var(--ink-2); background: var(--hover); }
+.chan-note.good { color: var(--ok); background: var(--ok-soft); }
+.chan-button { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; font-size: 13px; text-decoration: none; }
+.chan-button .icon { width: 14px; height: 14px; }
+a.chan-button { color: var(--ink); line-height: 30px; }
+a.chan-button.primary { color: var(--on-ink); }
+/* 平台的标记：一个圆角方块。Telegram 用纸飞机，别的写名字的第一个字（跟着界面语言：飞书 / Feishu）。
+   颜色只是区分用的淡淡一层，两套外观里文字都是 --ink，对比度够 */
+.chan-mark { position: relative; flex: none; display: grid; place-items: center; width: 34px; height: 34px; font: 600 14px/1 var(--sans); color: var(--ink); background: var(--chan-tint, var(--hover)); border-radius: 11px; }
+.chan-mark .icon { width: 17px; height: 17px; stroke-width: 2; }
+.chan-mark[data-platform="telegram"] { --chan-tint: rgba(42, 138, 230, .16); color: #1f6fbf; }
+:root[data-theme="dark"] .chan-mark[data-platform="telegram"] { color: #7cc0ff; }
+.chan-mark[data-platform="feishu"] { --chan-tint: rgba(13, 148, 136, .14); }
+.chan-mark[data-platform="qq"] { --chan-tint: rgba(79, 107, 255, .14); }
+.chan-mark[data-platform="dingtalk"] { --chan-tint: rgba(42, 138, 230, .12); }
+.chan-mark[data-platform="discord"] { --chan-tint: rgba(139, 92, 246, .14); }
+.chan-mark[data-platform="slack"] { --chan-tint: rgba(236, 72, 153, .12); }
+.chan-mark[data-platform="whatsapp"] { --chan-tint: rgba(12, 122, 83, .13); }
+.chan-mark[data-platform="wecom"] { --chan-tint: rgba(245, 158, 11, .16); }
+/* 状态圆点挂在标记的右下角：在线是绿的，连接中有一圈向外荡开的光，出错是红的，关着是空心的 */
+.chan-dot { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: var(--ink-3); border: 2px solid var(--surface); transition: background-color .3s ease; }
+.chan-dot.online { background: var(--ok); }
+.chan-dot.connecting { background: var(--accent); }
+.chan-dot.connecting::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--accent); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.chan-dot.error { background: var(--err); }
+.chan-dot.off { background: var(--surface); box-shadow: inset 0 0 0 1.6px var(--ink-3); }
+/* 还没有接上任何通道：一张说明卡片，右边一部"手机"，里面的气泡慢慢浮动（只改 transform，减少动画时不动） */
+.chan-hero { position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 26px 26px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; }
+.chan-hero::before { content: ""; position: absolute; right: -70px; top: -90px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(closest-side, var(--a1), transparent); opacity: .13; pointer-events: none; }
+.settings .chan-hero h3 { position: relative; margin: 0 0 8px; font: 600 21px/1.25 var(--serif); letter-spacing: 0; color: var(--ink); }
+.chan-hero p { position: relative; max-width: 42em; margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.chan-hero .row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.chan-cli { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.chan-cli code, .chan-howto code, .chan-pane code { padding: 1px 5px; font: 12px var(--mono); color: var(--ink); background: var(--hover); border-radius: 5px; }
+.chan-phone { position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 7px; width: 118px; height: 156px; padding: 18px 11px 14px; background: var(--sheet); border: 1.5px solid var(--line-2); border-radius: 22px; box-shadow: var(--shadow-1); }
+.chan-phone::before { content: ""; position: absolute; top: 8px; left: 50%; width: 30px; height: 4px; border-radius: 4px; background: var(--line-2); transform: translateX(-50%); }
+.chan-phone i { display: block; height: 13px; border-radius: 8px 8px 8px 3px; background: var(--hover); animation: chan-float 3.6s ease-in-out infinite alternate; }
+.chan-phone i:nth-child(1) { width: 72%; }
+.chan-phone i:nth-child(2) { width: 58%; align-self: flex-end; border-radius: 8px 8px 3px 8px; background: var(--aurora-solid); opacity: .85; animation-delay: -1.2s; }
+.chan-phone i:nth-child(3) { width: 84%; animation-delay: -2.1s; }
+.chan-phone i:nth-child(4) { width: 46%; align-self: flex-end; border-radius: 8px 8px 3px 8px; background: var(--aurora-solid); opacity: .85; animation-delay: -.6s; }
+@keyframes chan-float { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+:root[data-motion="reduce"] .chan-phone i { animation: none !important; }
+/* 聊天里等你批准的操作：放在最上面，黄色的底，命令原样显示 */
+.chan-asks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.chan-ask { min-width: 0; padding: 13px 15px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; }
+.chan-ask-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--warn); }
+.chan-ask-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-ask-head .icon { flex: none; width: 15px; height: 15px; }
+.chan-ask pre { max-height: 220px; overflow: auto; margin: 10px 0; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+.chan-ask .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 已经接上的通道：一个平台一行，和 MCP 服务器、会话的行一个样子。右边是开关，最右边一格平时写着最后一次说话的时间，
+   悬停（或者键盘移到这一行）时淡出，换成按钮（重新配对，然后是在访达中显示、编辑、删除），只改透明度，开关不挪位置 */
+.chan-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chan-row { position: relative; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s ease, box-shadow .2s ease; }
+.chan-row:hover, .chan-row:focus-within { border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.chan-main { position: relative; display: flex; align-items: center; gap: 10px; min-height: 68px; }
+.chan-open { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 13px 0 13px 15px; font: inherit; color: inherit; text-align: left; background: none; border: 0; border-radius: 14px; }
+.chan-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.chan-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chan-name { min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-bot { min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-meta { font-size: 12px; line-height: 1.45; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-error { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 12px; line-height: 1.55; color: var(--err); overflow-wrap: anywhere; }
+.chan-flag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
+.chan-flag.calm { color: var(--ink-3); background: var(--hover); border-color: transparent; }
+.chan-slot { position: relative; flex: none; align-self: stretch; width: 150px; }
+.chan-when { position: absolute; right: 14px; top: 50%; max-width: 136px; transform: translateY(-50%); font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .15s ease; }
+.chan-main:hover .chan-when, .chan-main:focus-within .chan-when { opacity: 0; }
+.chan-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.chan-main:hover .chan-actions, .chan-main:focus-within .chan-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .chan-actions { opacity: 1; pointer-events: auto; } .chan-when { display: none; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+.chan-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.chan-switch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; background: var(--line-3); border: 0; border-radius: 999px; transition: background-color .2s ease; }
+.chan-switch::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .3s var(--spring); }
+.chan-switch[aria-checked="true"] { background: var(--ok); }
+.chan-switch[aria-checked="true"]::after { transform: translateX(15px); }
+.chan-switch:disabled { opacity: .45; }
+.chan-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px; font-size: 13px; }
+.chan-confirm span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+/* 这个通道里正在进行的对话：一行一个聊天，写着在做什么，旁边一个"停止" */
+.chan-chats { display: grid; gap: 4px; margin: 0; padding: 0 14px 12px 61px; list-style: none; }
+.chan-chat { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-2); }
+.chan-chat > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-chat i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+.chan-chat.waiting i { background: var(--warn-dot); }
+/* 可以接入的平台：一张卡片一个，现在能用的是实线、能点；以后才做的是虚线，写着要什么、为什么 */
+.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.chan-card { position: relative; display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 14px 15px 15px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; transition: transform .25s var(--ease), box-shadow .25s ease, border-color .15s ease; }
+.chan-card.ready:hover { transform: translateY(-2px); border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.chan-card.dim { background: none; border-style: dashed; border-color: var(--line-2); }
+.chan-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.chan-card-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-stage { flex: none; max-width: 60%; padding: 0 7px; font-size: 11px; line-height: 1.65; color: var(--ink-3); background: var(--hover); border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-stage.ready { color: var(--ok); background: var(--ok-soft); }
+.chan-stage.public_url { color: var(--warn); background: var(--warn-soft); }
+.chan-stage.unsupported { color: var(--err); background: var(--err-soft); }
+.chan-needs { margin: 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; text-wrap: pretty; }
+.chan-card .chan-button { align-self: flex-start; margin-top: auto; }
+/* 向导：顶上一行返回和标题，下面四步，再下面是这一步的内容，最下面一条贴底的按钮栏 */
+.chan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chan-back { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px 0 6px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 9px; }
+.chan-back:hover { color: var(--ink); background: var(--hover); }
+.chan-back .icon { transform: scaleX(-1); }
+.settings .chan-title { flex: 1 1 160px; min-width: 0; display: flex; align-items: center; gap: 10px; margin: 0; font-size: 17px; font-weight: 600; }
+.settings .chan-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-stepper { position: relative; padding-bottom: 10px; }
+.chan-stepper::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--hover); }
+.chan-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chan-progress { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--aurora-solid); transform-origin: left; transition: transform .5s var(--ease); }
+.chan-step { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 7px 8px; font-size: 12.5px; color: var(--ink-3); text-align: left; background: none; border: 0; border-radius: 10px; }
+.chan-step:disabled { opacity: 1; cursor: default; }
+.chan-step:not(:disabled):hover { color: var(--ink); background: var(--hover); }
+.chan-step b { flex: none; display: grid; place-items: center; width: 22px; height: 22px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; border: 1.5px solid var(--line-2); border-radius: 50%; transition: background-color .2s ease, color .2s ease, border-color .2s ease; }
+.chan-step b .icon { width: 12px; height: 12px; stroke-width: 2.6; }
+.chan-step span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-step[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.chan-step[aria-current="step"] b { color: var(--on-ink); background: var(--accent); border-color: transparent; }  /* --on-ink：浅色里是白字，深色里是深字，在两种强调色上对比度都够 */
+.chan-step.done b { color: var(--ok); border-color: var(--ok); }
+.chan-pane { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.settings .chan-pane h4 { margin: 0; font: 600 19px/1.3 var(--serif); color: var(--ink); }
+.chan-pane > p { max-width: 46em; margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.chan-howto { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: chan-how; }
+.chan-howto li { position: relative; min-height: 24px; padding-left: 36px; font-size: 13px; line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+.chan-howto li::before { counter-increment: chan-how; content: counter(chan-how); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 24px; height: 24px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 8px; }
+.chan-howto .chan-button { margin-top: 8px; }
+.settings .chan-field { display: grid; align-items: stretch; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.chan-token { display: flex; gap: 6px; min-width: 0; }
+.chan-token .field { flex: 1; min-width: 0; font: 13px var(--mono); color: var(--ink); }
+.chan-token .icon-button { flex: none; width: 36px; height: 36px; border: 1px solid var(--line-2); border-radius: 10px; }
+.chan-token .icon-button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.chan-help { font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+/* 配对码：6 个数字分成两组，一个个落下来；下面一根线跟着剩下的时间从右往左收 */
+.chan-code { display: flex; align-items: center; justify-content: center; gap: clamp(4px, 1.4vw, 8px); padding: 22px 10px 18px; background: var(--sunken); border-radius: 18px; }
+.chan-digit { display: grid; place-items: center; width: clamp(32px, 8.6vw, 52px); height: clamp(44px, 11.5vw, 66px); font: 600 clamp(22px, 5.6vw, 34px)/1 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-1); }
+.chan-gap { flex: none; width: clamp(6px, 2vw, 14px); }
+.chan-timer { position: relative; height: 4px; overflow: hidden; background: var(--hover); border-radius: 4px; }
+.chan-timer i { position: absolute; inset: 0; background: var(--aurora-solid); border-radius: 4px; transform-origin: left; animation: chan-drain linear forwards; }
+@keyframes chan-drain { from { transform: scaleX(var(--from, 1)); } to { transform: scaleX(0); } }
+:root[data-motion="reduce"] .chan-timer i { animation: none !important; transform: scaleX(var(--left, 1)); }  /* 不播动画：每秒跟着剩下的时间停在那儿 */
+.chan-code-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chan-code-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.chan-paired { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 18px; color: var(--ok); background: var(--ok-soft); border-radius: 16px; }
+.chan-paired > div { min-width: 0; display: grid; gap: 2px; }
+.chan-paired b { font-size: 15px; overflow-wrap: anywhere; }
+.chan-paired span { font-size: 12.5px; color: var(--ink-2); }
+.chan-check { flex: none; display: grid; place-items: center; width: 40px; height: 40px; color: var(--on-ink); background: var(--ok); border-radius: 50%; }
+.chan-check .icon { width: 20px; height: 20px; stroke-width: 2.6; }
+/* 确认方式：三个选项，和定时任务里选的样子一样 */
+.chan-modes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.chan-mode { position: relative; display: grid; gap: 2px; min-width: 0; padding: 11px 42px 12px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 13px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s var(--ease); }
+.chan-mode:hover { border-color: var(--ink-3); }
+.chan-mode:active { transform: scale(.99); }
+.chan-mode b { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.chan-mode span { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.chan-mode .icon { position: absolute; right: 14px; top: 13px; width: 15px; height: 15px; color: var(--accent); opacity: 0; transform: scale(.5); transition: opacity .15s ease, transform .3s var(--spring); }
+.chan-mode[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chan-mode[aria-checked="true"] .icon { opacity: 1; transform: none; }
+.chan-mode[data-mode="all"][aria-checked="true"] { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.chan-mode[data-mode="all"][aria-checked="true"] .icon { color: var(--err); }
+/* 向导的底栏：贴在这一页的底部，和 MCP 的表单一样 */
+.chan-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 4px -22px 0; padding: 12px 22px 14px; background: var(--sheet); border-top: 1px solid var(--line); }
+.chan-foot .chan-help { flex: 1 1 200px; min-width: 0; margin: 0 auto 0 0; }
+.chan-foot .chan-help.bad { color: var(--err); }
+.chan-foot .chan-help.good { color: var(--ok); }
+.extensions:has(#panel-channels:not([hidden]) .chan-foot) #extensions-message { display: none; }
+.chan-link { padding: 0; font-size: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; white-space: nowrap; }
+.chan-link:hover { color: var(--ink); }
+/* 主区域顶上：聊天里有一个操作在等你批准（和定时任务的那条提示一个位置；两条都有时，这一条排在下面） */
+.chan-alert { position: absolute; z-index: 5; top: 62px; left: 50%; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 32px); padding: 5px 6px 5px 13px; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--warn-line); border-radius: 999px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
+.chan-alert[hidden] { display: none; }
+.task-alert:not([hidden]) ~ .chan-alert { top: 104px; }
+.chan-alert-open { display: inline-flex; align-items: center; gap: 7px; min-width: 0; padding: 0 4px 0 0; font: inherit; color: inherit; background: none; border: 0; }
+.chan-alert-open span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-alert-open .icon { flex: none; width: 14px; height: 14px; color: var(--warn); }
+.chan-alert .mini { flex: none; border-radius: 999px; }
+@media (max-width: 640px) {
+  /* 窄窗口：说明卡片里的"手机"收起来；一行放不下名字、开关和按钮时，开关和按钮挪到第二行；四步只留数字 */
+  .chan-hero { grid-template-columns: minmax(0, 1fr); padding: 22px 18px 20px; }
+  .chan-phone { display: none; }
+  .chan-main { flex-wrap: wrap; gap: 0; padding-bottom: 6px; }
+  .chan-open { flex: 1 0 100%; padding-right: 14px; padding-bottom: 4px; }
+  .chan-main > .chan-switch { margin-left: 61px; }
+  .chan-slot { flex: 1; align-self: center; height: 32px; width: auto; }
+  .chan-chats { padding-left: 15px; }
+  .chan-step { justify-content: center; }
+  .chan-step span { display: none; }
+  .chan-foot .chan-help { flex-basis: 100%; }
 }
 .memory-dialog .settings-head { align-items: flex-start; gap: 12px; }
 .memory-head { min-width: 0; }
@@ -1809,6 +2017,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17zM12 7.5V12l3 2"/></symbol>
   <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M9 4.5a2 2 0 1 1 4 0V6h4v4h1.5a2 2 0 1 1 0 4H17v4h-4v-1.5a2 2 0 1 0-4 0V18H5v-4h1.5a2 2 0 1 0 0-4H5V6h4z"/></symbol>
   <symbol id="i-skill" viewBox="0 0 24 24"><path d="M12 3.5l2.1 5 5.4.5-4.1 3.6 1.2 5.3L12 15.1l-4.6 2.8 1.2-5.3L4.5 9l5.4-.5z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M20.5 3.5L3.6 10.2a.6.6 0 0 0 0 1.1l6.6 2.5 2.5 6.6a.6.6 0 0 0 1.1 0zM20.5 3.5l-10.3 10.3"/></symbol>
   <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5V8M15 3.5V8M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5v4"/></symbol>
   <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 3.5v3M6.5 6.5h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM9.5 11.5v1M14.5 11.5v1M9.5 15.5h5"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
@@ -1905,13 +2114,14 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="stage">
       <button id="task-alert" class="task-alert" type="button" hidden><i class="task-alert-dot"></i><span id="task-alert-text"></span></button>
+      <div id="chan-alert" class="chan-alert" role="group" hidden><button id="chan-alert-open" class="chan-alert-open" type="button"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span id="chan-alert-text"></span></button><button id="chan-alert-allow" class="mini primary" type="button" data-i18n>允许</button><button id="chan-alert-deny" class="mini" type="button" data-i18n>拒绝</button></div>
       <header class="bar">
         <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
         <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <button id="persona" class="persona-chip" type="button" hidden><span class="agents-dot" aria-hidden="true"></span><span id="persona-name"></span></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
-          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、Agent" aria-label="扩展：Skill、MCP、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
+          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent" aria-label="扩展：Skill、MCP、通道、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
           <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
@@ -2172,17 +2382,19 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   <div class="settings-head">
     <div class="extensions-head">
       <h2 id="extensions-title" data-i18n>扩展</h2>
-      <p class="extensions-sub" data-i18n>Skill 教助手做事的方法，MCP 给它接上外部的工具，Agent 是你定制的助手。</p>
+      <p class="extensions-sub" data-i18n>Skill 教助手做事的方法，MCP 给它接上外部的工具，通道让你在 Telegram 这类聊天软件里和它说话，Agent 是你定制的助手。</p>
     </div>
     <button id="close-extensions" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
   <div class="tabs" role="tablist" aria-label="扩展的种类" data-i18n-aria-label>
     <button id="tab-skills" class="tab" type="button" role="tab" aria-controls="panel-skills" data-tab="skills"><svg class="icon" aria-hidden="true"><use href="#i-skill"/></svg><span data-i18n>Skill</span><span id="count-skills" class="tab-count"></span></button>
     <button id="tab-mcp" class="tab" type="button" role="tab" aria-controls="panel-mcp" data-tab="mcp"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n>MCP</span><span id="count-mcp" class="tab-count"></span></button>
+    <button id="tab-channels" class="tab" type="button" role="tab" aria-controls="panel-channels" data-tab="channels"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span data-i18n>通道</span><span id="count-channels" class="tab-count"></span></button>
     <button id="tab-agents" class="tab" type="button" role="tab" aria-controls="panel-agents" data-tab="agents"><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>Agent</span><span id="count-agents" class="tab-count"></span></button>
   </div>
   <div id="panel-skills" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-skills" tabindex="0"></div>
   <div id="panel-mcp" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0" hidden></div>
+  <div id="panel-channels" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-channels" tabindex="0" hidden></div>
   <div id="panel-agents" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" hidden></div>
   <div id="extensions-message" class="settings-message" role="status"></div>
 </dialog>
@@ -3112,6 +3324,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       renderSpend(event.spend);
       renderTools(event.tools);
       renderMcpState(event.mcp);
+      renderChannelsState(event.channels);
       if (settings.open) renderSettings();
       renderApproval(event.approval);
 
@@ -4144,9 +4357,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     if (!item || !item.id) return;
     const reply = await call('/api/media/reveal', { id: item.id });
     if (!reply.ok) { notify(reply.error); return; }
-    const parts = String(reply.data.path || '').split('/');
-    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-    notify(onMac() ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
+    notify(revealedText(reply.data.path));
   }
 
   // 定位到会话：打开这个附件所在的会话，滚到那一排附件、让那一张亮一下（见 reveal）。
@@ -4577,14 +4788,26 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   const ON_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
   const SHOW_FILE = ON_MAC ? k('在访达中显示') : k('在文件夹中显示');
 
+  // 在文件管理器里显示了一个文件之后说的那句话。助手程序所在的电脑没有文件管理器时（服务器上，状态里的 file_manager
+  // 是 false），什么都打不开，就改成告诉你文件在哪儿，给完整的路径
+  function revealedText(path) {
+    const full = String(path || '');
+    if (state && state.file_manager === false) return t('这台电脑上没有文件管理器。文件在：{path}', { path: full });
+    const parts = full.split('/');
+    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
+    return ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown });
+  }
+
+  // 会话列表里，在聊天通道里聊的那几段标着平台的名字（名字由助手程序给，见"扩展 · 通道"一节）
+  const channelLabel = (id) => { const item = chanFind(id); return item ? item.label : id; };
+
+
   // 请助手程序在系统的文件管理器里显示一段会话的文件（编号为空时显示保存会话的那个文件夹）。
   // 页面只说"哪一段"，文件在哪儿由助手程序自己算，页面指定不了别的路径。
   async function showFile(id) {
     const reply = await call('/api/conversation/reveal', { id });
     if (!reply.ok) { toast(reply.error); return; }
-    const parts = String(reply.data.path || '').split('/');
-    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-    toast(ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
+    toast(revealedText(reply.data.path));
   }
 
   function renderConversations() {
@@ -4726,7 +4949,8 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       // 定时任务跑出来的会话标一下，免得以为是自己聊的；用 Agent 开始的，前面是那个 Agent 的名字（带着它的颜色）
       const meta = open.appendChild(el('span', 'conv-meta'));
       if (item.agent) meta.appendChild(el('span', 'persona-badge', item.agent)).dataset.color = (agentByName(item.agent) || {}).color || '';
-      meta.appendChild(document.createTextNode((item.task ? t('定时任务') + ' · ' : '') + item.model + ' · ' + timeLabel(item.updated_at)));
+      const origin = item.task ? t('定时任务') + ' · ' : item.channel ? channelLabel(item.channel) + ' · ' : '';  // 在聊天通道里聊的，标着是哪个平台
+      meta.appendChild(document.createTextNode(origin + item.model + ' · ' + timeLabel(item.updated_at)));
     }
     open.addEventListener('click', () => {
       const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
@@ -4962,9 +5186,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   async function revealData(what, say = toast) {
     const reply = await call('/api/reveal', { what });
     if (!reply.ok) { say(reply.error, true); return; }
-    const parts = String(reply.data.path || '').split('/');
-    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-    say(ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown }));
+    say(revealedText(reply.data.path));
   }
 
   function renderTools(tools) {
@@ -4997,7 +5219,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   // 超没超预算还一直写在费用卡片上，底部的费用按钮上也有一个红点。
 
   const spendDialog = $('spend-dialog'), spendBody = $('spend-body');
-  const SOURCES = { chat: k('对话'), task: k('定时任务'), subagent: k('子 Agent') };
+  const SOURCES = { chat: k('对话'), task: k('定时任务'), subagent: k('子 Agent'), channel: k('聊天通道') };
   const PERIODS = { month: k('本月'), recent: k('最近 {n} 天'), all: k('全部') };
   let spendReport = null, spendProblem = '', spendLoading = false, spendAgain = false;
   let spendPick = -1;        // 柱状图上选中的是哪一天（下标）；-1 表示还没选，默认是今天
@@ -5873,9 +6095,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   // 在文件管理器里显示一条记忆的文件。页面给的是列表里的相对路径，文件到底在哪儿由助手程序重新算
   async function showMemoryFile(path) {
     const reply = await call('/api/memory/show', { path });
-    const parts = String(reply.data.path || '').split('/');
-    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-    const said = reply.ok ? (ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown })) : reply.error;
+    const said = reply.ok ? revealedText(reply.data.path) : reply.error;
     memorySay(said, !reply.ok);
   }
 
@@ -7224,14 +7444,14 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     $('prompt-preview').textContent = '';
   });
 
-  // ---- 扩展：Skill、MCP、Agent -----------------------------------------------
-  // 一个对话框，三个标签页。这一节只管"壳"：打开、关上、切换标签页、记住上次看的是哪一页。
-  // 每一页里的内容由各自那一节画（见下面的 Skill、MCP、Agent 三节），它们通过 extensionTabs 挂上来：
+  // ---- 扩展：Skill、MCP、通道、Agent -----------------------------------------
+  // 一个对话框，四个标签页。这一节只管"壳"：打开、关上、切换标签页、记住上次看的是哪一页。
+  // 每一页里的内容由各自那一节画（见下面的 Skill、MCP、通道、Agent 几节），它们通过 extensionTabs 挂上来：
   //   extensionTabs.skills = { open() { …这一页被打开时调用，适合在这时去读列表… } }
   // 切换标签页按的是 WAI-ARIA 的"标签页"模式：左右方向键在标签之间移动，Home / End 到头尾。
 
   const extensionsDialog = $('extensions');
-  const TABS = ['skills', 'mcp', 'agents'];
+  const TABS = ['skills', 'mcp', 'channels', 'agents'];
   const extensionTabs = {};
   let extensionTab = 'skills';
   try { if (TABS.includes(localStorage.getItem('harness.extensions-tab'))) extensionTab = localStorage.getItem('harness.extensions-tab'); } catch (_) { /* 隐私模式下读不了，用默认的 */ }
@@ -7677,6 +7897,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     const reply = await call('/api/skill/reveal', name ? { name } : {});
     const shown = shortPath(reply.data.path);
     const said = !reply.ok ? { text: reply.error, bad: true }
+      : state && state.file_manager === false ? { key: k('这台电脑上没有文件管理器。文件在：{path}'), values: { path: String(reply.data.path || '') }, good: true }
       : name ? { key: ON_MAC ? k('已在访达中显示：{path}') : k('已在文件夹中显示：{path}'), values: { path: shown }, good: true }
         : { key: ON_MAC ? k('已在访达中打开：{path}') : k('已打开文件夹：{path}'), values: { path: shown }, good: true };
     if (view && skillView === view) { view.said = said; paintSkill(); }
@@ -8729,9 +8950,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 
   async function revealMcpFile() {
     const reply = await call('/api/mcp/reveal');
-    const parts = String(reply.data.path || '').split('/');
-    const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-    mcpSay(reply.ok ? (ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown })) : reply.error, reply.ok ? 'good' : 'bad');
+    mcpSay(reply.ok ? revealedText(reply.data.path) : reply.error, reply.ok ? 'good' : 'bad');
   }
 
   // ---- 详情 ----
@@ -9816,6 +10035,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     const reply = await call('/api/agent/reveal', name ? { name } : {});
     const shown = shortPath(reply.data.path);
     const said = !reply.ok ? { text: reply.error, bad: true }
+      : state && state.file_manager === false ? { key: k('这台电脑上没有文件管理器。文件在：{path}'), values: { path: String(reply.data.path || '') }, good: true }
       : name ? { key: ON_MAC ? k('已在访达中显示：{path}') : k('已在文件夹中显示：{path}'), values: { path: shown }, good: true }
         : { key: ON_MAC ? k('已在访达中打开：{path}') : k('已打开文件夹：{path}'), values: { path: shown }, good: true };
     if (view && agentView === view) { view.said = said; paintAgent(); }
@@ -10609,6 +10829,832 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     if (!persona) return;
     openExtensions('agents');
     if (agentByName(persona.name)) openAgent(persona.name);
+  });
+
+  // ---- 扩展 · 通道 -------------------------------------------------------------
+  // 在 Telegram 这类聊天软件里和智狐说话（见 harness/channels/）。这一页有两种视图：
+  //   list    已经接上的通道（状态、绑定的账号、最后一次说话、聊天里正在做什么）、聊天里等你批准的操作、可以接入的平台
+  //   wizard  设置向导：1 建一个机器人 → 2 填 token（助手程序去问 Telegram 认不认）→ 3 配对 → 4 选确认方式
+  // 列表跟着状态走（state.channels，格式见 channels/hub.py 的 snapshot），内容没变就不重画。
+  // 平台的名单、各自到了哪一步，是助手程序给的（channels/platforms.py），页面不另抄一份。
+  // token 只在你点"验证并连接"时发给助手程序一次，之后页面上只有最后 4 位；关掉对话框时输入框连同内容一起清掉。
+  // 聊天里等你批准的操作，除了这一页，主区域顶上也有一条提示（chan-alert），不用打开对话框就能答复。
+
+  const chanPanel = $('panel-channels');
+  const CHAN_STATUS = { online: k('在线'), connecting: k('连接中'), error: k('有问题'), off: k('已关闭') };
+  const CHAN_STAGE = { ready: k('现在能用'), soon: k('即将支持'), public_url: k('需要公网地址 · 第二阶段'), unsupported: k('不支持') };
+  const CHAN_STEPS = [k('建机器人'), k('填 token'), k('配对'), k('确认方式')];
+  const CHAN_MODES = [
+    { mode: 'ask', text: k('改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。') },
+    { mode: 'edits', text: k('创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。') },
+    { mode: 'all', text: k('执行命令、改文件、读工作目录之外的文件，都不再问。') },
+  ];
+  let chanState = null;            // 状态里的 channels：{problem, file, platforms, approvals}
+  let chanView = { kind: 'list' };
+  let chanDrawn = '';
+  let chanDeleting = null;         // 正在原地确认删除的那个平台
+  const chanPending = new Set();   // 正在等回答的操作（按平台）。这期间那一行的按钮不能再点
+  let chanTicker = 0;              // 配对码的倒计时：每秒改一次文字（不是动画）
+  let chanAsked = null;            // 上一次看到的、聊天里等你批准的那些（新出现的才播报）
+
+  const chanFind = (id) => (chanState ? chanState.platforms.find((item) => item.id === id) : null);
+  const chanConnected = () => (chanState ? chanState.platforms.filter((item) => item.stage === 'ready' && item.configured) : []);
+  const chanKey = (ask) => ask.platform + ':' + ask.chat + ':' + ask.id;
+  const oneLine = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+
+  function chanNote(kind, text, iconName) {
+    const box = el('div', 'chan-note ' + kind);
+    box.setAttribute('role', kind === 'bad' ? 'alert' : 'note');
+    box.appendChild(icon(iconName || (kind === 'calm' ? 'spark' : kind === 'good' ? 'check' : 'alert')));
+    box.appendChild(el('span', null, text));
+    return box;
+  }
+
+  function chanButton(iconName, text, extra) {
+    const button = el('button', 'button chan-button' + (extra ? ' ' + extra : ''));
+    button.type = 'button';
+    if (iconName) button.appendChild(icon(iconName));
+    button.appendChild(tel('span', null, text));
+    return button;
+  }
+
+  // 一个打开外部网页的链接（BotFather、和机器人的聊天）。在新标签页里打开，不带上这个页面的地址（里面有口令）
+  function chanLink(href, text, extra) {
+    const link = el('a', 'button chan-button' + (extra ? ' ' + extra : ''));
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.append(icon('external'), tel('span', null, text));
+    return link;
+  }
+
+  // 平台的标记：Telegram 是一架纸飞机，别的写名字的第一个字。状态圆点挂在右下角（只有接上了的才有）
+  function chanMark(item, status) {
+    const mark = el('span', 'chan-mark');
+    mark.dataset.platform = item.id;
+    if (item.id === 'telegram') mark.appendChild(icon('send'));
+    else mark.textContent = Array.from(item.label || '?')[0].toUpperCase();
+    if (status) mark.appendChild(el('i', 'chan-dot ' + status));
+    mark.setAttribute('aria-hidden', 'true');
+    return mark;
+  }
+
+  // 换一种视图：换掉整页的内容。从别的视图换过来的话，回到顶上、内容淡入；焦点放到 focus 指定的那个元素上
+  function chanShow(nodes, kind, focus) {
+    const fresh = chanPanel.dataset.view !== kind;
+    const kept = !fresh && chanPanel.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+    const keptScroll = chanPanel.scrollTop;
+    chanPanel.dataset.view = kind;
+    const wrap = el('div', 'chan-view');
+    wrap.append(...nodes);
+    chanPanel.replaceChildren(wrap);
+    if (fresh) {
+      chanPanel.scrollTop = 0;
+      play(wrap, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], 240);
+    } else {
+      chanPanel.scrollTop = keptScroll;  // 状态更新时重画：别把正在看的位置弄丢
+    }
+    const target = focus || kept;
+    if (target) {
+      const again = chanPanel.querySelector('[data-focus="' + CSS.escape(target) + '"]');
+      if (again) again.focus({ preventScroll: !fresh });
+    }
+  }
+
+  // 一个 POST 请求，等回答的这段时间把这个平台标成"忙"（按钮暂时不能点）
+  async function chanAct(platform, path, data) {
+    chanPending.add(platform);
+    if (chanView.kind === 'list') drawChanList();
+    const reply = await call(path, { platform, ...data });
+    chanPending.delete(platform);
+    drawChannels();
+    return reply;
+  }
+
+  function renderChannelsState(data) {
+    chanState = data && Array.isArray(data.platforms) ? data : null;
+    const connected = chanConnected().length;
+    $('count-channels').textContent = connected ? connected.toLocaleString(LOCALES[language]) : '';
+    renderChanAlert();
+    if (extensionsDialog.open && extensionTab === 'channels') drawChannels();
+  }
+
+  function drawChannels() {
+    if (!chanState) return;
+    if (chanView.kind === 'list') drawChanList();
+    else drawChanWizard();
+  }
+
+  // ---- 列表 ----
+
+  function drawChanList(focus) {
+    // "5 分钟前"这类时间每分钟要重写一次，所以把现在是第几分钟也算进"变了没有"里
+    const print = JSON.stringify([chanState, chanDeleting, [...chanPending], language, Math.floor(Date.now() / 60000)]);
+    if (!focus && print === chanDrawn && chanPanel.dataset.view === 'list') return;
+    chanDrawn = print;
+    const nodes = [chanToolbar()];
+    if (chanState.problem) nodes.push(chanNote('bad', chanState.problem));
+    if (chanState.approvals.length) nodes.push(chanAsks());
+    const connected = chanConnected();
+    if (connected.length) {
+      const section = el('section', 'chan-section');
+      section.appendChild(el('h3', null, t('已经接上的通道')));
+      const list = section.appendChild(el('ul', 'chan-list'));
+      list.setAttribute('aria-label', t('已经接上的通道'));
+      list.append(...connected.map(chanRow));
+      nodes.push(section);
+    } else {
+      nodes.push(chanHero());
+    }
+    const section = el('section', 'chan-section');
+    section.appendChild(el('h3', null, t('可以接入的平台')));
+    const grid = section.appendChild(el('ul', 'chan-grid'));
+    grid.setAttribute('aria-label', t('可以接入的平台'));
+    grid.append(...chanState.platforms.map(chanCard));
+    nodes.push(section);
+    chanShow(nodes, 'list', focus);
+  }
+
+  function chanToolbar() {
+    const bar = el('div', 'chan-bar');
+    bar.appendChild(el('p', 'chan-lead', t('在手机上的聊天软件里和智狐说话，就像在这里一样。只有你配对过的账号能用；要执行命令、改文件时，照样先发到聊天里问你。')));
+    const reveal = bar.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示 channels.json') : k('在文件夹中显示 channels.json')));
+    reveal.classList.remove('small');
+    reveal.dataset.focus = 'reveal';
+    reveal.addEventListener('click', revealChannels);
+    return bar;
+  }
+
+  function chanHero() {
+    const box = el('div', 'chan-hero');
+    const words = box.appendChild(el('div'));
+    words.appendChild(el('h3', null, t('在手机上和智狐聊天')));
+    words.appendChild(el('p', null, t('接上一个 Telegram 机器人，出门在外也能让智狐查资料、看日程、在这台电脑（或者服务器）上做事。不需要公网地址：是智狐去问 Telegram 有没有你的消息，不用开端口。')));
+    words.appendChild(el('p', null, t('只有你自己的账号能用：先用一个 6 位数字配对，别人发来的消息一律不理。要执行命令、改文件时，聊天里会带着“允许 / 拒绝”按钮先问你。')));
+    const row = words.appendChild(el('div', 'row'));
+    const connect = row.appendChild(chanButton('send', k('连接 Telegram'), 'primary'));
+    connect.dataset.focus = 'connect:telegram';
+    connect.addEventListener('click', () => openChanWizard('telegram', 1));
+    const cli = row.appendChild(el('span', 'chan-cli'));
+    cli.appendChild(document.createTextNode(t('在没有浏览器的服务器上：') + ' '));
+    cli.appendChild(el('code', null, 'harness channels setup telegram'));
+    const phone = box.appendChild(el('div', 'chan-phone'));
+    phone.setAttribute('aria-hidden', 'true');
+    for (let index = 0; index < 4; index += 1) phone.appendChild(el('i'));
+    return box;
+  }
+
+  function chanAsks() {
+    const box = el('div', 'chan-asks');
+    for (const ask of chanState.approvals) {
+      const card = box.appendChild(el('div', 'chan-ask'));
+      card.setAttribute('role', 'group');
+      const head = card.appendChild(el('div', 'chan-ask-head'));
+      head.appendChild(icon('alert'));
+      const title = t('{platform} · {name} 在等你批准', { platform: ask.label, name: ask.name });
+      head.appendChild(el('span', null, title));
+      card.setAttribute('aria-label', title);
+      card.appendChild(el('pre', null, ask.summary));
+      const row = card.appendChild(el('div', 'row'));
+      const allow = row.appendChild(el('button', 'mini primary', t('允许')));
+      const deny = row.appendChild(el('button', 'mini', t('拒绝')));
+      allow.type = deny.type = 'button';
+      allow.dataset.focus = 'allow:' + chanKey(ask);
+      deny.dataset.focus = 'deny:' + chanKey(ask);
+      allow.addEventListener('click', () => chanConfirm(ask, true, allow, deny));
+      deny.addEventListener('click', () => chanConfirm(ask, false, allow, deny));
+    }
+    return box;
+  }
+
+  async function chanConfirm(ask, allow, ...buttons) {
+    for (const button of buttons) button.disabled = true;
+    const reply = await call('/api/channel/confirm', { platform: ask.platform, chat: ask.chat, confirm_id: ask.id, allow });
+    if (!reply.ok) {
+      for (const button of buttons) button.disabled = false;
+      if (extensionsDialog.open) extensionSay(null, null, 'bad', reply.error); else toast(reply.error);
+      return;
+    }
+    const said = allow ? t('已允许。聊天里那条消息上也写上了。') : t('已拒绝。聊天里那条消息上也写上了。');
+    if (extensionsDialog.open) extensionSay(null, null, 'good', said); else toast(said);
+    announce(said);
+  }
+
+  function chanMeta(item) {
+    const status = item.enabled ? item.status.state : 'off';
+    const bits = [t(CHAN_STATUS[status] || status)];
+    if (item.owner) bits.push(t('主人：{name}', { name: item.owner.name }));
+    bits.push(t(APPROVAL[item.approval] || APPROVAL.ask));
+    if (item.ignored) bits.push(item.ignored === 1 ? t('忽略了 1 条陌生人的消息') : t('忽略了 {n} 条陌生人的消息', { n: item.ignored.toLocaleString(LOCALES[language]) }));
+    return bits.join(' · ');
+  }
+
+  function chanRow(item) {
+    const row = el('li', 'chan-row');
+    row.dataset.platform = item.id;
+    const pending = chanPending.has(item.id);
+    const status = item.enabled ? item.status.state : 'off';
+
+    // 删除前在原地确认一下，和删除会话、记忆、MCP 服务器一样，不弹对话框
+    if (chanDeleting === item.id) {
+      const box = row.appendChild(el('div', 'chan-confirm'));
+      box.appendChild(el('span', null, t('删除 {platform} 的设置？机器人的 token 和绑定的账号都会忘掉，以前聊过的会话还在会话列表里。', { platform: item.label })));
+      const yes = box.appendChild(el('button', 'mini danger', t('删除')));
+      const no = box.appendChild(el('button', 'mini cancel', t('取消')));
+      yes.type = no.type = 'button';
+      no.dataset.focus = 'cancel:' + item.id;
+      yes.disabled = no.disabled = pending;
+      yes.addEventListener('click', () => deleteChannel(item, row));
+      no.addEventListener('click', () => { chanDeleting = null; drawChanList('open:' + item.id); });
+      return row;
+    }
+
+    const main = row.appendChild(el('div', 'chan-main'));
+    const open = main.appendChild(el('button', 'chan-open'));
+    open.type = 'button';
+    open.dataset.focus = 'open:' + item.id;
+    open.appendChild(chanMark(item, status));
+    const words = open.appendChild(el('span', 'chan-words'));
+    const line = words.appendChild(el('span', 'chan-line'));
+    line.appendChild(el('span', 'chan-name', item.label));
+    if (item.bot) line.appendChild(el('span', 'chan-bot', '@' + item.bot.username));
+    if (item.pairing) line.appendChild(el('span', 'chan-flag calm', t('正在配对')));
+    else if (!item.owner) line.appendChild(el('span', 'chan-flag', t('还没配对')));
+    if (item.approval === 'all') line.appendChild(el('span', 'chan-flag', t('全部自动允许')));
+    const meta = words.appendChild(el('span', 'chan-meta', chanMeta(item)));
+    meta.title = meta.textContent;
+    if (item.enabled && item.status.message && status !== 'online') words.appendChild(el('span', 'chan-error', item.status.message));
+    open.setAttribute('aria-label', t('设置 {platform}：{state}', { platform: item.label, state: chanMeta(item) }));
+    open.addEventListener('click', () => openChanWizard(item.id));
+
+    const toggle = main.appendChild(el('button', 'chan-switch'));
+    toggle.type = 'button';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', item.enabled ? 'true' : 'false');
+    toggle.title = t('打开或关掉 {platform}', { platform: item.label });
+    toggle.setAttribute('aria-label', toggle.title);
+    toggle.dataset.focus = 'enable:' + item.id;
+    toggle.disabled = pending;
+    toggle.addEventListener('click', () => enableChannel(item, !item.enabled));
+
+    // 最右边一格：平时是最后一次说话的时间；悬停时换成按钮。最后三个和会话行、记忆行一样（在访达中显示、编辑、删除），
+    // 位置、大小、顺序都一样。名字里带上是哪一个平台：读屏软件逐个读按钮时要知道它操作的是谁
+    const slot = main.appendChild(el('div', 'chan-slot'));
+    slot.appendChild(el('span', 'chan-when', item.last_active ? fromNow(item.last_active) : t('还没说过话')));
+    const actions = slot.appendChild(el('div', 'chan-actions'));
+    const button = (iconName, title, label, extra) => {
+      const node = actions.appendChild(el('button', 'icon-button small' + (extra ? ' ' + extra : '')));
+      node.type = 'button';
+      node.title = t(title);
+      node.setAttribute('aria-label', t(label, { platform: item.label }));
+      node.appendChild(icon(iconName));
+      node.disabled = pending;
+      return node;
+    };
+    const pair = button('link', k('重新配对'), k('重新配对：{platform}'));
+    pair.dataset.focus = 'pair:' + item.id;
+    pair.addEventListener('click', () => openChanWizard(item.id, 3, true));
+    const reveal = button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示 {platform} 的设置文件') : k('在文件夹中显示 {platform} 的设置文件'));
+    reveal.dataset.focus = 'reveal:' + item.id;
+    reveal.disabled = false;
+    reveal.addEventListener('click', revealChannels);
+    const edit = button('edit', k('编辑'), k('编辑 {platform} 的设置'));
+    edit.dataset.focus = 'edit:' + item.id;
+    edit.addEventListener('click', () => openChanWizard(item.id));
+    const remove = button('trash', k('删除'), k('删除 {platform} 的设置'), 'danger-hover');
+    remove.dataset.focus = 'delete:' + item.id;
+    remove.addEventListener('click', () => { chanDeleting = item.id; drawChanList('cancel:' + item.id); });
+
+    // 这个通道里正在进行的对话：在做什么，旁边一个"停止"
+    const busyChats = item.chats.filter((chat) => chat.state !== 'idle');
+    if (busyChats.length) {
+      const chats = row.appendChild(el('ul', 'chan-chats'));
+      for (const chat of busyChats) {
+        const entry = chats.appendChild(el('li', 'chan-chat' + (chat.state === 'waiting' ? ' waiting' : '')));
+        entry.appendChild(el('i'));
+        const doing = chat.state === 'waiting' ? t('等你批准')
+          : t('正在进行第 {n} 步', { n: Math.max(chat.step, 1) }) + (chat.activity ? ' · ' + chat.activity : '');
+        const text = entry.appendChild(el('span', null, t('{name}：{doing}', { name: chat.name, doing }) + (chat.queued ? ' · ' + t('还排着 {n} 条', { n: chat.queued }) : '')));
+        text.title = text.textContent;
+        const stop = entry.appendChild(el('button', 'mini', t('停止')));
+        stop.type = 'button';
+        stop.dataset.focus = 'stop:' + item.id + ':' + chat.chat;
+        stop.addEventListener('click', async () => {
+          stop.disabled = true;
+          const reply = await call('/api/channel/stop', { platform: item.id, chat: chat.chat });
+          if (!reply.ok) { stop.disabled = false; extensionSay(null, null, 'bad', reply.error); }
+          else extensionSay(k('已停下。聊天里也说了一声。'), null, 'good');
+        });
+      }
+    }
+    return row;
+  }
+
+  function chanCard(item) {
+    const ready = item.stage === 'ready';
+    const card = el('li', 'chan-card ' + (ready ? 'ready' : 'dim'));
+    const head = card.appendChild(el('div', 'chan-card-head'));
+    head.appendChild(chanMark(item));
+    head.appendChild(el('span', 'chan-card-name', item.label));
+    const stage = head.appendChild(el('span', 'chan-stage ' + item.stage, t(CHAN_STAGE[item.stage] || item.stage)));
+    stage.title = stage.textContent;
+    card.appendChild(el('p', 'chan-needs', item.needs));
+    if (ready) {
+      const action = card.appendChild(item.configured ? chanButton('sliders', k('设置')) : chanButton('send', k('接入'), 'primary'));
+      action.dataset.focus = 'card:' + item.id;
+      action.setAttribute('aria-label', item.configured ? t('设置 {platform}', { platform: item.label }) : t('连接 {platform}', { platform: item.label }));
+      action.addEventListener('click', () => openChanWizard(item.id, item.configured ? null : 1));
+    }
+    return card;
+  }
+
+  async function enableChannel(item, enabled) {
+    const reply = await chanAct(item.id, '/api/channel/enable', { enabled });
+    if (!reply.ok) { extensionSay(null, null, 'bad', reply.error); return; }
+    const key = enabled ? k('已打开 {platform}，正在连接……') : k('已关掉 {platform}：机器人不再收消息。');
+    extensionSay(key, { platform: item.label }, 'good');
+    announce(t(key, { platform: item.label }));
+  }
+
+  async function deleteChannel(item, row) {
+    const [reply] = await Promise.all([chanAct(item.id, '/api/channel/remove', {}), leave(row)]);
+    chanDeleting = null;
+    if (!reply.ok) { extensionSay(null, null, 'bad', reply.error); drawChanList('open:' + item.id); return; }
+    drawChanList('card:' + item.id);
+    extensionSay(k('已删除 {platform} 的设置。'), { platform: item.label }, 'good');
+    announce(t('已删除 {platform} 的设置。', { platform: item.label }));
+  }
+
+  async function revealChannels() {
+    const reply = await call('/api/reveal', { what: 'channels' });
+    extensionSay(null, null, reply.ok ? 'good' : 'bad', reply.ok ? revealedText(reply.data.path) : reply.error);
+  }
+
+  // ---- 主区域顶上的那条提示：聊天里有操作在等你批准 ----
+
+  function renderChanAlert() {
+    const box = $('chan-alert');
+    const asks = chanState ? chanState.approvals : [];
+    const ask = asks[0];
+    box.hidden = !ask;
+    const keys = asks.map(chanKey);
+    if (chanAsked !== null && keys.some((key) => !chanAsked.includes(key))) {
+      const fresh = asks.find((item) => !chanAsked.includes(chanKey(item)));
+      announce(t('{platform} 上的对话在等你批准：{what}', { platform: fresh.label, what: oneLine(fresh.summary) }));
+    }
+    chanAsked = synced ? keys : null;  // 刚连上时补发的旧状态不播报
+    if (!ask) return;
+    const text = t('{platform} 上的对话在等你批准：{what}', { platform: ask.label, what: oneLine(ask.summary) });
+    $('chan-alert-text').textContent = asks.length > 1 ? text + ' ' + t('（还有 {n} 个）', { n: asks.length - 1 }) : text;
+    box.setAttribute('aria-label', text);
+    $('chan-alert-open').title = t('打开“通道”看完整的内容');
+    if (box.dataset.key !== chanKey(ask)) {  // 换成了另一个请求：两个按钮重新能点
+      box.dataset.key = chanKey(ask);
+      $('chan-alert-allow').disabled = $('chan-alert-deny').disabled = false;
+    }
+  }
+
+  function alertAsk() {
+    const key = $('chan-alert').dataset.key;
+    return chanState ? chanState.approvals.find((ask) => chanKey(ask) === key) : null;
+  }
+  $('chan-alert-open').addEventListener('click', () => openExtensions('channels'));
+  $('chan-alert-allow').addEventListener('click', () => { const ask = alertAsk(); if (ask) chanConfirm(ask, true, $('chan-alert-allow'), $('chan-alert-deny')); });
+  $('chan-alert-deny').addEventListener('click', () => { const ask = alertAsk(); if (ask) chanConfirm(ask, false, $('chan-alert-allow'), $('chan-alert-deny')); });
+
+  // ---- 设置向导 ----
+  // 向导里你正在填的东西（token、选的确认方式）记在 chanView 里：状态更新、换语言时重画，填的内容不丢。
+
+  function openChanWizard(platform, step, repair) {
+    const item = chanFind(platform);
+    if (!item) return;
+    const start = step || (item.configured ? (item.owner ? 4 : 3) : 1);
+    chanView = {
+      kind: 'wizard', platform, step: start, token: '', show: false, checking: false, error: '', connected: '',
+      mode: item.approval || 'ask', pairedAt: item.owner ? item.owner.paired_at : null, pairing: false, armed: '',
+    };
+    chanDrawn = '';
+    drawChanWizard('step');
+    if (start === 3 && (repair || !item.owner) && !item.pairing) chanPair();
+  }
+
+  // 有没有填了、还没保存的东西：填了 token 没点"验证"，或者换了确认方式没点"完成"
+  function chanDirty() {
+    if (chanView.kind !== 'wizard') return false;
+    const item = chanFind(chanView.platform);
+    if (chanView.step === 2 && chanView.token.trim()) return true;
+    return chanView.step === 4 && item && chanView.mode !== item.approval;
+  }
+
+  // 想离开向导（返回列表、关掉对话框）。有没保存的东西：先提醒一次，再来一次才放弃
+  function leaveChanWizard(why) {
+    if (chanDirty() && chanView.armed !== why) {
+      chanView.armed = why;
+      chanView.error = '';
+      drawChanWizard();
+      const key = chanView.step === 2 ? k('token 还没保存。再点一次就放弃它。') : k('确认方式还没保存。再点一次就放弃这次的修改。');
+      const help = chanPanel.querySelector('.chan-foot .chan-help');
+      if (help) { retext(help, key); help.className = 'chan-help bad'; }
+      return false;
+    }
+    return true;
+  }
+
+  function chanBack() {
+    if (!leaveChanWizard('back')) return;
+    const platform = chanView.platform;
+    chanView = { kind: 'list' };
+    clearInterval(chanTicker);
+    chanTicker = 0;
+    drawChanList('open:' + platform);
+    if (!chanPanel.querySelector('[data-focus="open:' + CSS.escape(platform) + '"]')) {
+      const card = chanPanel.querySelector('[data-focus="card:' + CSS.escape(platform) + '"]');
+      if (card) card.focus();
+    }
+  }
+
+  function chanGo(step) {
+    chanView.step = step;
+    chanView.armed = '';
+    chanView.error = '';
+    drawChanWizard('step');
+    const item = chanFind(chanView.platform);
+    if (step === 3 && item && !item.owner && !item.pairing) chanPair();
+  }
+
+  function drawChanWizard(focus) {
+    const view = chanView, item = chanFind(view.platform);
+    if (!item) { chanView = { kind: 'list' }; drawChanList(); return; }
+    // 输入框正拿着焦点时，记下光标的位置，重画以后放回去
+    const field = chanPanel.querySelector('#chan-token');
+    const caret = field && document.activeElement === field ? [field.selectionStart, field.selectionEnd] : null;
+    const print = JSON.stringify([{ ...view, token: view.token.length }, item, language]);
+    if (!focus && print === chanDrawn && chanPanel.dataset.view === 'wizard') { syncChanTicker(); return; }
+    chanDrawn = print;
+
+    const head = el('div', 'chan-head');
+    const back = head.appendChild(el('button', 'chan-back'));
+    back.type = 'button';
+    back.dataset.focus = 'back';
+    back.append(icon('chevron'), tel('span', null, k('通道')));
+    back.addEventListener('click', chanBack);
+    const title = head.appendChild(el('h3', 'chan-title'));
+    title.appendChild(chanMark(item, item.configured ? (item.enabled ? item.status.state : 'off') : ''));
+    title.appendChild(el('span', null, item.configured ? t('{platform} 的设置', { platform: item.label }) : t('连接 {platform}', { platform: item.label })));
+
+    const stepper = el('div', 'chan-stepper');
+    const steps = stepper.appendChild(el('ol', 'chan-steps'));
+    steps.setAttribute('aria-label', t('设置的步骤'));
+    CHAN_STEPS.forEach((name, index) => {
+      const number = index + 1;
+      const done = number < view.step || (number === 2 && item.configured) || (number === 3 && item.owner);
+      const entry = steps.appendChild(el('li'));
+      const button = entry.appendChild(el('button', 'chan-step' + (done && number !== view.step ? ' done' : '')));
+      button.type = 'button';
+      button.dataset.focus = 'step:' + number;
+      const badge = button.appendChild(el('b'));
+      if (done && number !== view.step) badge.appendChild(icon('check')); else badge.textContent = String(number);
+      button.appendChild(el('span', null, t(name)));
+      button.setAttribute('aria-label', t('第 {n} 步：{name}', { n: number, name: t(name) }));
+      if (number === view.step) button.setAttribute('aria-current', 'step');
+      // 前两步随时可以回去；配对和确认方式要等 token 填好（连上了机器人）以后才能去
+      button.disabled = number === view.step || view.checking || (number > 2 && !item.configured);
+      button.addEventListener('click', () => { if (leaveChanWizard('step:' + number)) chanGo(number); });
+    });
+    const bar = stepper.appendChild(el('i', 'chan-progress'));
+    bar.style.transform = 'scaleX(' + view.step / CHAN_STEPS.length + ')';
+
+    const pane = el('div', 'chan-pane');
+    const foot = el('div', 'chan-foot');
+    const help = foot.appendChild(el('p', 'chan-help'));
+    help.setAttribute('role', 'status');
+    [chanStepOne, chanStepTwo, chanStepThree, chanStepFour][view.step - 1](item, pane, foot, help);
+    if (view.error) { help.textContent = view.error; help.className = 'chan-help bad'; }
+    chanShow([head, stepper, pane, foot], 'wizard', focus === 'step' ? null : focus);
+    const again = chanPanel.querySelector('#chan-token');
+    if (again && caret) { again.focus(); again.setSelectionRange(caret[0], caret[1]); }
+    if (focus === 'step') {  // 刚换到这一步：焦点放在这一步最该先做的那件事上
+      const first = chanPanel.querySelector('#chan-token:not(:disabled), .chan-mode[aria-checked="true"], .chan-foot .button.primary:not(:disabled), .chan-foot .button:not(:disabled)');
+      if (first) first.focus({ preventScroll: true });
+    }
+    syncChanTicker();
+  }
+
+  function chanStepOne(item, pane, foot) {
+    pane.appendChild(el('h4', null, t('先在 Telegram 里建一个机器人')));
+    const steps = pane.appendChild(el('ol', 'chan-howto'));
+    const first = steps.appendChild(el('li'));
+    first.appendChild(document.createTextNode(t('打开 @BotFather：Telegram 官方用来建机器人的账号。')));
+    first.appendChild(el('br'));
+    first.appendChild(chanLink('https://t.me/BotFather', k('打开 @BotFather')));
+    const second = steps.appendChild(el('li'));
+    second.appendChild(document.createTextNode(t('发送') + ' '));
+    second.appendChild(el('code', null, '/newbot'));
+    second.appendChild(document.createTextNode(' ' + t('，按提示先起一个名字（给人看的），再起一个用户名（必须以 bot 结尾，比如 my_zhifox_bot）。')));
+    const third = steps.appendChild(el('li'));
+    third.appendChild(document.createTextNode(t('它会回你一段话，里面有一串 token，长这样：') + ' '));
+    third.appendChild(el('code', null, '123456789:AAH…'));
+    third.appendChild(document.createTextNode(' ' + t('。复制它，下一步要用。')));
+    pane.appendChild(chanNote('calm', t('机器人是你自己的：名字谁都能搜到，但只有配对过的账号能让它做事。智狐是主动去问 Telegram 有没有新消息，不需要公网地址，家里的电脑、内网里的服务器都能用。')));
+    const next = foot.appendChild(chanButton(null, k('有 token 了，下一步'), 'primary'));
+    next.dataset.focus = 'next';
+    next.addEventListener('click', () => chanGo(2));
+  }
+
+  function chanStepTwo(item, pane, foot, help) {
+    const view = chanView;
+    pane.appendChild(el('h4', null, t('把 token 粘贴到这里')));
+    const label = pane.appendChild(el('label', 'chan-field'));
+    label.htmlFor = 'chan-token';
+    label.appendChild(el('span', null, t('机器人的 token')));
+    const row = label.appendChild(el('span', 'chan-token'));
+    const input = row.appendChild(el('input', 'field'));
+    input.id = 'chan-token';
+    input.type = view.show ? 'text' : 'password';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.maxLength = 200;
+    input.value = view.token;
+    input.dataset.focus = 'token';
+    input.placeholder = item.configured ? t('已经保存了一个（{hint}）。要换机器人就粘贴新的', { hint: item.token_hint }) : '123456789:AAH…';
+    input.setAttribute('aria-describedby', 'chan-token-help');
+    input.disabled = view.checking;
+    input.addEventListener('input', () => {
+      view.token = input.value;
+      view.armed = '';
+      view.error = '';
+      submit.replaceChildren(tel('span', null, input.value.trim() || !item.configured ? k('验证并连接') : k('下一步')));
+    });
+    input.addEventListener('keydown', (key) => {
+      if (key.key === 'Enter' && !key.isComposing && key.keyCode !== 229) { key.preventDefault(); submit.click(); }
+    });
+    const eye = row.appendChild(iconButton('eye', view.show ? k('隐藏 token') : k('显示 token')));
+    eye.classList.remove('small');
+    eye.setAttribute('aria-pressed', view.show ? 'true' : 'false');
+    eye.setAttribute('aria-controls', 'chan-token');
+    eye.dataset.focus = 'eye';
+    eye.addEventListener('click', () => { view.show = !view.show; drawChanWizard('eye'); });
+    const note = label.appendChild(el('span', 'chan-help', t('token 是这个机器人的钥匙。它只存在这台电脑的 channels.json 里（只有你的账号能读），不会发给模型，之后页面上也只显示最后 4 位。')));
+    note.id = 'chan-token-help';
+    if (item.configured && item.bot) pane.appendChild(chanNote('good', t('现在连着 @{bot}（token {hint}）。不换机器人的话，直接下一步。', { bot: item.bot.username, hint: item.token_hint })));
+    const previous = foot.appendChild(chanButton(null, k('上一步')));
+    previous.dataset.focus = 'previous';
+    previous.disabled = view.checking;
+    previous.addEventListener('click', () => { if (leaveChanWizard('step:1')) chanGo(1); });
+    const submit = foot.appendChild(chanButton(null, view.checking ? k('正在验证……') : view.token.trim() || !item.configured ? k('验证并连接') : k('下一步'), 'primary'));
+    submit.dataset.focus = 'submit';
+    submit.disabled = view.checking;
+    submit.addEventListener('click', () => chanConnect(item));
+    if (view.checking) retext(help, k('正在问 Telegram 认不认这个 token……'));
+    else if (!view.armed) retext(help, k('只检查这一次：智狐用它问 Telegram“这是哪个机器人”，认的话就记下来。'));
+  }
+
+  async function chanConnect(item) {
+    const view = chanView;
+    const token = view.token.trim();
+    if (!token) {
+      if (item.configured) { chanGo(item.owner ? 4 : 3); return; }
+      view.error = t('先把 token 粘贴进来。');
+      drawChanWizard('token');
+      return;
+    }
+    view.checking = true;
+    view.error = '';
+    drawChanWizard('token');
+    const reply = await call('/api/channel/connect', { platform: item.id, token });
+    if (chanView !== view) return;  // 等回答的时候你已经离开了这个向导
+    view.checking = false;
+    if (!reply.ok) {
+      view.error = reply.error;
+      drawChanWizard('token');
+      return;
+    }
+    view.token = '';
+    view.show = false;
+    view.connected = reply.data.bot ? reply.data.bot.username : '';
+    announce(t('已连接 @{bot}。', { bot: view.connected }));
+    const fresh = chanFind(item.id);
+    view.pairedAt = fresh && fresh.owner ? fresh.owner.paired_at : null;
+    chanGo(3);
+    // 换成了另一个机器人：原来的绑定作废了（见 store.connect），要重新配对。状态马上就到，等它到了再看要不要生成配对码
+    if (fresh && fresh.owner && view.connected && fresh.bot && fresh.bot.username !== view.connected) chanPair();
+  }
+
+  async function chanPair() {
+    const view = chanView;
+    if (view.kind !== 'wizard' || view.pairing) return;
+    view.pairing = true;
+    view.error = '';
+    const item = chanFind(view.platform);
+    view.pairedAt = item && item.owner ? item.owner.paired_at : null;
+    drawChanWizard();
+    const reply = await call('/api/channel/pair', { platform: view.platform });
+    if (chanView !== view) return;
+    view.pairing = false;
+    if (!reply.ok) view.error = reply.error;
+    drawChanWizard(reply.ok ? 'copy' : null);
+  }
+
+  function chanStepThree(item, pane, foot, help) {
+    const view = chanView;
+    const bot = item.bot ? item.bot.username : '';
+    const paired = item.owner && item.owner.paired_at !== view.pairedAt;  // 打开这一步以后才配对上的
+    if (view.connected) pane.appendChild(chanNote('good', t('已连接 @{bot}。', { bot: view.connected })));
+    if (paired) {
+      const box = pane.appendChild(el('div', 'chan-paired'));
+      box.setAttribute('role', 'status');
+      const check = box.appendChild(el('span', 'chan-check'));
+      check.appendChild(icon('check'));
+      const words = box.appendChild(el('div'));
+      words.appendChild(el('b', null, t('配对成功：{name}', { name: item.owner.name })));
+      words.appendChild(el('span', null, t('以后只有这个账号能在 @{bot} 里使用智狐，别人发的消息一律不理。', { bot })));
+      if (chanPanel.dataset.paired !== String(item.owner.paired_at)) {  // 刚配对上：对勾弹一下，读屏软件也说一声
+        chanPanel.dataset.paired = String(item.owner.paired_at);
+        requestAnimationFrame(() => play(check, [{ transform: 'scale(.4)', opacity: 0 }, { transform: 'scale(1.12)', opacity: 1, offset: 0.7 }, { transform: 'none', opacity: 1 }], 520));
+        announce(t('配对成功：{name}', { name: item.owner.name }));
+      }
+      const next = foot.appendChild(chanButton(null, k('下一步'), 'primary'));
+      next.dataset.focus = 'next';
+      next.addEventListener('click', () => chanGo(4));
+      requestAnimationFrame(() => { if (chanPanel.contains(document.activeElement) && document.activeElement.dataset.focus === 'copy') next.focus(); });
+      return;
+    }
+    const code = item.pairing;
+    if (code) {
+      pane.appendChild(el('h4', null, t('用你自己的账号，把这 6 位数字发给 @{bot}', { bot })));
+      const digits = pane.appendChild(el('div', 'chan-code'));
+      digits.setAttribute('role', 'img');
+      digits.setAttribute('aria-label', t('配对码：{code}', { code: code.code.split('').join(' ') }));
+      const fresh = digits.dataset.code !== code.code && chanPanel.dataset.code !== code.code;
+      chanPanel.dataset.code = code.code;
+      Array.from(code.code).forEach((digit, index) => {
+        if (index === 3) digits.appendChild(el('span', 'chan-gap'));
+        const box = digits.appendChild(el('span', 'chan-digit', digit));
+        if (fresh) play(box, [{ opacity: 0, transform: 'translateY(-10px)' }, { opacity: 1, transform: 'none' }], 300 + index * 60);
+      });
+      const timer = pane.appendChild(el('div', 'chan-timer'));
+      const bar = timer.appendChild(el('i'));
+      const total = 600, left = Math.max(0, code.expires - Date.now() / 1000);
+      bar.style.setProperty('--from', String(Math.min(1, left / total)));
+      bar.style.setProperty('--left', String(Math.min(1, left / total)));
+      bar.style.animationDuration = left + 's';
+      const meta = pane.appendChild(el('div', 'chan-code-meta'));
+      const clock = meta.appendChild(el('span', 'chan-left'));
+      clock.dataset.expires = String(code.expires);
+      clock.textContent = t('还有 {time} 过期', { time: durationText(left) });
+      if (code.attempts_left < 5) meta.appendChild(el('span', null, t('还能猜错 {n} 次', { n: code.attempts_left })));
+      const tools = pane.appendChild(el('div', 'chan-code-tools'));
+      const copy = tools.appendChild(chanButton('copy', k('复制配对码')));
+      copy.dataset.focus = 'copy';
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(code.code); retext(help, k('已复制。')); help.className = 'chan-help good'; }
+        catch (_) { retext(help, k('没能复制，请照着上面的数字输入。')); help.className = 'chan-help bad'; }
+      });
+      if (bot) {
+        // Telegram 的"深链接"：打开和机器人的聊天，点"开始"时它会替你发一句 /start 123456，就配对上了
+        const open = tools.appendChild(chanLink('https://t.me/' + encodeURIComponent(bot) + '?start=' + code.code, k('在 Telegram 里打开')));
+        open.dataset.focus = 'telegram';
+      }
+      pane.appendChild(chanNote('calm', t('也可以在 Telegram 里搜索 @{bot}，点“开始”，再把这 6 位数字发过去。配对上以后这里会自己往下走。别人发来的配对码不对的话，猜错 5 次这个码就作废了。', { bot })));
+      const skip = foot.appendChild(chanButton(null, k('以后再配')));
+      skip.dataset.focus = 'skip';
+      skip.addEventListener('click', async () => {
+        await call('/api/channel/cancel', { platform: item.id });
+        chanGo(4);
+      });
+      const again = foot.appendChild(chanButton('refresh', k('换一个配对码')));
+      again.dataset.focus = 'again';
+      again.addEventListener('click', chanPair);
+      retext(help, k('等你从 Telegram 发过来……'));
+      return;
+    }
+    // 没有正在进行的配对：要么还没生成（马上就有），要么过期了、猜错太多作废了，要么已经配对过、想换一个账号
+    if (view.pairing) {
+      pane.appendChild(el('h4', null, t('正在生成配对码……')));
+      return;
+    }
+    if (item.owner) {
+      pane.appendChild(el('h4', null, t('已经配对过了')));
+      pane.appendChild(el('p', null, t('现在的主人是 {name}（{when}配对的）。重新配对的话，配好以后只有新的那个账号能用，原来的那个不再理会。', { name: item.owner.name, when: fromNow(item.owner.paired_at) })));
+      const repair = foot.appendChild(chanButton('link', k('重新配对')));
+      repair.dataset.focus = 'repair';
+      repair.addEventListener('click', chanPair);
+      const next = foot.appendChild(chanButton(null, k('下一步'), 'primary'));
+      next.dataset.focus = 'next';
+      next.addEventListener('click', () => chanGo(4));
+      return;
+    }
+    pane.appendChild(el('h4', null, t('配对码过期了')));
+    pane.appendChild(el('p', null, t('配对码十分钟内有效；有人猜错 5 次，它也会作废。生成一个新的再试。')));
+    const regenerate = foot.appendChild(chanButton('refresh', k('生成新的配对码'), 'primary'));
+    regenerate.dataset.focus = 'regenerate';
+    regenerate.addEventListener('click', chanPair);
+  }
+
+  function chanStepFour(item, pane, foot, help) {
+    const view = chanView;
+    pane.appendChild(el('h4', null, t('在聊天里，动手之前要不要先问你')));
+    pane.appendChild(el('p', null, t('这一档只管这个通道，和网页上对话里选的、定时任务选的都无关。要问你的时候，聊天里会发来一条消息，写着完整的命令和工作目录，下面是“允许 / 拒绝”两个按钮；网页上也能答复，先到的算数。')));
+    const group = pane.appendChild(el('div', 'chan-modes'));
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', t('确认方式'));
+    const choose = (mode, focus) => { view.mode = mode; view.armed = ''; drawChanWizard(focus ? 'mode:' + mode : null); };
+    for (const option of CHAN_MODES) {
+      const button = group.appendChild(el('button', 'chan-mode'));
+      button.type = 'button';
+      button.setAttribute('role', 'radio');
+      button.dataset.mode = option.mode;
+      button.dataset.focus = 'mode:' + option.mode;
+      const on = view.mode === option.mode;
+      button.setAttribute('aria-checked', on ? 'true' : 'false');
+      button.tabIndex = on ? 0 : -1;  // 单选组只有选中的那个在 Tab 键的顺序里，其余的用方向键去
+      button.append(el('b', null, t(APPROVAL[option.mode])), el('span', null, t(option.text)), icon('check'));
+      button.addEventListener('click', () => choose(option.mode, true));
+    }
+    group.addEventListener('keydown', (key) => {
+      const order = CHAN_MODES.map((option) => option.mode), at = order.indexOf(view.mode);
+      const next = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: order.length - 1 }[key.key];
+      if (next === undefined) return;
+      key.preventDefault();
+      choose(order[(next + order.length) % order.length], true);
+    });
+    if (view.mode === 'all') {
+      pane.appendChild(chanNote('bad', t('确认是你和模型之间唯一的一道关卡。全部自动允许以后，聊天里的一句话就能让助手在这台电脑上执行任何命令，不再问你；网页或文件里藏着误导模型的话，它照做的时候也没人拦着。只在你清楚风险的时候用。')));
+    }
+    if (!item.owner) pane.appendChild(chanNote('warn', t('还没有配对：在配对之前，谁发来的消息都不会处理。')));
+    const done = foot.appendChild(chanButton('check', k('完成'), 'primary'));
+    done.dataset.focus = 'done';
+    done.addEventListener('click', () => chanFinish(item, done));
+    if (!view.armed) retext(help, item.approval === view.mode ? k('现在用的就是这一档。') : k('点“完成”才会改。'));
+  }
+
+  async function chanFinish(item, button) {
+    const view = chanView;
+    if (view.mode !== item.approval) {
+      button.disabled = true;
+      const reply = await call('/api/channel/approval', { platform: item.id, mode: view.mode });
+      if (chanView !== view) return;
+      if (!reply.ok) { button.disabled = false; view.error = reply.error; drawChanWizard('done'); return; }
+    }
+    chanView = { kind: 'list' };
+    clearInterval(chanTicker);
+    chanTicker = 0;
+    drawChanList('open:' + item.id);
+    const bot = item.bot ? item.bot.username : '';
+    const key = item.owner ? k('{platform} 准备好了：给 @{bot} 发一条消息试试。') : k('{platform} 的设置已保存。配对以后就能用了。');
+    extensionSay(key, { platform: item.label, bot }, 'good');
+    announce(t(key, { platform: item.label, bot }));
+  }
+
+  // 配对码的倒计时：只在向导的第 3 步、配对码显示着的时候走。改的是文字（和减少动画时那根线停在哪儿），不是动画
+  function syncChanTicker() {
+    const need = chanView.kind === 'wizard' && chanView.step === 3 && chanPanel.querySelector('.chan-left');
+    if (need && !chanTicker) chanTicker = setInterval(onChanTick, 1000);
+    if (!need && chanTicker) { clearInterval(chanTicker); chanTicker = 0; }
+  }
+
+  function onChanTick() {
+    const clock = chanPanel.querySelector('.chan-left');
+    if (!clock) { syncChanTicker(); return; }
+    const left = Number(clock.dataset.expires) - Date.now() / 1000;
+    if (left <= 0) { chanDrawn = ''; drawChannels(); return; }  // 过期了：助手程序不会为此发状态，自己画成"过期了"
+    clock.textContent = t('还有 {time} 过期', { time: durationText(left) });
+    const bar = chanPanel.querySelector('.chan-timer i');
+    if (bar) bar.style.setProperty('--left', String(Math.min(1, left / 600)));
+  }
+
+  // ---- 挂到"扩展"对话框上 ----
+
+  extensionTabs.channels = {
+    open() {
+      chanDrawn = '';
+      drawChannels();
+    },
+    beforeClose() {
+      return chanView.kind !== 'wizard' || leaveChanWizard('close');
+    },
+  };
+  extensionsDialog.addEventListener('keydown', (key) => {
+    if (key.key !== 'Escape' || key.isComposing || key.keyCode === 229 || extensionTab !== 'channels' || !chanPanel.contains(document.activeElement) && document.activeElement !== extensionsDialog) return;
+    if (chanDeleting) {  // 这一下 Esc 只用来取消删除
+      key.preventDefault();
+      const platform = chanDeleting;
+      chanDeleting = null;
+      drawChanList('open:' + platform);
+    } else if (chanView.kind === 'wizard') {  // 在向导里：先回到列表，不直接关掉对话框
+      key.preventDefault();
+      key.stopPropagation();
+      chanBack();
+    }
+  });
+  extensionsDialog.addEventListener('close', () => {
+    chanView = { kind: 'list' };
+    chanDeleting = null;
+    chanDrawn = '';
+    clearInterval(chanTicker);
+    chanTicker = 0;
+    delete chanPanel.dataset.view;
+    chanPanel.replaceChildren();  // 向导里可能有刚填的 token：关掉就清掉
   });
 
   // ---- 语言 ----------------------------------------------------------------

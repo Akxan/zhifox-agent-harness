@@ -11,7 +11,7 @@
     GITHUB_TOKEN）留着，恢复以后照着填回去就行。读不懂（不是合法的 JSON）的话整个文件不导出：
     宁可少导出一份，也不冒险把密钥带出去。以后再有存着密钥的配置文件，加进 MASKED_FILES。
   - 符号链接（替身）不导出：它可能指向数据文件夹外面的任何地方，比如你的 ~/.ssh。
-  - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock）、写到一半的临时文件（*.tmp）。
+  - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock、*.lock）、写到一半的临时文件（*.tmp）。
 
 压缩包的最外层就是数据文件夹里的内容，另外多一个 README-backup.txt：导出的时间、怎么恢复、哪些文件做了处理。
 恢复的办法：先退出智狐，再把压缩包解压到数据文件夹里（两份 README 里也写着）。
@@ -35,7 +35,9 @@ from .config import APP_NAME
 from .i18n import t
 from .safe import to_json
 
-MASKED_FILES = ("mcp.json",)  # 存着密钥的配置文件（相对数据文件夹的路径）：导出时把密钥换成占位符
+# 存着密钥的配置文件（相对数据文件夹的路径）：导出时把密钥换成占位符。
+# channels.json 里是聊天机器人的 token（见 channels/store.py），字段名就叫 token，配对码叫 secret，都会被换掉
+MASKED_FILES = ("mcp.json", "channels.json")
 PLACEHOLDER = "<removed-from-backup>"  # 写成英文：它留在配置文件里，恢复以后谁来看都认得出
 NOTE = "README-backup.txt"
 # 本来就压缩过的格式，再压一遍只是白费时间：原样存进去
@@ -135,7 +137,8 @@ def _is_secret_file(name: str) -> bool:
 
 def _is_scratch(relative: str, name: str) -> bool:
     """程序运行时自己用的东西：锁、写到一半的临时文件、上一次导出时放进去的说明（解压回来以后就在数据文件夹里）。"""
-    return relative in (".lock", NOTE) or name.endswith(".tmp")
+    # .web-address：harness serve --web 写的带口令的网页地址，只在这一次运行里有用
+    return relative in (".lock", NOTE, ".web-address") or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
 
 
 def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:

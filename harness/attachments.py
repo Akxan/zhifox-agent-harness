@@ -152,6 +152,36 @@ def _parse_one(item: object) -> Attachment:
     return Attachment("image", name, actual, len(content), data=data, thumb=thumb, preview=preview)
 
 
+def from_bytes(name: str, content: bytes, thumb: bytes = b"") -> Attachment:
+    """一个不是从浏览器、而是从别处拿到的文件（聊天软件里发来的，见 channels/）：先认出它是哪一种，
+    再走和浏览器送来的同一套检查（大小、格式、编码）。thumb 是平台给的小预览图（可以没有）。不合格时抛出 AttachmentError。
+
+    浏览器那边靠扩展名和浏览器报的类型来分（见 index.html 的 classify），这里拿得到文件的内容，所以看内容：
+    开头的几个字节说它是图片、PDF 就是；Office 文件看扩展名；剩下的能按 UTF-8 读成文字的当文本文件。
+    """
+    name = clean_name(name) or "file"
+    data = base64.b64encode(content).decode()
+    image = sniff_image(content)
+    if image:
+        item: dict = {"kind": "image", "name": name, "media_type": image, "data": data}
+        small = sniff_image(thumb) if thumb else ""
+        if small in ("image/jpeg", "image/png"):
+            item["thumb"] = f"data:{small};base64,{base64.b64encode(thumb).decode()}"
+    elif b"%PDF-" in content[:1024]:
+        item = {"kind": "pdf", "name": name, "media_type": PDF_TYPE, "data": data}
+    elif name.lower().endswith(documents.SUFFIXES):
+        item = {"kind": "document", "name": name, "data": data}
+    else:
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = None
+        if text is None or "\x00" in text:
+            raise AttachmentError(t("读不了这种文件：{name}。可以发图片、PDF、Word、Excel、PowerPoint 或文本文件。", name=name))
+        item = {"kind": "text", "name": name, "text": text}
+    return _parse_one(item)
+
+
 def _parse_document(name: str, data: object) -> Attachment:
     """Word、Excel、PowerPoint 文件：解码，取出文字，变成一个文本附件。"""
     content = _decode(name, data)
