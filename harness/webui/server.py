@@ -2,7 +2,7 @@
 
 浏览器只会发这几种请求：
 
-  GET  /               页面本身（index.html）
+  GET  /               页面本身（page/ 里的几块拼成的一页，见 page/__init__.py）
   GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去。
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
@@ -117,6 +117,7 @@ from . import lifecycle
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
 from .computer_api import ComputerAPI
+from .page import assemble as assemble_page
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -131,7 +132,9 @@ MAX_MESSAGE_CHARS = 100_000
 KEEPALIVE_SECONDS = 15
 LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
-PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+# 页面由 page/ 里的几块拼成（骨架、样式、脚本，见 page/__init__.py），启动时拼一次。
+# 拼好的仍然是一个自给自足的 HTML，里面留着 __NONCE__ 这几处，每次发页面时填（见 Handler._send_page）
+PAGE = assemble_page()
 # 回复里的 Markdown 怎么画，单独写在 markdown.js 里（一个文件只讲一件事，也方便用 Node 单独测试）。
 # 发页面时把它原样填进页面里那个带 nonce 的 <script>，所以不用为它另开一个地址，也不用放宽安全策略。
 MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
@@ -1122,7 +1125,7 @@ class WebApp:
     def set_language(self, language: str) -> str:
         """换界面语言。成功返回空字符串，否则返回原因。
 
-        不刷新页面：记下新的选择、发一次新的状态，页面收到后在原地把文字换掉（见 index.html 的 applyLanguage）。
+        不刷新页面：记下新的选择、发一次新的状态，页面收到后在原地把文字换掉（见 page/scripts/language.js 的 applyLanguage）。
         也不用拿对话的锁：对话进行中也可以换。之后程序发给页面的话（提示、确认卡片上的说明）都用新的语言。
         """
         i18n.choose(language)

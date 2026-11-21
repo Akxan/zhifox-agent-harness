@@ -1,0 +1,16 @@
+/* ---- 外观面板：颜色和动效 ------------------------------------------------- */
+/* 点右上角的外观按钮，在按钮下面弹出来。它是一个 popover：浏览器把它放在所有内容的最上层，
+   不会被别的栏挡住、裁掉。位置由脚本按按钮的位置算好（见 placeAppearance）。
+   类名叫 flyout 而不是 pop：pop 已经是工具卡片上状态圆点"弹一下"的动画类，两个撞在一起，圆点会套上面板的样式。 */
+.flyout { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 16px)); margin: 0; padding: 14px 14px 12px; overflow: visible; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); transform-origin: 85% top; }
+.flyout { animation: menu-in .26s var(--ease); }  /* 每次从隐藏变成显示，这段入场动画都会从头播一次 */
+@keyframes menu-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.flyout h3 { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 64px; padding: 10px 4px 9px; font-size: 12px; line-height: 1.3; color: var(--ink-2); text-align: center; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; transition: transform .15s var(--ease); }
+.tile .icon { width: 18px; height: 18px; }
+.tile:hover { color: var(--ink); border-color: var(--ink-3); }
+.tile:active { transform: scale(.96); }
+.tile[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tile[aria-pressed="true"] .icon { color: var(--accent); }
+.flyout-note { min-height: 3lh; margin: -4px 2px 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }  /* 留三行的高度（西班牙语最长要三行），换选项时面板不跳；pretty：末行不只剩一两个字 */

@@ -57,14 +57,17 @@
    不要直接刷新并回退到主页，而是直接在原来的位置上直接翻译"。）
    - 换语言不能刷新页面、不能清空对话：正在进行的一轮、滚动位置、写了一半的消息、打开着的面板都要原样留着。
    - 界面上的每一句话都用中文写，包一层 `t()`（页面里是 `t()`、`k()`、`tel()`、`retext()`、`tattr()`，
-     见 index.html 的"多语言"一节；程序里是 `harness/i18n.py` 的 `t()`、`k()`），然后在
+     见 `harness/webui/page/scripts/i18n.js`；程序里是 `harness/i18n.py` 的 `t()`、`k()`），然后在
      `harness/locales/en.json` 和 `es.json` 里加上译文。`tests/test_i18n.py` 会检查有没有漏。
    - 程序发给页面的话要用 `t()` 生成，这样事件里会带着原文（key、values），页面换语言时才能就地重译。
    - 写给模型看的（系统提示词、工具说明、工具结果）保持中文，不进翻译表。
    - 西班牙语用"tú"称呼用户，用西班牙本地的说法（coste、Ajustes），但要让拉美的读者也看得懂。
 
 8. **有利于后期维护和开发。**（用户原话："要记住有利于后期维护和开发"。）
-   - 一个文件只讲一件事。新功能放进新的模块，不往已经很大的文件里堆；页面里的新功能也自成一节，开头写清这一节管什么。
+   - 一个文件只讲一件事。新功能放进新的模块，不往已经很大的文件里堆；页面里的新功能也自成一块：样式写成
+     `harness/webui/page/styles/` 里的新文件、脚本写成 `page/scripts/` 里的新文件，开头写清这一块管什么，再按顺序把文件名加进
+     `page/__init__.py` 的清单（`STYLES` / `SCRIPTS`；漏了、写了两次 `tests/test_page.py` 会失败）。脚本各块共用一个作用域，
+     用 const/let 定义的名字要排在用它的块前面；样式里后写的盖过先写的，`reduce-motion.css` 永远在最后。
    - 同一条规则只写在一处：价格、时间、格式检查这类由助手程序算，页面不再复制一份（页面要用就请程序算好发过来）。
    - 每个功能都有测试；修 bug 先写一个能复现它的测试。
    - 有意破例的地方（比如压缩会改动前面的历史）在代码注释和本文件里都写明为什么、边界在哪。
@@ -102,7 +105,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 
 **给人看的名字是"智狐"，英文名 ZhiFox，标志是一只小狐狸**（都是用户定的）。GitHub 仓库名是
 `Akxan/zhifox-agent-harness`（2026-11-20 用户选定改名）。界面里在任何语言下都写"智狐"；助手用中文以外的语言回答时称自己 ZhiFox
-（写在系统提示词里）。名字只有一处定义：`harness/config.py` 里的 `APP_NAME` 和 `APP_NAME_LATIN`，页面里另有几处写死的文字和内嵌的 SVG 标志（`#i-fox`）。包名、命令（`uv run harness`）、
+（写在系统提示词里）。名字只有一处定义：`harness/config.py` 里的 `APP_NAME` 和 `APP_NAME_LATIN`，页面里另有几处写死的文字和内嵌的 SVG 标志（`page/index.html` 里的 `#i-fox`）。包名、命令（`uv run harness`）、
 请求头和浏览器里保存设置用的键名仍然叫 harness，不要跟着改。
 
 | 位置 | 内容 |
@@ -131,7 +134,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
-| `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
+| `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
 
 ## 改代码时必须守住的几条
@@ -162,6 +165,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   链接只认 http、https、mailto；图片不加载。服务器把它填进页面的 `__MARKDOWN__`（同一个 nonce），所以这个文件里
   不能出现 `</script`、`<!--` 和页面的占位符（`tests/test_markdown.py` 会查）。改了它要跑 `node --test tests/markdown.test.mjs`
   （pytest 也会跑）；演示页面第 6 条消息是一段用齐各种 Markdown 写法的回复。
+  页面本身也一样：`harness/webui/page/` 的每一块原样拼进同一个 `<style nonce>` 或 `<script nonce>`，所以每一块里都不能出现
+  `</script`、`</style`、`<!--` 和 `__XXX__` 这样的占位符（`tests/test_page.py` 会查）。拆开只为好改：不加地址、不放宽安全策略，
+  发出去的仍是一个自给自足的页面。
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
@@ -278,7 +284,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 ## 怎么验证
 
 - 测试用真实的 SDK 连本地的假服务器，这样发出去的请求和收到的流式数据走的都是真实代码路径。
-- 改了页面：先 `node --check` 页面里的脚本，再跑页面测试 `uv run pytest -m ui`（`tests/ui/`，一分钟左右；默认的 `uv run pytest`
+- 改了页面：先跑 `uv run pytest tests/test_page.py`（清单、能不能内联、每一块和拼好的整段脚本的 `node --check`；单查一块用
+  `node --check harness/webui/page/scripts/xxx.js`），再跑页面测试 `uv run pytest -m ui`（`tests/ui/`，一分钟左右；默认的 `uv run pytest`
   也会跑，没有 Chrome 时跳过；CI 里 `HARNESS_UI_REQUIRED=1`，找不到 Chrome 算失败）。它用无界面的 Chrome（我们自己的 CDP 客户端）
   对着 `tests/demo_web.py` 实际操作：打开没有报错、不请求外部资源；逐字输出和刷新重放；确认卡片；浅色、深色、跟随系统、对比度、
   减少动态效果；三种语言原地切换和没翻译的中文；390 宽时文字不冲出容器；八种本地东西的三个按钮和原地删除确认；编辑窗口关之前先问；
@@ -290,8 +297,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `checks.USER_CONTENT` / `NAMES`。演示的回复用 `tests/demo_scripts.py` 的 `[ui:名字]` 剧本，不要依赖 demo_web.py 里按顺序取的回复。
   `tests/ui` 是一个包（有 `__init__.py`，免得 conftest 撞名），模块之间用相对导入。
 - 页面测试判断不了的仍然手动过一遍：看起来精不精致、动画顺不顺、真正的触屏、读屏软件、没有密钥、输出到一半往上翻。
-  做法照旧：`uv run python tests/demo_web.py`（回复是一小段一小段慢慢发的；加 `--no-key` 看没有密钥时的样子；页面每次刷新都重新读，
-  不用重启；发一句含"演示商店"的话会走一遍浏览器，含"演示电脑"的会走一遍操作电脑，用的是假电脑）。真的 Chrome 的测试是
+  做法照旧：`uv run python tests/demo_web.py`（回复是一小段一小段慢慢发的；加 `--no-key` 看没有密钥时的样子；页面每次刷新都重新读、重新拼
+  （`harness/webui/page/` 和 `markdown.js`），不用重启，正式的 `uv run harness --web` 只在启动时拼一次、改了要重启；
+  `--script 名字` 让没写暗号的对话也按那段剧本回答（README 的截图用的是 `--script readme`）；发一句含"演示商店"的话会走一遍浏览器，含"演示电脑"的会走一遍操作电脑，用的是假电脑）。真的 Chrome 的测试是
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。

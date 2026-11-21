@@ -1,0 +1,68 @@
+/* ---- 查看器：对话里的缩略图和"多媒体"共用 ------------------------------------
+   铺满整个窗口的深色底（两套外观都是深色，看图时周围越暗越好）。中间是舞台：图片只靠 transform 放大、缩小、拖动；
+   文本和说明卡片跟着当前的外观走。不用 backdrop-filter：这块铺满全屏，每一帧都重算模糊太贵。 */
+.viewer { width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; color: #f2f2f5; background: rgba(9, 9, 13, .985); border: 0; }
+.viewer[open] {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "info tools close" "stage stage stage" "bottom bottom bottom"; animation: fade .22s ease;
+}
+.viewer::backdrop { background: transparent; }
+.viewer-info { grid-area: info; min-width: 0; padding: 12px 8px 10px 22px; }
+.viewer-name { margin: 0; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
+.viewer-meta { margin: 2px 0 0; overflow: hidden; font-size: 12.5px; color: rgba(242, 242, 245, .66); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.viewer-tools { grid-area: tools; display: flex; align-items: center; gap: 2px; padding: 0 2px; }
+.viewer-close { grid-area: close; align-self: center; margin: 0 12px 0 4px; }
+.viewer .icon-button { color: #f2f2f5; }
+.viewer .icon-button:hover:not(:disabled), .viewer-level:hover { color: #fff; background: rgba(255, 255, 255, .13); }
+.viewer .icon-button:disabled { opacity: .32; }
+.viewer .icon-button.done { color: #7ee2b8; }
+.viewer-tools .sep { width: 1px; height: 18px; margin: 0 6px; background: rgba(255, 255, 255, .16); }
+.viewer-zoom { display: flex; align-items: center; gap: 2px; }
+.viewer-zoom[hidden] + .sep { display: none; }
+.viewer-level { min-width: 56px; height: 32px; padding: 0 6px; font-size: 12.5px; color: #f2f2f5; font-variant-numeric: tabular-nums; background: none; border: 0; border-radius: 9px; }
+.viewer :focus-visible { outline-color: #b9adff; }
+.viewer-stage { grid-area: stage; position: relative; min-height: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.viewer-stage.zoomed { cursor: grab; }
+.viewer-stage.dragging { cursor: grabbing; }
+/* 图片按原始像素的大小摆在舞台正中，再用 transform 缩放和平移。拖动和捏合时（.live）不加过渡，跟着手走 */
+.viewer-image { position: absolute; left: 50%; top: 50%; max-width: none; background: #fff; border-radius: 3px; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); transform-origin: 50% 50%; -webkit-user-drag: none; }
+.viewer-image.smooth { transition: transform .2s var(--ease); }
+.viewer-stage.live .viewer-image { will-change: transform; }
+.viewer-text { position: absolute; top: 4px; bottom: 12px; left: max(16px, calc(50% - 470px)); right: max(16px, calc(50% - 470px)); margin: 0; padding: 18px 22px 22px; overflow: auto; font: 13px/1.7 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; background: var(--sheet); border-radius: 14px; box-shadow: 0 24px 80px rgba(0, 0, 0, .4); user-select: text; -webkit-user-select: text; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.viewer-text.waiting { color: var(--ink-3); }
+.viewer-banner { display: block; margin: -18px -22px 16px; padding: 10px 22px; font: 12.5px/1.55 var(--sans); color: var(--warn); background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); border-radius: 14px 14px 0 0; white-space: normal; }
+.viewer-card { position: absolute; left: 50%; top: 50%; display: grid; justify-items: center; gap: 6px; width: min(380px, calc(100vw - 32px)); padding: 28px 24px 22px; text-align: center; color: var(--ink); background: var(--sheet); border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); transform: translate(-50%, -50%); }
+.viewer-card .media-badge { width: 64px; height: 64px; margin-bottom: 8px; font-size: 14px; border-radius: 18px; }
+.viewer-card b { max-width: 100%; overflow: hidden; font-size: 15px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.viewer-card p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.viewer-card .row { justify-content: center; margin-top: 12px; }
+.viewer-card .button { display: inline-flex; align-items: center; gap: 7px; }
+.viewer-card .button .icon { width: 14px; height: 14px; }
+.viewer-spinner { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 2.5px solid rgba(255, 255, 255, .22); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; pointer-events: none; }
+.viewer-nav { position: absolute; top: 50%; z-index: 3; display: grid; place-items: center; width: 46px; height: 46px; margin-top: -23px; padding: 0; color: #f2f2f5; background: rgba(28, 28, 34, .72); border: 1px solid rgba(255, 255, 255, .12); border-radius: 50%; transition: transform .2s var(--ease), opacity .15s ease; }
+/* 深色的底、一圈细边：压在浅色的图片或者文字上也看得见 */
+.viewer-nav:hover:not(:disabled) { background: rgba(44, 44, 52, .9); transform: scale(1.06); }
+.viewer-nav:active:not(:disabled) { transform: scale(.92); }
+.viewer-nav:disabled { opacity: 0; pointer-events: none; }
+.viewer-nav .icon { width: 20px; height: 20px; }
+.viewer-nav.prev { left: 16px; }
+.viewer-nav.prev .icon { transform: rotate(180deg); }
+.viewer-nav.next { right: 16px; }
+.viewer-bottom { grid-area: bottom; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 8px 22px 12px; font-size: 12px; color: rgba(242, 242, 245, .6); }
+.viewer-count { flex: none; font-variant-numeric: tabular-nums; }
+.viewer-note { min-width: 0; max-width: 64ch; text-align: right; line-height: 1.5; }
+.viewer-status { min-width: 0; margin-left: auto; font-size: 12.5px; line-height: 1.5; color: #ffd27a; text-align: right; overflow-wrap: anywhere; animation: fade .2s ease; }
+.viewer-status:not([hidden]) + .viewer-note { display: none; }  /* 有话要说的时候，先不显示那句固定的说明 */
+@media (max-width: 760px) {
+  /* 手机上：上面一行只留名字和关闭，其余的按钮挪到最下面一排，拇指够得着 */
+  .viewer[open] { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "info close" "stage stage" "bottom bottom" "tools tools"; }
+  .viewer-info { padding-left: 16px; }
+  .viewer-close { margin-right: 8px; }
+  .viewer-tools { justify-content: space-around; padding: 4px 6px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(255, 255, 255, .08); }
+  .viewer-tools .sep, .viewer-level { display: none; }
+  .viewer-bottom { min-height: 0; padding: 6px 16px; }
+  .viewer-note { display: none; }
+  .viewer-nav { width: 38px; height: 38px; margin-top: -19px; }
+  .viewer-nav.prev { left: 8px; }
+  .viewer-nav.next { right: 8px; }
+}

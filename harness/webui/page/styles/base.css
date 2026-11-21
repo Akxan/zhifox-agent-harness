@@ -1,0 +1,61 @@
+/* ---- 基础 ---------------------------------------------------------------- */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+a { color: var(--accent); text-underline-offset: 2px; }
+::selection { background: var(--select); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.s1 { stop-color: var(--a1); }
+.s2 { stop-color: var(--a2); }
+.s3 { stop-color: var(--a3); }
+.s4 { stop-color: var(--a4); }
+.icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mark { width: 22px; height: 22px; flex: none; }
+.icon-button { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: 9px; transition: transform .15s var(--ease); }
+.icon-button:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.icon-button:active:not(:disabled) { transform: scale(.9); }
+.icon-button:disabled { opacity: .4; }
+.icon-button.small { width: 26px; height: 26px; border-radius: 7px; }
+.icon-button.small .icon { width: 14px; height: 14px; }
+.button { height: 36px; flex: none; padding: 0 16px; font-size: 13.5px; font-weight: 500; white-space: nowrap; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; transition: transform .15s var(--ease); }
+.button:hover:not(:disabled) { border-color: var(--ink-3); }
+.button:active:not(:disabled) { transform: scale(.96); }
+.button:disabled { opacity: .45; }
+.button.primary { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.button.danger { color: #fff; background: var(--danger); border-color: transparent; }
+.field { min-width: 0; height: 36px; padding: 0 12px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-3); border-radius: 10px; outline: 0; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field::placeholder { color: var(--ink-3); opacity: 1; }
+/* 下拉框：浏览器自带的箭头紧贴着右边框，和左边的留白不对称，深色模式下颜色也不跟着变。
+   换成自己画的：两道斜着的渐变拼成一个"⌄"，离右边框和文字离左边框一样远，颜色用主题里的变量。
+   不用图片（页面的安全策略只允许 data: 图片，而且图片的颜色跟不了主题） */
+select.field {
+  /* 每道斜线是一格 6×6 里沿对角线的一条细带（两边透明）：左格是"\"，右格是"/"，拼起来就是"⌄" */
+  --chevron: var(--ink-3);
+  appearance: none; -webkit-appearance: none; padding-right: 38px; cursor: pointer;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, transparent calc(50% - .8px), var(--chevron) calc(50% - .8px), var(--chevron) calc(50% + .8px), transparent calc(50% + .8px)),
+    linear-gradient(135deg, transparent calc(50% - .8px), var(--chevron) calc(50% - .8px), var(--chevron) calc(50% + .8px), transparent calc(50% + .8px));
+  background-position: calc(100% - 22px) 52%, calc(100% - 16px) 52%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+select.field:hover:not(:disabled), select.field:focus { --chevron: var(--ink); }
+select.field:disabled { opacity: .55; cursor: default; }
+select.field option { color: var(--ink); background: var(--surface); }
+
+/* 渐变描边：一个盖在边框位置上的渐变环，平时透明，需要时淡入。
+   只改透明度，所以淡入淡出不用重画。新对话按钮、输入框、建议卡片共用这一条。 */
+.new-chat::after, .box::before, .starter::after {
+  content: ""; position: absolute; inset: -1px; padding: 1.5px; border-radius: inherit; background: var(--aurora);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0; transition: opacity .25s ease; pointer-events: none;
+}

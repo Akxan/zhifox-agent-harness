@@ -1,0 +1,47 @@
+/* ---- 中间那张"纸" --------------------------------------------------------
+   纸的底色单独放在 .sheet 这一层里。这样会话栏收起、信息栏展开时，可以只把这一层
+   横向拉伸到位（transform），里面的文字不跟着变形。 */
+.main { position: relative; isolation: isolate; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sheet { position: absolute; inset: 0; z-index: -1; background: var(--sheet); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-1); transform-origin: 0 0; }
+.stage { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* 极光：三团颜色很淡的光，缓慢漂移。只在还没有内容的"空白页"上出现；一旦开始对话就淡出并且
+   不再渲染（display: none），所以聊天时它不占任何资源。
+   它们是普通的渐变色块（不是模糊滤镜），漂移只改 transform。 */
+.aurora { position: absolute; inset: 1px; z-index: 0; display: none; overflow: hidden; border-radius: 17px; pointer-events: none; opacity: 0; transition: opacity .7s ease; transition: opacity .7s ease, display .7s allow-discrete; }
+.main.fresh .aurora { display: block; opacity: 1; }
+@starting-style { .main.fresh .aurora { opacity: 0; } }
+.aurora i { position: absolute; border-radius: 50%; opacity: var(--glow); }
+.aurora i:nth-child(1) { width: 62vmin; height: 62vmin; right: 4%; top: -24vmin; background: radial-gradient(closest-side, var(--a2), transparent); animation: drift-1 26s ease-in-out infinite alternate; }
+.aurora i:nth-child(2) { width: 54vmin; height: 54vmin; right: 30%; top: -14vmin; background: radial-gradient(closest-side, var(--a1), transparent); animation: drift-2 32s ease-in-out infinite alternate; }
+.aurora i:nth-child(3) { width: 48vmin; height: 48vmin; right: -6%; top: 6vmin; background: radial-gradient(closest-side, var(--a3), transparent); animation: drift-3 23s ease-in-out infinite alternate; }
+/* 一层很淡的颗粒，让渐变有点纸张的质感。它是一小块静态图案平铺出来的，只画一次 */
+.aurora::after { content: ""; position: absolute; inset: 0; opacity: .5; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+@keyframes drift-1 { to { transform: translate3d(-10vmin, 8vmin, 0) scale(1.15); } }
+@keyframes drift-2 { to { transform: translate3d(12vmin, 6vmin, 0) scale(.9); } }
+@keyframes drift-3 { to { transform: translate3d(-8vmin, -6vmin, 0) scale(1.1); } }
+
+/* 顶栏 */
+.bar { flex: none; display: flex; align-items: center; gap: 4px; height: 54px; padding: 0 10px 0 12px; }
+.title { flex: 1 1 60px; min-width: 0; margin: 0 8px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-actions { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.model-button { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; max-width: 340px; padding: 0 10px 0 12px; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; transition: transform .15s var(--ease); }
+.model-button:hover { color: var(--ink); border-color: var(--line-2); }
+.model-button:active { transform: scale(.97); }
+.model-button .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.model-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.model-button.no-key .model-dot { background: var(--warn-dot); box-shadow: 0 0 0 3px var(--warn-soft); }
+#model-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme .icon { position: absolute; opacity: 0; transform: rotate(-90deg) scale(.5); transition: transform .45s var(--ease), opacity .2s ease; }
+.theme[data-mode="auto"] .t-auto, .theme[data-mode="light"] .t-light, .theme[data-mode="dark"] .t-dark { opacity: 1; transform: none; }
+
+/* 对话区。上下两条很窄的渐变盖在滚动内容的边缘，让文字淡出，而不是被一刀切断 */
+.viewport { position: relative; flex: 1 1 0; min-height: 0; display: flex; }
+.viewport::before, .viewport::after { content: ""; position: absolute; left: 0; right: 16px; z-index: 2; height: 22px; pointer-events: none; }
+.viewport::before { top: 0; background: linear-gradient(var(--sheet), transparent); }
+.viewport::after { bottom: 0; background: linear-gradient(transparent, var(--sheet)); }
+.main.fresh .viewport::before, .main.fresh .viewport::after { display: none; }
+.chat { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; scrollbar-gutter: stable both-edges; }
+.column { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 24px; }
+.log { display: flex; flex-direction: column; gap: 14px; padding-top: 26px; }
+.log:empty { display: none; }

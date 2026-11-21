@@ -9,7 +9,7 @@
   - 数据写在临时目录里，不碰项目的 `data/`；密钥也是编造的，不读也不写真正的 `.env`。
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
-  - 页面每次刷新都重新从磁盘读，改完 index.html（或 markdown.js）刷新一下就能看到，不用重启。
+  - 页面每次刷新都重新从磁盘读、重新拼（harness/webui/page/ 里的各块和 markdown.js），改完刷新一下就能看到，不用重启。
   - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
@@ -54,6 +54,7 @@
 发什么消息都行，回复只看顺序（主助手和子 Agent 共用这一串回复）。
 例外是第一条消息里写着 [ui:名字] 的对话：整段按 tests/demo_scripts.py 里同名的剧本回答（页面的自动化测试用它，
 手动试也行，比如发 "[ui:approve] 试试" 就会弹出一张确认卡片）。
+加 --script 名字（比如 --script readme），没写暗号的对话也按那段剧本回答：截 README 的图时用，消息里不出现暗号。
 """
 
 from __future__ import annotations
@@ -81,6 +82,7 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
+parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
 # 这个脚本绝不能碰到真正的密钥：先把环境变量里的都清掉，再放一个编造的
@@ -112,7 +114,11 @@ from harness.config import Config
 from harness.desktop import backend as desktop_backend
 from harness.tasks import new_run
 from harness.webui import lifecycle
+from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
+
+if options.script and options.script not in demo_scripts.SCRIPTS:
+    parser.error(f"没有叫 {options.script} 的剧本，有这几个：{'、'.join(demo_scripts.SCRIPTS)}")
 
 
 def in_small_pieces(events: list[dict]) -> list[dict]:
@@ -279,6 +285,8 @@ class SlowClaude:
                         scripted = browser_reply(body, shop.url)
                     elif "演示电脑" in first:
                         scripted = computer_reply(body)
+                    elif options.script:  # --script：没写暗号的对话也按这段剧本回答
+                        scripted = demo_scripts.SCRIPTS[options.script](body)
                     else:
                         scripted = api.replies.pop(0) if api.replies else None
                 if scripted is None:
@@ -645,14 +653,13 @@ def client_factory(provider):
     return openai.OpenAI(api_key=key, base_url=compat.base_url, max_retries=0)
 
 
-# 页面每次请求都重新读一遍，改了 index.html 刷新就能看到
+# 页面每次请求都重新拼一遍，改了 page/ 里的任何一块（或者 markdown.js）刷新就能看到
 send_page = server_module.Handler._send_page
 
 
 def send_fresh_page(self) -> None:
-    folder = Path(server_module.__file__).parent
-    server_module.PAGE = (folder / "index.html").read_text(encoding="utf-8")
-    server_module.MARKDOWN = (folder / "markdown.js").read_text(encoding="utf-8")
+    server_module.PAGE = assemble_page()
+    server_module.MARKDOWN = (Path(server_module.__file__).parent / "markdown.js").read_text(encoding="utf-8")
     send_page(self)
 
 

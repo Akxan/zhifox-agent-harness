@@ -1,0 +1,19 @@
+/* ---- 窄屏：两边的栏变成盖在上面的抽屉 -------------------------------------- */
+@media (max-width: 1180px) {
+  .side { position: absolute; z-index: 30; top: 8px; right: 8px; bottom: 8px; width: min(300px, calc(100vw - 16px)); padding: 8px 4px 0 8px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
+  .side-open .scrim { display: block; }
+  .side-head { display: flex; }
+  .provider-name { display: none; }  /* 模型按钮上只写模型名，厂商名省掉 */
+}
+@media (max-height: 700px) {
+  .hero-mark { display: none; }
+}
+@media (max-width: 960px) {
+  .nav { position: absolute; z-index: 30; top: 8px; left: 8px; bottom: 8px; width: min(288px, calc(100vw - 16px)); padding: 0 2px 4px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); }
+  body:not(.nav-closed) .scrim { display: block; }
+}
+@media (max-width: 760px) {
+  .column, .hero, .composer, .starters { padding-left: 14px; padding-right: 14px; }
+  .foot .keys { display: none; }
+  #model-label { display: none; }  /* 窄屏上模型按钮只留圆点和图标，把地方让给标题；完整的说明在它的 title 里 */
+}

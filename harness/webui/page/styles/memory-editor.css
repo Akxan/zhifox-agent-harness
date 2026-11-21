@@ -1,0 +1,32 @@
+/* ---- 记忆窗口的头和编辑 ------------------------------------------------------
+   记忆窗口顶上的名字，和点了"编辑"以后的样子（文件名、内容框）。列表和入口在 memory.css。
+   这几条在原来的页面里写在通道的样式后面。拆开时没有挪动任何规则的先后（两条一样具体的规则，
+   后写的盖过先写的），所以单独成了一块，排在 channels.css 后面。 */
+.memory-dialog .settings-head { align-items: flex-start; gap: 12px; }
+.memory-head { min-width: 0; }
+.memory-head h2 { overflow-wrap: anywhere; }
+.memory-sub { margin: 5px 0 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.memory-dialog .memory-body { padding-bottom: 18px; }
+.memory-text { min-height: 132px; padding: 14px 16px; font: 13px/1.75 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+/* 编辑：上面是文件名，下面是内容。内容框和看的时候是同一种样子，只是可以改 */
+.memory-editor { display: grid; gap: 14px; }
+.memory-editor[hidden] { display: none; }
+/* 前面要带上 .settings：设置面板里的 label 默认横着排（标签在左、输入框在右），这里要标签在上 */
+.settings .memory-field { display: grid; align-items: stretch; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.memory-name-box { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.memory-name-box .field { flex: 1; font: 13.5px var(--mono); }
+.memory-folder { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--ink-3); }
+.memory-folder:empty { display: none; }
+.memory-textarea { display: block; width: 100%; min-height: 280px; max-height: 58vh; resize: vertical; outline: 0; transition: border-color .15s ease, box-shadow .15s ease; }
+.memory-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.memory-text.waiting { color: var(--ink-3); }
+.memory-text:not([hidden]) + .memory-problem { margin-top: 12px; }
+.memory-problem { padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; overflow-wrap: anywhere; }
+.memory-body .hint:empty { display: none; }
+.memory-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 62px; padding: 12px 22px 14px; border-top: 1px solid var(--line); }
+.memory-message { flex: 1 1 200px; min-width: 0; margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink-3); }
+.memory-message:empty { display: none; }
+.memory-foot { justify-content: flex-end; }  /* 没有提示的时候，按钮靠右排，不会被一段空白挤到第二行 */
+.memory-message.bad { color: var(--err); }
+.memory-foot .button { display: inline-flex; align-items: center; gap: 7px; }
+.memory-foot .button .icon { width: 14px; height: 14px; }

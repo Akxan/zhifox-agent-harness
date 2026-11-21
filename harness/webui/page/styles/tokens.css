@@ -1,0 +1,101 @@
+/* ---- 颜色和字体 ---------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --bg: #eeece7;          /* 窗口的底色，会话栏就直接放在它上面 */
+  --sheet: #fbfaf7;       /* 中间那张"纸"：对话区 */
+  --surface: #ffffff;     /* 卡片、输入框 */
+  --sunken: #f2f0eb;      /* 凹下去的地方：代码块 */
+  --ink: #16171b;
+  --ink-2: #454851;
+  --ink-3: #60636d;
+  --on-ink: #ffffff;
+  --line: rgba(22, 23, 27, .09);
+  --line-2: rgba(22, 23, 27, .17);
+  --line-3: rgba(22, 23, 27, .42);  /* 输入框的边：要和底色拉开 3:1 以上的对比，才看得出"这里能填" */
+  --hover: rgba(22, 23, 27, .05);
+  --select: rgba(90, 69, 224, .22);
+  /* 强调色是一道"极光"渐变，只用在少数几个地方：标志、发送按钮、输入框的光环、当前会话 */
+  --a1: #4f6bff;
+  --a2: #8b5cf6;
+  --a3: #ec4899;
+  --a4: #f59e0b;
+  --teal: #0d9488;
+  --aurora: linear-gradient(115deg, var(--a1), var(--a2) 40%, var(--a3) 75%, var(--a4));
+  --aurora-text: linear-gradient(100deg, var(--a1), var(--a2) 50%, var(--a3));
+  --aurora-solid: linear-gradient(135deg, #4f6bff, #8b5cf6 55%, #ec4899);  /* 上面要放白色图标，所以两套外观都用深的这一组 */
+  --accent: #5a45e0;
+  --accent-soft: rgba(90, 69, 224, .12);
+  --bubble: #1c1d22;
+  --bubble-ink: #f6f5f1;
+  --stop: #1c1d22;
+  --ok: #0c7a53;
+  --ok-soft: rgba(12, 122, 83, .12);
+  --err: #c02a37;
+  --err-soft: rgba(192, 42, 55, .08);
+  --err-line: rgba(192, 42, 55, .26);
+  --danger: #c02a37;
+  --warn: #855600;
+  --warn-soft: #fff5dc;
+  --warn-line: #ebcf8f;
+  --warn-dot: #d99a00;
+  --scrim: rgba(22, 23, 27, .34);
+  --k-pdf: #b8262f;       /* 多媒体库里每一类文件的标记色：PDF、Word、Excel、PowerPoint、文本 */
+  --k-word: #2253b8;
+  --k-sheet: #0f6b3c;
+  --k-slide: #a8461a;
+  --k-text: #4a4d57;
+  --shadow-1: 0 1px 2px rgba(22, 23, 27, .04), 0 6px 20px rgba(22, 23, 27, .05);
+  --shadow-2: 0 2px 8px rgba(22, 23, 27, .06), 0 20px 56px rgba(22, 23, 27, .16);
+  --glow: .3;
+  --col: 808px;           /* 对话这一栏的最大宽度（含两边的留白） */
+  --sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --serif: "New York", "Iowan Old Style", Georgia, "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);       /* 起步快、收尾慢，像东西滑到位 */
+  --spring: cubic-bezier(.34, 1.45, .64, 1); /* 稍微冲过头再回来，用在小图标上 */
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0c0f;
+  --sheet: #121318;
+  --surface: #191b21;
+  --sunken: #0e0f13;
+  --ink: #edece8;
+  --ink-2: #b9bac2;
+  --ink-3: #8f919c;
+  --on-ink: #121318;
+  --line: rgba(255, 255, 255, .075);
+  --line-2: rgba(255, 255, 255, .15);
+  --line-3: rgba(255, 255, 255, .38);
+  --hover: rgba(255, 255, 255, .055);
+  --select: rgba(169, 155, 255, .32);
+  --a1: #6e8bff;
+  --a2: #a78bfa;
+  --a3: #f472b6;
+  --a4: #fbbf24;
+  --teal: #2dd4bf;
+  --accent: #a99bff;
+  --accent-soft: rgba(169, 155, 255, .16);
+  --bubble: #2a2c35;
+  --bubble-ink: #f1f0ec;
+  --stop: #3a3d49;
+  --ok: #4ccf9f;
+  --ok-soft: rgba(76, 207, 159, .13);
+  --err: #ff8a93;
+  --err-soft: rgba(255, 138, 147, .09);
+  --err-line: rgba(255, 138, 147, .3);
+  --danger: #c5303d;
+  --warn: #f2c35b;
+  --warn-soft: #231d10;
+  --warn-line: #5a4718;
+  --warn-dot: #f2c35b;
+  --scrim: rgba(0, 0, 0, .58);
+  --k-pdf: #ff8f8f;
+  --k-word: #8db4ff;
+  --k-sheet: #6fd8a4;
+  --k-slide: #ffaa7a;
+  --k-text: #c3c5cd;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 20px rgba(0, 0, 0, .25);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, .4), 0 20px 56px rgba(0, 0, 0, .55);
+  --glow: .24;
+}

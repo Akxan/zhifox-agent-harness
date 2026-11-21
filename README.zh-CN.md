@@ -23,7 +23,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-dark-zh.webp">
-    <img alt="智狐的网页界面：一段对话，里面有一次添加待办的工具调用，和一张等你确认的执行命令卡片" src="docs/assets/screenshot-light-zh.webp" width="900">
+    <img alt="智狐的网页界面：助手调用工具读出待办，用一张 Markdown 表格排好这周的计划，执行命令之前先弹出确认卡片；左边的会话栏里有之前的对话，包括一段 Telegram 聊天、一次定时任务的运行和一段用自定义 Agent 开始的对话" src="docs/assets/screenshot-light-zh.webp" width="900">
   </picture>
 </p>
 
@@ -182,6 +182,11 @@ uv run harness --web
   最下面的"在访达中打开记忆文件夹"（Linux 上是"打开记忆文件夹"）会在文件管理器里打开整个文件夹。
   列表自己会跟着变：助手在这一轮里记下的，这一轮还没结束就会出现；你在访达里改的、删的，切回这个页面时就会更新。
   助手工作时不能删，要等这一轮结束：它可能正在改的就是这一条。
+
+<p align="center">
+  <img alt="“扩展”窗口的 Skill 这一页：四个装好的 Skill，每一个写着说明、大小、从哪儿来的（在智狐里新建、GitHub 网址、从 Claude Code 导入）和一个启用开关；旁边是 MCP、通道、Agent 三页" src="docs/assets/extensions-light-zh.webp" width="720">
+</p>
+
 - 扩展 → Skill（右上角的拼图按钮）：装好的 Skill，每一个写着说明、有几个文件、从哪儿来的。
   每一行有一个开关，可以启用或停用；鼠标移上去（或者用 Tab 移到它上面），右边出现和会话行一样的三个按钮：
   "在访达中显示"（这个 Skill 的文件夹）、铅笔（编辑 SKILL.md，保存时检查 frontmatter；改了 name，文件夹也跟着改名；
@@ -277,6 +282,10 @@ uv run harness --web
   这次运行标着"补跑"，记着错过了几次，也会告诉助手原定是什么时候。
 - **每次运行都有记录。** 每个任务保留最近 20 次运行：开始和结束的时间、结果、调用了几次模型、估算费用、
   最后回答的开头，失败时还有原因。不设花费上限。
+
+<p align="center">
+  <img alt="一个定时任务的详情：正在运行的这一次（第几步、已用时间、花费和停止按钮），下面是下次运行的时间、要不要先问你、让助手做什么，以及运行记录" src="docs/assets/tasks-light-zh.webp" width="560">
+</p>
 
 **定时任务只在网页界面（`uv run harness --web`）或者服务器模式（`uv run harness serve`）开着的时候运行。**
 终端界面不运行它们；在终端里也可以让助手添加或删除任务，等下次网页界面或者服务器模式开着时运行。"立即运行"会马上运行一次，不改变原来的时间表。助手替你添加或删除"让助手去做"的任务时，
@@ -772,12 +781,22 @@ t("已换成 {provider} · {model}。对话继续。", provider="DeepSeek", mode
 
 ```
 agent 循环 ──调用──► WebUI ──事件──► 本地服务器 ──推送──► 浏览器里的页面
-                    (webui/ui.py)   (webui/server.py)     (webui/index.html)
+                    (webui/ui.py)   (webui/server.py)     (webui/page/)
 ```
 
 `WebUI` 把每次调用记成一条"事件"存进日志，服务器把事件推送给浏览器，页面收到后画出对应的内容。
 你在页面上点"允许"或"停止"，则是浏览器向服务器发一个请求，服务器再转告 `WebUI`。
 页面自己不保存对话，所以刷新后服务器把日志重发一遍，页面就能照着重新画出来。
+
+发给浏览器的页面是一个自给自足的 HTML：它的安全策略只运行带着一次性 `nonce` 的内联 `<script>` 和 `<style>`，
+不加载任何外部的东西。但这不等于它得写成一个文件。页面的源码在 [harness/webui/page/](harness/webui/page/) 里，
+一个文件只讲一件事：`index.html` 是骨架（标记，外加几行占位符），`styles/` 里是按界面的部分分开的样式
+（`tokens.css`、`chat.css`、`memory.css`、`skills.css`……），`scripts/` 里是按小节分开的页面脚本
+（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
+里的清单按顺序列出这些块，服务器启动时把它们拼回同一个页面（演示每次刷新都重新拼）。顺序很要紧：样式里两条一样具体的规则，
+后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
+所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
+文件漏列了或者列了两次，测试会失败。
 
 页面上的动画只给"此刻正在发生"的内容：新来的消息会浮现出来，而刷新页面、打开旧会话时重放出来的内容直接显示，
 不会把几百条消息的入场动画挨个播一遍。页面怎么分辨这两种内容？服务器在补发完已有的事件之后，会多发一个名叫
@@ -1788,7 +1807,11 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 测试里用的是一个很小的假文档：`innerHTML` 这类会解析 HTML 的接口一碰就报错，只允许建出固定的几种标签和属性。
 它覆盖了每一种支持的写法、嵌套、转义、恶意输入、按随机大小一段段输出（结果必须和一次画完的一样），以及一万行的长输入。
 
-页面本身（`index.html` 里的样式和脚本）由 [tests/ui/](tests/ui/) 里的页面测试在真正的 Chrome（无界面）里测。
+[tests/test_page.py](tests/test_page.py) 里有几条不用浏览器的静态检查：页面的每一块都在清单里列了、只列了一次；
+没有哪一块里有 `</script`、`</style`、`<!--` 或者占位符（放进页面会出问题）；没有两个函数同名；每一块脚本、
+以及拼好的整段脚本都能通过 `node --check`（两块里用 `const` 定义了同一个名字，单独查都没事，拼起来整个页面就跑不起来）。
+
+页面本身（[harness/webui/page/](harness/webui/page/) 里的标记、样式和脚本）由 [tests/ui/](tests/ui/) 里的页面测试在真正的 Chrome（无界面）里测。
 `uv run pytest` 会带上它们；`uv run pytest -m ui` 只跑它们，`-m "not ui"` 跳过它们。这台电脑上没有 Chrome 时跳过，CI 里必须跑。
 一共一分钟左右，不加任何依赖：驾驶 Chrome 用的是智狐自己手写的 CDP 客户端（不用 Playwright、Selenium，也不用 npm），
 整个测试会话只把 `tests/demo_web.py` 作为子进程启动一次（数据在临时目录里），每个测试在一个新的、像隐身窗口一样的浏览器上下文里打开页面。
@@ -1824,6 +1847,7 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 第一条消息里写着 `[ui:approve]` 这类暗号的对话，按 `tests/demo_scripts.py` 里同名的剧本回答（页面测试用的就是它们）：
 `[ui:approve]` 要执行一条命令（弹出确认卡片），`[ui:long]` 回一段很长的话，`[ui:todo]` 加一条标题很长的待办，`[ui:hello]` 打个招呼，
 `[ui:flaky]` 每条消息第一次都会失败（可以试试在失败的那一轮上"重新生成"）。
+`--script 名字` 让没写暗号的对话也按那段剧本回答；README 里的截图用的是 `--script readme`，问的是中文就答中文，否则答英文。
 
 每次推送到 GitHub、每个 pull request，都会在 Ubuntu 和 macOS 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
 （[.github/workflows/tests.yml](.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome；

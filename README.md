@@ -23,7 +23,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-dark-en.webp">
-    <img alt="The ZhiFox web UI: a conversation in which the assistant adds a to-do through a tool call, followed by an approval card asking whether to run a shell command" src="docs/assets/screenshot-light-en.webp" width="900">
+    <img alt="The ZhiFox web UI: the assistant reads the to-do list through a tool call, plans the week in a Markdown table and asks for approval before running a shell command; the sidebar lists earlier conversations, including a Telegram chat, a scheduled task run and one started with a custom agent" src="docs/assets/screenshot-light-en.webp" width="900">
   </picture>
 </p>
 
@@ -535,13 +535,25 @@ more step, because the loop and the browser are not in the same program:
 
 ```
 agent loop ──calls──► WebUI ──events──► local server ──pushes──► page in the browser
-                   (webui/ui.py)     (webui/server.py)          (webui/index.html)
+                   (webui/ui.py)     (webui/server.py)          (webui/page/)
 ```
 
 `WebUI` records each call as an event in a log, the server pushes the events to the browser as a Server-Sent Events
 (SSE) stream, and the page draws each one. When you click Allow or Stop, the browser sends a request to the server, which
 passes it on to `WebUI`. The page keeps no copy of the conversation; after a refresh the server resends the log and the
 page redraws from it.
+
+The page is one self-contained HTML document: its security policy only runs inline `<script>` and `<style>` blocks that
+carry a one-time nonce, and it loads nothing from outside. That doesn't mean it has to be written as one file. Its
+source lives in [harness/webui/page/](harness/webui/page/), one concern per file: `index.html` is the skeleton (the
+markup plus a few placeholder lines), `styles/` holds the CSS split by part of the interface (`tokens.css`, `chat.css`,
+`memory.css`, `skills.css`…), and `scripts/` holds the page script split by section (`i18n.js`, `motion.js`,
+`memory.js`, `tasks.js`, `browser.js`…). A manifest in [page/\_\_init\_\_.py](harness/webui/page/__init__.py) lists the
+parts in order, and the server joins them into the same single page once at startup (the demo re-assembles it on
+every refresh). Order matters: in CSS a later rule beats an equally specific earlier one, so `reduce-motion.css` comes
+last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses
+(`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
+fails if a file is missing from it or listed twice.
 
 Only content that is happening right now animates. New messages fade in, but content replayed after a refresh or when
 opening an old conversation appears directly, rather than playing hundreds of entrance animations one by one. How does
@@ -1492,6 +1504,11 @@ This starts a small server on your computer and opens the chat page in your brow
   itself up to date: a memory the assistant writes appears while the turn is still running, and changes you make in
   Finder appear as soon as you switch back to the page. Deleting waits until the assistant has finished its turn,
   because it may be in the middle of editing that very memory.
+
+<p align="center">
+  <img alt="The Extensions dialog on its Skills tab: four installed skills, each with its description, size, where it came from (created in ZhiFox, a GitHub URL, imported from Claude Code) and an on/off switch, next to the MCP, Channels and Agents tabs" src="docs/assets/extensions-light-en.webp" width="720">
+</p>
+
 - **Extensions → Skill** (the puzzle-piece button at the top right). Your installed skills, each with its description,
   number of files and where it came from. Each row has a switch to enable or disable the skill, and on hover (or Tab) the
   same three buttons as a conversation row: **Show in Finder** (that skill's folder), the **pencil** (edit `SKILL.md`;
@@ -1617,6 +1634,10 @@ How agent tasks behave:
   the number of missed times, and the assistant is told when it should have run.
 - **Every run is recorded.** Each task keeps its last 20 runs: start and end time, status, number of model calls,
   estimated cost, the beginning of the final answer, and the error if it failed. There is no spending cap.
+
+<p align="center">
+  <img alt="A scheduled task's details: the run in progress with its step count, time so far, cost and a Stop button, then the next run, the approval setting, the instruction and the run history" src="docs/assets/tasks-light-en.webp" width="560">
+</p>
 
 **Tasks run only while the web UI (`uv run harness --web`) or the server mode (`uv run harness serve`) is running.**
 The terminal UI doesn't run them; you can still ask the assistant there to add or delete tasks, and they run the next
@@ -2208,7 +2229,13 @@ available. They use a tiny fake document whose `innerHTML` and similar HTML-pars
 a fixed list of tags and attributes. They cover every supported syntax, nesting, escaping, malicious input, streaming
 in random-sized pieces (the result must equal rendering all at once), and 10,000-line inputs.
 
-The page itself (the styles and scripts in `index.html`) is tested in a real headless Chrome by the suite in
+Static checks in [tests/test_page.py](tests/test_page.py) run without a browser: every part of the page is listed
+exactly once in the manifest, no part contains `</script`, `</style`, `<!--` or a placeholder that would break the
+inlining, no two functions share a name, and every script part, as well as the assembled script, passes
+`node --check` (two parts that both declare the same `const` each pass alone, but break the whole page once joined).
+
+The page itself (the markup, styles and scripts in [harness/webui/page/](harness/webui/page/)) is tested in a real
+headless Chrome by the suite in
 [tests/ui/](tests/ui/). `uv run pytest` includes it; `uv run pytest -m ui` runs only it and `-m "not ui"` skips it. It is
 skipped when no Chrome is installed, and CI requires it. It takes about a minute and adds no dependencies: it drives
 Chrome with ZhiFox's own hand-written CDP client (no Playwright, Selenium or npm), starts `tests/demo_web.py` once as a
@@ -2254,6 +2281,8 @@ approval cards, the screenshot allowance and the header indicator. A conversatio
 such as `[ui:approve]` follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]`
 asks to run a command, `[ui:long]` writes a long reply, `[ui:todo]` adds a to-do with a very long title, `[ui:hello]`
 greets you, and `[ui:flaky]` fails the first attempt at every message (so you can try Regenerate on a failed turn).
+`--script NAME` makes every conversation follow that script even without a tag; the README screenshots were taken with
+`--script readme`, which answers in English or Chinese depending on the question.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes

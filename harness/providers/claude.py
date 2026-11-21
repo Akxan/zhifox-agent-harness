@@ -273,10 +273,20 @@ class AnthropicBackend:
             ui.thinking(event.thinking)
         elif event.type == "text":  # 回答正文的一小段
             ui.text(event.text)
+        elif event.type == "content_block_start" and event.content_block.type != "text":
+            # 一个不是文字的块（思考、工具调用、联网搜索……）开始了：前面那段文字到这里才算写完（见下面）
+            ui.end_stream()
         elif event.type == "content_block_stop":  # 一个内容块结束了
             block = event.content_block
-            if block.type in ("thinking", "text"):
+            if block.type == "thinking":
                 ui.end_stream()
+            elif block.type == "text":
+                # 文字块结束时先不说"写完了"。联网搜索后带引用的回答，API 会按引用把它切成一串连着的 text 块
+                # （"……Se describe como" | "proveedor B2B líder…" | ". Anuncia" | ……）。每块都结束一次的话，
+                # 网页把每一小块当成单独的一段去排 Markdown（一句话断成好几行、标点单独一行），聊天通道把每一小块
+                # 各发成一条消息。所以连着的文字块算同一段：下一个不是文字的块开始时（上面那一支）、
+                # 或者整条回复结束时（stream 的 finally 里），才结束
+                pass
             else:
                 notice = block_notice(block)
                 if notice is not None:

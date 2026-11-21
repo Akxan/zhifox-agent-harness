@@ -67,7 +67,7 @@ requires = ["hatchling>=1.27"]  # 1.27 起支持 license = "MIT" 这种写法（
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["harness"]
+packages = ["harness"]  # harness/ 下的文件都会打进包里，包括网页的骨架、样式和脚本（webui/page/）和 markdown.js
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
