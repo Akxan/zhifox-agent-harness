@@ -17,6 +17,7 @@ from fake_openai import FakeOpenAI
 from harness import i18n
 from harness.app import build_app
 from harness.config import Config
+from harness.desktop import backend as desktop_backend
 
 
 class RecordingUI:
@@ -127,6 +128,9 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     # 界面语言是整个程序共用的一个值（见 harness/i18n.py）。每个测试都从中文开始，测试里换了语言也会被换回来
     monkeypatch.setattr(i18n, "current", i18n.DEFAULT)
+    # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
+    # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
+    monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
 
 
 @pytest.fixture

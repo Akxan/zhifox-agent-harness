@@ -2042,6 +2042,66 @@ a.chan-button.primary { color: var(--on-ink); }
 .browser-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 10px 12px; font-size: 13px; }
 .browser-confirm span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
 
+/* ---- 操作整台电脑 ----
+   顶栏上的提示比浏览器的那一条醒目：用确认卡片的那一套暖色（警示，但不是"出错"的红），"停止"是一颗实心的按钮。
+   动的只有那个点外面的一圈（transform、opacity），减少动态效果时停住 */
+.computer-live { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 4px 0 11px; font-size: 12.5px; font-weight: 500; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; animation: reveal .3s var(--ease); }
+.computer-live > .icon { width: 14px; height: 14px; flex: none; }
+.computer-live-dot { position: relative; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--warn-dot); }
+.computer-live.busy .computer-live-dot::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--warn-dot); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.computer-live-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.computer-live-stop { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px 0 8px; font-size: 12px; font-weight: 600; color: var(--on-ink); background: var(--ink); border: 0; border-radius: 999px; transition: transform .15s var(--ease), opacity .15s ease; }
+.computer-live-stop .icon { width: 11px; height: 11px; stroke-width: 2.4; color: currentColor; }
+.computer-live-stop:hover { opacity: .86; }
+.computer-live-stop:active { transform: scale(.94); }
+.computer-live-stop:disabled { opacity: .5; }
+:root[data-motion="reduce"] .computer-live.busy .computer-live-dot::after { animation: none; opacity: .5; }
+@media (max-width: 760px) {
+  /* width: max-content：从正中间（left: 50%）往右只剩一半的宽度，不写的话它只肯缩在那一半里，字就被截断了 */
+  .computer-live { position: absolute; z-index: 7; top: 58px; left: 50%; translate: -50% 0; width: max-content; max-width: calc(100% - 32px); box-shadow: var(--shadow-2); }
+  .computer-live > .icon { display: none; }
+  .browser-live:not([hidden]) + .computer-live { top: 98px; }  /* 两条都在的时候，电脑的这一条放在浏览器那一条下面 */
+}
+.call.computer-call .tool-name { color: var(--warn); }
+
+/* 设置里的一节：和浏览器那一节同一套卡片，开着时换成暖色 */
+.computer-card.on::before { background: radial-gradient(closest-side, var(--warn-dot), transparent); }
+.computer-card.on .browser-glyph { color: #fff; background: linear-gradient(135deg, #c2410c, #db2777); }
+.computer-badge { display: inline-block; margin-left: 6px; padding: 0 7px; font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: 1px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
+.computer-confirm { margin-top: 12px; padding: 14px 16px 16px; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: reveal .25s var(--ease); }
+.computer-confirm h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13.5px; font-weight: 600; color: var(--warn); }
+.computer-confirm h4 .icon { width: 16px; height: 16px; flex: none; }
+.computer-confirm ul { display: grid; gap: 4px; margin: 0 0 10px; padding: 0 0 0 18px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.computer-confirm li, .computer-confirm p { min-width: 0; overflow-wrap: anywhere; }
+.computer-confirm p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.computer-confirm p b { color: var(--ink); font-weight: 600; }
+.computer-ack { display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 12px; font-size: 13px; font-weight: 600; line-height: 1.5; cursor: pointer; }
+.computer-ack input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.computer-ack span { min-width: 0; overflow-wrap: anywhere; }
+.computer-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.computer-checks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 12px; }
+.computer-check { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.computer-check > .icon { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--ink-3); }
+.computer-check.good > .icon { color: var(--ok); }
+.computer-check.bad > .icon { color: var(--err); }
+.computer-check-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.computer-check-words b { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.computer-check-words span { font-size: 12px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.computer-check-words code { font: 11.5px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.computer-check > .mini { flex: none; align-self: center; }
+.computer-blocked { margin-top: 14px; }
+.computer-blocked-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 0 2px; }
+.computer-blocked-head b { font-size: 13px; font-weight: 600; }
+.computer-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 8px 0; padding: 0; list-style: none; }
+.computer-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; height: 28px; padding: 0 3px 0 10px; font-size: 12.5px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; animation: reveal .2s var(--ease); }
+.computer-chip span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.computer-chip button { flex: none; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: 50%; transition: color .15s ease, background-color .15s ease; }
+.computer-chip button:hover { color: var(--err); background: var(--err-soft); }
+.computer-chip button .icon { width: 11px; height: 11px; stroke-width: 2.4; }
+.computer-chips-empty { padding: 4px 2px; font-size: 12px; color: var(--ink-3); }
+.computer-blocked .row .field { flex: 1 1 200px; }
+:root[data-motion="reduce"] .computer-confirm, :root[data-motion="reduce"] .computer-chip { animation: none; }
+
 /* 换外观时的交叉淡化（浏览器对新旧两张画面做合成，不重新排版） */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
 ::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
@@ -2140,6 +2200,7 @@ a.chan-button.primary { color: var(--on-ink); }
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v10M7.5 9.5L12 14l4.5-4.5M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
   <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 4.5h6v3H9zM9 6H6.5a1.5 1.5 0 0 0-1.5 1.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H15M8.5 12h7M8.5 15.5h4.5"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M4.5 4.5h15A1.5 1.5 0 0 1 21 6v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5V6a1.5 1.5 0 0 1 1.5-1.5zM8.5 20h7M12 16v4"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
@@ -2217,6 +2278,12 @@ a.chan-button.primary { color: var(--on-ink); }
             <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
             <span id="browser-live-text" class="browser-live-text" role="status"></span>
             <button id="browser-live-stop" class="browser-live-stop" type="button"></button>
+          </div>
+          <div id="computer-live" class="computer-live" role="group" aria-label="智狐正在控制这台电脑" data-i18n-aria-label hidden>
+            <span class="computer-live-dot" aria-hidden="true"></span>
+            <svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg>
+            <span id="computer-live-text" class="computer-live-text" role="status"></span>
+            <button id="computer-live-stop" class="computer-live-stop" type="button"></button>
           </div>
           <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent" aria-label="扩展：Skill、MCP、通道、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
@@ -2412,6 +2479,54 @@ a.chan-button.primary { color: var(--on-ink); }
       </div>
       <div id="browser-profile" class="browser-profile"></div>
       <p id="browser-cost" class="hint"></p>
+    </section>
+    <section id="computer-section">
+      <h3><span data-i18n>操作整台电脑</span> <small id="computer-state"></small></h3>
+      <div id="computer-card" class="browser-card computer-card">
+        <div class="browser-top">
+          <span class="browser-glyph" aria-hidden="true"><svg class="icon"><use href="#i-monitor"/></svg></span>
+          <div class="browser-words">
+            <b><span id="computer-title" data-i18n>让助手操作整台电脑</span><span class="computer-badge" data-i18n>进阶</span></b>
+            <p data-i18n>助手会看你的整个屏幕，替你点鼠标、打字、按键：任何程序、任何窗口它都碰得到。比浏览器危险得多，默认关着。</p>
+          </div>
+          <button id="computer-enabled" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="computer-title"></button>
+        </div>
+        <ul class="browser-rules">
+          <li><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>每一步都要你批准，不管选了哪一档；只有截图可以选“这段对话里不再问”</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>⌘Q、Ctrl+Alt+Del 这类按下去收不回来的组合键，确认卡片上带着警告</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg><span data-i18n>打字之前，智狐先把问你时最前面的那个程序换回来；点击的位置被别的窗口挡住了就不点</span></li>
+        </ul>
+      </div>
+      <div id="computer-confirm" class="computer-confirm" role="group" aria-labelledby="computer-confirm-title" hidden>
+        <h4><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span id="computer-confirm-title" data-i18n>打开之前，请先看一下</span></h4>
+        <ul>
+          <li data-i18n>模型看得到屏幕上的一切：别的程序、通知里的消息、打开着的文件、密码管理器。截图会发给你选的那家模型。</li>
+          <li data-i18n>屏幕上的文字（一封邮件、一个网页、一条消息）可能藏着冲着模型来的指令，把它带偏。</li>
+          <li data-i18n>它点得到、打得到你电脑上的任何地方。智狐只看得到像素，没法替你判断点下去会发生什么：每一步都要你看清楚。</li>
+        </ul>
+        <p><b data-i18n>最稳妥的用法：</b><span data-i18n>在虚拟机，或者一个单独的用户账号里运行智狐，那里面不要登录你的重要账号。</span></p>
+        <p data-i18n>每一步都要你在这个页面上点“允许”：把智狐的页面和要操作的程序并排放好，不要互相挡住。</p>
+        <label class="computer-ack"><input id="computer-ack" type="checkbox"><span data-i18n>我明白这些风险，每一步都会看清楚再允许</span></label>
+        <div class="computer-confirm-actions">
+          <button id="computer-confirm-yes" class="button primary" type="button" disabled data-i18n>打开</button>
+          <button id="computer-confirm-no" class="button" type="button" data-i18n>取消</button>
+        </div>
+      </div>
+      <div id="computer-checks" class="computer-checks"></div>
+      <div class="browser-option">
+        <div class="browser-option-words"><b id="computer-unattended-title" data-i18n>允许定时任务和聊天通道使用</b><span class="browser-note" data-i18n>默认不允许：它们多半是在没人看着的时候运行。允许以后，每一步照样要你批准（在任务的卡片上、在聊天里）。</span></div>
+        <button id="computer-unattended" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="computer-unattended-title"></button>
+      </div>
+      <div class="computer-blocked">
+        <div class="computer-blocked-head"><b id="computer-blocked-title" data-i18n>不许碰的程序</b><span id="computer-blocked-note" class="browser-note"></span></div>
+        <ul id="computer-chips" class="computer-chips" aria-labelledby="computer-blocked-title"></ul>
+        <div class="row">
+          <input id="computer-blocked-name" class="field" type="text" spellcheck="false" autocomplete="off" maxlength="100" placeholder="程序的名字，比如 1Password、信息、微信" aria-label="要加进来的程序的名字" data-i18n-placeholder data-i18n-aria-label data-keep="computer-blocked">
+          <button id="computer-blocked-add" class="button" type="button" data-i18n>添加</button>
+        </div>
+      </div>
+      <p id="computer-models" class="hint"></p>
+      <p id="computer-cost" class="hint"></p>
     </section>
     <section>
       <h3 data-i18n>导出全部数据</h3>
@@ -2698,7 +2813,9 @@ a.chan-button.primary { color: var(--on-ink); }
     if (!values) return out;
     return out.replace(CJK_FILL, (whole, name) => {
       if (!Object.hasOwn(values, name)) return whole;
-      const value = String(values[name]);
+      // 填进去的值本身也是一句话（程序给的 {key, values}，见 harness/webui/ui.py 的 page_values）：它也照当前的语言译
+      const nested = values[name] && typeof values[name] === 'object' && typeof values[name].key === 'string';
+      const value = nested ? t(values[name].key, values[name].values) : String(values[name]);
       const before = whole.startsWith(' ') && !CJK_EDGE.test(value.charAt(0)) ? ' ' : '';
       const after = whole.endsWith(' ') && !CJK_EDGE.test(value.charAt(value.length - 1)) ? ' ' : '';
       return before + value + after;
@@ -3465,6 +3582,7 @@ a.chan-button.primary { color: var(--on-ink); }
       renderMcpState(event.mcp);
       renderChannelsState(event.channels);
       renderBrowser(event.browser);
+      renderComputer(event.computer);
       if (settings.open) renderSettings();
       renderApproval(event.approval);
 
@@ -3510,8 +3628,10 @@ a.chan-button.primary { color: var(--on-ink); }
       endBlock();
       if (toolCard) finishTool('stopped', '');
       if (event.name === 'agent') { toolCard = subagentCard(event); return; }  // 交给子 Agent：画成一张专门的卡片（见下面"交给子 Agent 的卡片"）
-      const browserStep = isBrowserCall(event.name);  // 浏览器的一步：卡片下面还要放一张小截图（见"浏览器"一节）
-      const card = el('details', browserStep ? 'call browser-call' : 'call');
+      // 浏览器、电脑的一步：卡片下面还要放一张小截图（见"浏览器"、"操作整台电脑"两节）。大图各有各的接口，记在 shots 里
+      const shots = isBrowserCall(event.name) ? 'browser' : isComputerCall(event.name) ? 'computer' : '';
+      const browserStep = Boolean(shots);
+      const card = el('details', shots ? 'call ' + shots + '-call' : 'call');
       const summary = card.appendChild(el('summary'));
       const status = summary.appendChild(el('span', 'status pending'));
       status.appendChild(tel('span', 'sr-only', k('正在执行')));
@@ -3527,7 +3647,7 @@ a.chan-button.primary { color: var(--on-ink); }
       const holder = browserStep ? el('div', 'browser-step') : null;
       if (holder) holder.appendChild(card);
       add(holder || card);
-      toolCard = { card, status, outcome, details, summary, holder };
+      toolCard = { card, status, outcome, details, summary, holder, shots };
     },
 
     // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出
@@ -3564,13 +3684,15 @@ a.chan-button.primary { color: var(--on-ink); }
       what.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.description).trimEnd()));
       const actions = card.appendChild(el('div', 'confirm-actions'));
       const allow = actions.appendChild(tel('button', 'button primary', k('允许')));
+      // 操作整台电脑的截图：可以多选一个"这段对话里截图不再问"（只管这段对话，换一段就从头再问，见 harness/permissions.py）
+      const trust = event.offer === 'screenshots' ? actions.appendChild(tel('button', 'button', k('允许，这段对话里截图不再问'))) : null;
       const deny = actions.appendChild(tel('button', 'button', k('拒绝')));
       const reason = actions.appendChild(el('input', 'field reason'));
       allow.type = deny.type = 'button';
       reason.type = 'text';
       tattr(reason, 'placeholder', k('拒绝时可以告诉助手原因（可选）'));
       tattr(reason, 'aria-label', k('拒绝的原因'));
-      if (!$('approval').hidden) {  // 助手程序支持"自动允许"时，在这里放一个直达的入口
+      if (!$('approval').hidden && !event.always) {  // 助手程序支持"自动允许"时，在这里放一个直达的入口（换哪一档都照样要问的不放）
         const fewer = actions.appendChild(tel('button', 'link', k('不想每次都问？')));
         fewer.type = 'button';
         fewer.addEventListener('click', openApproval);
@@ -3579,12 +3701,19 @@ a.chan-button.primary { color: var(--on-ink); }
       const answer = async (allowed) => {
         const hadFocus = card.contains(document.activeElement);
         allow.disabled = deny.disabled = true;
+        if (trust) trust.disabled = true;
         const sent = await post('/api/confirm', { id: event.id, allow: allowed, feedback: allowed ? '' : reason.value });
-        if (!sent) allow.disabled = deny.disabled = false;
+        if (!sent) { allow.disabled = deny.disabled = false; if (trust) trust.disabled = false; }
         else if (hadFocus) input.focus({ preventScroll: true });
       };
       allow.addEventListener('click', () => answer(true));
       deny.addEventListener('click', () => answer(false));
+      if (trust) trust.addEventListener('click', async () => {
+        trust.disabled = true;
+        const reply = await call('/api/computer/trust', {});
+        if (!reply.ok) { trust.disabled = false; toast(reply.error); return; }
+        answer(true);
+      });
       reason.addEventListener('keydown', (key) => {
         if (key.key === 'Enter' && !key.isComposing && key.keyCode !== 229) { key.preventDefault(); answer(false); }
       });
@@ -4131,7 +4260,7 @@ a.chan-button.primary { color: var(--on-ink); }
     $('viewer-prev').disabled = looking.at <= 0;
     $('viewer-next').disabled = looking.at >= total - 1 && !more;
     // 附件是对话记录的一部分（对话历史只往后加，不改前面的），所以没有"删除这一个"的按钮，在这里说清楚
-    if (item.shot !== undefined) retext($('viewer-note'), k('大图在这台电脑上保留 {days} 天，之后对话里还看得到小图。'), { days: browserShotDays() });
+    if (item.shot !== undefined) retext($('viewer-note'), k('大图在这台电脑上保留 {days} 天，之后对话里还看得到小图。'), { days: item.source === 'computer' ? computerShotDays() : browserShotDays() });
     else retext($('viewer-note'), item.id ? k('附件不能单独删除：它是对话记录的一部分。删除它所在的会话时，原件会一起删除（别的会话也用到的除外）。')
       : k('还没有发出去。发出去以后，它会存进多媒体库。'));
   }
@@ -4410,11 +4539,11 @@ a.chan-button.primary { color: var(--on-ink); }
       if (typeof item.local.text === 'string') return { blob: new Blob([item.local.text], { type: 'text/plain' }), name: item.name };
       return { blob: blobFrom(item.local.data, item.media_type), name: item.download || item.name };
     }
-    const key = item.shot ? 'shot:' + item.shot : item.id;  // 浏览器截图的大图另有一个接口（见"浏览器"一节）
+    const key = item.shot ? 'shot:' + item.shot : item.id;  // 截图的大图另有接口：浏览器的、电脑的各一个（见那两节）
     if (fetched.has(key)) return fetched.get(key);
     let response;
     try {
-      response = await fetch(item.shot ? '/api/browser/shot' : '/api/media/file', {
+      response = await fetch(item.shot ? (item.source === 'computer' ? '/api/computer/shot' : '/api/browser/shot') : '/api/media/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
         body: JSON.stringify({ id: item.shot || item.id }),
@@ -9835,7 +9964,7 @@ a.chan-button.primary { color: var(--on-ink); }
   const AGENT_TOOL_LABELS = {
     Read: k('读文件'), Edit: k('读写文件'), Bash: k('执行命令'), WebSearch: k('联网搜索'), WebFetch: k('读网页'),
     Memory: k('长期记忆'), TodoWrite: k('待办'), Schedule: k('定时任务'), Skill: k('读取你装的 Skill'), Agent: k('交给别的 Agent'),
-    Browser: k('用智狐的浏览器'),
+    Browser: k('用智狐的浏览器'), Computer: k('操作整台电脑'),
   };
   const AGENT_COLOR_NAMES = {
     red: k('红色'), orange: k('橙色'), yellow: k('黄色'), green: k('绿色'), cyan: k('青色'), blue: k('蓝色'), purple: k('紫色'), pink: k('粉色'),
@@ -11926,6 +12055,7 @@ a.chan-button.primary { color: var(--on-ink); }
     if (viewer.open) { labelViewer(); drawViewerChrome(); }  // 查看器：按钮的说明（带着快捷键）、上面的信息
     if (taskEditor.open) { drawEditor(); previewSoon(); }  // 编辑任务的窗口：星期几的按钮、接下来几次的时间
     renderBrowser(browserStatus, true);  // 顶上的提示、设置里的"浏览器"一节
+    renderComputer(computerStatus, true);  // 顶上的"智狐正在控制这台电脑"、设置里的"操作整台电脑"一节
   }
 
   $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮
@@ -12141,6 +12271,8 @@ a.chan-button.primary { color: var(--on-ink); }
     fillDataSettings();
     browserConfirming = false;
     drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）
+    showComputerConfirm(false);
+    drawComputerSettings(true);
     settings.showModal();
   }
 
@@ -12189,7 +12321,9 @@ a.chan-button.primary { color: var(--on-ink); }
     image.decoding = 'async';
     image.src = event.thumb;
     const shot = typeof event.shot === 'string' && /^[0-9a-f]{64}$/.test(event.shot) ? event.shot : '';
-    button.addEventListener('click', () => openViewer([{ kind: 'image', name: step.trim() || t('浏览器截图'), thumb: event.thumb, shot, download: 'screenshot.jpg' }], 0, button));
+    const source = toolCard && toolCard.shots === 'computer' ? 'computer' : 'browser';  // 大图问哪个接口要
+    const fallback = source === 'computer' ? t('电脑截图') : t('浏览器截图');
+    button.addEventListener('click', () => openViewer([{ kind: 'image', name: step.trim() || fallback, thumb: event.thumb, shot, source, download: 'screenshot.jpg' }], 0, button));
     if (isLive()) play(button, [{ opacity: 0, transform: 'translateY(6px) scale(.97)' }, { opacity: 1, transform: 'none' }], 280);
     return button;
   }
@@ -12333,6 +12467,228 @@ a.chan-button.primary { color: var(--on-ink); }
   $('browser-path-save').addEventListener('click', saveBrowserPath);
   $('browser-path').addEventListener('keydown', (key) => {
     if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); saveBrowserPath(); }
+  });
+
+  // ---- 操作整台电脑 ----------------------------------------------------------
+  // 进阶选项（见 harness/desktop/）：助手看你的整个屏幕、动你的鼠标键盘。这一节管页面上和它有关的几样东西：
+  //   顶栏上的提示   有运行正在操作电脑时出现："智狐正在控制这台电脑"，旁边一颗"停止"。停下以后那个运行这一轮里不能再动电脑
+  //   对话里的一步   和浏览器一样：工具卡片下面一张小截图，点开看大图（大图问 /api/computer/shot 要）
+  //   确认卡片       截图的卡片上多一个"这段对话里截图不再问"（见上面 handlers.confirm）
+  //   设置里的一节   开关（打开之前先在原地讲清楚风险、勾了"我明白"才能打开）、权限和要装的程序检查好了没有、
+  //                  定时任务和聊天通道能不能用、不许碰的程序
+  // 开没开、能不能用、权限、截图多大、留几天……都由助手程序在状态里给（state.computer），页面不另算一份。
+
+  let computerStatus = null;     // 状态里最新的那一份
+  let computerDrawn = '';        // 设置里那一节上一次按什么画的（没变就不重画，保留焦点和写了一半的名字）
+  const isComputerCall = (name) => typeof name === 'string' && /^computer[._]/.test(name);
+  const computerShotDays = () => (computerStatus && computerStatus.shot_days) || 7;
+  // 谁占着屏幕（程序给的是原文，见 harness/desktop/manager.py）。你自己的对话不用多说
+  const COMPUTER_WHO = { [k('一个定时任务')]: k('（一个定时任务）'), [k('聊天通道里的一个聊天')]: k('（聊天通道里的一个聊天）') };
+  const COMPUTER_REASONS = {
+    wayland: k('这台电脑用的是 Wayland 桌面：Wayland 不允许一个程序截别的程序的图、替别人点鼠标，所以用不了。登录时换成 X11（Xorg）桌面就可以。'),
+    no_display: k('这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。'),
+    platform: k('只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。'),
+  };
+
+  function renderComputer(status, force) {
+    if (!status) return;
+    computerStatus = status;
+    const live = $('computer-live');
+    const wasHidden = live.hidden;
+    live.hidden = !status.active;
+    live.classList.toggle('busy', Boolean(status.busy));
+    const who = COMPUTER_WHO[status.who] || '';
+    if (who) retext($('computer-live-text'), k('智狐正在控制这台电脑{who}'), { who: t(who) });
+    else retext($('computer-live-text'), k('智狐正在控制这台电脑'));
+    const stop = $('computer-live-stop');
+    stop.replaceChildren(icon('stop'), tel('span', null, k('停止')));
+    tattr(stop, 'title', k('马上停下，这一轮里不再动这台电脑'));
+    tattr(stop, 'aria-label', k('马上停下，这一轮里不再动这台电脑'));
+    if (wasHidden && !live.hidden && !isLive()) live.style.animation = 'none';  // 重放旧内容时不播入场动画
+    else if (!live.hidden) live.style.animation = '';
+    if (settings.open) drawComputerSettings(force);
+  }
+
+  $('computer-live-stop').addEventListener('click', async () => {
+    const button = $('computer-live-stop');
+    button.disabled = true;
+    const reply = await call('/api/computer/stop', {});
+    button.disabled = false;
+    toast(reply.ok ? t('已经停下：这一轮里智狐不会再动这台电脑。') : reply.error);
+  });
+
+  async function setComputer(changes, done) {
+    const reply = await call('/api/computer/settings', changes);
+    if (!reply.ok) { say(reply.error, 'bad'); return false; }  // 设置窗口开着：提示写在窗口里
+    say(reply.warning || done, reply.warning ? 'bad' : 'good');
+    return true;
+  }
+
+  // 打开之前的那一步：在原地讲清楚风险，勾了"我明白"才能点"打开"。Esc、"取消"都收起它，焦点回到开关上
+  function showComputerConfirm(open) {
+    const box = $('computer-confirm');
+    const hadFocus = box.contains(document.activeElement);
+    box.hidden = !open;
+    $('computer-ack').checked = false;
+    $('computer-confirm-yes').disabled = true;
+    $('computer-enabled').setAttribute('aria-expanded', String(open));
+    if (open) $('computer-ack').focus();
+    else if (hadFocus) $('computer-enabled').focus();  // 要藏起来的那一块正拿着焦点：先把焦点挪到看得见的开关上
+  }
+  $('computer-ack').addEventListener('change', () => { $('computer-confirm-yes').disabled = !$('computer-ack').checked; });
+  $('computer-confirm-no').addEventListener('click', () => showComputerConfirm(false));
+  $('computer-confirm').addEventListener('keydown', (key) => {
+    if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); showComputerConfirm(false); }
+  });
+  $('computer-confirm-yes').addEventListener('click', async () => {
+    if (!$('computer-ack').checked) return;
+    $('computer-confirm-yes').disabled = true;
+    const done = await setComputer({ enabled: true, acknowledge: true }, t('已经打开：每一步都会先问你。'));
+    if (done) showComputerConfirm(false); else $('computer-confirm-yes').disabled = false;
+  });
+  $('computer-enabled').addEventListener('click', async () => {
+    const on = $('computer-enabled').getAttribute('aria-checked') === 'true';
+    if (!on) { showComputerConfirm($('computer-confirm').hidden); return; }  // 关着：先讲风险（再点一下开关就收起）
+    await setComputer({ enabled: false }, t('已经关掉了“操作整台电脑”。'));
+  });
+  $('computer-unattended').addEventListener('click', async () => {
+    const on = $('computer-unattended').getAttribute('aria-checked') !== 'true';
+    await setComputer({ unattended: on }, on ? t('定时任务和聊天通道也能操作电脑了：每一步照样要你批准。') : t('定时任务和聊天通道不能再操作电脑。'));
+  });
+
+  function drawComputerSettings(force) {
+    const status = computerStatus;
+    if (!status) return;
+    const print = JSON.stringify([status, language]);
+    if (!force && print === computerDrawn) return;
+    computerDrawn = print;
+
+    const enabled = $('computer-enabled');
+    enabled.setAttribute('aria-checked', String(Boolean(status.enabled)));
+    enabled.disabled = !status.supported && !status.enabled;
+    $('computer-card').classList.toggle('on', Boolean(status.enabled));
+    if (status.enabled && !$('computer-confirm').hidden) showComputerConfirm(false);
+    retext($('computer-state'), !status.supported ? k('（这台电脑上用不了）') : !status.enabled ? k('（关着）') : status.busy ? k('（正在操作）') : k('（开着，每一步都会问你）'));
+    const unattended = $('computer-unattended');
+    unattended.setAttribute('aria-checked', String(Boolean(status.unattended)));
+    unattended.disabled = !status.enabled;
+
+    drawComputerChecks(status);
+    drawComputerBlocked(status);
+
+    // 每一家怎么用（程序按 vision 算好的，见 harness/webui/computer_api.py）。由几句拼成：换语言时整段重画
+    const providers = status.providers || {};
+    const names = (kind) => (state && state.providers ? state.providers : [])
+      .filter((one) => providers[one.id] === kind).map((one) => one.label.replace(/\s*\(.*\)$/, ''));
+    const parts = [];
+    if (names('toolset').length) parts.push(t('{names} 用 Anthropic 专门训练过的电脑工具包。', { names: names('toolset').join(t('、')) }));
+    if (names('standin').length) parts.push(t('{names} 用智狐自己写的替身工具（没有专门训练过，点得没那么准）。', { names: names('standin').join(t('、')) }));
+    if (names('none').length) parts.push(t('{names} 看不了图片，用不了。', { names: names('none').join(t('、')) }));
+    const models = $('computer-models');
+    delete models.dataset.i18n;
+    models.textContent = parts.join(language === 'zh' ? '' : ' ');
+    const image = status.image ? t('交给模型的截图是 {width}×{height}，', { width: status.image[0], height: status.image[1] }) : '';
+    retext($('computer-cost'), k('用 Claude 时，工具包的说明书每次请求约 {toolset} 个 token（命中缓存时很便宜）；{image}每张截图大约 {tokens} 个 token。截图的大图在这台电脑上保留 {days} 天。'),
+      { toolset: Number(status.toolset_tokens || 0).toLocaleString(LOCALES[language]), image, tokens: Number(status.shot_tokens || 0).toLocaleString(LOCALES[language]), days: status.shot_days || 7 });
+  }
+
+  // 这台电脑上能不能用：macOS 上两样权限（屏幕录制、辅助功能），Linux 上两样程序（xdotool、ImageMagick）。
+  // 没有的写清楚去哪儿打开、怎么装；智狐自己从不请求权限、不装任何东西（"打开系统设置"只是打开那一页给你看）
+  function drawComputerChecks(status) {
+    const box = $('computer-checks');
+    const hadFocus = box.contains(document.activeElement) ? document.activeElement.dataset.pane : null;
+    const rows = [];
+    const row = (good, title, note, values, button) => {
+      const item = el('div', 'computer-check ' + (good ? 'good' : 'bad'));
+      item.appendChild(icon(good ? 'check' : 'alert'));
+      const words = item.appendChild(el('div', 'computer-check-words'));
+      words.appendChild(tel('b', null, title));
+      if (note) words.appendChild(tel('span', null, note, values));
+      if (button) item.appendChild(button);
+      rows.push(item);
+    };
+    const checks = status.checks || {};
+    if (!status.supported) {
+      row(false, k('这台电脑上用不了'), COMPUTER_REASONS[status.reason] || COMPUTER_REASONS.platform);
+    } else if (status.platform === 'macos') {
+      const host = checks.host || t('启动智狐的那个程序（终端、iTerm、VS Code……）');
+      const open = (pane) => {
+        if (!status.can_open_settings) return null;
+        const button = tel('button', 'mini', k('打开系统设置'));
+        button.type = 'button';
+        button.dataset.pane = pane;
+        button.addEventListener('click', async () => {
+          const reply = await call('/api/computer/permission', { pane });
+          if (!reply.ok) say(reply.error, 'bad');
+        });
+        return button;
+      };
+      row(Boolean(checks.screen), checks.screen ? k('截图：有“屏幕录制”的权限') : k('截图：还没有“屏幕录制”的权限'),
+        checks.screen ? '' : k('在“系统设置 → 隐私与安全性 → 录屏与系统录音”（旧一些的系统里叫“屏幕录制”）里打开“{host}”，然后重新启动智狐。'), { host }, checks.screen ? null : open('screen'));
+      row(Boolean(checks.input), checks.input ? k('鼠标键盘：有“辅助功能”的权限') : k('鼠标键盘：还没有“辅助功能”的权限'),
+        checks.input ? '' : k('在“系统设置 → 隐私与安全性 → 辅助功能”里打开“{host}”，然后重新启动智狐。'), { host }, checks.input ? null : open('input'));
+    } else {
+      const imaging = Boolean(checks.capture && checks.convert);
+      const missing = [checks.xdotool ? '' : 'xdotool', imaging ? '' : 'imagemagick'].filter(Boolean);
+      row(Boolean(checks.xdotool), checks.xdotool ? k('鼠标键盘：装了 xdotool') : k('鼠标键盘：还没有装 xdotool'), '');
+      row(imaging, imaging ? k('截图：装了 ImageMagick') : k('截图：还没有装 ImageMagick'), '');
+      if (missing.length) {
+        const item = el('div', 'computer-check');
+        item.appendChild(icon('terminal'));
+        const words = item.appendChild(el('div', 'computer-check-words'));
+        words.appendChild(tel('b', null, k('在终端里装上它们（Debian、Ubuntu）：')));
+        words.appendChild(el('code', null, 'sudo apt install ' + missing.join(' ')));
+        rows.push(item);
+      }
+    }
+    box.replaceChildren(...rows);
+    if (hadFocus) { const again = box.querySelector('[data-pane="' + hadFocus + '"]'); if (again) again.focus(); }
+  }
+
+  // 不许碰的程序：一个个小标签，× 去掉；下面填名字、"添加"。最前面是它们的时候，智狐不截图也不操作
+  function drawComputerBlocked(status) {
+    const list = $('computer-chips');
+    const hadFocus = list.contains(document.activeElement) ? document.activeElement.dataset.name : null;
+    const blocked = status.blocked || [];
+    retext($('computer-blocked-note'), status.platform === 'x11'
+      ? k('最前面的窗口是这些程序的时候，智狐不截图、也不操作。按窗口的类名或标题里的字认，不分大小写。')
+      : k('最前面是这些程序、或者点的地方是它们的窗口时，智狐不截图、也不操作。按程序的名字认，不分大小写。'));
+    const chips = blocked.map((name) => {
+      const chip = el('li', 'computer-chip');
+      const label = chip.appendChild(el('span', null, name));
+      label.title = name;
+      const remove = chip.appendChild(el('button'));
+      remove.type = 'button';
+      remove.dataset.name = name;
+      tattr(remove, 'aria-label', k('不再拦着这个程序'));
+      tattr(remove, 'title', k('不再拦着这个程序'));
+      remove.appendChild(icon('x'));
+      remove.addEventListener('click', async () => {
+        const index = blocked.indexOf(name);
+        const next = blocked[index + 1] || blocked[index - 1];
+        if (await setComputer({ blocked: blocked.filter((one) => one !== name) }, t('已经去掉了“{name}”。', { name }))) {
+          const again = next && list.querySelector('[data-name="' + CSS.escape(next) + '"]');
+          (again || $('computer-blocked-name')).focus();  // 去掉的那一个没了：焦点交给旁边那个，或者输入框
+        }
+      });
+      return chip;
+    });
+    if (!chips.length) list.replaceChildren(tel('li', 'computer-chips-empty', k('还没有。比如可以加上密码管理器、网银、聊天软件。')));
+    else list.replaceChildren(...chips);
+    if (hadFocus) { const again = list.querySelector('[data-name="' + CSS.escape(hadFocus) + '"]'); if (again) again.focus(); }
+  }
+
+  async function addBlockedApp() {
+    const field = $('computer-blocked-name');
+    const name = field.value.trim().replace(/\s+/g, ' ');
+    if (!name) { field.focus(); return; }
+    const blocked = (computerStatus && computerStatus.blocked) || [];
+    if (blocked.some((one) => one.toLowerCase() === name.toLowerCase())) { say(t('“{name}”已经在里面了。', { name }), 'bad'); return; }
+    if (await setComputer({ blocked: [...blocked, name] }, t('已经加上了“{name}”。', { name }))) field.value = '';
+  }
+  $('computer-blocked-add').addEventListener('click', addBlockedApp);
+  $('computer-blocked-name').addEventListener('keydown', (key) => {
+    if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); addBlockedApp(); }
   });
 
   // ---- 键盘 ----------------------------------------------------------------

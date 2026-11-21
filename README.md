@@ -30,8 +30,9 @@
 ZhiFox is an AI agent harness built from scratch in Python, with no agent framework: a local-first personal assistant
 that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
 tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
-commands, search the web, use websites in a separate Chrome of its own (browser use) and run scheduled or recurring
-tasks, with a permission prompt before anything that changes your computer or sends something out. It also reads the
+commands, search the web, use websites in a separate Chrome of its own (browser use), operate your whole desktop as an
+advanced opt-in option (computer use) and run scheduled or recurring tasks, with a permission prompt before anything
+that changes your computer or sends something out. It also reads the
 screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching project: every part of
 this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
@@ -55,6 +56,12 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   else could attach to. Looking is free; typing, submitting a form and visiting a new site ask first, and password and
   card fields ask in every mode. Claude uses Anthropic's browser use toolset; GPT, Gemini and DeepSeek get hand-written
   browser tools.
+- 🖱️ **Computer use, as an advanced option.** Off by default and switched on only after an explicit risk confirmation:
+  the assistant looks at your whole screen and works the mouse and keyboard (macOS through `screencapture` and
+  CoreGraphics via `ctypes`, Linux/X11 through `xdotool` and ImageMagick, no new dependencies). Every single action asks
+  you, in every approval mode; screenshots are shrunk to the model's limits and its coordinates mapped back to real
+  screen points (Retina included). Claude uses Anthropic's computer use toolset; GPT and Gemini get hand-written
+  stand-ins.
 - 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
   or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
   description until a task calls for it, and the scripts a skill brings still need your approval to run.
@@ -155,11 +162,12 @@ flowchart TB
     subgraph parts ["Harness parts"]
         prompt["System prompt<br/>prompt.py"]
         perms{{"Permissions<br/>permissions.py"}}
-        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · skills · browser · web search"]
+        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · skills · browser · computer · web search"]
         store[("Conversations + search index<br/>conversations.py · search.py")]
     end
 
     chrome(["ZhiFox's own Chrome<br/>CDP over a pipe · browser/"])
+    screen(["Your screen, mouse and keyboard<br/>off by default · desktop/"])
 
     subgraph providers ["Provider adapters · providers/"]
         claude["claude.py<br/>Anthropic Messages API"]
@@ -182,6 +190,7 @@ flowchart TB
     perms -.->|"risky step: asks you first"| you
     perms --> tools
     tools --> chrome
+    tools --> screen
 ```
 
 What happens during one turn, using a to-do request as the example:
@@ -230,6 +239,7 @@ Each part of the harness has its own file or directory:
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Browser | [harness/browser/](harness/browser/), [harness/tools/browser.py](harness/tools/browser.py), [harness/webui/browser_api.py](harness/webui/browser_api.py) | Web search finds pages, but can't use a site: search it, click through it, fill in a form. ZhiFox starts a separate Chrome of its own and drives it with a hand-written DevTools Protocol client over a pipe; the page is turned into numbered lines the model acts on (see [Browser use](#browser-use-a-chrome-of-its-own)) |
+| Computer use | [harness/desktop/](harness/desktop/), [harness/tools/computer.py](harness/tools/computer.py), [harness/webui/computer_api.py](harness/webui/computer_api.py) | Some jobs aren't in a browser at all: a desktop app, a system dialog, a file to drag from one window to another. As an advanced option that is off by default, the assistant looks at screenshots of your whole screen and moves your mouse and keyboard, each step approved by you; screenshots are scaled down and the model's coordinates mapped back to the screen (see [Computer use](#computer-use-your-whole-desktop-advanced)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
@@ -668,12 +678,12 @@ The difference is who writes the spec and who runs the tool:
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
 | Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)) |
-| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)), the browser for Claude ([browser.py](harness/tools/browser.py)) |
+| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)), the browser and computer use for Claude ([browser.py](harness/tools/browser.py), [computer.py](harness/tools/computer.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
 Claude learned the specs of the second kind during training, so for Claude a one-line declaration is enough. Other
-providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them, and the
-browser has a set of twelve hand-written stand-ins; the code that runs is the same. Tools of the third kind live on
+providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them, the
+browser has a set of twelve hand-written stand-ins and computer use a set of nine; the code that runs is the same. Tools of the third kind live on
 Anthropic's servers, so other providers' models can't use them.
 
 A fourth kind arrives through MCP: the spec is written by whoever made the MCP server, and the tool runs in their
@@ -890,7 +900,8 @@ changed, so comments and fields ZhiFox doesn't use (Claude Code's `permissionMod
 Claude Code's tool names work: `Write` and `MultiEdit` mean `Edit`, `Grep`, `Glob` and `LS` mean `Read`, `Task` means
 `Agent`, and names ZhiFox doesn't have are kept and listed but ignored. ZhiFox's own `Browser` gives all the browser
 tools, when the caller has them (the browser is on); a subagent then works in its caller's tabs, under its caller's
-approvals. **Import from Claude Code** reads
+approvals. `Computer` likewise gives the computer use tools when the caller has them; the subagent shares its caller's
+screen session, and every one of its steps still asks you, with its name on the card. **Import from Claude Code** reads
 `~/.claude/agents/` and the project's `.claude/agents/` only when you click it, and copies what you tick. Three
 examples (a researcher with read-only files and web search, a read-only code reviewer, a writing assistant with no
 tools) are one click away; none is installed by default. The model has no tool that creates or changes agents.
@@ -1004,12 +1015,193 @@ intercepted, so a page can't open a file picker and ZhiFox never uploads your fi
 tool result as material from a third-party site, not instructions. Chrome's environment has the model API keys removed,
 like a shell command's.
 
-Computer use of the whole desktop (screenshots of and control over your entire screen, not just one browser) would be a
-later, separate option; it isn't built.
+Computer use of the whole desktop (screenshots of and control over your entire screen, not just one browser) is a
+separate, advanced option with much stricter rules; see the next section.
 
 The tunables are in [harness/config.py](harness/config.py): `BROWSER_VIEWPORT` (1280×800, also the screenshot size),
 `BROWSER_SHOT_QUALITY` (JPEG, 60), `BROWSER_IDLE_MINUTES` (10), `BROWSER_SHOT_DAYS` (30), `BROWSER_CALL_TIMEOUT`,
 `BROWSER_NAV_TIMEOUT`, `BROWSER_MAX_PAGE_CHARS` (50,000 characters per read) and `BROWSER_TOOLSET_MODELS`.
+
+### Computer use: your whole desktop (advanced)
+
+Browser use stops at the edge of one browser that ZhiFox owns. Some jobs live elsewhere: a desktop app with no website,
+a dialog in System Settings, a file to drag from Finder into another app. Computer use lets the assistant look at your
+whole screen and work your mouse and keyboard. It is an advanced option, **off by default**, and it is the most
+dangerous thing ZhiFox can do, so most of this section is about why it is built the way it is. The code is in
+[harness/desktop/](harness/desktop/), one file per concern:
+
+| File | What it does |
+|---|---|
+| [frame.py](harness/desktop/frame.py) | The three coordinate systems (the picture the model sees, screen points, screen pixels) and the conversions between them |
+| [keys.py](harness/desktop/keys.py) | Key names the way models write them (`Return`, `ctrl+s`, `super`) turned into one form; which combinations are dangerous |
+| [backend.py](harness/desktop/backend.py) | What a platform backend provides (screenshots, mouse, keyboard, which app is in front, bringing an app back to the front) and which one this computer uses |
+| [macos.py](harness/desktop/macos.py) | macOS: `screencapture` and `sips` for screenshots, CoreGraphics `CGEvent` through `ctypes` for mouse and keyboard |
+| [x11.py](harness/desktop/x11.py) | Linux on X11: `xdotool` for mouse and keyboard, ImageMagick (`import`, `convert`) for screenshots |
+| [session.py](harness/desktop/session.py) | One run's computer use: coordinate mapping, the last look before acting, "don't ask about screenshots again", Stop |
+| [manager.py](harness/desktop/manager.py) | One screen shared by everybody: only one run controls it at a time; the header indicator; the settings |
+| [tools/computer.py](harness/tools/computer.py) | What the model sees: Anthropic's computer use toolset for Claude, nine hand-written stand-ins for GPT and Gemini |
+| [webui/computer_api.py](harness/webui/computer_api.py) | **Settings → Computer use**, the indicator's Stop, the per-conversation screenshot allowance, opening System Settings, full-size screenshots |
+
+**The loop: screenshot, action, screenshot.** The model can't see your screen and can't touch your mouse. All it can
+do is look at a picture and say what to do next, so the loop goes like this:
+
+```
+model: screenshot                              → ZhiFox captures the screen, shrinks it, hands it over
+model: left_click {"coordinate": [665, 432]}   → pixels on that picture: ZhiFox converts them, asks you, clicks
+model: screenshot                              → did it work?
+… until the model thinks it's done
+```
+
+It is the same agent loop as everywhere else in ZhiFox; only what is seen and touched changes. Claude often sends a
+short batch in one reply (click, type, screenshot). The calls run in order, each one asks you, and when one fails or
+you deny it the rest of the batch isn't run and gets exactly `Not executed: an earlier computer action in this turn
+failed.` (the computer toolset's own wording, one word longer than the browser's). The stand-ins for other models follow
+the same rule, so a denied click is never followed by typing into whatever happens to have the focus.
+
+**Coordinates: three systems.** A screenshot has to be shrunk before it goes to the model: images have size limits,
+and every extra pixel costs tokens. ZhiFox scales it so the long edge is at most 1,568 pixels and the whole picture at
+most 1.15 megapixels (the limits in Anthropic's own example; every provider accepts them). The model then answers in
+pixels of *that* picture, so each coordinate is scaled back up before ZhiFox clicks. A Mac with a Retina display adds a
+second layer: mouse events use *points*, while a raw screenshot has 2×2 pixels per point. For a MacBook screen of
+1512×982 points:
+
+```
+screen:      1512 × 982 points   (3024 × 1964 pixels in a raw screenshot)
+model sees:  1330 × 864          (scale 0.88, chosen on points, so a 1280×800 screen goes over 1:1)
+model says:  (665, 432)
+→ points:    (665 × 1512/1330, 432 × 982/864) = (756, 491)   ← where the mouse event goes
+→ pixels:    (1512, 982)                                      ← the same spot in the raw capture (×2)
+```
+
+x and y are scaled separately, because rounding the shrunk size (1330.65 becomes 1330) makes the two ratios differ
+slightly, enough to miss by a point or two near the bottom-right corner. Get this wrong and every click misses in the
+same direction, the first symptom in the troubleshooting table of Anthropic's documentation. `zoom` crops a region at
+full resolution and scales it to fit the usual screenshot size (at most 4×), but coordinates stay in the full
+screenshot's space. If the screen size changes in the middle of a conversation (a new resolution, a display plugged in),
+coordinates from the old picture are refused and the model is asked for a new screenshot. Only the main display is used.
+
+**Why it is riskier than browser use.** Three differences:
+
+- The browser is ZhiFox's own, signed in to nothing. The desktop is *yours*: your mail, your chats, your password
+  manager, your bank's app.
+- Any text on the screen can be aimed at the model: an email, a web page, a notification that pops up. A model misled
+  by it can click and type anywhere on your computer.
+- In the browser, ZhiFox reads the page's structure and can tell that a button submits a form. On the desktop there are
+  only pixels, so ZhiFox can't judge what a click will do; only you can.
+
+Anthropic's documentation recommends running computer use in a dedicated virtual machine or container with minimal
+privileges, and asks applications to explain the risks and get consent first. ZhiFox does both.
+
+**The safety model.**
+
+- **Off by default, on deliberately.** Switching it on in Settings first opens an explanation of the risks, in place,
+  with the recommendation to run ZhiFox in a virtual machine or a separate user account; the switch only takes effect
+  after you tick **I understand these risks**. The server refuses to enable it without `acknowledge: true`.
+- **Every action asks, in every approval mode**, Allow everything included. The one exception you can choose: on a
+  screenshot's approval card, **Allow, and don't ask about screenshots in this conversation**. Looking changes nothing,
+  and the model takes a screenshot after nearly every step; asking each time would train you to click Allow without
+  reading. The allowance belongs to that conversation's session only: a new conversation asks again, and scheduled
+  tasks and channels never get it. `wait` and `cursor_position` run without asking, because they neither look nor touch.
+- **The card says where.** The coordinates on the screenshot and on the screen, whose window is under the click
+  (macOS), which app the keystrokes will go to, the keys and the text. Dangerous combinations carry a warning: ⌘Q,
+  ⌘⌥Esc, ⌘⇧Q (log out), ⌃⌘Q (lock the screen), ⌘W, ⌘⌫ and ⌘⇧⌫ (Finder's move to Trash and empty Trash),
+  Ctrl+Alt+Del, Ctrl+Alt+Backspace, Alt+F4, Ctrl+Q and more. Text with a line break warns that a newline often means
+  Enter (send, submit).
+- **A last look before acting.** Clicking Allow on the ZhiFox page brings your browser to the front, so anything typed
+  next would land in ZhiFox's own page. Keyboard actions (`type`, `key`, `hold_key`) therefore first bring back the app
+  that was in front when ZhiFox asked, and refuse when they can't. Mouse actions check that the same app's window is
+  still under the point; if something else covers it now (usually the ZhiFox page, raised by your own click), the step
+  isn't done and the model is told to take a new screenshot. Keep the ZhiFox page side by side with the app it works in.
+- **Blocked apps** (optional). A list of app names in Settings. When one of them is in front (or, on macOS, under a
+  click), ZhiFox neither takes a screenshot nor acts, and doesn't ask. Names match without regard to case (on Linux,
+  against the active window's class and title). A blocked app peeking out from behind another window can still show up
+  in a screenshot.
+- **Scheduled tasks and chat channels** may use it only when you also switch on **Allow scheduled tasks and chat
+  channels** (off by default), and even then every step waits for your approval through that run's own approval
+  route: the task's card, or the chat.
+- **One screen, one controller.** The first run to act claims the screen until its turn (or task run) ends. Another run
+  trying in the meantime is told the computer is busy. A browser can give each run its own tabs; a screen can't be
+  split.
+- **Stop.** Whenever a run holds the screen, the header shows **ZhiFox is controlling this computer** with a **Stop**
+  button. The action in progress stops at once (a hold or a drag still releases its key or mouse button), and that run
+  can't use the computer again for the rest of its turn. A mouse button left pressed by `left_mouse_down` is released
+  when the turn ends.
+- **A record of every step.** Each action is a tool card with a small screenshot taken after it, drawn for you and
+  never sent to the model. The full-size images are kept in `data/desktop/shots/` for `DESKTOP_SHOT_DAYS` (7) days,
+  shorter than the browser's 30, because a picture of the whole screen can catch anything.
+- In the result of its first screenshot the model is told which system it is on (⌘ shortcuts on macOS) and not to click
+  ZhiFox's own page or change ZhiFox's settings. That depends on the model obeying; what actually protects you is that
+  each such click still asks.
+
+**Platforms.**
+
+- **macOS.** Screenshots come from `screencapture -x -m` (no sound, main display) and are scaled and turned into JPEG by
+  `sips`; mouse and keyboard are CoreGraphics `CGEvent`s posted through `ctypes`, so nothing new is installed. (Scrolling
+  uses `CGEventCreateScrollWheelEvent2`, because the older function takes a variable number of arguments, which
+  `ctypes` can't pass correctly on Apple silicon.) Which app owns which window comes from `CGWindowListCopyWindowInfo`;
+  app names need no permission. Bringing an app back to the front goes from its process id to its `.app` and hands that
+  to `open`, like clicking its Dock icon; AppleScript's `activate` would need the Automation permission. Two permissions
+  are needed, and you grant them yourself: **Screen Recording** (System Settings → Privacy & Security → Screen & System
+  Audio Recording; "Screen Recording" on older macOS) and **Accessibility** (System Settings → Privacy & Security →
+  Accessibility). They belong to the app that launches ZhiFox: Terminal, iTerm, VS Code… ZhiFox only *checks* them
+  (`CGPreflightScreenCaptureAccess` and `AXIsProcessTrusted`, which never show a dialog), never requests them or changes
+  any setting, and doesn't even try a capture without the permission (`screencapture` would ask on its own). Settings
+  shows each one as granted or missing, which app to grant it to, and an **Open System Settings** button that only
+  opens that pane. Restart ZhiFox after granting.
+- **Linux on X11.** Needs `xdotool` and ImageMagick (`import` and `convert`, or `magick`; `scrot` also works for the
+  capture): `sudo apt install xdotool imagemagick`. ZhiFox detects them and says what's missing, but never installs
+  anything. X11 needs no permissions, because programs on the same display can already capture and drive each other.
+  Blocked apps are matched against the active window only: `xdotool` can't name the window under an arbitrary point.
+- **Wayland: not supported.** Wayland was designed so that one program can't capture other programs' windows or send
+  them input, the exact thing computer use does (XWayland doesn't help: `xdotool` can't reach native Wayland windows).
+  Settings says so and suggests logging in to an X11 (Xorg) session. Windows isn't supported, like the rest of ZhiFox.
+
+**Two sets of specs, again.** Claude models in `COMPUTER_TOOLSET_MODELS` get Anthropic's
+[computer use toolset](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool),
+`computer_toolset_20260801`: generally available, no beta header, and one entry in `tools` with no name and no display
+size (coordinates are always in the pixels of the screenshots ZhiFox sends back). It stands for 17 members:
+`screenshot`, `zoom`, `left_click`, `right_click`, `middle_click`, `double_click`, `triple_click`, `left_click_drag`,
+`mouse_move`, `left_mouse_down`, `left_mouse_up`, `cursor_position`, `scroll`, `type`, `key`, `hold_key` and `wait`.
+The model calls a member by name with `toolset_name: "computer"`, every result repeats that `toolset_name`, and only
+`screenshot` and `zoom` return an image. All three Claude models ZhiFox offers (Opus 5.5, Sonnet 5.5, Fable 5.2) support
+it, and on the Claude API they accept *only* the toolset: the older `computer_20251124` tool is rejected with a 400. It
+adds about 4,500 input tokens to every request (cached with the rest of the start), which is why its tools are only in
+conversations started with computer use on. GPT and Gemini get nine hand-written function tools instead:
+`computer_screenshot`, `computer_zoom`, `computer_click`, `computer_move`, `computer_drag`, `computer_scroll`,
+`computer_type`, `computer_key` and `computer_wait`. Their screenshots go to the model as images in a user message
+right after the tool results, because the Chat Completions format allows only text in a tool result. These models
+weren't trained for it and click less precisely. DeepSeek can't take images at all, so it gets no computer tools (each
+of them is marked `Tool.vision`, and the adapter leaves them out for a provider without image input): a model that
+can't see the screenshot would be clicking blind. Settings says which providers can use it and how. A Claude model
+outside the list would get the stand-ins.
+
+**Frozen for a conversation, a session per run.** Like the browser tools, the computer tools belong to the
+conversation's fixed start. Switching computer use on mid-conversation takes effect from the next conversation;
+switching it off keeps the tools (the specs mustn't change), stops any action in progress, and answers further calls
+with "off". A reopened conversation that used computer use keeps its tools, so its history still matches the specs.
+Each run (your conversation, a task run, a channel conversation) has its own `DesktopSession` with its own screenshot
+allowance, its own Stop and its own idea of which screenshot the coordinates refer to.
+
+**What it shares with browser use, and what it doesn't.** Shared: the toolset-versus-stand-in pattern (`Tool.toolset`,
+`member`, `stands_in_for`), the per-conversation snapshot of tools, one session per run, the halt-on-failure batches,
+looking at what a call will touch before asking (`FactsTool`), the screenshot store (`ShotStore`, in its own folder) and
+its endpoint pattern, and the Stop wiring. Kept separate: the permission rules (much stricter), the settings, the
+single-screen claim and a shorter screenshot retention.
+
+**The web endpoints** ([harness/webui/computer_api.py](harness/webui/computer_api.py)), all behind the page's token like
+every other request: `POST /api/computer/settings` (on and off, tasks and channels, blocked apps; switching it on
+requires `acknowledge: true`, which the page sends only after you tick the box), `/api/computer/stop` (the indicator's
+Stop), `/api/computer/trust` (no more screenshot questions in the conversation you're looking at),
+`/api/computer/permission` (macOS only; the page sends `screen` or `input` and the server opens that System Settings
+pane) and `/api/computer/shot` (a full-size screenshot by its 64-hex-character id only, answered as `image/jpeg` with
+`Content-Disposition: attachment`, `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, like the
+browser's).
+
+The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (1,568), `DESKTOP_MAX_PIXELS`
+(1,150,000), `DESKTOP_SHOT_QUALITY` (JPEG, 70), `DESKTOP_THUMB_WIDTH` (320), `DESKTOP_SHOT_DAYS` (7),
+`DESKTOP_SETTLE_SECONDS` (0.4), `DESKTOP_SCROLL_LINES` (3, macOS), `DESKTOP_MAX_WAIT` (30 seconds per `wait` or
+`hold_key`), `DESKTOP_COMMAND_TIMEOUT` (15), `DESKTOP_MAX_TYPE_CHARS` (2,000 characters per `type`) and
+`COMPUTER_TOOLSET_MODELS`.
 
 ### Permissions
 
@@ -1036,6 +1228,10 @@ The tunables are in [harness/config.py](harness/config.py): `BROWSER_VIEWPORT` (
 | Browser: typing into a password or card field, or into a frame from another site | Asks in every mode, with a warning on the card. A password is never shown on the card, only its length |
 | Browser: opening an address that isn't a web page (`about:`, `data:`…) | Asks every time, in every mode |
 | Browser: opening `file:`, `chrome:`, `devtools:`, `javascript:` or `view-source:` | Refused outright; the model is told why |
+| Computer use: a screenshot or a zoom | Asks every time, in every mode. On the card you can choose not to be asked about screenshots again in this conversation |
+| Computer use: clicking, dragging, moving the mouse, scrolling, typing, pressing keys | Asks every time, in every mode, Allow everything included. The card shows where (and whose window), the keys or the text, and a warning for dangerous combinations such as ⌘Q or Ctrl+Alt+Del |
+| Computer use: waiting, reading the cursor position | Runs directly (they neither look nor touch) |
+| Computer use: anything while a blocked app is in front or under the click, or while another run holds the screen | Refused without asking; the model is told why |
 
 An MCP tool is someone else's program. ZhiFox can't see what it does, and what it says about itself ("read-only")
 isn't verified, so every call asks by default. In **Extensions → MCP** you can mark one tool, or a whole server, as
@@ -1056,6 +1252,11 @@ frame from another site (ZhiFox can't see what's inside; it's often a payment fo
 are remembered by that conversation's browser session only, so a new conversation asks again. Scheduled tasks and chat
 channels apply the same rules with their own approval mode.
 
+Computer use is stricter because it touches your whole computer, any text on the screen can mislead the model, and
+ZhiFox sees only pixels, so it can't tell you what a click will do (see
+[Computer use](#computer-use-your-whole-desktop-advanced)). Every step therefore needs your own eyes, and no mode
+loosens that. The only thing you can relax is screenshots, per conversation, from the approval card itself.
+
 When you deny a step, you can type a sentence (for example, "Don't delete it, move it to the Trash instead"), and it is
 passed on to the model.
 
@@ -1065,8 +1266,8 @@ below the input box; in the terminal, use `/auto`:
 | Option | Terminal command | Effect |
 |---|---|---|
 | Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
-| Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, reading `data/` and browser steps still ask |
-| Allow everything | `/auto all` | Nothing asks, except the browser steps marked "in every mode" above |
+| Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, reading `data/`, browser steps and computer use still ask |
+| Allow everything | `/auto all` | Nothing asks, except the browser steps marked "in every mode" above and every computer use step |
 
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
@@ -1114,7 +1315,7 @@ This starts a small server on your computer and opens the chat page in your brow
   and task lists, quotes, tables (a wide table scrolls sideways inside its own frame) and code blocks with a language
   label, light syntax colors and a **Copy code** button. Links open in a new tab; images aren't loaded, you see their
   description and address instead. You can expand the model's thinking. Each tool call is a card you can open to see
-  its parameters and result; a browser step also carries a small screenshot you can click to enlarge. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
+  its parameters and result; a browser or computer use step also carries a small screenshot you can click to enlarge. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
@@ -1164,7 +1365,7 @@ This starts a small server on your computer and opens the chat page in your brow
   alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
   conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
   a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
-  is also the way to pick up a newer built-in version after an upgrade. Three more sections at the bottom:
+  is also the way to pick up a newer built-in version after an upgrade. More sections at the bottom:
   - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
     message on the page, and a system notification if the page is in the background and you allowed notifications).
     It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
@@ -1172,6 +1373,9 @@ This starts a small server on your computer and opens the chat page in your brow
     the panel says so right away.
   - **Browser** (off by default): let the assistant use ZhiFox's own browser, hide its window, choose which Chrome,
     and the profile folder. See [Browser use](#browser-use).
+  - **Computer use** (advanced, off by default): let the assistant operate the whole computer, after a risk
+    confirmation; whether the permissions or programs it needs are there; scheduled tasks and channels; blocked apps.
+    See [Computer use](#computer-use).
   - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
     afterwards. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
@@ -1426,6 +1630,40 @@ act as you on that site, within the approval rules. Custom agents get the browse
 UI follows the same setting and asks its approvals in the terminal; it can't draw screenshots, so it only notes that
 one was saved.
 
+### Computer use
+
+Computer use is an advanced option and off by default; read
+[Computer use: your whole desktop](#computer-use-your-whole-desktop-advanced) before turning it on. The safest setup is a
+virtual machine or a separate user account on your computer, signed in to none of your important accounts, with
+ZhiFox running there. To turn it on, open **Settings → Computer use** and switch on **Let the assistant operate the
+whole computer**. A panel explains the risks first; tick **I understand these risks** to confirm. The section also has:
+
+- **Checks.** On macOS, whether Screen Recording and Accessibility are granted, and to which app (the one you started
+  ZhiFox from: Terminal, iTerm, VS Code…), with the exact place in System Settings and an **Open System Settings**
+  button that opens that pane (restart ZhiFox after granting). On Linux, whether `xdotool` and ImageMagick are
+  installed, with the command to install them. On Wayland or without a display, why it can't work there.
+- **Allow scheduled tasks and chat channels** (off by default). Even when on, every step of a task run or a chat waits
+  for your approval, on the task's card or in the chat.
+- **Blocked apps.** Names of apps ZhiFox must not screenshot or touch while they're in front, such as your password
+  manager or your bank's app.
+- Which providers can use it (Claude with Anthropic's toolset, GPT and Gemini with stand-ins, not DeepSeek), and what it
+  costs (see [Cost](#cost)).
+
+The switch takes effect from the next conversation. Put the ZhiFox page and the app you want it to work in side by side,
+then ask for something like "In TextEdit, write a short note that says hello and save it to the Desktop". While it
+works:
+
+- Every step shows an approval card. A screenshot's card has an extra button, **Allow, and don't ask about screenshots
+  in this conversation**; clicks, typing and keys always ask. Read the card: it says where the click lands and whose
+  window that is, which app the keys go to, and warns about dangerous keys.
+- The top bar shows **ZhiFox is controlling this computer** with a **Stop** button, which stops the step in progress
+  and keeps the assistant off the computer for the rest of the turn.
+- Each step's tool card carries a small screenshot; click it for the full-size image (kept for 7 days in
+  `data/desktop/shots/`).
+
+Custom agents get it with `tools: Computer`. The terminal UI follows the same setting and asks its approvals in the
+terminal.
+
 ### Terminal UI
 
 ```bash
@@ -1578,12 +1816,13 @@ unprivileged user for the service.
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, and the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
+| `data/desktop/shots/` | Full-size screenshots of computer use steps (your whole screen), named by the SHA-256 of their content. Deleted after 7 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
@@ -1595,11 +1834,13 @@ the full key is never sent back to the browser.
 Conversation content is sent to the API of the provider you chose, so the model can process it, and saved in
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
 deletes its file too. With the browser on, the pages the assistant opens are fetched from those sites by ZhiFox's own
-Chrome, and what it reads there goes to the model provider like any other tool result.
+Chrome, and what it reads there goes to the model provider like any other tool result. With computer use on, every
+screenshot you approve (or allow for the conversation) is a picture of your whole screen, and it goes to the model
+provider too.
 
 To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. The **Show in Finder**
 buttons (on conversations, memories, tasks, to-dos, the prompt, MCP servers, skills and media items, plus the memory,
-skill and browser profile folder buttons) are the only ones on the page that make your computer launch another program (the file manager),
+skill and browser profile folder buttons) are, with one exception described below, the only ones on the page that make your computer launch another program (the file manager),
 so the server is extra careful with them: the page can only tell the server *which conversation*, *which memory* (a name
 from the list, checked as described below), *which skill* (a single folder name that must exist inside `data/skills/`),
 *which attachment* (an id of the form conversation/message/position, checked against the index; the file name comes from
@@ -1609,8 +1850,12 @@ and the page has no way to make it open any other path. Downloading an attachmen
 only the id, and the file comes back as a download (`Content-Disposition: attachment`,
 `X-Content-Type-Options: nosniff`), so a text file that contains HTML is still plain text. A full-size browser screenshot is fetched the same
 way: the page sends only its id (64 hexadecimal characters, which can't spell a path), and the answer is always
-`image/jpeg` with the same headers plus `Content-Security-Policy: default-src 'none'; sandbox`. Linux has no standard
-way to select a file in the file manager, so there it opens the folder containing the file.
+`image/jpeg` with the same headers plus `Content-Security-Policy: default-src 'none'; sandbox`; a full-size computer use
+screenshot comes from `/api/computer/shot` under exactly the same rules. Linux has no standard way to select a file in
+the file manager, so there it opens the folder containing the file. One more button launches a program: on macOS,
+**Open System Settings** in the computer use section runs `open` with one of two fixed `x-apple.systempreferences:`
+addresses (Screen Recording or Accessibility). The page can only say `screen` or `input`; the address is the server's,
+and it only opens the pane, never changes a setting.
 
 Saving a local MCP server means ZhiFox will run that command on your computer, now and at every launch. The safeguards:
 only the page holding this run's token can save one; the command is started from an argument list, never through a
@@ -1689,6 +1934,13 @@ What the program does to keep cost under control:
   began with it on. Reading a page costs what its text costs (at most 50,000 characters per read). A screenshot
   (1280×800, JPEG) is about 1,400 tokens and goes to the model only when it asks for one; the small previews on tool
   cards are never sent.
+- **Computer use.** With Claude, the computer use toolset adds about 4,500 input tokens to every request of a
+  conversation started with computer use on (cached like the browser's). Each screenshot (at most 1,568 px on the long
+  edge and 1.15 megapixels, so about 1,500 tokens; a 1512×982 screen becomes 1330×864) is billed as image input, and
+  the model takes one after nearly every step, so a long session adds up. Like the rest of the history, earlier
+  screenshots are resent on every turn (cached); ZhiFox never removes them from the history, because on the current
+  Claude models that would invalidate the model's earlier thinking. Start a new conversation for a new job. Settings
+  shows the estimate for your screen.
 - **Subagents.** Handing a task to a subagent costs its own model calls (at most 25 per task), recorded as source
   "subagent" and shown on its card. In exchange, the pages it reads stay in its history, not in the main conversation,
   so the main conversation's later turns don't keep paying for them.
@@ -1836,6 +2088,16 @@ endpoint's headers are in [tests/test_browser_web.py](tests/test_browser_web.py)
 [tests/test_browser_live.py](tests/test_browser_live.py) runs a real headless Chrome against a page served by
 `http.server` on your machine (reading, clicking, typing, recognizing password fields and submit buttons, screenshots,
 tabs); it is skipped when no Chrome is installed.
+Computer use never touches your real screen, mouse or keyboard in a test. `tests/conftest.py` makes the real backend
+undetectable in every test, and the tests that need a desktop install [tests/fake_desktop.py](tests/fake_desktop.py),
+a fake backend that records every event and answers screenshots with a made-up desktop picture
+([tests/fixtures/](tests/fixtures/)); its screen size and Retina factor can be set. Against it, `tests/test_desktop_*.py`
+check that every member and stand-in maps to the right events and coordinates (Retina included), that every step asks
+in every mode while trusted screenshots don't, the dangerous-key warnings, Stop, a run's own session and the one-screen
+claim, the tasks-and-channels switch, the endpoints and their headers, and that the request start stays byte-identical
+across turns. [tests/test_desktop_x11.py](tests/test_desktop_x11.py) runs the real X11 backend against a virtual
+display (Xvfb) it starts itself, and is skipped wherever Xvfb, `xdotool` or ImageMagick is missing, which includes
+every Mac.
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -1860,11 +2122,14 @@ weren't installed. The browser is switched on in the demo: start a new conversat
 with a message containing 演示商店 ("demo shop"), for example 用浏览器看看演示商店里有什么, and the assistant opens a small
 shop page the demo serves on your machine in a real Chrome, asks before visiting it, reads it, clicks the search box,
 types (asking again) and takes a screenshot. Add `--browser-window` to watch the Chrome window; without Chrome on the
-computer, the assistant says it can't find one.
+computer, the assistant says it can't find one. Computer use is switched on in the demo too, backed by the fake desktop
+(never your real screen): a message containing 演示电脑 ("demo computer") starts a scripted step with screenshots,
+approval cards, the screenshot allowance and the header indicator.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
-and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
-page.
+and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)); on Ubuntu the workflow also installs Xvfb,
+`xdotool` and ImageMagick, so the computer use integration test runs there against a virtual display. The result is
+the Tests badge at the top of this page.
 
 ## Limitations
 
@@ -1917,6 +2182,14 @@ page.
   in a screenshot and clicked by coordinates. Page dialogs are dismissed, not answered. Claude's browser toolset has
   only been exercised against the local fake API, with no real Claude request yet, and the browser tools for GPT,
   Gemini and DeepSeek haven't been tried with real keys; the Chrome side is tested against a real headless Chrome.
+- Computer use has never been run against a real screen or with a real API key: only against the fake desktop backend
+  and, in CI on Ubuntu, against a virtual X11 display. By design, the macOS capture and input paths have not been tried
+  on a real display (only the read-only checks: screen size and the two permission checks); the direction of
+  horizontal and vertical scrolling on macOS is unverified; GPT and Gemini's stand-ins haven't been tried with real
+  keys. It uses the main display only; Wayland and Windows aren't supported; blocked apps are matched by name against
+  the frontmost app (on macOS also the window under a click), so a blocked app partly visible behind another window can
+  still appear in a screenshot. Typing on a non-US keyboard layout types the right text, but shortcuts are sent by key
+  position (US layout). Long sessions accumulate screenshots in the history; start a new conversation for a new job.
 - **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
   still thinking and has produced nothing, it won't stop immediately.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
@@ -1930,8 +2203,7 @@ page.
 - Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
 - Add a locally run search tool for models that don't support web search.
 - MCP resources and prompts, and OAuth sign-in for remote MCP servers.
-- Computer use of the whole desktop (screenshots of and control over your entire screen), as an option beside the
-  browser.
+- Computer use on more than the main display, and with a real Claude key on a test machine.
 - Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
@@ -1951,7 +2223,8 @@ Only what the model needs to answer. Your messages, the conversation history and
 of a file the assistant reads) go to the API of the provider you chose; with Claude, web searches also run on Anthropic's
 servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
 use on, the sites the assistant opens see an ordinary visit from ZhiFox's own Chrome, and what it reads there goes to
-the provider. Saved
+the provider. With computer use on (off by default), the screenshots of your screen that you approve go to the
+provider as well. Saved
 conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
 The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
@@ -1968,7 +2241,8 @@ added with one entry in `PROVIDERS`.
 
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
-every launch, and steps that ran without asking are marked as allowed automatically. Scheduled tasks have their own
+every launch, and steps that ran without asking are marked as allowed automatically. Computer use (off by default) asks
+before every click, keystroke and screenshot even under Allow everything. Scheduled tasks have their own
 setting, chosen per task in the task editor (Ask every time by default; tasks the assistant creates always ask). In
 every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
 [Permissions](#permissions).
@@ -2002,8 +2276,8 @@ No. ZhiFox supports macOS and Linux only, because running commands depends on ba
 
 AI agent · agent harness · AI agent from scratch · AI agent without a framework · personal AI assistant · local-first AI
 assistant · Claude API · Anthropic SDK · OpenAI-compatible API · GPT · Gemini · DeepSeek · tool use · function calling ·
-prompt caching · human-in-the-loop approval · agent loop · browser use · Chrome DevTools Protocol · Python · terminal
-chat · web UI
+prompt caching · human-in-the-loop approval · agent loop · browser use · computer use · Chrome DevTools Protocol ·
+Python · terminal chat · web UI
 
 ## License
 

@@ -27,6 +27,8 @@ def describe_call(name: str, tool_input: object) -> str:
         return short(f"{name} {tool_input.get('name')} {tool_input.get('file') or ''}".rstrip(), 200)
     if name.startswith(("browser.", "browser_")):  # 浏览器：browser.navigate https://…、browser.left_click ref_12
         return short(f"{name} {_browser_detail(tool_input)}".rstrip(), 200)
+    if name.startswith(("computer.", "computer_")):  # 操作整台电脑：computer.left_click (665, 432)、computer.key cmd+s
+        return short(f"{name} {_computer_detail(tool_input)}".rstrip(), 200)
     return f"{name} {short(json.dumps(tool_input, ensure_ascii=False), 200)}"
 
 
@@ -46,6 +48,35 @@ def _browser_detail(tool_input: dict) -> str:
             parts.append(f"“{short(str(tool_input[key]), 60)}”")
     if isinstance(tool_input.get("region"), list):
         parts.append(str(tool_input["region"]))
+    if tool_input.get("duration") is not None or tool_input.get("seconds") is not None:
+        parts.append(f"{tool_input.get('duration', tool_input.get('seconds'))}s")
+    return " ".join(parts)
+
+
+def _computer_detail(tool_input: dict) -> str:
+    """电脑的一次调用最要紧的那一点：点在哪儿、拖到哪儿、打什么字、按什么键。"""
+    parts = []
+
+    def point(value: object) -> str:
+        return f"({value[0]}, {value[1]})" if isinstance(value, list) and len(value) == 2 else str(value)
+
+    if tool_input.get("start_coordinate") is not None:
+        parts.append(f"{point(tool_input['start_coordinate'])} →")
+    if tool_input.get("coordinate") is not None:
+        parts.append(point(tool_input["coordinate"]))
+    if "x" in tool_input and "y" in tool_input:
+        parts.append(f"({tool_input['x']}, {tool_input['y']})")
+    if "from_x" in tool_input and "to_x" in tool_input:
+        parts.append(f"({tool_input['from_x']}, {tool_input.get('from_y')}) → ({tool_input['to_x']}, {tool_input.get('to_y')})")
+    for key in ("scroll_direction", "direction", "scroll_amount", "amount", "button", "keys"):
+        if tool_input.get(key) not in (None, ""):
+            parts.append(str(tool_input[key]))
+    if isinstance(tool_input.get("region"), list):
+        parts.append(str(tool_input["region"]))
+    if tool_input.get("text") not in (None, ""):
+        parts.append(f"“{short(str(tool_input['text']), 60)}”")
+    if tool_input.get("repeat") not in (None, 1):
+        parts.append(f"×{tool_input['repeat']}")
     if tool_input.get("duration") is not None or tool_input.get("seconds") is not None:
         parts.append(f"{tool_input.get('duration', tool_input.get('seconds'))}s")
     return " ".join(parts)

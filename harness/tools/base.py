@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 class ToolError(Exception):
@@ -71,6 +72,9 @@ class Tool:
     # 这个工具是哪个工具包的"替身"：模型用不了那个工具包时（别家的模型、不支持它的 Claude 模型）才用它，
     # 用得了的时候不发。比如浏览器：Claude 用工具包，GPT 用我们自己写的 browser_* 函数工具
     stands_in_for: str = ""
+    # 只给看得懂图片的模型：工具全靠截图（操作整台电脑，见 tools/computer.py）。看不了图的模型（DeepSeek）拿不到它，
+    # 给了它也只能闭着眼睛乱点
+    vision: bool = False
 
     @property
     def name(self) -> str:
@@ -80,6 +84,25 @@ class Tool:
     def key(self) -> str:
         """在工具箱里的编号。工具包的成员前面加上包名：成员的名字（navigate、find……）可能和普通工具重名"""
         return f"{self.toolset}:{self.member}" if self.toolset else self.spec["name"]
+
+
+@dataclass(frozen=True)
+class FactsTool(Tool):
+    """动手之前要先看一眼"要碰的是什么"的工具（浏览器、操作整台电脑）：permissions.py 靠 facts 的结果决定问不问你、怎么问。
+
+    同一次调用会被看好几次（要不要问、能不能不问就做、动手前和问你时的情况比一比），只在第一次真的去看，后面用上一次的结果：
+    一来省事，二来动手前比的就是"问你的时候"看到的那一份。
+    """
+
+    facts: Callable[[dict], Any] | None = None
+    _seen: dict = field(default_factory=dict, compare=False, repr=False)  # 上一次看的结果（见 look）
+
+    def look(self, tool_input: dict) -> Any:
+        if self._seen.get("input") is tool_input:
+            return self._seen["facts"]
+        found = self.facts(tool_input) if self.facts is not None else None
+        self._seen.update(input=tool_input, facts=found)
+        return found
 
 
 # 参数的类型。对象和数组只检查最外面这一层，里面的内容由工具自己检查（比如定时任务的时间表，见 tasks.py）

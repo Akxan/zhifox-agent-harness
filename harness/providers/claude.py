@@ -19,6 +19,7 @@ except ImportError:  # 旧一些的 SDK 用的是它的前身
 from ..attachments import Attachment, wrap_text
 from ..config import (
     BROWSER_TOOLSET_MODELS,
+    COMPUTER_TOOLSET_MODELS,
     ENABLE_COMPACTION,
     ENABLE_FALLBACKS,
     ENABLE_THINKING_DROP,
@@ -41,7 +42,7 @@ from .base import (
 )
 
 # 每个工具包有哪些模型用得了（见 use_tools）
-TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS}
+TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS, "computer": COMPUTER_TOOLSET_MODELS}
 
 
 class AnthropicBackend:
@@ -70,11 +71,11 @@ class AnthropicBackend:
     def use_tools(self, tools: ToolRegistry) -> None:
         """换一套工具。按上面的规矩，只能在一段对话开始之前换（见 agent.py 的 on_start）。
 
-        工具包（Anthropic 定义的一组工具，比如浏览器的 browser_toolset_20260801）在请求里只占一项：
+        工具包（Anthropic 定义的一组工具，比如浏览器的 browser_toolset_20260801、电脑的 computer_toolset_20260801）在请求里只占一项：
         同一个包的成员共用一份说明书（Tool.spec），只发一次。这个模型用得了这个包的话，它的"替身"
         （我们自己写的 browser_* 函数工具，见 Tool.stands_in_for）就不发；用不了的话反过来，发替身、不发这个包。
         用不用得了是在这里定下的，一段对话里不再变：这段对话中途换成同一家的另一个模型，说明书也照旧
-        （智狐能选的 Claude 模型都支持浏览器工具包，见 config.BROWSER_TOOLSET_MODELS）。
+        （智狐能选的 Claude 模型都支持这两个工具包，见 config.BROWSER_TOOLSET_MODELS、COMPUTER_TOOLSET_MODELS）。
         """
         self._tools = tools
         usable = {name for name, models in TOOLSET_MODELS.items() if self.model in models}

@@ -169,7 +169,10 @@ def run_terminal(config: Config) -> int:
                 if not handle_command(text, app, ui):
                     break
                 continue
-            run_turn(app.agent, ui, text)
+            try:
+                run_turn(app.agent, ui, text)
+            finally:
+                app.chat_desktop.release()  # 这一轮结束：还按着的鼠标键松开，屏幕让出来（和网页界面一样）
     finally:
         app.close()  # 关掉启动过的 MCP 服务器
 

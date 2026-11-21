@@ -14,6 +14,7 @@ tools 里写的是这些名字（和 Claude Code 的叫法一样，所以那边�
   Skill        读你装的 Skill                             skill
   Agent        把任务再交给别的 Agent（层数有上限）       agent
   Browser      用智狐的浏览器（设置里开着才有）           浏览器的全部工具（Claude 的工具包成员、别家的 browser_*）
+  Computer     操作整台电脑（设置里开着才有）             电脑的全部工具（Claude 的工具包成员、别家的 computer_*）。每一步照样要你批准
   mcp__服务器__工具   一个 MCP 工具
   mcp__服务器         这个 MCP 服务器的全部工具
 
@@ -38,6 +39,7 @@ from ..tools import files, shell, skill
 from ..tools import tasks as task_tools
 from ..tools.base import Tool
 from ..tools.browser import is_browser
+from ..tools.computer import is_computer
 
 AGENT_TOOL = agent_tool.TOOL_NAME  # 把任务交给一个 Agent 的那个工具
 TODO_TOOLS = ("todo_add", "todo_list", "todo_update", "todo_delete")
@@ -56,6 +58,7 @@ BUILTIN: dict[str, tuple[str, ...]] = {
     "Skill": (skill.TOOL_NAME,),
     "Agent": (AGENT_TOOL,),
     "Browser": (),  # 工具太多、名字两套（见 tools/browser.py），不一个个列：按 is_browser 认（见 allowed）
+    "Computer": (),  # 同上，按 is_computer 认
 }
 ALIASES = {
     "Write": "Edit",
@@ -133,7 +136,7 @@ def allowed(names: list[str] | None, tools: Iterable[Tool]) -> list[Tool]:
             if "Read" in wanted:
                 picked.append(tool if tool.check is not None else _read_only(tool))
             continue
-        if tool.name in real or _mcp_allowed(tool, wanted) or ("Browser" in wanted and is_browser(tool)):
+        if tool.name in real or _mcp_allowed(tool, wanted) or ("Browser" in wanted and is_browser(tool)) or ("Computer" in wanted and is_computer(tool)):
             picked.append(tool)
     return picked
 
