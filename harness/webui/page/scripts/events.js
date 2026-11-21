@@ -40,6 +40,7 @@ const handlers = {
     $('model').classList.toggle('no-key', !current.has_key);
     $('title').textContent = event.title || t('新对话');
     renderAgents(event.agents);   // 先于会话列表：列表里的小标记要用 Agent 的颜色
+    renderChannelsState(event.channels);  // 也先于会话列表：在聊天通道里聊的那几段要写平台的名字（不然刷新后写成小写的 telegram）
     renderPersona(event.persona);
     document.title = (event.title ? event.title + ' · ' : '') + t('智狐');
     $('setup').hidden = current.has_key;
@@ -57,7 +58,6 @@ const handlers = {
     renderSpend(event.spend);
     renderTools(event.tools);
     renderMcpState(event.mcp);
-    renderChannelsState(event.channels);
     renderBrowser(event.browser);
     renderComputer(event.computer);
     if (settings.open) renderSettings();

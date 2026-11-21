@@ -42,6 +42,7 @@ from .pilot import Browser, Page, until
 HERE = Path(__file__).parent
 DEMO = HERE.parent / "demo_web.py"
 URL = re.compile(r"http://127\.0\.0\.1:(\d+)/\?token=([\w-]+)")
+PHONE = re.compile(r"^\s+(http://127\.0\.0\.1:\d+)/\s*$")  # 假 Telegram 的"手机"页面（demo_web.py 启动时打印）
 
 
 def pytest_collection_modifyitems(config, items):
@@ -77,6 +78,7 @@ class Demo:
         self.output: list[str] = []
         self._found = threading.Event()
         self.url = self.origin = self.token = ""
+        self.telegram = ""  # 假 Telegram 的地址：往 /control/say 发一句，就像主人在手机上发了一条消息
         threading.Thread(target=self._read, daemon=True).start()
         if not self._found.wait(90):
             self.stop()
@@ -86,6 +88,9 @@ class Demo:
         # 一直读它的输出：不读的话管道写满了，服务器会卡在 print 上
         for line in self.process.stdout:
             self.output.append(line)
+            phone = PHONE.match(line)
+            if phone and not self.telegram:
+                self.telegram = phone.group(1)
             match = URL.search(line)
             if match and not self._found.is_set():
                 self.url = match.group(0)
