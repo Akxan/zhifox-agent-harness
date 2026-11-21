@@ -68,6 +68,13 @@ MAX_REWIND_EFFECTS = 6
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
 MAX_PROMPT_CHARS = 20_000
 
+# 联网搜索的回答引用的网页（见 citations.py）：每一处引用旁边一个编号，整段回答的末尾列出来源。
+# 网页标题、被引用的那段原文最多显示这么多个字（API 给的原文本身最多 150 个字）；网址再长的不要（多半是写坏了的，
+# 页面上的 Markdown 链接也是这个上限，见 webui/markdown.js 的 MAX_URL）
+SOURCE_TITLE_CHARS = 120
+SOURCE_QUOTE_CHARS = 150
+SOURCE_URL_CHARS = 2048
+
 # 定时任务最多同时运行几个（你自己的对话不算在里面，它照常进行）。每个运行都在调用模型、花钱，还可能开着命令，
 # 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
 MAX_PARALLEL_TASKS = 3

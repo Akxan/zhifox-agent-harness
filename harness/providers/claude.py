@@ -17,6 +17,7 @@ except ImportError:  # 旧一些的 SDK 用的是它的前身
     import httpx as transport
 
 from ..attachments import Attachment, wrap_text
+from ..citations import from_citations
 from ..config import (
     BROWSER_TOOLSET_MODELS,
     COMPUTER_TOOLSET_MODELS,
@@ -285,8 +286,12 @@ class AnthropicBackend:
                 # （"……Se describe como" | "proveedor B2B líder…" | ". Anuncia" | ……）。每块都结束一次的话，
                 # 网页把每一小块当成单独的一段去排 Markdown（一句话断成好几行、标点单独一行），聊天通道把每一小块
                 # 各发成一条消息。所以连着的文字块算同一段：下一个不是文字的块开始时（上面那一支）、
-                # 或者整条回复结束时（stream 的 finally 里），才结束
-                pass
+                # 或者整条回复结束时（stream 的 finally 里），才结束。
+                # 这一块引用了网页的话，现在告诉界面：块里的字都已经显示了，记号就标在它们后面。
+                # SDK 已经把流式的 citations_delta 攒在了这个块上；历史里存的那一份（_plain）原样不动
+                sources = from_citations(getattr(block, "citations", None))
+                if sources:
+                    ui.cite(sources)
             else:
                 notice = block_notice(block)
                 if notice is not None:

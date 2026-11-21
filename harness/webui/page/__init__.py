@@ -43,6 +43,7 @@ STYLES = (
     "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
     "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
     "styles/markdown.css",  # 回复里的 Markdown
+    "styles/citations.css",  # 回答引用的网页：记号、浮出的卡片、来源列表
     "styles/welcome.css",  # 空白页：问候语和建议
     "styles/composer.css",  # 输入框和附件
     "styles/viewer.css",  # 查看器
@@ -82,6 +83,7 @@ SCRIPTS = (
     "scripts/requests.js",  # 提示和请求：toast()、call()、post()、announce()
     "scripts/settle.js",  # 空白页和收尾，定位到搜索命中的地方
     "scripts/markdown-view.js",  # 回复里的 Markdown（接上 markdown.js）
+    "scripts/citations.js",  # 回答引用的网页：记号、浮出的卡片、来源列表、复制时带上来源
     "scripts/streaming.js",  # 逐字输出的文字
     "scripts/subagent-cards.js",  # 交给子 Agent 的卡片
     "scripts/events.js",  # 每种事件怎么画

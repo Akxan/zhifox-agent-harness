@@ -23,6 +23,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from ..attachments import Attachment, from_saved
+from ..citations import Numbering
 from ..display import describe_call
 from ..i18n import Message, t
 
@@ -38,6 +39,7 @@ REPLAYABLE = frozenset(
         "turn_end",
         "thinking",
         "text",
+        "cite",
         "block_end",
         "notice",
         "tool_call",
@@ -47,6 +49,12 @@ REPLAYABLE = frozenset(
         "subagent",
     }
 )
+
+
+# 页面上的一段回复，只有这几种事件不会让它结束（见 page/scripts/streaming.js 的 pauseBlock）：文字接着写、
+# 标上来源的记号、"这一小段写完了"（后面紧接着又是文字的话，还是同一段）、侧栏的状态（不是对话里的内容）。
+# 别的事件一来，这段回复就结束了。来源的编号一段一数（见 citations.py），所以 publish 在同样的地方重新从 1 数
+PARAGRAPH = frozenset({"text", "cite", "block_end", "state"})
 
 
 def latest_state_only(events: list[dict]) -> list[dict]:
@@ -68,6 +76,7 @@ class WebUI:
         self._events: list[dict] = []
         self._next_id = 1
         self._block_open = False  # 是否有一段文字正在逐字输出
+        self._sources = Numbering()  # 页面上正在写的这段回复引用的网页，和它们的编号（见 cite）
         self._stop_requested = False
         self._stop_callbacks: list[Callable[[], None]] = []
         self._waiting_confirm: int | None = None  # 正在等用户答复的确认请求的编号
@@ -81,6 +90,8 @@ class WebUI:
             event = {"id": self._next_id, "type": type, **data}
             self._next_id += 1
             self._events.append(event)
+            if type not in PARAGRAPH:  # 页面上的这段回复到这里结束了：下一段的来源从 1 数起
+                self._sources.clear()
             self._changed.notify_all()
             return event["id"]
 
@@ -295,6 +306,21 @@ class WebUI:
         self._check_stop()
         self._block_open = True
         self.publish("text", text=text)
+
+    def cite(self, sources: list[dict]) -> None:
+        """刚写完的那一小段文字引用了这些网页（见 citations.py）。
+
+        发一个 cite 事件，页面在那段文字后面画上编号，整段回复结束时列出来源：
+          marks    这一处的记号 [{"n": 1, "quote": "被引用的原文"}]（没有原文的不带 quote）
+          sources  这段回复里第一次出现的来源 [{"n": 1, "url", "title", "site"}]，每个来源一段只发一次
+        编号由这里定，页面照着画。事件和别的一样存进会话文件（export_events），打开旧会话时重放出来；
+        对话历史里 API 给的引用原样不动（见 providers/claude.py）。
+        """
+        self._check_stop()
+        with self._changed:
+            marks, new = self._sources.add(sources)
+        if marks:
+            self.publish("cite", marks=marks, sources=new)
 
     def notice(self, level: str, text: str) -> None:
         self._check_stop()

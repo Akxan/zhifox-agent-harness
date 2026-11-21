@@ -37,6 +37,7 @@ class RecordingUI:
         self.infos: list[str] = []
         self.askers: list[str] = []  # 每一次确认是谁在问（子 Agent 的名字；主助手自己问时是空的）
         self.subagents: list[tuple[str, dict]] = []  # 子 Agent 的每一步进展：(step, data)
+        self.cites: list[list[dict]] = []  # 每一次"这段文字引用了这些网页"（联网搜索的回答，见 harness/citations.py）
         self.stop_after: str | None = None  # 测试想在子 Agent 的某一步之后"点停止"时，写那一步的名字
         self._stop = False
         self._stop_callbacks: list = []
@@ -46,6 +47,9 @@ class RecordingUI:
 
     def text(self, text: str) -> None:
         self.streamed.append(("text", text))
+
+    def cite(self, sources: list[dict]) -> None:
+        self.cites.append(sources)
 
     def notice(self, level: str, text: str) -> None:
         self.infos.append(text)

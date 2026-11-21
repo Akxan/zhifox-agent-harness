@@ -1709,6 +1709,8 @@
  "账本里有 {n} 行读不懂（可能是写到一半时断电了），已经跳过。": "{n} line(s) in the record couldn't be read (perhaps cut off by a power loss) and were skipped.",
  "贴上 Skill 的链接。智狐先把它下载下来给你看一眼，你确认了才安装。": "Paste a link to a skill. 智狐 downloads it and shows you what's inside first; it's only installed once you confirm.",
  "贴纸": "stickers",
+ "资料来源": "Sources",
+ "资料来源：": "Sources:",
  "资料研究员": "researcher",
  "超出每月预算": "Monthly budget exceeded",
  "超出每月预算 {budget}，多花了 {over}": "Over the {budget} monthly budget by {over}",
