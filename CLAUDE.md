@@ -161,6 +161,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
 | `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
 | `harness/evals/`、`evals/tasks/` | 评测：任务格式（spec）、临时目录（seed）、记录员（recorder）、按结果打分（graders）、评分员（judge，花钱）、演习（dryrun，用 tests/ 的假服务器）、跑（runner）、估算（estimate）、结果和对比；起步任务在仓库根目录的 `evals/tasks/` |
+| `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -336,6 +337,12 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   写了先打印估算，`--yes` 或在终端里输入 yes 才跑，没有终端又没有 `--yes` 的不跑，`CI` 有值时一律拒绝。花的钱记进账本，来源 eval；
   评分员默认关着。每遍一个全新的临时目录、真的 `build_app`，结果只写 `data/evals/`。每个任务必须有标准答案：`tests/test_evals.py`
   验证标准答案满分、什么都不做（`--null`）拿不到满分。打分看留下的结果，不看说法。改了工具的名字或参数，同时改 `evals/tasks/` 里的检查和标准答案。
+- **运行记录（`harness/trace/`）**：agent.py 只在几个记录点各写一行（turn_began / request_began / request_ended / tool_began /
+  approval_asked / approval_decided / tool_ended / turn_ended），钩子、输出脱敏以后也挂在这几处，不要把别的逻辑塞进记录器。
+  钱只用账本交回的那一笔（`Ledger.record` 的返回值），不另算；合计由记录器算好，页面和终端只照着画。每轮一个 `trace` 事件存进 `events`
+  （在 `REPLAYABLE` 里、不在 `PARAGRAPH` 里），排在这一轮的内容之后、`turn_end` 之前；从不进 `messages`。记录里只放数字和截短的说明，
+  不放工具输出（`TRACE_SUMMARY_CHARS`、`TRACE_MAX_SPANS`）。改了一轮的走法，记录器和 `trace/__init__.py` 的格式说明一起改。
+  断言事件序列的测试要写上 `"trace"`。翻译表的键是中文原文，同一句不能有两个意思：任务详情里那一节叫"历次运行"，"运行记录"只指这个功能。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
