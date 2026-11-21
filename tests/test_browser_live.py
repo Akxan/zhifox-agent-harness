@@ -7,10 +7,12 @@ CDP 的命令和事件是不是我们以为的样子、page.js 在真的页面�
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -69,6 +71,14 @@ def site(tmp_path_factory):
     yield f"http://127.0.0.1:{server.server_address[1]}"
     server.shutdown()
     server.server_close()
+
+
+@pytest.fixture(autouse=True)
+def windows_home_exists():
+    """Windows 上 conftest 把 USERPROFILE 换成了临时目录里一个还没建的文件夹（不读真正的家目录）。真的 Windows 上它总是在的；
+    指着不存在的地方时，真的 Chrome 启动以后一直不回答（CI 上 Browser.getVersion 等满了 45 秒）。所以这里先把它建好"""
+    if os.name == "nt":
+        Path(os.environ["USERPROFILE"]).mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(scope="module")
