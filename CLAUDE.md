@@ -126,6 +126,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/channels/` | 聊天通道（先做了 Telegram）：通道的接口、配对、设置（channels.json）、收发、每个聊天的会话、确认、命令行 `harness channels …` |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
+| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图；整个桌面（computer use）以后接在这里 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -151,10 +152,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
-  `/api/mcp/reveal`、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
+  `/api/mcp/reveal`、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
-  **只有 `/api/media/file` 会把文件的字节发给浏览器**：只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
+  **只有 `/api/media/file` 和 `/api/browser/shot` 会把文件的字节发给浏览器**。`/api/browser/shot` 只收 64 位十六进制编号，固定 `image/jpeg`，
+  安全头和下面一样。`/api/media/file` 只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
   （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
   `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。
   在没有文件管理器的机器上（服务器），状态里的 `file_manager` 为假，这些按钮改成告诉你文件的完整路径。
@@ -201,7 +203,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （有意的例外，金额不变，读不懂的行原样保留）。新的调用方要记账，就给它的 agent 接 `ledger.recorder(..., source="…")`
   （定时任务用 source="task"），不要另算价格。
 - **导出不能带出密钥。** 新增存着密钥的配置文件时，把它加进 `export.MASKED_FILES`，并在 `tests/test_export.py` 里
-  加一条"压缩包里找不到这个密钥"的测试。
+  加一条"压缩包里找不到这个密钥"的测试。`export.LEFT_OUT_FOLDERS` 里的文件夹整个不导出（`browser/profile`：里面是登录过的网站的 cookie）。
 - **聊天通道和定时任务是同一个做法。** 每个聊天的每一轮用 `App.channel_agent`（和 `unattended_agent` 共用 `_side_run`：
   自己的 shell、自己名下的 MCP 调用、`Permissions.unattended(通道的档位)`，记账 source=`channel`），不拿 `WebApp._turn`；
   开始之前先用 `Claims.take` 占住这段会话，网页这时不能写它（409），一轮结束放开、网页上开着的话重新读一遍。
@@ -212,6 +214,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   Telegram 的地址只能用环境变量 `TELEGRAM_API_BASE` 改（token 会发到那里去），页面上改不了。
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
+- **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
+  用过浏览器的旧会话照样带上。Claude 用 Anthropic 的 `browser_toolset_20260801`（`Tool.toolset` / `member` / `stands_in_for`，
+  适配层合成一项），结果写回 `toolset_name`；`browser_state` 不放在出错的结果上；一轮里工具包的一步失败了，后面的结果是
+  `agent.HALTED` 那句英文原文（文档规定，不改）。别家的模型用 `browser_*` 替身工具。每次运行（对话、每次任务、每个聊天）
+  一个 `BrowserSession`，停止接到 `ui.on_stop` 或 `run.stop`；CDP 的读线程不拿 session 的锁，`manager` 通知页面时不拿着自己的锁。
+  问不问写在 `permissions.review_browser`：密码、银行卡、跨站嵌入的框、不是网页的地址在任何模式下都问；
+  `file:` `chrome:` `devtools:` `javascript:` `view-source:` 根本不打开；下载一律拒绝；允许过的网站只记在这段对话的 `allowed_sites` 里。
 - **子 Agent 只会更少，不会更多。** 子 Agent 的工具用 `agents/tools.allowed` 从叫它的那一方手里的工具里挑，再给它自己的
   shell 和自己名下的 MCP 快照；权限用叫它的那一方的同一个 `Permissions`（对话里是你选的那一档，定时任务里是那次运行的）；
   停止靠 `ui.on_stop` 临时登记、做完取消；记账 source=`subagent`。层数和步数的上限是 `config.AGENT_MAX_DEPTH`、`AGENT_MAX_STEPS`。
@@ -233,9 +242,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - 测试用真实的 SDK 连本地的假服务器，这样发出去的请求和收到的流式数据走的都是真实代码路径。
 - 改了页面：先对页面里的脚本做语法检查（`node --check`），再在真实的浏览器里对着假服务器实际操作一遍：
   `uv run python tests/demo_web.py`（回复是一小段一小段慢慢发的，能看到逐字输出和动画；加 `--no-key`
-  看没有密钥时的样子；页面每次刷新都重新读，不用重启）。页面没有自动化测试，长文本（三种语言各看一遍）、键盘（Tab、Esc、方向键）、浅色、深色、窄窗口、
+  看没有密钥时的样子；页面每次刷新都重新读，不用重启；发一句含"演示商店"的话会走一遍浏览器）。真的 Chrome 的测试是
+  `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。页面没有自动化测试，长文本（三种语言各看一遍）、键盘（Tab、Esc、方向键）、浅色、深色、窄窗口、
   没有密钥、刷新重放、输出到一半往上翻这几种情况每次都要过一遍。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道只对着 `tests/fake_telegram.py` 测过，没有接过真的 Telegram 机器人；journald 和 systemd 只是模拟过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道只对着 `tests/fake_telegram.py` 测过，没有接过真的 Telegram 机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
