@@ -145,6 +145,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/capabilities.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开 |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
+| `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -202,7 +203,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   另一类是保存、启用、重启、导入一个 stdio 的 MCP 服务器，这会让电脑运行用户配置的命令：只有带口令的页面能做；
   命令用参数列表启动、不经过 shell；子进程的环境里去掉各家模型的密钥，配置里引用它们（`${ANTHROPIC_API_KEY}`）会被拒绝；
   模型没有任何能添加或修改 MCP 服务器的工具，`data/mcp.json` 和 `.env` 一样在文件工具的 protected 名单里；
-  只有用户打开导入页时才读 Claude Desktop / Claude Code 的配置，只复制勾选的；mcp.json 里环境变量和请求头的值
+  只有用户打开导入页时才读别的工具的配置（`imports/registry.py` 登记的位置），什么都不运行，只复制勾选的；别家"不用问"的设置（autoApprove、alwaysAllow、trust，以及文件里的 approval）一律不搬；引用模型密钥的服务器列出来但不能导入（`config.model_key_references`）；mcp.json 里环境变量和请求头的值
   不发给浏览器（只有最后 4 位），编辑时没重填的用 keep 交回去。以后再加这类接口，照这几条办。
 - **事件流的约定不能破坏。** 浏览器刚连上时，服务器先补发日志里已有的事件（过时的"状态"只留最后一个），
   然后发一个名叫 `synced` 的标记（没有编号、不进日志），之后才是实时事件。页面靠这个标记，加上
@@ -305,6 +306,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （模型写的这两个字符先换成 �），代码和链接文字里不放；原文 `block.text` 不插记号，搜索跳转和复制都靠它。
 - **换模型的规矩只在 `model_catalog.py`（会怎样）和 `App.select_model`（真的换）**，页面不判断；同一家之内换模型时，
   这段会话正被聊天通道占着就拒绝。
+- **加一个可以导入的工具**：在 `imports/registry.py` 写一个函数，位置只写官方文档写明的（只在源码里的要注明）；写法是新的，
+  再在 `mcp_shapes.py` 或 `agent_formats.py` 加一种读法，在 `tests/test_imports.py` 放一份假文件。转换出来的 Agent 只会更少、不会更多。
+  换写法时改了什么、丢了什么，用 t() 写成 notes 或 changes 交给页面。改了某个工具放文件位置的环境变量要加进 `imports/places.VARIABLES`：
+  测试和演示会把它们清掉，免得读到真的配置。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
