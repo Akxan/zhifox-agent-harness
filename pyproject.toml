@@ -71,6 +71,9 @@ packages = ["harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ui: 页面测试（tests/ui/）：用无界面的 Chrome 打开演示页面实际操作。没有 Chrome 时跳过",
+]
 
 [dependency-groups]
 dev = [

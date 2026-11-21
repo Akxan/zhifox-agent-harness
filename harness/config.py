@@ -90,6 +90,11 @@ CHANNEL_TIMEOUT = 20  # 发消息、下载文件这类普通请求的超时（�
 CHANNEL_RETRY_SECONDS = 60  # 连不上时，重试的间隔从 1 秒起每次翻倍，最多隔这么久
 CHANNEL_TYPING_SECONDS = 4  # 一轮还在进行时，每隔这么久发一次"正在输入"（Telegram 的这个状态只维持 5 秒）
 CHANNEL_DOWNLOAD_BYTES = 20_000_000  # 聊天里发来的文件最多下载这么大（Telegram 机器人能下载的上限就是 20 MB）
+# 聊天里发来的照片，网页上会话里显示的预览图至少要这么大（长边，像素）。页面上预览图大约 240 个点宽，
+# Retina 屏幕上一个点是 2 个像素，所以要 480 左右才清楚。Telegram 一张照片给好几种尺寸（大约 90、320、800、1280），
+# 用不小于它的里面最小的一张；最小的那张只有 90 像素，放大以后是糊的
+CHANNEL_THUMB_EDGE = 480
+CHANNEL_THUMB_BYTES = 400_000  # 预览图最多下载这么大（800 像素的 JPEG 一般一百来 KB）
 CHANNEL_SHUTDOWN_SECONDS = 5  # 退出时最多等聊天里正在进行的几轮这么久，让它们收尾存盘
 # Discord、QQ 的网关断开以后重连：间隔从 1 秒起每次翻倍，最多隔这么久。比别的长，是因为 Discord 一天只许
 # "登录"（Identify）1000 次，超了会把机器人的 token 作废（见 channels/gateway.py）：隔 120 秒，一天最多 720 次

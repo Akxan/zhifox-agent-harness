@@ -1196,6 +1196,23 @@ def test_a_photo_reaches_the_model_as_an_image(bot):
     assert user["attachments"][0]["name"].startswith("photo-") and user["attachments"][0]["kind"] == "image"
 
 
+def test_the_web_preview_of_a_photo_is_sharp_and_the_model_gets_the_biggest(bot):
+    # Telegram 把一张照片存成好几种尺寸。最小的那张只有 90 像素左右，拿来当网页上的预览图，放大以后是糊的（用户截图问过）。
+    # 预览图用够大的那张里最小的一张（长边不小于 CHANNEL_THUMB_EDGE），模型拿到的是最大的那张
+    sizes = [(edge, JPEG_BYTES + f"<{edge}>".encode()) for edge in (90, 320, 800, 1280)]
+    s = bot(reply(text("看到了")))
+    start = s.say("这是什么", photo_sizes=sizes)
+    s.wait_reply(start, "看到了")
+    content = s.api.requests[0]["messages"][-1]["content"]
+    (image,) = [block for block in content if block["type"] == "image"]
+    assert base64.b64decode(image["source"]["data"]).endswith(b"<1280>")
+    s.idle()
+    saved = s.app.store.load(s.session().conversation.id)
+    (user,) = [event for event in saved.events if event["type"] == "user"]
+    thumb = user["attachments"][0]["thumb"]
+    assert thumb.startswith("data:image/jpeg;base64,") and base64.b64decode(thumb.split(",", 1)[1]).endswith(b"<800>")
+
+
 def test_a_text_file_reaches_the_model_as_text(bot):
     s = bot(reply(text("读完了")))
     start = s.say("帮我看看", document=("notes.txt", "text/plain", "第一行\n第二行 ✓".encode()))

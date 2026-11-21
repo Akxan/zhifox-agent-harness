@@ -38,6 +38,8 @@ from ..config import (
     CHANNEL_DOWNLOAD_BYTES,
     CHANNEL_POLL_SECONDS,
     CHANNEL_RETRY_SECONDS,
+    CHANNEL_THUMB_BYTES,
+    CHANNEL_THUMB_EDGE,
     CHANNEL_TIMEOUT,
 )
 from ..i18n import t
@@ -316,7 +318,7 @@ class TelegramChannel(Channel):
         if isinstance(photos, list) and photos:
             sizes = [size for size in photos if isinstance(size, dict) and size.get("file_id")]
             if sizes:
-                biggest, smallest = sizes[-1], sizes[0]  # Telegram 按从小到大的顺序给
+                biggest, preview = sizes[-1], _preview_size(sizes)  # Telegram 按从小到大的顺序给
                 inbound.files.append(
                     InboundFile(
                         name=f"photo-{message.get('message_id', 0)}.jpg",
@@ -324,7 +326,7 @@ class TelegramChannel(Channel):
                         size=biggest.get("file_size"),
                         kind="photo",
                         fetch=lambda file=biggest["file_id"]: self.api.download(file),
-                        thumb=(lambda file=smallest["file_id"]: self.api.download(file, 200_000)) if len(sizes) > 1 else None,
+                        thumb=(lambda file=preview["file_id"]: self.api.download(file, CHANNEL_THUMB_BYTES)) if len(sizes) > 1 else None,
                     )
                 )
         document = message.get("document")
@@ -431,3 +433,21 @@ class TelegramChannel(Channel):
             self.api.call("setMyCommands", {"commands": [{"command": name, "description": text[:250]} for name, text in commands.items()]})
         except TelegramError as exc:
             logger.info("telegram: 没能登记命令菜单（%s）", exc)
+
+
+def _preview_size(sizes: list[dict]) -> dict:
+    """网页上的预览图用哪一种尺寸：长边不小于 CHANNEL_THUMB_EDGE 的里面最小的一张；都不够大（或者不知道多大）就用最大的
+    （超过 CHANNEL_THUMB_BYTES 下载不了的话没有预览图，原图照样在）。
+
+    不用最小的那张：它只有 90 像素左右，页面上放大到两三百个点宽，看起来是糊的。也不用最大的：
+    预览图会存进会话的事件里，每次打开会话都要发给页面，太大了白白占地方。
+    """
+    for size in sizes:
+        edge = max(_number(size.get("width")), _number(size.get("height")))
+        if edge >= CHANNEL_THUMB_EDGE:
+            return size
+    return sizes[-1]
+
+
+def _number(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
