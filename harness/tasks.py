@@ -8,6 +8,8 @@
 
 agent 任务还记着"要不要先问你"（approval）：和对话里的几档同名、同义（ask / readonly / edits / all，见 permissions.py 的 MODES），
 默认 ask。只有你在页面上编辑任务时能放宽；模型用工具添加的一律是 ask（见 tools/tasks.py）。
+还记着命令的沙箱（sandbox）：default 跟随设置 / off / workspace / network（见 sandbox/），默认 default。
+模型添加的任务一律是 default，工具没有这个参数：要不要给一个任务关掉沙箱，只能由你在页面上决定。
 
 时间表，全部按这台电脑的本地时间：
 
@@ -43,6 +45,8 @@ from typing import Any
 from .config import APP_NAME
 from .i18n import Message, fill, k, t
 from .safe import private_dir, to_json, write_file
+from .sandbox import CHOICES as SANDBOX_CHOICES
+from .sandbox import DEFAULT as SANDBOX_DEFAULT
 
 FORMAT_VERSION = 1
 KINDS = ("agent", "reminder")
@@ -167,10 +171,14 @@ def check_task(value: object) -> dict:
     approval = value.get("approval", "ask")
     if not isinstance(approval, str) or approval not in _approval_modes():
         raise TaskError(t("参数不正确"))
+    sandbox = value.get("sandbox", SANDBOX_DEFAULT)
+    if not isinstance(sandbox, str) or sandbox not in SANDBOX_CHOICES:
+        raise TaskError(t("参数不正确"))
     if kind == "reminder":
         approval = "ask"  # 提醒不调用模型、不用任何工具，没有什么可问的。存成默认值，免得文件里留着一个不起作用的"全部自动允许"
+        sandbox = SANDBOX_DEFAULT  # 同样：提醒不运行命令
     schedule = check_schedule(value.get("schedule"))
-    return {"title": title, "kind": kind, "prompt": prompt, "schedule": schedule, "enabled": enabled, "approval": approval}
+    return {"title": title, "kind": kind, "prompt": prompt, "schedule": schedule, "enabled": enabled, "approval": approval, "sandbox": sandbox}
 
 
 def _approval_modes() -> dict:

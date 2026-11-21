@@ -17,7 +17,9 @@
   读取工作目录之外的文件            先问用户
   读取助手自己的数据目录里的文件    先问用户（即使它在工作目录里面。见 Permissions 的说明）
   创建、修改任何文件                先问用户
-  执行任何 shell 命令               先问用户
+  执行任何 shell 命令               先问用户。打开了沙箱的话，卡片上写着命令在沙箱里的哪一档运行（见 sandbox/）
+  在沙箱之外执行一条命令            每次都问，在任何模式下（包括"全部自动允许"），卡片上带着警告。
+                                    只有沙箱开着时才有这回事；没人看着、又选了"全部自动允许"的定时任务和通道根本不许（见 sandbox/session.py）
   调用 MCP 服务器的工具             先问用户（除非你把这个工具或整个服务器设成了"不用问"）
   联网搜索                          直接执行（在 Anthropic 的服务器上进行，不碰你的电脑）
   浏览器：读页面、截图、滚动、换标签页   直接执行
@@ -108,6 +110,8 @@ from .display import file_size, short
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool
+from .sandbox import escape_question
+from .sandbox import question as command_question
 from .tasks import TaskError, TaskStore, check_task, describe
 from .tools import files, shell
 from .tools import tasks as task_tools
@@ -116,6 +120,7 @@ from .tools.browser import BrowserTool
 from .tools.computer import DesktopTool
 from .tools.files import FileEditor
 from .tools.send import SendFacts, SendTool
+from .tools.shell import ShellTool
 
 # 用户可以选的四种模式，以及给人看的说法（从严到松，页面和命令行都按这个顺序列）。
 MODES = {
@@ -173,6 +178,8 @@ class Permissions:
         别的情况返回 "mode"。"""
         if isinstance(tool, DesktopTool):
             return self._computer_allowance(tool.look(tool_input) if isinstance(tool_input, dict) else None)
+        if _escapes(tool_name, tool_input, tool):
+            return None  # 在沙箱之外执行一条命令：在任何模式下都要问（见文件开头）
         if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
             return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
         if self.mode == "all":
@@ -272,7 +279,7 @@ class Permissions:
         if isinstance(tool, SendTool):
             return self._review_send(tool.look(tool_input))
         if tool_name == shell.TOOL_NAME:
-            return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
+            return _review_command(tool_input, tool)
         if tool_name == files.TOOL_NAME:
             return self._review_file(tool_input)
         if tool_name == task_tools.ADD:
@@ -352,6 +359,33 @@ class Permissions:
         if self.editor.in_workspace(path):
             return None
         return t("读取工作目录之外的内容：\n\n    {path}", path=path)
+
+
+# ---- 执行命令 ------------------------------------------------------------------
+
+
+def _review_command(tool_input: dict, tool: object) -> str:
+    """执行一条命令怎么问你：命令本身，打开了沙箱的话加一行沙箱的情况（话在 sandbox/session.py 里写）。
+    要在沙箱之外运行的，换成另一张带警告的卡片，在任何模式下都问。"""
+    command = tool_input.get("command")
+    facts = tool.look(tool_input) if isinstance(tool, ShellTool) else None
+    if facts is None:
+        question = t("执行命令：\n\n    $ {command}", command=command)
+        # 认不出是哪个 shell（只给了名字）又带着 unsandboxed：宁可当它要出沙箱。认得出、只是没有沙箱这回事的，照常问
+        return always(question) if _escapes(shell.TOOL_NAME, tool_input, tool) else question
+    if facts.escapes:
+        return always(escape_question(facts, command))
+    return command_question(facts, command)
+
+
+def _escapes(tool_name: str, tool_input: object, tool: object) -> bool:
+    """这次调用是不是"在沙箱之外执行一条命令"。认不出是哪个 shell 的（只给了名字），带着 unsandboxed 就当它是。"""
+    if tool_name != shell.TOOL_NAME or not isinstance(tool_input, dict):
+        return False
+    if isinstance(tool, ShellTool):
+        facts = tool.look(tool_input)
+        return facts is not None and facts.escapes
+    return tool_input.get("unsandboxed") is True
 
 
 # ---- 浏览器 ------------------------------------------------------------------

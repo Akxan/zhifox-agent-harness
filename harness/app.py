@@ -48,6 +48,8 @@ from .providers import (
     make_backend,
     make_client,
 )
+from .sandbox import DEFAULT as SANDBOX_DEFAULT
+from .sandbox import Layout, Sandbox
 from .settings import Settings, save_api_key
 from .skills import SkillStore
 from .skills.catalog import notifier
@@ -97,6 +99,7 @@ class App:
     chat_browser: BrowserSession  # 你正在看的这段对话用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
     desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
     chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
+    sandbox_layout: Layout  # 命令的沙箱要用的几个地方（见 sandbox/）：每次运行的 Sandbox 都照着它建
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -180,7 +183,7 @@ class App:
         except OSError as exc:
             self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
 
-    def unattended_agent(self, ui: Any, approval: str = "ask") -> UnattendedRun:
+    def unattended_agent(self, ui: Any, approval: str = "ask", sandbox: str = SANDBOX_DEFAULT) -> UnattendedRun:
         """给定时任务的一次运行准备一个助手，以及只属于这次运行的那几样东西（见 UnattendedRun）。
 
         定时任务和你的对话、和别的任务同时运行（见 webui/scheduler.py），所以凡是"会被停下"的东西都各用各的：
@@ -189,19 +192,24 @@ class App:
           - 适配层是新建的，历史是空的：任务从头开始，不带着你正在聊的内容，也不往你的对话里写东西；
           - 用的是此刻设置里选中的那一家、那个模型。之后你再换模型，只影响以后的运行；
           - 权限是这个任务自己的那一档（approval，见 Permissions.unattended），和你在对话里选的哪一档无关；
+          - 沙箱也是这个任务自己的那一档（sandbox：default 跟随设置、off、workspace、network，见 sandbox/）；
           - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 fresh_tools），而且记在这次运行自己的名下：
             停下这次运行，只取消它自己正在等的 MCP 调用，你的对话和别的任务的不受影响（见 McpManager.call）。
         别的工具和对话共用：背后是同一份待办、任务、记忆和工作目录里的文件，它们各自有锁（见 TodoStore、TaskStore、
         tools/files.py、tools/memory.py），几边同时改也不会互相冲掉。
         """
-        return self._side_run(ui, approval, self.settings.provider, self.settings.model, source="task")
+        return self._side_run(ui, approval, self.settings.provider, self.settings.model, source="task", sandbox=lambda: sandbox)
 
-    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str, persona: CustomAgent | None = None, outlet: Any = None) -> UnattendedRun:
+    def channel_agent(
+        self, ui: Any, approval: str, provider_id: str, model: str, persona: CustomAgent | None = None, outlet: Any = None,
+        sandbox: Callable[[], str] = lambda: SANDBOX_DEFAULT,
+    ) -> UnattendedRun:
         """给聊天通道里的一个聊天（比如你和 Telegram 机器人的私聊）准备一个助手，以及只属于这个聊天的那几样东西。
 
         和定时任务的一次运行是同一个做法（见上面的 unattended_agent），区别只有几处：
           - 用的是这个聊天自己那段会话的那一家、那个模型（provider_id、model），历史由调用的人交还给它（见 channels/session.py）；
           - 权限是这个通道自己的那一档（channels.json 里的 approval），和网页对话、定时任务的都无关；
+          - 沙箱也是这个通道自己的那一档（channels.json 里的 sandbox）。sandbox 每条命令前读一次：你在页面上改了马上算数；
           - 花的钱记在 channel 名下；
           - 在聊天里发 /new 某个 Agent 的名字，这段会话就用它当角色（persona）：和网页上用它开始一段对话一样
             （见 new_conversation），提示词换成它的设定，工具只有它放开的那些。
@@ -209,13 +217,18 @@ class App:
         在聊天里发 /stop，只结束这个聊天自己的命令、MCP 调用和浏览器操作；网页上的"停止"、别的聊天、定时任务都碰不到它。
         每一轮结束时调用 run.close，关掉这个聊天自己的浏览器标签页（和定时任务的一次运行一样）。
         """
-        return self._side_run(ui, approval, provider_id, model, source="channel", persona=persona, outlet=outlet)
+        return self._side_run(ui, approval, provider_id, model, source="channel", persona=persona, outlet=outlet, sandbox=sandbox)
 
     def _side_run(
-        self, ui: Any, approval: str, provider_id: str, model: str, source: str, persona: CustomAgent | None = None, outlet: Any = None
+        self, ui: Any, approval: str, provider_id: str, model: str, source: str, persona: CustomAgent | None = None, outlet: Any = None,
+        sandbox: Callable[[], str] = lambda: SANDBOX_DEFAULT,
     ) -> UnattendedRun:
-        """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、记在 source 名下的账。"""
-        shell = Shell(self.config.workspace)
+        """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、自己那一档沙箱、记在 source 名下的账。"""
+        permissions = self.agent.permissions.unattended(approval)
+        # 沙箱：这次运行自己的那一档。没人看着的运行，选了"全部自动允许"就不许请人放行（在沙箱之外运行一条），
+        # 别的几档照样问你（见 sandbox/session.py）。看的是此刻的模式：聊天通道每一轮会按你在页面上改过的重新设
+        escape = lambda: permissions.mode != "all"
+        shell = Shell(self.config.workspace, Sandbox(self.sandbox_layout, own=sandbox, escape=escape, scope=source))
         owner = object()  # 这次运行的 MCP 调用都记在它名下（见 McpManager.call）
         # 浏览器也是这次运行自己的：自己的标签页，你的对话和别的任务看不到、碰不到（见 browser/session.py）。
         # 放在一个格子里：聊天通道里一段会话要跑很多轮，每一轮结束都 close（关掉自己的标签页），下一轮换一个新的 session，
@@ -232,7 +245,6 @@ class App:
         own_send = [make_send_tool(self.agent.permissions.editor, outlet)] if source == "channel" else []
         tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop, *own_send])
         backend = self._backend_for(provider_id, model, persona)
-        permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
         # 也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这次运行的那一档，停止只停这次运行，见 agents/runner.py）
         delegate = self.delegator.tool_for(agent)
@@ -569,11 +581,13 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上。
     # commands.json（你自己加的"不用问的命令"）也是：改了它，模型就能让自己想运行的命令不再问你（见 commands/allowlist.py）
     commands = CommandList(config.commands_file)
-    protected = [config.env_file, config.mcp_file, config.channels_file, config.commands_file]
+    protected = config.protected_files
     files = FileEditor(config.workspace, config.backup_dir, protected=protected)
     todos = TodoStore(config.todo_file)
     tasks = TaskStore(config.tasks_file)
-    shell = Shell(config.workspace)
+    # 命令的沙箱（见 sandbox/）：数据目录和保护的文件在沙箱里永远碰不到；对话用设置里的那一档，你正看着，可以请你放行一条
+    layout = sandbox_layout(config, settings)
+    shell = Shell(config.workspace, Sandbox(layout))
     skills = SkillStore(config.data_dir)
     tools = build_registry(config, files, todos, shell, tasks, skills)
     system_prompt = build_system_prompt(config)
@@ -621,6 +635,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         chat_browser=browser.session("chat"),
         desktop=desktop,
         chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
+        sandbox_layout=layout,
     )
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
     # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
@@ -628,6 +643,18 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     agent.on_start = app.fresh_tools
     mcp.start()  # 每个启用的服务器在自己的后台线程里连接，这里不等
     return app
+
+
+def sandbox_layout(config: Config, settings: Settings) -> Layout:
+    """命令的沙箱要用的几个地方（见 sandbox/session.py）。设置里的那一档和额外允许的路径每条命令前现读。
+    命令行的 harness sandbox check 也用它，和真的运行时一模一样。"""
+    return Layout(
+        workspace=config.workspace,
+        private=(config.data_dir,),
+        protected=tuple(config.protected_files),
+        extra=lambda: settings.sandbox["paths"],
+        default=lambda: settings.sandbox["level"],
+    )
 
 
 def run_turn(agent: Agent, ui: Any, text: str, attachments: Sequence[Attachment] | None = None) -> None:

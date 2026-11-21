@@ -142,6 +142,7 @@ function openSettings() {
   drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）
   showComputerConfirm(false);
   drawComputerSettings(true);
+  drawSandboxSettings(true);  // "沙箱"一节（见 sandbox.js）
   renderService();  // "后台运行"一节（见 service.js）
   settings.showModal();
 }
@@ -169,11 +170,11 @@ $('settings-model-switch').addEventListener('click', () => { settings.close(); o
 $('setup-open').addEventListener('click', openSettings);
 $('close-settings').addEventListener('click', () => settings.close());
 // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-for (const dialog of [settings, approvalDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog, commandsDialog]) {
+for (const dialog of [settings, approvalDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog, commandsDialog, sandboxDialog]) {
   let pressedOutside = false;
   dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
   dialog.addEventListener('click', (click) => {
     if (click.target !== dialog || !pressedOutside) return;
-    if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor(); else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else if (dialog === commandsDialog) requestCloseCommands(); else dialog.close();  // 正在编辑、还没保存的，先提醒
+    if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor(); else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else if (dialog === commandsDialog) requestCloseCommands(); else if (dialog === sandboxDialog) requestCloseSandboxPaths(); else dialog.close();  // 正在编辑、还没保存的，先提醒
   });
 }

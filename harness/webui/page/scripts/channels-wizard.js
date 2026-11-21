@@ -10,7 +10,7 @@ function openChanWizard(platform, step, repair) {
   // values：第 2 步里正在填的那几项（字段名 → 文字）；show：哪几个密钥框现在显示着明文
   chanView = {
     kind: 'wizard', platform, step: start, values: {}, show: {}, checking: false, error: '', connected: '',
-    mode: item.approval || 'ask', pairedAt: item.owner ? item.owner.paired_at : null, pairing: false, armed: '',
+    mode: item.approval || 'ask', sandbox: item.sandbox || 'default', pairedAt: item.owner ? item.owner.paired_at : null, pairing: false, armed: '',
   };
   chanDrawn = '';
   drawChanWizard('step');
@@ -19,12 +19,16 @@ function openChanWizard(platform, step, repair) {
 
 const chanTyped = (view) => Object.values(view.values || {}).some((value) => String(value).trim());
 
-// 有没有填了、还没保存的东西：填了 token（或者 ID、密钥）没点"验证"，或者换了确认方式没点"完成"
+// 第 4 步上换了的：确认方式、命令的沙箱（和现在用的比）
+const chanModeChanged = (item) => Boolean(item) && chanView.mode !== item.approval;
+const chanSandboxChanged = (item) => Boolean(item) && chanView.sandbox !== (item.sandbox || 'default');
+
+// 有没有填了、还没保存的东西：填了 token（或者 ID、密钥）没点"验证"，或者换了确认方式、沙箱没点"完成"
 function chanDirty() {
   if (chanView.kind !== 'wizard') return false;
   const item = chanFind(chanView.platform);
   if (chanView.step === 2 && chanTyped(chanView)) return true;
-  return chanView.step === 4 && item && chanView.mode !== item.approval;
+  return chanView.step === 4 && (chanModeChanged(item) || chanSandboxChanged(item));
 }
 
 // 想离开向导（返回列表、关掉对话框）。有没保存的东西：先提醒一次，再来一次才放弃
@@ -33,7 +37,9 @@ function leaveChanWizard(why) {
     chanView.armed = why;
     chanView.error = '';
     drawChanWizard();
-    const key = chanView.step === 2 ? k('填的东西还没保存。再点一次就放弃它。') : k('确认方式还没保存。再点一次就放弃这次的修改。');
+    const item = chanFind(chanView.platform);
+    const key = chanView.step === 2 ? k('填的东西还没保存。再点一次就放弃它。')
+      : chanModeChanged(item) ? k('确认方式还没保存。再点一次就放弃这次的修改。') : k('沙箱的选择还没保存。再点一次就放弃这次的修改。');
     const help = chanPanel.querySelector('.chan-foot .chan-help');
     if (help) { retext(help, key); help.className = 'chan-help bad'; }
     return false;
@@ -70,7 +76,8 @@ function drawChanWizard(focus) {
   const field = document.activeElement && chanPanel.contains(document.activeElement) && document.activeElement.classList.contains('chan-input') ? document.activeElement : null;
   const caret = field ? [field.id, field.selectionStart, field.selectionEnd] : null;
   const lengths = Object.fromEntries(Object.entries(view.values).map(([name, value]) => [name, value.length]));  // 填的内容本身不进"变了没有"
-  const print = JSON.stringify([{ ...view, values: lengths }, item, language]);
+  // 第 4 步的沙箱下拉框里写着"跟随设置（现在是：……）"：设置里那一档变了也要重画
+  const print = JSON.stringify([{ ...view, values: lengths }, item, language, sandboxInfo && [sandboxInfo.level, sandboxInfo.levels, Boolean(sandboxInfo.problem)]]);
   if (!focus && print === chanDrawn && chanPanel.dataset.view === 'wizard') { syncChanTicker(); return; }
   chanDrawn = print;
 

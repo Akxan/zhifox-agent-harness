@@ -83,7 +83,8 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
     def task_add(kind: str, title: str, schedule: dict, prompt: str = "") -> str:
         try:
             # approval 写死成 ask：模型添加的任务运行时一律每次都问，放宽只能由用户在页面上做（见文件开头的说明）
-            fields = {"kind": kind, "title": title, "prompt": prompt, "schedule": schedule, "enabled": True, "approval": "ask"}
+            # sandbox 写死成 default（跟随设置）：要不要给一个任务关掉沙箱，同样只能由用户决定
+            fields = {"kind": kind, "title": title, "prompt": prompt, "schedule": schedule, "enabled": True, "approval": "ask", "sandbox": "default"}
             task = store.add(fields)
         except TaskError as exc:
             raise ToolError(_chinese(exc)) from None

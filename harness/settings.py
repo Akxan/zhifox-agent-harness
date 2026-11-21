@@ -2,7 +2,8 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关、
+                       命令的沙箱（哪一档、额外允许的路径）。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -17,7 +18,9 @@ from pathlib import Path
 
 from . import i18n
 from .budget import valid_budget
+from .config import SANDBOX_MAX_PATHS, SANDBOX_PATH_CHARS
 from .safe import private_dir, to_json, write_file
+from .sandbox.policy import LEVELS as SANDBOX_LEVELS
 
 
 class Settings:
@@ -49,6 +52,8 @@ class Settings:
         self.browser: dict = browser_settings(saved.get("browser"))
         # 操作整台电脑（见 desktop/）：开没开、定时任务和聊天通道能不能用、哪些程序不许碰。默认关着，打开要你在设置里确认一次
         self.computer: dict = computer_settings(saved.get("computer"))
+        # 命令的沙箱（见 sandbox/）：对话用哪一档（也是定时任务、聊天通道"跟随设置"时的那一档）、额外允许的路径。默认关着
+        self.sandbox: dict = sandbox_settings(saved.get("sandbox"))
 
     def save(self) -> None:
         with self._lock:
@@ -108,6 +113,12 @@ class Settings:
             self.computer = computer_settings({**self.computer, **changes})
             self._write()
 
+    def set_sandbox(self, changes: dict) -> None:
+        """改沙箱的设置（只改给了的那几项，见 sandbox_settings）。"""
+        with self._lock:
+            self.sandbox = sandbox_settings({**self.sandbox, **changes})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -127,6 +138,8 @@ class Settings:
             data["browser"] = self.browser
         if self.computer != COMPUTER_DEFAULTS:
             data["computer"] = self.computer
+        if self.sandbox != SANDBOX_DEFAULTS:
+            data["sandbox"] = self.sandbox
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 
@@ -162,6 +175,38 @@ def computer_settings(saved: object) -> dict:
         if isinstance(name, str) and name.strip() and name.strip() not in blocked and len(blocked) < MAX_BLOCKED_APPS:
             blocked.append(" ".join(name.split())[:MAX_APP_NAME_CHARS])
     return {"enabled": saved.get("enabled") is True, "unattended": saved.get("unattended") is True, "blocked": blocked}
+
+
+SANDBOX_DEFAULTS = {"level": "off", "paths": []}
+
+
+def sandbox_settings(saved: object) -> dict:
+    """沙箱的设置，只认这两项、这几种类型；不认识的、类型不对的按默认的来（文件被改坏了也不出错）。
+
+    level   对话用哪一档：off / workspace / network（定时任务、聊天通道选"跟随设置"时也是它）
+    paths   额外允许的路径：[{"path": 绝对路径, "write": 能不能写}]。不是绝对路径的、重复的丢掉。
+            数据目录和 .env 这类加进来也不算（sandbox/policy.py 的 build 会跳过；网页上加的时候就拒绝，见 webui/sandbox_api.py）
+    """
+    saved = saved if isinstance(saved, dict) else {}
+    level = saved.get("level")
+    paths: list[dict] = []
+    seen: set[str] = set()
+    for item in saved.get("paths") if isinstance(saved.get("paths"), list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            continue
+        path = item["path"].strip()
+        if not path or len(path) > SANDBOX_PATH_CHARS or not path_is_absolute(path) or path in seen or len(paths) >= SANDBOX_MAX_PATHS:
+            continue
+        seen.add(path)
+        paths.append({"path": path, "write": item.get("write") is True})
+    return {"level": level if level in SANDBOX_LEVELS else "off", "paths": paths}
+
+
+def path_is_absolute(path: str) -> bool:
+    """一个路径是不是绝对路径（~ 开头的也算：用的时候展开成家目录）。不认换行这类控制字符。"""
+    if any(not char.isprintable() for char in path):
+        return False
+    return path.startswith("~") or Path(path).is_absolute()
 
 
 # ---- API key -------------------------------------------------------------------

@@ -5,6 +5,7 @@
     harness serve [--web]         服务器上的服务：定时任务和聊天通道，没有浏览器（见 serve.py）
     harness channels ...          设置聊天通道（见 channels/cli.py）
     harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
+    harness sandbox ...           命令的沙箱：状态、哪一档、额外允许的路径、试一下（见 sandbox/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
@@ -27,6 +28,7 @@ from .i18n import k, t
 from .permissions import MODES
 from .pricing import estimate
 from .providers import has_key
+from .sandbox import cli as sandbox_cli
 from .service import cli as service_cli
 from .settings import Settings
 from .tools.todo import format_todos
@@ -298,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
+    sandbox_cli.add_parser(commands)
     service_cli.add_parser(commands)
     args = parser.parse_args(argv)
     if args.workspace is not None:
@@ -314,6 +317,8 @@ def main(argv: list[str] | None = None) -> int:
         return channels_cli.run(args, config)
     if args.command == "commands":
         return commands_cli.run(args, config)
+    if args.command == "sandbox":
+        return sandbox_cli.run(args, config)
     if args.command == "service":
         return service_cli.run(args, config)
     if args.web:

@@ -31,6 +31,7 @@
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
   POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
   POST /api/commands/add、edit、delete、reveal   你自己加的"不用问的命令"：加、改、删、在访达中显示 commands.json（见 commands_api.py）
+  POST /api/sandbox/level、add、edit、delete、reveal  命令的沙箱：对话用哪一档、额外允许的路径（加、改、删、在访达中显示列表里的一条，见 sandbox_api.py）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
@@ -47,7 +48,7 @@
   POST /api/budget     用户填写或清除了每月预算（见 budget.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
-  POST /api/channel/connect、pair、cancel、approval、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
+  POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
@@ -116,6 +117,7 @@ from ..permissions import MODES
 from ..pricing import estimate, price_of
 from ..providers import PROVIDERS, ProviderError, has_key
 from ..safe import clean, private_dir, to_json
+from ..sandbox import CHOICES as SANDBOX_CHOICES
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
@@ -129,6 +131,7 @@ from .capabilities_api import page_state as capabilities_state
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .page import assemble as assemble_page
+from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -217,6 +220,7 @@ class WebApp:
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
+        self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -314,6 +318,7 @@ class WebApp:
             mcp=self._mcp_state(),
             approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
+            sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒
@@ -1515,6 +1520,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/commands/"):
             status, payload = web.commands.route(path.removeprefix("/api/commands/"), body)
             self._send_json(status, payload)
+        elif path.startswith("/api/sandbox/"):
+            status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
         elif path == "/api/computer/shot":
             content = web.computer.shot(body.get("id"))
             if content is None:
@@ -1642,6 +1650,7 @@ class Handler(BaseHTTPRequestHandler):
             "pair": lambda: True,
             "cancel": lambda: True,
             "approval": lambda: body.get("mode") in MODES,
+            "sandbox": lambda: body.get("level") in SANDBOX_CHOICES,
             "enable": lambda: isinstance(body.get("enabled"), bool),
             "unbind": lambda: True,
             "remove": lambda: True,
@@ -1664,6 +1673,8 @@ class Handler(BaseHTTPRequestHandler):
                 hub.cancel_pairing(platform)
             elif action == "approval":
                 hub.set_approval(platform, body["mode"])
+            elif action == "sandbox":
+                hub.set_sandbox(platform, body["level"])
             elif action == "enable":
                 hub.set_enabled(platform, body["enabled"])
             elif action == "unbind":

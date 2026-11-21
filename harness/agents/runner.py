@@ -195,7 +195,8 @@ class Delegator:
         sub_config = dataclasses.replace(self.config, max_steps=AGENT_MAX_STEPS)
 
         # 会被停下的东西各用各的（见文件开头）。工具先挑好，再看有没有联网的（提示词里那一行要看它）
-        own_shell, owner = Shell(self.config.workspace), object()
+        # 自己的 shell，但和叫它的那一方用同一个沙箱（同一档、同样能不能请人放行）：子 Agent 只会更少，不会更多
+        own_shell, owner = Shell(self.config.workspace, _sandbox_of(parent)), object()
         tools = self._tools(parent, agent, own_shell, owner)
         provider = PROVIDERS[provider_id]
         web = self.config.web and provider.web and agent_tools.has_web(tools)
@@ -339,3 +340,9 @@ class Delegator:
             head = f"Agent「{agent.name}」做完了这项任务。下面是它交回的回答（它看不到你和用户的对话）"
         self._done(parent, sub, ui, {"steps": "limit", "truncated": "truncated"}.get(outcome, "done"), answer=shown)
         return ToolOutput(text=f"{head}：\n\n{answer}\n\n——{did}。")
+
+
+def _sandbox_of(parent: Agent) -> Any:
+    """叫它的那一方的 run_command 带着的沙箱（见 sandbox/session.py）；它手里没有 run_command 时是 None（子 Agent 也就没有）。"""
+    tool = parent.tools.get(shell_tools.TOOL_NAME)
+    return getattr(getattr(tool, "shell", None), "sandbox", None)

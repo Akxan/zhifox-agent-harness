@@ -63,7 +63,7 @@ def pytest_runtest_makereport(item, call):
 class Demo:
     """作为子进程运行的演示服务器。"""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, extra: tuple[str, ...] = ()):
         self.root = root
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS and "proxy" not in key.lower()}
         env.update(NO_PROXY="*", no_proxy="*", PYTHONUNBUFFERED="1")
@@ -71,6 +71,7 @@ class Demo:
             sys.executable, str(DEMO), "--port", "0", "--data", str(root),
             "--delay", "0.004",  # 逐字输出还是一小段一小段的（测试要看到它），只是快一些
             "--think", "0.05",
+            *extra,  # 比如 --no-sandbox：当作这台电脑上用不了沙箱（test_ui_sandbox.py 另开一个这样的演示）
         ]
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -127,6 +128,14 @@ class Demo:
         # 待办也一样：让模型记过待办的测试没删干净，排在它后面的测试就看到一条多出来的（真出过：test_ui_capabilities 记的那一条
         # 留下来，同一个进程里后跑的 test_empty_states 找不到"没有未完成的待办"）。待办每次都从文件读（tools/todo.py），删掉就一条都没有
         (self.root / "data" / "todos.json").unlink(missing_ok=True)
+        # 命令的沙箱：测试改了档位、加了路径忘了收（或者失败在半路），后面的测试里命令就会被关进沙箱、卡片上多一行。
+        # 档位改回"关"，加过的路径一条条删掉（路径记在设置文件里，见 harness/settings.py）
+        status, reply = self.api("/api/sandbox/level", {"level": "off"})
+        assert status == 200, f"/api/sandbox/level 失败：{reply}"
+        saved = self.root / "data" / "settings.json"
+        paths = json.loads(saved.read_text(encoding="utf-8")).get("sandbox", {}).get("paths", []) if saved.exists() else []
+        for item in paths:
+            self.api("/api/sandbox/delete", {"path": item["path"]})
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 
@@ -166,6 +175,16 @@ def demo(tmp_path_factory, browser, artifacts):
     yield server
     server.stop()
     (artifacts / "demo-server.log").write_text("".join(server.output), encoding="utf-8")
+
+
+@pytest.fixture(scope="session")
+def no_sandbox_demo(tmp_path_factory, browser, artifacts):
+    """另一个演示服务器，当作这台电脑上用不了沙箱（--no-sandbox，像没装 bubblewrap 的 Linux）。
+    只有 test_ui_sandbox.py 用它：页面上"用不了"的样子，不能等到哪台电脑真的用不了才看得到。"""
+    server = Demo(tmp_path_factory.mktemp("ui-demo-no-sandbox"), extra=("--no-sandbox",))
+    yield server
+    server.stop()
+    (artifacts / "demo-server-no-sandbox.log").write_text("".join(server.output), encoding="utf-8")
 
 
 def _safe(name: str) -> str:

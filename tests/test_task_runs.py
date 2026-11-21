@@ -164,7 +164,7 @@ def test_tasks_are_saved_listed_and_previewed(serve):
 
     state = until(lambda: latest_state(s)["tasks"] and latest_state(s), what="带着任务的状态")
     (task,) = state["tasks"]
-    assert set(task) == {"id", "title", "kind", "prompt", "schedule", "enabled", "approval", "created_at", "next_run", "runs", "running"}
+    assert set(task) == {"id", "title", "kind", "prompt", "schedule", "enabled", "approval", "sandbox", "created_at", "next_run", "runs", "running"}
     assert (task["id"], task["title"], task["kind"], task["prompt"], task["schedule"]) == (task_id, "喝水", "reminder", "起来喝杯水", DAILY)
     assert task["next_run"] == at(2026, 11, 21, 9, 0) and task["created_at"] == s.clock.now
     assert task["runs"] == [] and task["running"] is None and state["reminders"] == []

@@ -37,6 +37,9 @@
     （或者 ID 和密钥），在向导里粘贴就能连上。它们共用另一个"手机"页面（tests/demo_phone.py，上面选平台）。
     飞书、钉钉收消息本来要装官方的 SDK；演示里换成了假的长连接，当作已经装好了。加 --no-sdk 看没装时页面怎么说。
 
+  - 命令的沙箱（设置 → 沙箱）用的是这台电脑上真的那一个（macOS 的 sandbox-exec、Linux 的 bwrap），默认关着。
+    加 --no-sandbox 当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看设置、任务和通道里怎么说。
+
   - 浏览器（设置 → 浏览器）是开着的：发一句含有"演示商店"的话（比如"用浏览器看看演示商店里有什么"）开始一段新对话，
     助手会用真的 Chrome 打开这个脚本在本机起的一个"演示商店"网页：先问你能不能去这个网站，然后读页面、点搜索框、
     输入（又问你一次）、截图。对话里每一步下面有一张小截图，点开看大图；顶栏上会出现"浏览器正在被智狐控制"。
@@ -62,6 +65,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -85,6 +89,7 @@ parser.add_argument("--phone-port", type=int, default=0, help="别的几家共�
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
 parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--no-sandbox", action="store_true", help="当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看页面上怎么说")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -115,7 +120,10 @@ from harness.app import build_app
 from harness.channels import platforms
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.i18n import t
 from harness.imports import places as import_places
+from harness.sandbox import backend as sandbox_backend
+from harness.sandbox import linux as sandbox_linux
 from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
@@ -759,6 +767,10 @@ fresh = not (root / "data" / "tasks.json").exists()
 # 演示里"这台电脑上用哪个后端"永远回答这台假的电脑：真的那个（截你的屏幕、动你的鼠标）连找都不会去找
 desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop)
 desktop_backend.detect = lambda: (desktop, "")
+if options.no_sandbox:
+    # 当作没装 bubblewrap 的 Linux：设置里选了一档的话，命令一律会被拒绝执行（和真的用不了时一样）
+    missing = dataclasses.replace(sandbox_backend.LINUX, problem=lambda: t("这台电脑上没有装 bubblewrap（bwrap）。{install}", install=t(sandbox_linux.INSTALL)))
+    sandbox_backend.detect = lambda: missing
 app = build_app(config, ui, client_factory=client_factory)
 # 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
