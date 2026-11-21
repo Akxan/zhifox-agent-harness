@@ -295,7 +295,7 @@ class TelegramChannel(Channel):
                 user=str(sender.get("id", "")),
                 name=_person(sender),
                 data=str(query.get("data") or ""),
-                answer=lambda text: self._answer_press(query_id, text),
+                answer=lambda text, problem=False: self._answer_press(query_id, text),
             )
         message = update.get("message")
         if not isinstance(message, dict):

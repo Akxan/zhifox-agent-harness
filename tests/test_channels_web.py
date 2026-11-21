@@ -53,7 +53,9 @@ def test_connecting_a_bot_from_the_page(bot):
     channels = s.state()["channels"]
     assert channels["problem"] == "" and channels["file"] == str(s.config.channels_file)
     assert [item["id"] for item in channels["platforms"]] == [item["id"] for item in PLATFORMS]  # 页面上的卡片照着这张表画
-    assert {item["stage"] for item in channels["platforms"] if item["id"] != "telegram"} <= {"soon", "public_url", "unsupported"}
+    ready = {item["id"] for item in channels["platforms"] if item["stage"] == "ready"}
+    assert ready == {"telegram", "discord", "slack", "feishu", "dingtalk", "qq"}
+    assert {item["stage"] for item in channels["platforms"] if item["id"] not in ready} == {"public_url", "unsupported"}
     platform = s.platform()
     assert (platform["configured"], platform["status"]["state"], platform["chats"], platform["token_hint"]) == (False, "off", [], "")
 
@@ -66,13 +68,13 @@ def test_connecting_a_bot_from_the_page(bot):
     assert status == 409 and "不认这个 token" in body["error"] and rejected not in body["error"]
     assert not s.config.channels_file.exists()  # 不对的 token 不保存
 
-    assert post(s, "connect", platform="telegram", token=f"  {TOKEN}\n") == (200, {"ok": True, "bot": BOT})
+    assert post(s, "connect", platform="telegram", token=f"  {TOKEN}\n") == (200, {"ok": True, "bot": {**BOT, "handle": "@zhifox_test_bot"}})
     until(lambda: s.platform()["status"]["state"] == "online", what="连上")
     platform = s.platform()
     assert platform["configured"] is True and platform["enabled"] is True and platform["approval"] == "ask"
-    assert platform["token_hint"] == "…" + TOKEN[-4:] and platform["bot"] == {"username": "zhifox_test_bot", "name": "ZhiFox Test"}
+    assert platform["token_hint"] == "…" + TOKEN[-4:] and platform["bot"] == {"username": "zhifox_test_bot", "name": "ZhiFox Test", "handle": "@zhifox_test_bot", "link": "", "install": ""}
     assert platform["owner"] is None and platform["pairing"] is None
-    assert ChannelStore(s.config.channels_file).get("telegram")["token"] == TOKEN  # 存的是去掉空白的
+    assert ChannelStore(s.config.channels_file).get("telegram")["credentials"].get("token", "") == TOKEN  # 存的是去掉空白的
 
     # token 只有最后 4 位出现在页面上：发给浏览器的每一个事件里都找不到它
     everything = json.dumps(s.browser.events, ensure_ascii=False)
@@ -80,7 +82,7 @@ def test_connecting_a_bot_from_the_page(bot):
 
     # 还不能用的平台
     calls = len(s.tg.calls)
-    status, body = post(s, "connect", platform="feishu", token=TOKEN)
+    status, body = post(s, "connect", platform="whatsapp", token=TOKEN)
     assert status == 409 and "还不能用" in body["error"] and len(s.tg.calls) == calls
 
 
@@ -90,7 +92,8 @@ def test_pairing_from_the_page_and_cancelling(bot):
     assert status == 200 and set(body) == {"ok", "code", "expires"}
     code = body["code"]
     assert len(code) == 6 and code.isdigit() and abs(body["expires"] - (time.time() + PAIRING_SECONDS)) < 5
-    until(lambda: s.platform()["pairing"] == {"code": code, "expires": body["expires"], "attempts_left": PAIRING_ATTEMPTS}, what="页面上的配对码")
+    until(lambda: s.platform()["pairing"] == {"code": code, "expires": body["expires"], "attempts_left": PAIRING_ATTEMPTS,
+                                              "link": f"https://t.me/zhifox_test_bot?start={code}"}, what="页面上的配对码")
 
     # 再点一次"配对"：换一个新的，旧的作废
     status, again = post(s, "pair", platform="telegram")
@@ -176,8 +179,10 @@ def test_bad_channel_requests_are_rejected(bot):
         assert s.browser.post(f"/api/channel/{action}", {"platform": "telegram"})[0] == 404, action
 
     # 参数对，但现在做不了：409，说清楚原因
-    status, body = post(s, "pair", platform="feishu")
+    status, body = post(s, "pair", platform="whatsapp")
     assert status == 409 and "还不能用" in body["error"]
+    status, body = post(s, "pair", platform="discord")
+    assert status == 409 and "还没有连接 Discord" in body["error"]
     status, body = post(s, "confirm", platform="telegram", chat=OWNER, confirm_id=1, allow=True)
     assert status == 409 and "已经处理过了" in body["error"]
     status, body = post(s, "stop", platform="telegram", chat=OWNER)
@@ -186,7 +191,7 @@ def test_bad_channel_requests_are_rejected(bot):
     from test_webui import request
 
     assert request(s.browser.host, "POST", "/api/channel/remove", {"platform": "telegram"})[0] == 403
-    assert s.hub.store.get("telegram")["token"] == TOKEN
+    assert s.hub.store.get("telegram")["credentials"].get("token", "") == TOKEN
 
 
 def test_a_broken_settings_file_is_reported_and_left_alone(bot, make_config):

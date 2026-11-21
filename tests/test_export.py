@@ -200,7 +200,7 @@ def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
     data = tmp_path / "data"
     token = "555000111:" + "Q" * 35  # 编造的、样子像真的 token
     store = ChannelStore(data / "channels.json")
-    store.connect("telegram", token, {"id": "555000111", "username": "backup_test_bot", "name": "Backup"})
+    store.connect("telegram", {"token": token}, {"id": "555000111", "username": "backup_test_bot", "name": "Backup"})
     secret = store.start_pairing("telegram")["code"]
     store.remember_chat("telegram", "111", "20261121-0800-abc")
     assert (data / "channels.json.lock").exists()  # 改设置时用的文件锁就在旁边
@@ -210,7 +210,7 @@ def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
     assert sorted(archive.namelist()) == sorted(["channels.json", NOTE])  # 锁文件不导出
     assert list(work.masked) == ["channels.json"]
     entry = json.loads(archive.read("channels.json"))["platforms"]["telegram"]
-    assert entry["token"] == PLACEHOLDER and entry["pairing"]["secret"] == PLACEHOLDER
+    assert entry["credentials"]["token"] == PLACEHOLDER and entry["pairing"]["secret"] == PLACEHOLDER
     # 别的设置照样留着，恢复以后只要重新填 token
     assert entry["bot"]["username"] == "backup_test_bot" and entry["approval"] == "ask" and entry["enabled"] is True
     assert entry["chats"]["111"]["conversation"] == "20261121-0800-abc"
@@ -219,7 +219,7 @@ def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
     assert f'"{secret}"'.encode() not in everything
     assert "channels.json" in archive.read(NOTE).decode()  # 说明里写着哪个文件要重新填
     # 导出不改原来的文件
-    assert ChannelStore(data / "channels.json").get("telegram")["token"] == token
+    assert ChannelStore(data / "channels.json").get("telegram")["credentials"].get("token", "") == token
 
 
 def test_the_browser_profile_with_its_login_cookies_is_left_out(tmp_path):

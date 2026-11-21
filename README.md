@@ -66,14 +66,16 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs happen alongside
   your conversation (up to three at once), ask for approval the way you choose for each task (Ask every time by
   default), catch up once after ZhiFox was closed, and record what each one cost.
-- 📱 **Chat channels: talk to it from Telegram.** Connect your own Telegram bot in a four-step wizard (or from the
-  command line) and chat with ZhiFox from your phone, photos and files included. No public URL or open port: ZhiFox
-  long-polls Telegram. Only the account you pair with a 6-digit code is served, and every command or file change it
-  wants to make arrives in the chat with Allow / Deny buttons (or on the web page, whichever you answer first).
-  Feishu, QQ, DingTalk, Discord and Slack are next.
+- 📱 **Chat channels: talk to it from Telegram, Discord, Slack, Feishu, DingTalk or QQ.** Connect your own bot in a
+  four-step wizard (or from the command line) and chat with ZhiFox from your phone, photos and files included. No
+  public URL or open port: ZhiFox long-polls Telegram and keeps an outgoing WebSocket open to the others (a
+  hand-written RFC 6455 client; Feishu and DingTalk use their official SDKs, installed only if you want them). Only the
+  account you pair with a 6-digit code is served, and every command or file change it wants to make arrives in the chat
+  with Allow / Deny buttons where the platform has them (a "reply allow or deny" message where it doesn't), or on the
+  web page, whichever you answer first. WhatsApp and WeCom need a public URL and come later.
 - 🖧 **Runs on a server.** `harness serve` runs the chat channels and scheduled tasks with no browser, logs in a
   journald-friendly format, stops cleanly on SIGTERM, and comes with a systemd unit; set it up and pair it with
-  `harness channels setup` / `pair`, then do server chores from Telegram.
+  `harness channels setup` / `pair`, then do server chores from your chat app.
 - 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
   can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
   convert it, in all three interface languages.
@@ -234,9 +236,10 @@ Each part of the harness has its own file or directory:
 | Shared catalog | [harness/catalog.py](harness/catalog.py) | The lists of skills and agents change at any time, but the system prompt mustn't. Both lists travel in user messages, attached again only when they change |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
-| Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram for now): a hand-written Bot API client, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons (see [Chat channels](#chat-channels-talking-to-zhifox-from-telegram)) |
+| Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
+| WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects |
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
-| Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in Telegram at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
+| Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
@@ -564,10 +567,11 @@ Progress reaches the page in the same `state` event as everything else: at most 
 in, and immediately when a run starts, pauses for approval or ends. A stopped run still gives every tool call its
 result (the same `finally` in `Agent._run_tools`), so its saved conversation can be continued like any other.
 
-### Chat channels: talking to ZhiFox from Telegram
+### Chat channels: talking to ZhiFox from your chat app
 
 A chat channel is one more way into the same loop. Using Telegram as the example
-([harness/channels/](harness/channels/)):
+([harness/channels/](harness/channels/)); the other platforms differ only in how messages arrive (see
+[Six platforms, three ways in](#six-platforms-three-ways-in) below):
 
 ```
 your phone ──message──► Telegram's servers ◄──long poll (getUpdates)── ZhiFox (your computer or server)
@@ -617,6 +621,45 @@ each finished paragraph goes back to the chat; a command or file change first ar
    ("Allowed on the web page"). You can also just reply "allow" or "deny" (the only way on platforms without buttons);
    typed answers count only once the request has actually reached the chat. In **Allow file edits** or **Allow everything** mode, each step taken
    without asking is still reported in the chat ("Auto-allowed: run_command $ …").
+6. **A persona per chat.** `/new researcher` starts a conversation with the custom agent *researcher* as its persona,
+   the same as starting one from the page (its prompt, only the tools it allows, its model if it names one).
+
+#### Six platforms, three ways in
+
+Every platform is a `Channel` subclass that turns the platform's events into the same `Inbound` / `Press` objects and
+sends what the router hands it ([base.py](harness/channels/base.py)); the router, sessions, pairing, approvals and
+the web page don't know which platform they're talking to. None of them needs a public URL, because ZhiFox always
+opens the connection:
+
+| Platform | How messages arrive | Approvals | Formatting | Notes |
+|---|---|---|---|---|
+| Telegram | Long polling (`getUpdates`) | Buttons | HTML subset | 4,096 UTF-16 units per message |
+| Discord | Gateway WebSocket ([gateway.py](harness/channels/gateway.py)): Hello, Identify / Resume, heartbeats | Buttons (message components) | Markdown as is (`####` and deeper become bold) | Only the `DIRECT_MESSAGES` intent; reading DMs doesn't need the privileged Message Content intent. Slash commands registered for the bot's DM |
+| Slack | Socket Mode WebSocket: each envelope acked at once | Block Kit buttons | mrkdwn (`*bold*`, `<url\|text>`, `& < >` escaped) | Slack intercepts every message starting with `/`, so commands are `/zhifox new`, `/zhifox stop`… |
+| Feishu | Long connection through the official SDK `lark-oapi` | Interactive card buttons (falls back to a text prompt) | Markdown in a `post` message's `md` tag | Optional: `uv sync --extra feishu` |
+| DingTalk | Stream mode through the official SDK `dingtalk-stream` | Reply "allow" / "deny" (buttons need a card template made in DingTalk's card platform) | DingTalk markdown | Optional: `uv sync --extra dingtalk`. Replies use the message's `sessionWebhook`, then the one-to-one send API once it expires |
+| QQ | Gateway WebSocket (the same design as Discord's) with an `access_token` that's renewed | Reply "allow" / "deny" | Plain text | Up to 4 "passive" replies per message within 60 minutes, then proactive messages |
+
+- **The gateway** ([gateway.py](harness/channels/gateway.py)) is written once for Discord and QQ: the first heartbeat
+  waits `interval × random()`, a heartbeat that isn't acknowledged before the next one means the connection is dead
+  (it is dropped without a close handshake and resumed), op 7 means "resume elsewhere", op 9 says whether the session
+  can be resumed. Each platform supplies its own table of close codes: a bad token or a forbidden intent stops the
+  channel instead of retrying, because Discord resets a bot's token after 1,000 logins in a day; reconnects back off up
+  to 120 seconds for the same reason.
+- **The WebSocket client** ([net/websocket.py](harness/net/websocket.py)) implements the part of RFC 6455 a client
+  needs: the handshake with its `Sec-WebSocket-Accept` check, masking every frame it sends (and rejecting masked
+  frames from the server), fragmented messages with control frames in between, ping/pong, the close handshake, closing
+  with 1002/1007/1009 on protocol errors, invalid UTF-8 or oversized messages (refused as soon as the length is read),
+  timeouts on everything, and HTTP CONNECT proxies from `HTTPS_PROXY`. Plain `ws://` is accepted only for this
+  computer (the test fakes).
+- **The official SDKs** are optional dependencies imported only inside [feishu.py](harness/channels/feishu.py) and
+  [dingtalk.py](harness/channels/dingtalk.py), and only for receiving: sending, editing cards and downloading files
+  are plain HTTPS calls, like the other platforms. The SDKs' rough edges (a module-level event loop, no public way to
+  stop, retrying bad credentials forever, logging connection tickets) are worked around in one small `Listener` class
+  each, which is also the seam the tests replace.
+- **Each new platform** needs three things: a `Channel` subclass, an entry in `hub.FACTORIES` / `CHECKS` / `CLASSES`,
+  and its row in [platforms.py](harness/channels/platforms.py) (stage `ready`, the fields to fill in) plus its setup
+  steps in [guides.py](harness/channels/guides.py), which the page's wizard and `harness channels setup` both show.
 
 ### Three kinds of tools
 
@@ -1288,25 +1331,54 @@ time the web UI or the server mode is running. **Run now** runs a
 task once without changing its schedule. When the assistant adds or deletes an agent task for you, it asks you first,
 because that task will spend money later on its own; reminders don't ask.
 
-### Chat channels (Telegram)
+### Chat channels
 
-Open **Extensions → Channels** and click **Connect Telegram**. A four-step wizard walks you through it:
+Open **Extensions → Channels** and pick a platform. A four-step wizard walks you through it:
 
-1. **Create a bot.** Open [@BotFather](https://t.me/BotFather) in Telegram, send `/newbot`, pick a name and a username
-   ending in `bot`, and copy the token it gives you (`123456789:AAH…`).
-2. **Paste the token.** ZhiFox checks it once with Telegram (`getMe`) and shows the bot's @username. The token is
-   stored only in `data/channels.json` (readable by your account only); the page shows its last 4 characters from then on.
-3. **Pair.** A 6-digit code appears with a countdown. Send it to your bot from your own Telegram account (or click
-   **Open in Telegram**, which sends it for you when you press Start). The page moves on by itself once you're paired.
+1. **Create a bot.** The wizard shows the platform's steps (below), with links to its developer console.
+2. **Paste the token** (or the ID and secret). ZhiFox checks it once with the platform and shows the bot's name. The
+   secrets are stored only in `data/channels.json` (readable by your account only); the page shows their last 4
+   characters from then on. Editing later, you only paste what changes: fields left empty keep their saved value.
+3. **Pair.** A 6-digit code appears with a countdown. Send it to your bot from your own account. On Telegram, **Open in
+   Telegram** sends it for you when you press Start; on the others the button opens the chat with the bot. The page
+   moves on by itself once you're paired.
 4. **Approval mode.** Ask every time (the default), Allow file edits, or Allow everything, for this channel only. Allow
    everything comes with a warning: with it, one message in the chat can make the assistant run any command.
 
+Setting up each platform (the wizard and `harness channels setup <platform>` print the same steps):
+
+- **Telegram.** In [@BotFather](https://t.me/BotFather) send `/newbot`, pick a name and a username ending in `bot`,
+  and copy the token (`123456789:AAH…`).
+- **Discord.** In the [Developer Portal](https://discord.com/developers/applications): **New Application** → **Bot** →
+  **Reset Token** and copy it (it's shown once). On **Installation**, tick **User Install**. After you paste the token,
+  the pairing step gives you a link to add the bot to your own account (**Add to My Apps**); then open a DM with it.
+  You don't need the Message Content intent: DMs with the bot are exempt.
+- **Slack.** [Create an app](https://api.slack.com/apps?new_app=1) **From a manifest** and paste the one the wizard
+  copies for you (bot scopes, `message.im`, interactivity, Socket Mode and the `/zhifox` command, all set). Then
+  **OAuth & Permissions → Install to Workspace** gives the Bot token (`xoxb-…`), and **Basic Information → App-Level
+  Tokens → Generate** with the `connections:write` scope gives the App-level token (`xapp-…`). Chat in the app's
+  **Messages** tab; commands are `/zhifox new`, `/zhifox stop`, `/zhifox status`, `/zhifox help`.
+- **Feishu.** Run `uv sync --extra feishu` first. In the [Feishu open platform](https://open.feishu.cn/app), create a
+  custom app (企业自建应用), copy the **App ID** and **App Secret**, add the **Bot** capability and the permissions to
+  read the bot's one-to-one messages, send messages as the app, and read and upload images and files. Connect ZhiFox
+  first (it must be running when you save the next setting), then under **Events & Callbacks** choose *receive events
+  through a persistent connection* for both events and callbacks, add the event `im.message.receive_v1` and the
+  callback `card.action.trigger`, and publish a version.
+- **DingTalk.** Run `uv sync --extra dingtalk` first. In the [DingTalk developer console](https://open-dev.dingtalk.com)
+  create an app (no company? create your own team in DingTalk; you become its admin), copy the **Client ID** and
+  **Client Secret**, add the **Robot** capability with **Stream mode** as the message receiving mode, and publish the
+  robot and the app. Free DingTalk organizations have a monthly cap on API calls.
+- **QQ.** Sign in to the [QQ open platform](https://q.qq.com/qqbot/) with your QQ account and create a bot (personal
+  accounts can have up to 5). Copy the **AppID** and **AppSecret** from its development settings, and choose WebSocket
+  for events. As the bot's admin you can chat with it right away, without publishing it or using the sandbox.
+
 After that, just message your bot. Photos and files go through the same checks as attachments in the page (Word, Excel
-and PowerPoint become text; voice messages and videos aren't supported yet). In the chat:
+and PowerPoint become text; voice messages and videos aren't supported yet). In the chat (on Slack, write
+`/zhifox new` and so on):
 
 | Command | What it does |
 |---|---|
-| `/new` | Start a new conversation (the previous one stays in the sidebar) |
+| `/new` | Start a new conversation (the previous one stays in the sidebar). `/new <agent name>` starts it with that custom agent as the persona |
 | `/stop` | Stop the turn in progress, including a running command, and drop queued messages |
 | `/status` | Model, approval mode, current conversation, what it's doing now, today's and this month's spending |
 | `/help` | How to use it |
@@ -1314,10 +1386,11 @@ and PowerPoint become text; voice messages and videos aren't supported yet). In 
 The connected channel's row shows its status (online, connecting, error with the reason), the bound account, the last
 time someone talked to it, and what each chat is doing (with a Stop button). Like every row of things stored on your
 computer, it has **Show in Finder** (`channels.json`), **Edit** and **Delete** (confirmed in place), plus an on/off
-switch and **Pair again** (pair a different account; the old one is no longer served). The other platforms are listed with
-what they'll need: Feishu, QQ, DingTalk, Discord and Slack are coming next (their official APIs don't need a public
-URL either); WhatsApp and WeCom need a public URL and come later; personal WeChat has no official bot API (the
-workarounds log in as you and break WeChat's terms, which can get the account banned), so it isn't supported.
+switch and **Pair again** (pair a different account; the old one is no longer served). If a platform's SDK isn't installed,
+its card and row say so, with the exact command to run. The platforms still to come are listed with what they'll
+need: WhatsApp and WeCom can only push messages to a public URL, so they come later; personal WeChat has no official
+bot API (the workarounds log in as you and break WeChat's terms, which can get the account banned), so it isn't
+supported.
 
 Channels run while ZhiFox runs as a long-lived program: the web UI (`harness --web`) or the server mode
 (`harness serve`, below). The terminal UI doesn't run them.
@@ -1406,9 +1479,11 @@ The keys and data still come from the project's own `.env` and `data/`.
 
 ## Deploying to a server
 
-ZhiFox can live on a Linux server and take orders from your Telegram bot ("how much disk is left?", "any errors in the
+ZhiFox can live on a Linux server and take orders from your bot ("how much disk is left?", "any errors in the
 nginx log since this morning?", "restart the worker"). The server needs Python 3.11+, [uv](https://docs.astral.sh/uv/)
-and outbound HTTPS to the model provider and `api.telegram.org`; no inbound port.
+and outbound HTTPS to the model provider and to your chat platform (`api.telegram.org`, `discord.com` and
+`gateway.discord.gg`, `slack.com` and `wss-*.slack.com`, `open.feishu.cn`, `api.dingtalk.com`, `api.bot.qq.com`);
+no inbound port.
 
 ```bash
 git clone https://github.com/Akxan/zhifox-agent-harness.git ~/zhifox && cd ~/zhifox
@@ -1419,6 +1494,13 @@ uv run harness channels pair telegram      # prints a 6-digit code; send it to y
 uv run harness channels approval telegram ask    # ask | edits | all (ask is the default)
 uv run harness channels status
 ```
+
+The same commands take `discord`, `slack`, `feishu`, `dingtalk` or `qq`. `setup` prints that platform's steps and asks
+for each field (secrets aren't echoed); it also reads them from the environment (`DISCORD_BOT_TOKEN`,
+`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, `FEISHU_APP_ID` and `FEISHU_APP_SECRET`, `DINGTALK_CLIENT_ID` and
+`DINGTALK_CLIENT_SECRET`, `QQ_APP_ID` and `QQ_APP_SECRET`) or from standard input, one line per field. Feishu and
+DingTalk need their SDK: `uv sync --extra feishu --extra dingtalk` (and pass the same `--extra` flags to later
+`uv sync` runs, which otherwise remove them).
 
 Then run it as a service. A systemd unit, `/etc/systemd/system/zhifox.service`:
 
@@ -1467,17 +1549,21 @@ journalctl -u zhifox -f        # logs; `-p warning` shows only warnings and erro
   isn't written to the log (anyone who can read the journal could use it); it's in `$HARNESS_DATA_DIR/.web-address`,
   readable by your account only. **Show in Finder** buttons tell you the file's full path instead, since a server has
   no file manager.
-- **Blocked Telegram?** Point `TELEGRAM_API_BASE` at a self-hosted Bot API server, or set `HTTPS_PROXY`.
-- **Updating.** `cd ~/zhifox && git pull && uv sync && sudo systemctl restart zhifox`. Data and `.env` aren't touched.
+- **Blocked network?** Set `HTTPS_PROXY`: the HTTPS calls and the hand-written WebSocket client (Discord, Slack, QQ)
+  both use it (HTTP proxies with `CONNECT`). For Telegram you can also point `TELEGRAM_API_BASE` at a self-hosted Bot
+  API server. The Feishu SDK's long connection doesn't go through a proxy.
+- **Updating.** `cd ~/zhifox && git pull && uv sync && sudo systemctl restart zhifox` (add `--extra feishu` /
+  `--extra dingtalk` to `uv sync` if you use them). Data and `.env` aren't touched.
 
 The security model for remote ops: only the paired account is served (strangers get no reply, groups are ignored, a
 pairing code expires after 10 minutes or 5 wrong guesses); the default approval mode is **Ask every time**, and each
 approval shows the full command and the working folder before you tap Allow; **Allow everything** comes with a
 warning and is a deliberate choice per channel; one turn at a time per chat, and `/stop` ends it, command included;
-the bot token lives only in `channels.json` (mode 600), is never sent to the browser or the model, is masked in
-exports, and the assistant's file tool can't open that file in any mode; and shell commands don't see
-`TELEGRAM_BOT_TOKEN` or the API keys in their environment. Your Telegram account becomes a key to the server, so
-protect it (two-step verification) and use a dedicated, unprivileged user for the service.
+the bot tokens and app secrets live only in `channels.json` (mode 600), are never sent to the browser or the model,
+are masked in exports and hidden in logs and error messages, and the assistant's file tool can't open that file in any
+mode; and shell commands don't see `TELEGRAM_BOT_TOKEN`, the other platforms' secret variables or the API keys in their
+environment. Your chat account becomes a key to the server, so protect it (two-step verification) and use a dedicated,
+unprivileged user for the service.
 
 ## Data and privacy
 
@@ -1495,7 +1581,7 @@ protect it (two-step verification) and use a dedicated, unprivileged user for th
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
-| `data/channels.json` | Chat channels: the bot token (a secret), the bot's @username, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
+| `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
@@ -1547,7 +1633,7 @@ is written to a temporary file first and swapped in, so a failed save never leav
 **Settings → Export all data** packs the data folder into `zhifox-backup-<date>-<time>.zip` and downloads it:
 conversations, memories, to-dos, settings, the spending record, and anything else later features keep there. API keys
 are never in it: they live in `.env`, which isn't in the data folder, and any `.env`-like file found there anyway is
-skipped. `data/channels.json` is exported with the bot token and any pairing code replaced by `<removed-from-backup>`. If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
+skipped. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
 variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
 URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
 valid JSON, it is left out entirely rather than risk exporting a secret. Symbolic links are skipped too, since they
@@ -1561,8 +1647,8 @@ To restore:
    `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
    into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
    `data/`.
-3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again; if it had a chat channel, paste the
-   bot token again (**Extensions → Channels → Edit**, or `harness channels setup telegram`).
+3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again; if it had chat channels, paste their
+   tokens or secrets again (**Extensions → Channels → Edit**, or `harness channels setup <platform>`).
 
 Importing from the web UI isn't supported yet.
 
@@ -1709,13 +1795,22 @@ The media library is covered in
 [tests/test_media.py](tests/test_media.py) (storing and deduplicating originals, recovering attachments from older
 histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
 only when no conversation uses them) and in the media section of `tests/test_webui.py` (the endpoints and their headers).
-Chat channels are tested against [tests/fake_telegram.py](tests/fake_telegram.py), a local fake Bot API that checks the
-HTML and the length of every message the way Telegram does, while the test code plays your phone: pairing (right, wrong,
-expired codes, strangers and groups ignored), long-poll offsets across a restart, splitting long replies, photos and
-documents, approvals answered by button, by text and from the web (racing each other), per-channel approval modes,
-`/new` `/stop` `/status`, a Telegram turn beside a web turn, spending with the source `channel`, and that the token never
-appears in the page, the logs or the export ([tests/test_channels.py](tests/test_channels.py),
-[tests/test_channels_web.py](tests/test_channels_web.py)). The server mode and the CLI, including a real `harness serve`
+Chat channels are tested against a local fake of each platform, while the test code plays your phone:
+[tests/fake_telegram.py](tests/fake_telegram.py) (a Bot API that checks the HTML and the length of every message the
+way Telegram does), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a
+gateway that can ask to reconnect, invalidate the session, stop acknowledging heartbeats or close with any code),
+[tests/fake_slack.py](tests/fake_slack.py) (the Web API plus Socket Mode, re-sending envelopes that weren't acked), and
+[tests/fake_feishu.py](tests/fake_feishu.py) / [tests/fake_dingtalk.py](tests/fake_dingtalk.py) (the HTTP APIs plus a
+fake listener in place of the SDK). One rig ([tests/channel_rig.py](tests/channel_rig.py)) runs the whole program
+against any of them: pairing (right, wrong, expired codes, strangers and groups ignored), duplicate deliveries,
+splitting long replies, photos and documents, approvals answered by button, by text and from the web (racing each
+other), per-channel approval modes, `/new` `/stop` `/status`, reconnecting and resuming, rate limits, and that no
+token or secret appears in the page, the logs, error messages or the export ([tests/test_channels.py](tests/test_channels.py),
+[tests/test_channels_web.py](tests/test_channels_web.py), `tests/test_channels_<platform>.py`,
+[tests/test_channels_platforms.py](tests/test_channels_platforms.py)). When the SDKs are installed, the Feishu
+dispatcher and the real DingTalk Stream client are also run against the fakes; otherwise those tests are skipped.
+The WebSocket client and the HTTPS helper have their own tests against a local fake server and proxy
+([tests/test_websocket.py](tests/test_websocket.py), [tests/test_net_http.py](tests/test_net_http.py)). The server mode and the CLI, including a real `harness serve`
 process stopped with SIGTERM, are in [tests/test_serve.py](tests/test_serve.py).
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
@@ -1757,9 +1852,11 @@ doesn't touch your keys or `data/`. It also comes with a few fake MCP servers al
 one disabled) and a few made-up skills, and its **Import from Claude** (MCP) and **Import from Claude Code** (skills)
 read made-up Claude configurations and a fake `~/.claude/skills` from the temporary directory, not yours.
 A fresh demo directory also starts with an older conversation whose attachments predate the media library, so the
-Media tab has something to show, including the "text only" Word file. The demo also starts a fake Telegram: it prints
-a made-up bot token to paste into the **Channels** wizard and the address of a bare-bones "phone" page where you can
-send the pairing code, chat, and tap Allow / Deny. The browser is switched on in the demo: start a new conversation
+Media tab has something to show, including the "text only" Word file. The demo also starts a fake of every chat
+platform: it prints a made-up token (or ID and secret) for each one to paste into the **Channels** wizard, and the
+addresses of two bare-bones "phone" pages (one for Telegram, one with a platform picker for the others) where you can
+send the pairing code, chat, and tap Allow / Deny. `--no-sdk` shows the page as if the Feishu and DingTalk SDKs
+weren't installed. The browser is switched on in the demo: start a new conversation
 with a message containing 演示商店 ("demo shop"), for example 用浏览器看看演示商店里有什么, and the assistant opens a small
 shop page the demo serves on your machine in a real Chrome, asks before visiting it, reads it, clicks the search box,
 types (asking again) and takes a screenshot. Add `--browser-window` to watch the Chrome window; without Chrome on the
@@ -1795,7 +1892,9 @@ page.
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
   only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
 - Scheduled tasks and chat channels run only while the web UI or `harness serve` is running; tasks at most three at once.
-  Telegram is the only chat channel so far, and it takes text, photos and files (no voice or video yet). Two runs (or a run and your
+  Chat channels take text, photos and files (no voice or video yet); WhatsApp and WeCom aren't supported yet because
+  they need a public URL. Discord, Slack, Feishu, DingTalk and QQ were built from their official documentation and
+  are tested only against local fakes so far, not yet with real bots. Two runs (or a run and your
   conversation) editing the same lines of the same file don't merge their changes: each edit is applied whole, and the
   later one fails if the text it expected has changed, so the model reads the file again. Reminders appear only in the
   page; there are no system notifications.
@@ -1891,7 +1990,7 @@ demo cost nothing. See [Cost](#cost).
 
 ### Can I use it from my phone?
 
-Yes, through your own Telegram bot (see [Chat channels](#chat-channels-telegram)). Only the account you pair can use it,
+Yes, through your own bot on Telegram, Discord, Slack, Feishu, DingTalk or QQ (see [Chat channels](#chat-channels)). Only the account you pair can use it,
 and anything that would change your computer still asks you first, in the chat. On a server, run `harness serve` (see
 [Deploying to a server](#deploying-to-a-server)).
 

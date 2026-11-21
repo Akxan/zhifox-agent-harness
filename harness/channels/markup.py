@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Callable
 
 FENCE = re.compile(r"^\s*```")
 CLOSE = "\n```"
@@ -154,3 +155,122 @@ def to_html(text: str) -> str:
     if code is not None:  # 代码块没有收尾：照样当代码块
         out.append(f"<pre>{escape(chr(10).join(code))}</pre>")
     return "\n".join(out)
+
+
+# ---- 别的平台的排法 --------------------------------------------------------------
+# 和上面的 to_html 是同一套"一行一行看、认几样最常用的写法"：代码块里的原样不动，别的照各家的规矩换。
+#
+#   Slack（mrkdwn）  粗体是 *x*、斜体是 _x_、链接是 <网址|文字>；& < > 三个字符要写成 &amp; &lt; &gt;（代码里也要）。
+#                    说明：https://docs.slack.dev/messaging/formatting-message-text
+#   Discord          本来就认标准的 Markdown（粗体、斜体、代码块、链接、# 到 ### 的标题、列表），只是不认 #### 以下的标题
+#   纯文字           QQ 这类不排版的平台：去掉记号，链接写成"文字（网址）"，代码块只留里面的代码
+#   飞书、钉钉       认标准的 Markdown（飞书的 md 标签是 CommonMark 加 GFM），原样发
+
+
+def _lines(text: str, line: Callable[[str], str], block: Callable[[str, str], str]) -> str:
+    """一行一行地换：代码块整块交给 block（语言，内容），别的行交给 line。没收尾的代码块照样当代码块。"""
+    out: list[str] = []
+    code: list[str] | None = None
+    language = ""
+    for raw in text.split("\n"):
+        if FENCE.match(raw):
+            if code is None:
+                code, language = [], re.sub(r"[^\w+#.-]", "", raw.strip()[3:])[:20]
+            else:
+                out.append(block(language, "\n".join(code)))
+                code = None
+            continue
+        if code is not None:
+            code.append(raw)
+            continue
+        out.append(line(raw))
+    if code is not None:
+        out.append(block(language, "\n".join(code)))
+    return "\n".join(out)
+
+
+def _shape(raw: str, heading: Callable[[str], str], inline: Callable[[str], str]) -> str:
+    """一行：是标题的交给 heading，是列表的换成"• "再交给 inline，别的整行交给 inline。"""
+    found = _HEADING.match(raw)
+    if found:
+        return heading(found.group(1))
+    bullet = _BULLET.match(raw)
+    if bullet and not re.fullmatch(r"\s*[-*_]{3,}\s*", raw):
+        return bullet.group(1) + "• " + inline(bullet.group(2))
+    return inline(raw)
+
+
+def slack_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _slack_inline(raw: str) -> str:
+    out, last = [], 0
+    for match in _INLINE.finditer(raw):
+        out.append(slack_escape(raw[last : match.start()]))
+        code, bold, label, url, italic = match.groups()
+        if code is not None:
+            out.append(f"`{slack_escape(code)}`")
+        elif bold is not None:
+            out.append(f"*{_slack_inline(bold)}*")
+        elif label is not None:
+            # 网址里的 | 和 > 会把 <网址|文字> 提前截断：换成百分号的写法（意思不变）
+            out.append(f"<{slack_escape(url).replace('|', '%7C')}|{slack_escape(label).replace('|', '¦')}>")
+        else:
+            out.append(f"_{slack_escape(italic)}_")
+        last = match.end()
+    out.append(slack_escape(raw[last:]))
+    return "".join(out)
+
+
+def to_mrkdwn(text: str) -> str:
+    """Markdown → Slack 的 mrkdwn。"""
+    return _lines(
+        text,
+        lambda raw: _shape(raw, lambda inner: f"*{_slack_inline(inner)}*", _slack_inline),
+        lambda language, code: f"```\n{slack_escape(code)}\n```",  # Slack 不认 ```python 这种写法：语言名会被当成第一行代码
+    )
+
+
+def _plain_inline(raw: str) -> str:
+    out, last = [], 0
+    for match in _INLINE.finditer(raw):
+        out.append(raw[last : match.start()])
+        code, bold, label, url, italic = match.groups()
+        if code is not None:
+            out.append(code)
+        elif bold is not None:
+            out.append(_plain_inline(bold))
+        elif label is not None:
+            out.append(label if label == url else f"{label}（{url}）")
+        else:
+            out.append(italic)
+        last = match.end()
+    out.append(raw[last:])
+    return "".join(out)
+
+
+def to_plain(text: str) -> str:
+    """Markdown → 不带任何记号的纯文字。"""
+    return _lines(text, lambda raw: _shape(raw, _plain_inline, _plain_inline), lambda language, code: code)
+
+
+_DEEP_HEADING = re.compile(r"^\s{0,3}#{4,6}\s+(.*?)\s*#*\s*$")
+
+
+def to_discord(text: str) -> str:
+    """Markdown → Discord：基本原样，只把 Discord 不认的 #### 以下的标题换成粗体。"""
+
+    def line(raw: str) -> str:
+        deep = _DEEP_HEADING.match(raw)
+        return f"**{deep.group(1)}**" if deep else raw
+
+    return _lines(text, line, lambda language, code: f"```{language}\n{fence_safe(code)}\n```")
+
+
+def fence_safe(text: str) -> str:
+    """要放进 ``` 代码块里的文字：里面要是也有 ```，在中间插一个看不见的字符（零宽空格），免得代码块被它提前关上。
+    一直换到一个 ``` 都不剩：四个以上连在一起的反引号，换一遍以后中间还会剩下三个。"""
+    while "```" in text:
+        text = text.replace("```", "`\u200b``")
+    return text

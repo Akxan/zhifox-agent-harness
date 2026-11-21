@@ -23,9 +23,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ..agents import AgentError
 from ..claims import Claims
 from ..config import APP_NAME, PAIRING_ATTEMPTS
-from ..i18n import t
+from ..i18n import message_of, t
 from . import pairing
 from .base import Capabilities, Channel, ChannelError, Event, Inbound, Press, Prompt
 from .platforms import label
@@ -42,21 +43,25 @@ DENY_WORDS = {"拒绝", "不", "不行", "不要", "否", "别", "n", "no", "den
 def commands() -> dict[str, str]:
     """聊天里能用的命令，以及登记到平台菜单里的说明（按现在的界面语言）。"""
     return {
-        "new": t("开始一段新对话"),
+        "new": t("开始一段新对话（后面可以跟一个 Agent 的名字）"),
         "stop": t("停下正在进行的这一轮"),
         "status": t("现在在做什么、用的哪个模型、花了多少"),
         "help": t("怎么用"),
     }
 
 
-def help_text() -> str:
+def help_text(abilities: Capabilities | None = None) -> str:
+    """/help 的回答。abilities 是这个平台能做什么：命令怎么写（Slack 是 /zhifox new），确认请求是按钮还是回复文字。"""
+    abilities = abilities or Capabilities(buttons=True, max_chars=4000, typing=False, files=True)
     return "\n".join(
         [
             t("直接发消息就行，和在网页上一样。也可以发图片和文件（PDF、Word、Excel、文本……）。"),
             "",
-            *(f"/{name}  {text}" for name, text in commands().items()),
+            *(f"{abilities.spell(name)}  {text}" for name, text in commands().items()),
             "",
-            t("要你批准的操作会带着“允许 / 拒绝”按钮发过来，命令和工作目录都写在上面，看清楚再点。"),
+            t("要你批准的操作会带着“允许 / 拒绝”按钮发过来，命令和工作目录都写在上面，看清楚再点。")
+            if abilities.buttons
+            else t("要你批准的操作会先发一条消息过来，命令和工作目录都写在上面，看清楚再回复“允许”或“拒绝”。"),
         ]
     )
 
@@ -214,12 +219,9 @@ class Router:
         command = command.split("@", 1)[0].lower() if command.startswith("/") else ""  # 群里会写成 /new@机器人的名字
         session = self._session(platform, message.chat, message.name)
         if command in ("/start", "/help"):
-            self.say(platform, message.chat, help_text())
+            self.say(platform, message.chat, help_text(self.capabilities(platform)))
         elif command == "/new":
-            if session.new_conversation():
-                self.say(platform, message.chat, t("好，开始一段新对话。之前的那段还在网页的会话列表里。"))
-            else:
-                self.say(platform, message.chat, t("这一轮还没结束。先发 /stop 停下它，再开始新对话。"))
+            self._new(session, message, text.partition(" ")[2].strip())
         elif command == "/stop":
             stopped = session.stop()
             self.say(platform, message.chat, t("好，正在停下。") if stopped else t("现在没有在进行的事。"))
@@ -233,19 +235,37 @@ class Router:
             self._submit(session, message)
         self.changed()
 
+    def _new(self, session: Session, message: Inbound, persona: str) -> None:
+        """/new，或者 /new 某个 Agent 的名字（新的一段用它当角色）。"""
+        platform, chat = message.platform, message.chat
+        if persona:
+            try:
+                persona = self.app.agents.usable(persona).name
+            except AgentError as exc:
+                self.say(platform, chat, t("没法用「{name}」开始：{reason}", name=persona, reason=message_of(exc)))
+                return
+        if not session.new_conversation(persona):
+            self.say(platform, chat, t("这一轮还没结束。先发 {stop} 停下它，再开始新对话。", stop=self.capabilities(platform).spell("stop")))
+        elif persona:
+            self.say(platform, chat, t("好，开始一段新对话，由「{agent}」来回答。之前的那段还在网页的会话列表里。", agent=persona))
+        else:
+            self.say(platform, chat, t("好，开始一段新对话。之前的那段还在网页的会话列表里。"))
+
     def _submit(self, session: Session, message: Inbound) -> None:
         waiting = session.waiting
         ahead = session.submit(message)
         if ahead is None:
             self.say(message.platform, message.chat, t("排着的消息太多了，等前面的处理完再发吧。"))
-        elif waiting is not None:
+        elif waiting is not None and self.capabilities(message.platform).buttons:
             self.say(message.platform, message.chat, t("还有一个操作在等你批准：点上面的按钮，或者回复“允许”或“拒绝”。你的这条消息排在它后面。"))
+        elif waiting is not None:
+            self.say(message.platform, message.chat, t("还有一个操作在等你批准：回复“允许”或“拒绝”。你的这条消息排在它后面。"))
         elif ahead > 0:
             self.say(message.platform, message.chat, t("收到。前面还有 {n} 件事，做完就轮到这一条。", n=ahead))
 
     def _stranger(self, message: Inbound) -> None:
         """不是主人发来的消息（或者正在配对时发来的配对码）。"""
-        outcome, reply = pairing_reply(self.store, message)
+        outcome, reply = pairing_reply(self.store, message, self.capabilities(message.platform))
         if outcome == "paired":
             # 换了主人：以前那个账号的聊天里还在进行的、排着的，都停下（之后他发的消息也不再理）
             with self._lock:
@@ -268,7 +288,7 @@ class Router:
         if session.answer(int(number), kind == "ok", "chat"):
             press.answer(t("已允许") if kind == "ok" else t("已拒绝"))
         else:
-            press.answer(t("这个确认请求已经处理过了"))
+            press.answer(t("这个确认请求已经处理过了"), True)
 
     def _session(self, platform: str, chat: str, name: str) -> Session:
         with self._lock:
@@ -325,7 +345,7 @@ class Router:
             outbox.close(max(0.5, deadline - time.monotonic()))
 
 
-def pairing_reply(store: ChannelStore, message: Inbound) -> tuple[str, str]:
+def pairing_reply(store: ChannelStore, message: Inbound, abilities: Capabilities | None = None) -> tuple[str, str]:
     """按配对的规则处理一个还不是主人的人发来的消息（见 pairing.py、store.attempt）。返回（发生了什么，要回他的话）。
 
     聊天里的 Router 和命令行里的 `harness channels pair`（见 cli.py）都用这一个，回的话一模一样。
@@ -339,7 +359,7 @@ def pairing_reply(store: ChannelStore, message: Inbound) -> tuple[str, str]:
         return "ignore", ""  # 设置文件坏了：什么都不做
     if outcome == "paired":
         logger.info("%s: 配对成功，主人是 %s", platform, message.name)
-        return outcome, t("配对成功！以后只有你（{name}）能在这里使用{app}。", name=message.name, app=APP_NAME) + "\n\n" + help_text()
+        return outcome, t("配对成功！以后只有你（{name}）能在这里使用{app}。", name=message.name, app=APP_NAME) + "\n\n" + help_text(abilities)
     if outcome == "wrong":
         code = store.pairing(platform)
         left = PAIRING_ATTEMPTS - code["attempts"] if code else 0

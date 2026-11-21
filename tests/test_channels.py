@@ -73,7 +73,7 @@ class Clock:
 def paired_store(path, clock=None) -> ChannelStore:
     """一个已经连上机器人、并且配对好了主人的设置文件。"""
     store = ChannelStore(path, clock=clock) if clock else ChannelStore(path)
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     code = store.start_pairing("telegram")
     assert store.attempt("telegram", OWNER, OWNER_NAME, code["code"]) == "paired"
     return store
@@ -86,13 +86,13 @@ def test_the_settings_file_is_private_and_written_atomically(tmp_path, monkeypat
     path = tmp_path / "data" / "channels.json"
     store = ChannelStore(path)
     assert store.problem == "" and not path.exists()  # 还没设置过：不建文件，也不算出错
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
 
     # token 是机器人的钥匙：文件只有自己的账号能读，所在的文件夹也只有自己能进
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["platforms"]["telegram"]["token"] == TOKEN and saved["version"] == 1
+    assert saved["platforms"]["telegram"]["credentials"] == {"token": TOKEN} and saved["version"] == 1
     # 改设置时用来"别的程序先别动"的锁文件就在旁边；写到一半的临时文件一个都不留
     assert sorted(item.name for item in path.parent.iterdir()) == ["channels.json", "channels.json.lock"]
 
@@ -121,7 +121,7 @@ def test_a_broken_settings_file_is_never_overwritten(tmp_path):
     assert store.problem and str(path) in store.problem
     assert TOKEN not in store.problem
     changes = [
-        lambda: store.connect("telegram", TOKEN, BOT),
+        lambda: store.connect("telegram", {"token": TOKEN}, BOT),
         lambda: store.set_enabled("telegram", False),
         lambda: store.set_approval("telegram", "edits"),
         lambda: store.remove("telegram"),
@@ -186,10 +186,10 @@ def test_a_change_made_by_another_program_is_picked_up(tmp_path):
     noticed = []
     service.on_change(lambda: noticed.append(True))
 
-    cli.connect("telegram", TOKEN, BOT)
-    assert service.get("telegram")["token"] == ""  # 还没看
+    cli.connect("telegram", {"token": TOKEN}, BOT)
+    assert service.get("telegram")["credentials"].get("token", "") == ""  # 还没看
     assert service.refresh() is True and noticed == [True]
-    assert service.get("telegram")["token"] == TOKEN
+    assert service.get("telegram")["credentials"].get("token", "") == TOKEN
     assert service.refresh() is False and noticed == [True]  # 没变：不重读、不通知
 
     code = cli.start_pairing("telegram")
@@ -209,15 +209,15 @@ def test_connecting_another_bot_forgets_the_owner(tmp_path):
     store.set_offset("telegram", 77)
 
     # 同一个机器人换了个 token（在 @BotFather 那里重新生成过）：主人和聊天都还在
-    store.connect("telegram", "123456789:" + "B" * 35, BOT)
+    store.connect("telegram", {"token": "123456789:" + "B" * 35}, BOT)
     entry = store.get("telegram")
     assert entry["owner"]["id"] == OWNER and entry["chats"] and entry["offset"] == 77
 
     # 换成了另一个机器人：原来的主人、聊天、读到的位置都作废，要重新配对
-    store.connect("telegram", "987654321:" + "C" * 35, {"id": "987654321", "username": "other_bot", "name": "Other"})
+    store.connect("telegram", {"token": "987654321:" + "C" * 35}, {"id": "987654321", "username": "other_bot", "name": "Other"})
     entry = store.get("telegram")
     assert (entry["owner"], entry["chats"], entry["offset"], entry["pairing"]) == (None, {}, 0, None)
-    assert store.summary("telegram")["bot"] == {"username": "other_bot", "name": "Other"}
+    assert store.summary("telegram")["bot"] == {"username": "other_bot", "name": "Other", "handle": "@other_bot", "link": "", "install": ""}
 
 
 def test_the_summary_never_contains_the_token(tmp_path):
@@ -228,7 +228,8 @@ def test_the_summary_never_contains_the_token(tmp_path):
     assert summary["token_hint"] == "…" + TOKEN[-4:]
     assert summary["owner"]["name"] == OWNER_NAME and "id" not in summary["owner"]  # 主人的账号编号也不给页面
     # 配对码要让你抄，所以照给
-    assert summary["pairing"] == {"code": code["code"], "expires": code["expires"], "attempts_left": PAIRING_ATTEMPTS}
+    assert summary["pairing"] == {"code": code["code"], "expires": code["expires"], "attempts_left": PAIRING_ATTEMPTS,
+                                  "link": f"https://t.me/zhifox_test_bot?start={code['code']}"}  # 点开就替你把配对码发过去
     assert ChannelStore(tmp_path / "nothing.json").summary("telegram")["configured"] is False
 
 
@@ -250,7 +251,7 @@ def test_pairing_codes_look_right():
 def test_the_right_code_makes_you_the_owner(tmp_path, written):
     clock = Clock()
     store = ChannelStore(tmp_path / "channels.json", clock=clock)
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     store.remember_chat("telegram", "555", "old-conversation")  # 以前的主人的聊天
     code = store.start_pairing("telegram")["code"]
     assert store.pairing("telegram")["expires"] == clock.now + PAIRING_SECONDS
@@ -268,7 +269,7 @@ def test_the_right_code_makes_you_the_owner(tmp_path, written):
 
 def test_the_right_code_in_full_width_digits_is_accepted(tmp_path):
     store = ChannelStore(tmp_path / "channels.json")
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     code = store.start_pairing("telegram")["code"]
     full_width = code.translate({ord(digit): 0xFF10 + int(digit) for digit in "0123456789"})
     assert store.attempt("telegram", OWNER, OWNER_NAME, full_width) == "paired"
@@ -276,7 +277,7 @@ def test_the_right_code_in_full_width_digits_is_accepted(tmp_path):
 
 def test_wrong_codes_are_counted_and_too_many_lock_the_code(tmp_path):
     store = ChannelStore(tmp_path / "channels.json")
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     code = store.start_pairing("telegram")["code"]
     wrong = f"{(int(code) + 1) % 1_000_000:06d}"
 
@@ -293,7 +294,7 @@ def test_wrong_codes_are_counted_and_too_many_lock_the_code(tmp_path):
 def test_an_expired_code_is_not_accepted(tmp_path):
     clock = Clock()
     store = ChannelStore(tmp_path / "channels.json", clock=clock)
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     code = store.start_pairing("telegram")["code"]
     clock.now += PAIRING_SECONDS
     assert store.pairing("telegram") is None and store.summary("telegram")["pairing"] is None
@@ -304,7 +305,7 @@ def test_an_expired_code_is_not_accepted(tmp_path):
 
 def test_during_pairing_other_messages_get_one_hint_per_person(tmp_path):
     store = ChannelStore(tmp_path / "channels.json")
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
 
     # 没在配对：陌生人的消息一律不理，只是记个数
     assert store.attempt("telegram", "999", "Stranger", "你好") == "ignore"
@@ -321,7 +322,7 @@ def test_during_pairing_other_messages_get_one_hint_per_person(tmp_path):
 
 def test_pairing_replies_are_the_same_for_the_chat_and_the_command_line(tmp_path):
     store = ChannelStore(tmp_path / "channels.json")
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     stranger = Inbound("telegram", "999", "999", "Stranger", text="hello")
     assert pairing_reply(store, stranger) == ("ignore", "")  # 不在配对的时候：一个字都不回
 
@@ -655,7 +656,7 @@ def fast_telegram(config, store):
     poll_seconds 不能小于 1：getUpdates 的 timeout 是按整数秒发的，0.5 会变成 0，长轮询就成了一刻不停的短轮询。
     """
     entry = store.get("telegram")
-    return TelegramChannel(entry["token"], config.telegram_api, offset=entry["offset"],
+    return TelegramChannel(entry["credentials"]["token"], config.telegram_api, offset=entry["offset"],
                            on_offset=lambda offset: store.set_offset("telegram", offset), poll_seconds=1)
 
 
@@ -682,7 +683,7 @@ class Rig:
         self.config = make_config(telegram_api=telegram.base_url)
         if connected:
             store = ChannelStore(self.config.channels_file)
-            store.connect("telegram", TOKEN, BOT)
+            store.connect("telegram", {"token": TOKEN}, BOT)
             if paired and store.get("telegram")["owner"] is None:
                 code = store.start_pairing("telegram")
                 store.attempt("telegram", OWNER, OWNER_NAME, code["code"])
@@ -1269,7 +1270,7 @@ def test_two_programs_writing_the_settings_file_at_once_lose_nothing(tmp_path):
     # 去掉 _file_lock，或者 _change 里不先 _load，两边会拿着旧的内容各写各的，后写的把先写的盖掉
     path = tmp_path / "channels.json"
     service, command_line = ChannelStore(path), ChannelStore(path)
-    service.connect("telegram", TOKEN, BOT)
+    service.connect("telegram", {"token": TOKEN}, BOT)
 
     def write(store: ChannelStore, side: str) -> None:
         for n in range(15):

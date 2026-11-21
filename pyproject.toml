@@ -45,6 +45,14 @@ dependencies = [
     "prompt-toolkit>=3.0.53",
 ]
 
+# 可选的依赖：聊天通道里飞书、钉钉收消息用的官方 SDK（见 harness/channels/feishu.py、dingtalk.py）。
+# 不装的话别的平台照样能用，页面上会说怎么装：uv sync --extra feishu --extra dingtalk
+# （以后运行 uv sync 也要带上它们，不然会被卸掉）。版本的上限是看过源码的那一版：两个 SDK 都没有公开的"停下"，
+# 我们用到了它们内部的几个名字，换了大版本要重新看一遍
+[project.optional-dependencies]
+feishu = ["lark-oapi>=1.8.0,<1.9"]
+dingtalk = ["dingtalk-stream>=0.24.3,<0.25"]
+
 [project.urls]
 Homepage = "https://github.com/Akxan/zhifox-agent-harness"
 Repository = "https://github.com/Akxan/zhifox-agent-harness"

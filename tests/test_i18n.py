@@ -166,6 +166,20 @@ def test_t_translates_fills_in_values_and_falls_back_to_chinese(monkeypatch):
     assert i18n.t("找到 {n} 段会话", n="{evil}") == "找到 {evil} 段会话"
 
 
+def test_a_space_beside_a_chinese_platform_name_is_dropped():
+    """中文的句子给 {platform} 两边留了空格，是为 Telegram 这样的英文名字留的；填进去的是"飞书"时不要那个空格。
+    只管 {platform}：别的值（文件名、机器人的名字）两边的空格留着；句子本身的空格、英文句子里的空格都不动。
+    页面里的 t() 照着同一条规矩（见 index.html）。"""
+    assert i18n.fill("连接 {platform}", {"platform": "飞书"}) == "连接飞书"
+    assert i18n.fill("连接 {platform}", {"platform": "Telegram"}) == "连接 Telegram"
+    assert i18n.fill("先在 {platform} 里建一个机器人", {"platform": "钉钉"}) == "先在钉钉里建一个机器人"
+    assert i18n.fill("先在 {platform} 里建一个机器人", {"platform": "QQ"}) == "先在 QQ 里建一个机器人"
+    assert i18n.fill("Connect {platform} now", {"platform": "飞书"}) == "Connect 飞书 now"
+    assert i18n.fill("已连接 {bot}。", {"bot": "智狐测试"}) == "已连接 智狐测试。"  # 机器人的名字：空格留着
+    assert i18n.fill("已经有一个叫 {name} 的文件了", {"name": "别的.md"}) == "已经有一个叫 别的.md 的文件了"
+    assert i18n.fill("还有 {missing} 好", {}) == "还有 {missing} 好"  # 没给值的照原样留着
+
+
 def test_numbers_follow_the_interface_language(monkeypatch):
     # 西班牙语里逗号是小数点："123,456" 会被读成一百二十三点几
     for language, expected in (("zh", "123,456"), ("en", "123,456"), ("es", "123\u00a0456")):

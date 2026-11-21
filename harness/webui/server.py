@@ -1431,7 +1431,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         hub, platform = web.channels, body.get("platform")
         checks = {
-            "connect": lambda: isinstance(body.get("token"), str) and 0 < len(body["token"].strip()) <= 400,
+            "connect": lambda: _valid_credentials(body),
             "pair": lambda: True,
             "cancel": lambda: True,
             "approval": lambda: body.get("mode") in MODES,
@@ -1450,7 +1450,7 @@ class Handler(BaseHTTPRequestHandler):
         reply: dict = {"ok": True}
         try:
             if action == "connect":
-                reply["bot"] = hub.connect(platform, body["token"])
+                reply["bot"] = hub.connect(platform, body["credentials"] if isinstance(body.get("credentials"), dict) else {"token": body["token"]})
             elif action == "pair":
                 reply.update(hub.pair(platform))
             elif action == "cancel":
@@ -1656,6 +1656,19 @@ def _media_query(body: dict) -> tuple[str, str, int, int] | None:
     if cursor < 0 or not 0 < limit <= media.MAX_PAGE:
         return None
     return kind, query.strip(), cursor, limit
+def _valid_credentials(body: dict) -> bool:
+    """连接一个聊天平台时填的东西：credentials 是 {名字: 文字}（最多 8 项，每项最多 400 个字），至少有一项不是空的
+    （没重填的那几项是空的，接着用存着的，见 channels/hub.merge）。只有一个 token 的旧写法（Telegram）也认。"""
+    given = body.get("credentials")
+    if given is None and "token" in body:
+        given = {"token": body["token"]}
+    if not isinstance(given, dict) or not 0 < len(given) <= 8:
+        return False
+    if not all(isinstance(name, str) and len(name) <= 40 and isinstance(value, str) and len(value.strip()) <= 400 for name, value in given.items()):
+        return False
+    return any(value.strip() for value in given.values())
+
+
 def _valid_answer(body: dict) -> bool:
     """答复定时任务的确认：confirm_id 是整数，allow 是真假，feedback（可以不给）是一段文字。"""
     confirm_id, feedback = body.get("confirm_id"), body.get("feedback", "")

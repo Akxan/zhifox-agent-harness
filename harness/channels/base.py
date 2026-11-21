@@ -13,10 +13,18 @@ router.py 按它决定怎么说话：没有按钮的平台，确认请求后面�
 
 from __future__ import annotations
 
+import logging
+import queue
+import random
+import threading
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
+
+from ..config import CHANNEL_SEEN_MESSAGES
 
 
 class ChannelError(Exception):
@@ -29,6 +37,13 @@ class Capabilities:
     max_chars: int  # 一条消息最长多少个字符（按 UTF-16 数，Telegram 就是这样数的）。更长的回复拆成几条发
     typing: bool  # 能不能显示"正在输入"
     files: bool  # 能不能收图片和文件
+    # 在这个平台上，/new 这些命令怎么写。大多数平台就是 /new；Slack 会把所有 / 开头的话都当成它自己的命令拦下来，
+    # 所以只能登记一个 /zhifox，命令写成 /zhifox new（见 slack.py）
+    command: str = "/{name}"
+
+    def spell(self, name: str) -> str:
+        """命令 name 在这个平台上的写法，比如 "/new" 或 "/zhifox new"。"""
+        return self.command.replace("{name}", name)
 
 
 @dataclass
@@ -66,7 +81,10 @@ class Press:
     user: str
     name: str
     data: str  # 按钮上带着的数据，比如 "ok:12"（允许第 12 号确认）
-    answer: Callable[[str], None]  # 给点按钮的人回一句小提示（Telegram 会在屏幕上方弹一下）
+    # 给点按钮的人回一句小提示：answer(话, problem)。Telegram、飞书会在屏幕上弹一下；Discord、Slack 没有这种小提示，
+    # 只在 problem 为真（比如"这个确认请求已经处理过了"）时另发一句只有他看得到的话，答复成功时不多说（按钮会被换成结果）。
+    # 话是空字符串表示"不用提示"（陌生人点的、看不懂的按钮）。Discord 要求 3 秒内一定回应，所以每次按钮都会调用它一次
+    answer: Callable[..., None]
 
 
 @dataclass
@@ -132,3 +150,142 @@ class Channel(ABC):
 
     def set_commands(self, commands: dict[str, str]) -> None:
         """把 /new、/stop 这些命令登记到平台的菜单里（命令 → 一句说明）。没有菜单的平台什么都不做。"""
+
+
+class PushChannel(Channel):
+    """Discord、Slack、QQ、飞书、钉钉共用的那一部分：平台顺着一条一直开着的连接把消息推过来（不是 Telegram 那样一次次去问）。
+
+    子类只要写 _run（在自己的线程里连上平台、收消息、断了就重连，直到 stopping 被设上）和 _halt（让 _run 尽快醒过来退出，
+    比如关掉 WebSocket），以及发消息的那几个方法。状态、线程、"同一条消息推了两次"这些在这里。
+    """
+
+    def __init__(self) -> None:
+        self._status = Status("off")
+        self._status_lock = threading.Lock()
+        self._stopping = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._seen: OrderedDict[str, None] = OrderedDict()  # 最近处理过的消息编号
+        self._seen_lock = threading.Lock()
+        self.on_status: Callable[[], None] | None = None  # 状态变了就通知一声（hub.py 用它刷新页面）
+        self._inbox: queue.Queue | None = None  # 收到、还没处理的事件（见 _hand_off）
+
+    @property
+    def status(self) -> Status:
+        with self._status_lock:
+            return self._status
+
+    def _set_status(self, state: str, message: str = "") -> None:
+        with self._status_lock:
+            if self._status.state == state and self._status.message == message:
+                return
+            self._status = Status(state, message)
+        log = logging.getLogger(f"harness.channels.{self.platform}")
+        if state == "error":
+            log.warning("%s: %s", self.platform, message)
+        else:
+            log.info("%s: %s%s", self.platform, state, f" ({message})" if message else "")
+        if self.on_status is not None:
+            self.on_status()
+
+    def start(self, deliver: Callable[[Event], None]) -> None:
+        self._stopping.clear()
+        self._set_status("connecting")
+        self._thread = threading.Thread(target=self._guarded, args=(deliver,), daemon=True, name=self.platform)
+        self._thread.start()
+
+    def _guarded(self, deliver: Callable[[Event], None]) -> None:
+        try:
+            self._run(deliver)
+        except Exception as exc:  # 不该发生；发生了也要让页面上看得到，而不是悄悄没了
+            logging.getLogger(f"harness.channels.{self.platform}").exception("%s: 收消息的线程出错了", self.platform)
+            if not self._stopping.is_set():
+                self._set_status("error", str(exc) or type(exc).__name__)
+
+    def stop(self) -> None:
+        self._stopping.set()
+        try:
+            self._halt()
+        finally:
+            self._set_status("off")
+            with self._seen_lock:
+                inbox, self._inbox = self._inbox, None  # 再 start 的话会新建一个
+            if inbox is not None:
+                inbox.put(None)
+
+    def join(self, timeout: float) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    @abstractmethod
+    def _run(self, deliver: Callable[[Event], None]) -> None: ...
+
+    def _halt(self) -> None:
+        """stop 时调用：让 _run 尽快醒过来退出。"""
+
+    def _online(self) -> None:
+        """连上了。停下以后才连上的（stop 和连接同时发生）不算：页面上应该一直是"已关闭"。"""
+        if not self._stopping.is_set():
+            self._set_status("online")
+
+    def _trouble(self, state: str, message: str) -> None:
+        if not self._stopping.is_set():
+            self._set_status(state, message)
+
+    def _first_time(self, message_id: str) -> bool:
+        """这条消息是不是第一次见到（平台偶尔会把同一条推两次）。没有编号的当作第一次。"""
+        if not message_id:
+            return True
+        with self._seen_lock:
+            if message_id in self._seen:
+                return False
+            self._seen[message_id] = None
+            while len(self._seen) > CHANNEL_SEEN_MESSAGES:
+                self._seen.popitem(last=False)
+            return True
+
+    def _hand_off(self, job: Callable[[], None]) -> None:
+        """飞书、钉钉的 SDK 要求事件的处理函数马上返回（不然会堵住它的心跳，对方等不到回执还会再推一遍）。
+        所以真正的处理（下载、问名字、交给 router）放到这个通道自己的一个线程里，按收到的顺序一件件做。"""
+        with self._seen_lock:
+            if self._inbox is None:
+                self._inbox = queue.Queue()
+                threading.Thread(target=self._drain, args=(self._inbox,), daemon=True, name=f"{self.platform}-inbox").start()
+            self._inbox.put(job)
+
+    def _drain(self, jobs: queue.Queue) -> None:
+        while True:
+            job = jobs.get()
+            if job is None:
+                return
+            if self._stopping.is_set():
+                continue  # 停下以后才轮到的：不处理
+            try:
+                job()
+            except Exception:
+                logging.getLogger(f"harness.channels.{self.platform}").exception("%s: 处理一条消息时出错", self.platform)
+
+    def typing(self, chat: str) -> None:
+        """大多数平台没有给机器人用的"正在输入"：什么都不做。"""
+
+
+def backoff(delay: float, ceiling: float) -> tuple[float, float]:
+    """重连要等多久：（这一次等多久，下一次的基数）。每次翻倍，到 ceiling 为止；这一次再随机少一点，
+    免得很多客户端在同一时刻一起重连（平台那边出了故障、恢复的那一刻）。"""
+    return delay * random.uniform(0.7, 1.0), min(delay * 2, ceiling)
+
+
+def close_loop(loop: Any) -> None:
+    """关掉一个 SDK 用过的事件循环（飞书、钉钉的 Listener 在自己的线程里建的那个）。SDK 在里面留着几个还没结束的任务
+    （清缓存的定时任务、心跳、正在处理的消息）：先取消它们、等它们收完尾（最多 2 秒），再关。直接关的话，
+    asyncio 会在日志里报一句"Task was destroyed but it is pending!"。"""
+    import asyncio
+
+    try:
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.wait(pending, timeout=2))
+        loop.close()
+    except RuntimeError:
+        pass

@@ -29,7 +29,7 @@ from typing import Any
 
 from . import log
 from .app import build_app
-from .channels.platforms import READY, label
+from .channels.platforms import ORDER, label
 from .config import APP_NAME, Config
 from .i18n import t
 from .providers import has_key
@@ -91,9 +91,9 @@ def serve(config: Config, stop: threading.Event, web: bool = False, port: int | 
         logger.warning("%s", t("还没有设置 {provider} 的 API 密钥：聊天和定时任务都会失败。把它写进 .env（或者 HARNESS_ENV_FILE 指的文件）再重启。", provider=provider.label))
     if app.tasks.problem:
         logger.warning("%s", app.tasks.problem)
-    configured = [platform for platform in READY if store.get(platform)["token"]]
+    configured = [platform for platform in ORDER if store.configured(platform)]
     if not configured:
-        logger.warning("%s", t("还没有设置任何聊天通道。运行 harness channels setup telegram 设置一个。"))
+        logger.warning("%s", t("还没有设置任何聊天通道。运行 harness channels setup telegram（或者 discord、slack、feishu、dingtalk、qq）设置一个。"))
     for platform in configured:
         entry = store.get(platform)
         if not entry["enabled"]:

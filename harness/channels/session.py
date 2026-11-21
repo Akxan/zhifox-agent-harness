@@ -2,7 +2,8 @@
 
 每个聊天有自己的一切：
 
-  会话      聊过的内容存成一段普通的会话（会话列表里标着"Telegram"），重启以后接着聊，发 /new 开始新的一段
+  会话      聊过的内容存成一段普通的会话（会话列表里标着"Telegram"），重启以后接着聊，发 /new 开始新的一段；
+            /new 后面跟一个自定义 Agent 的名字，新的一段就用它当角色（和网页上用它开始一段对话一样，见 App.new_conversation）
   助手      自己的适配层、权限（这个通道的那一档）和 shell（见 App.channel_agent）
   队伍      同一个聊天里一次只跑一轮。正在跑的时候又来了消息，排在后面，跑完一轮接着下一轮
   线程      跑这些轮的线程。它和网页上的对话、别的聊天各跑各的，谁也不等谁
@@ -26,6 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ..agents import AgentError, CustomAgent
 from ..app import run_turn
 from ..attachments import Attachment, AttachmentError, from_bytes, unsupported
 from ..config import CHANNEL_QUEUE, CHANNEL_TYPING_SECONDS
@@ -85,6 +87,7 @@ class Session:
         self.agent: Any = None
         self.run: Any = None  # App.channel_agent 给的 UnattendedRun：这个聊天自己的 shell、MCP 调用，以及停下它们的办法
         self.waiting: Waiting | None = None
+        self.persona = ""  # /new 某个 Agent：下一段新会话用它当角色（开始以后记在 conversation.agent 里）
         self.ui = ChannelUI(
             on_text=lambda text: router.say(platform, chat, text, markdown=True),
             on_notice=lambda level, text: router.say(platform, chat, text),
@@ -127,20 +130,29 @@ class Session:
         waiting = self.waiting
         if waiting is None or waiting.id != confirm_id:
             return False
-        # 先记下是谁答的，再交出答复：agent 的线程一拿到答复就会醒来，马上去写"已在网页上允许"还是"已允许"
-        before, waiting.by = waiting.by, by
+        # 先记下是谁答的，再交出答复：agent 的线程一拿到答复就会醒来，马上去写"已在网页上允许"还是"已允许"。
+        # 记名字要拿着锁、而且只记第一个：晚到的一方不能先把名字改成自己、没答上再改回去——agent 的线程
+        # 正好在这个间隙里写结果的话，"已在网页上允许"就会被写成"已允许"
+        with self._lock:
+            if waiting.by:
+                return False
+            waiting.by = by
         if not self.ui.answer_confirm(confirm_id, allow, ""):
-            waiting.by = before  # 没答上（已经有人先答了）：不能改掉先答的那个人
+            with self._lock:
+                if waiting.by == by:
+                    waiting.by = ""  # 没答上（这个确认已经结束了）：名字也不留
             return False
         return True
 
-    def new_conversation(self) -> bool:
-        """/new：下一条消息开始一段新的会话（用那时设置里选的模型和提示词）。正在跑的时候不行，返回 False。"""
+    def new_conversation(self, persona: str = "") -> bool:
+        """/new：下一条消息开始一段新的会话（用那时设置里选的模型和提示词；persona 是一个 Agent 的名字的话，用它当角色）。
+        正在跑的时候不行，返回 False。"""
         with self._lock:
             if self.running:
                 return False
             self.conversation = None
             self.agent = self.run = None
+            self.persona = persona
         self.ui.reset()
         try:
             self.router.store.remember_chat(self.platform, self.chat, "")
@@ -190,6 +202,9 @@ class Session:
             t("确认方式：{mode}", mode=t(MODES[router.store.get(self.platform)["approval"]])),
             t("会话：{title}", title=conversation.title if conversation is not None and conversation.title else t("新对话")),
         ]
+        persona = conversation.agent if conversation is not None else self.persona
+        if persona:
+            lines.append(t("角色：{agent}", agent=persona))
         with self._lock:
             running, queued = self.running, len(self._queue)
         if self.waiting is not None:
@@ -225,7 +240,7 @@ class Session:
     # ---- 跑一轮 --------------------------------------------------------------
 
     def _kill(self) -> None:
-        """停下这个聊天正在做的事：它正在运行的命令、正在等的 MCP 调用。别人的不碰。"""
+        """停下这个聊天正在做的事：它正在运行的命令、正在等的 MCP 调用、正在进行的浏览器操作。别人的不碰。"""
         run = self.run
         if run is not None:
             run.stop()
@@ -300,10 +315,21 @@ class Session:
                 done.set()
                 self.ui.end_turn()
                 self._save()
+                self._close_browser()
             logger.info("%s: 这一轮结束，用了 %.1f 秒，调用了 %d 次模型", self.key, time.monotonic() - started, agent.usage.requests)
         finally:
             self.router.claims.release(conversation.id, self.key)
             self.router.saved(conversation.id)
+
+    def _close_browser(self) -> None:
+        """一轮结束：关掉这个聊天自己开的浏览器标签页（和定时任务的一次运行一样，见 App._side_run 的 close）。
+        下一轮要用浏览器时会开一个新的；你的对话和别的聊天的标签页不碰。"""
+        run = self.run
+        if run is not None:
+            try:
+                run.close()
+            except Exception:  # 关不掉（浏览器已经被关了、崩了）也不能让这一轮的收尾出错
+                logger.debug("%s: 关浏览器标签页时出错", self.key, exc_info=True)
 
     def _typing(self, done: threading.Event) -> None:
         """一轮还在进行，就隔一会儿发一次"正在输入"。等你批准的时候不发（那时候它不是在"输入"）。"""
@@ -361,13 +387,13 @@ class Session:
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
         if self.agent is None:
             approval = self.router.store.get(self.platform)["approval"]
-            self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model)
+            self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model, self._persona(conversation))
             self.agent = self.run.agent
             if conversation.messages:
                 self.agent.backend.restore(conversation.messages)
             self.agent.usage.context_tokens = conversation.context_tokens
             self.agent.on_usage = self.router.changed
-            self.agent.notes.append(_first_note(self.platform))
+            self.agent.notes.append(_first_note(self.platform, self.router.capabilities(self.platform).buttons))
         return ""
 
     def _load(self, conversation_id: str) -> Conversation | None:
@@ -386,13 +412,34 @@ class Session:
         self.agent = self.run = None
         self.ui.load_events(conversation.events)
 
+    def _persona(self, conversation: Conversation) -> CustomAgent | None:
+        """这段会话的角色（用 /new 某个 Agent 开始的）。它被删掉了、现在不合格的话，说一声，用内置的提示词接着聊。"""
+        if not conversation.agent:
+            return None
+        try:
+            return self.router.app.agents.usable(conversation.agent)
+        except AgentError as exc:
+            self.router.say(self.platform, self.chat, t("这段会话是用 Agent「{name}」开始的，但它现在用不了（{reason}）。接着聊会用内置的提示词和全部工具。", name=conversation.agent, reason=message_of(exc)))
+            return None
+
     def _fresh(self) -> str:
-        """开始一段新的会话，用此刻设置里选的那一家、那个模型。"""
+        """开始一段新的会话，用此刻设置里选的那一家、那个模型；/new 了某个 Agent 的话，用它当角色，模型用它选的那个（它写了的话）。"""
         app = self.router.app
-        provider = app.provider
+        provider, model = app.provider, app.settings.model
+        persona = None
+        if self.persona:
+            try:
+                persona = app.agents.usable(self.persona)
+            except AgentError as exc:
+                self.persona = ""
+                return t("Agent「{name}」现在用不了：{reason}", name=self.persona or "?", reason=message_of(exc))
+            if persona.spec.model:
+                provider, model = PROVIDERS[persona.spec.provider], persona.spec.model_id
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
-        conversation = app.store.new(provider.id, app.settings.model)
+        conversation = app.store.new(provider.id, model)
+        conversation.agent = persona.name if persona is not None else ""
+        self.persona = ""
         conversation.channel = self.platform
         self.conversation = conversation
         self.agent = self.run = None
@@ -470,16 +517,17 @@ class Session:
         self.router.changed()
 
 
-def _first_note(platform: str) -> Callable[[list], str]:
+def _first_note(platform: str, buttons: bool = True) -> Callable[[list], str]:
     """一段对话的第一条消息前面附一句说明：它在哪个聊天软件里，用户多半在手机上看。
 
     写给模型看的，所以是中文、不翻译。只附在第一条上（history 是空的时候）：之后的历史只在末尾追加，
     这句说明一直留在第一条消息里，模型每一轮都看得到，系统提示词和缓存都不受影响。
     """
     name = LABELS.get(platform, platform)
+    approve = "他点了按钮才会执行" if buttons else "他回复“允许”才会执行"
     return lambda history: "" if history else (
         f"<channel>这段对话在 {name} 里进行：用户多半在手机上看你的回复。回复尽量简短，"
-        f"不要用表格（{name} 里显示不出来），需要列举时用列表。需要用户批准的操作会发到他的聊天里，他点了按钮才会执行。</channel>"
+        f"不要用表格（{name} 里显示不出来），需要列举时用列表。需要用户批准的操作会发到他的聊天里，{approve}。</channel>"
     )
 
 

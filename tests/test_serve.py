@@ -116,7 +116,7 @@ def test_serve_explains_what_is_missing(make_config, fake, caplog):
     caplog.set_level(logging.INFO, logger="harness")
     config = make_config(telegram_api=fake.base_url)
     store = ChannelStore(config.channels_file)
-    store.connect("telegram", TOKEN, BOT)
+    store.connect("telegram", {"token": TOKEN}, BOT)
     stop = threading.Event()
     stop.set()  # 一开起来就退出
     assert serve(config, stop) == EXIT_OK
@@ -268,10 +268,10 @@ def test_setup_reads_the_token_from_the_environment(harness_cli, monkeypatch, fa
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     code, out, err = harness_cli("channels", "setup", "telegram")
     assert code == 0, err
-    assert f"已连接机器人 @zhifox_test_bot（token {HINT}）" in out
+    assert f"已连接机器人 @zhifox_test_bot（密钥 {HINT}）" in out
     assert "下一步：运行 harness channels pair telegram" in out
     assert TOKEN not in out + err and fake.calls == ["getMe"]
-    assert harness_cli.store().get("telegram")["token"] == TOKEN
+    assert harness_cli.store().get("telegram")["credentials"].get("token", "") == TOKEN
 
 
 def test_setup_asks_for_the_token_without_echo(harness_cli, monkeypatch):
@@ -307,7 +307,7 @@ def test_setup_explains_a_bad_token(harness_cli, monkeypatch, fake):
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
     code, out, err = harness_cli("channels", "setup", "telegram")
     assert code == 1 and "没有收到 token" in err
-    assert not harness_cli.store().get("telegram")["token"]
+    assert not harness_cli.store().get("telegram")["credentials"].get("token", "")
 
 
 def test_commands_need_a_bot_first(harness_cli):
@@ -319,7 +319,7 @@ def test_commands_need_a_bot_first(harness_cli):
 
 
 def test_pair_without_waiting_prints_a_code(harness_cli):
-    harness_cli.store().connect("telegram", TOKEN, BOT)
+    harness_cli.store().connect("telegram", {"token": TOKEN}, BOT)
     code, out, err = harness_cli("channels", "pair", "telegram", "--no-wait")
     assert code == 0, err
     secret = harness_cli.store().pairing("telegram")["secret"]
@@ -329,7 +329,7 @@ def test_pair_without_waiting_prints_a_code(harness_cli):
 
 def test_pair_waits_for_the_running_service(harness_cli, monkeypatch):
     """智狐作为服务开着：由它去收你发的配对码，命令行只是等着看配对成了没有（两个程序对着同一个文件）。"""
-    harness_cli.store().connect("telegram", TOKEN, BOT)
+    harness_cli.store().connect("telegram", {"token": TOKEN}, BOT)
     monkeypatch.setattr(channels_cli, "_running", lambda config: True)
 
     def the_service_receives_the_code() -> None:
@@ -347,7 +347,7 @@ def test_pair_waits_for_the_running_service(harness_cli, monkeypatch):
 
 def test_pair_listens_by_itself_when_nothing_is_running(harness_cli, fake):
     """智狐没开着：命令行自己临时连上 Telegram 收配对码，配好就断开。"""
-    harness_cli.store().connect("telegram", TOKEN, BOT)
+    harness_cli.store().connect("telegram", {"token": TOKEN}, BOT)
 
     def you_send_the_code() -> None:
         code = until(lambda: harness_cli.store().pairing("telegram"), what="配对码")["secret"]
@@ -368,7 +368,7 @@ def test_pair_listens_by_itself_when_nothing_is_running(harness_cli, fake):
 
 
 def test_approval_all_comes_with_a_warning(harness_cli):
-    harness_cli.store().connect("telegram", TOKEN, BOT)
+    harness_cli.store().connect("telegram", {"token": TOKEN}, BOT)
     code, out, err = harness_cli("channels", "approval", "telegram", "all")
     assert code == 0 and "Telegram 的确认方式改成了：全部自动允许" in out, err
     assert "确认是你和模型之间唯一的一道关卡" in out
@@ -386,7 +386,7 @@ def test_status_enable_disable_and_remove(harness_cli, monkeypatch):
     store.attempt("telegram", "999", "Stranger", "在吗")
     code, out, err = harness_cli("channels", "status")
     assert code == 0, err
-    assert f"机器人：@zhifox_test_bot（token {HINT}）" in out and TOKEN not in out
+    assert f"机器人：@zhifox_test_bot（密钥 {HINT}）" in out and TOKEN not in out
     assert f"主人：{OWNER_NAME}" in out and "正在配对：配对码" in out and "确认方式：每次都问" in out
     assert "忽略了 1 条陌生人的消息" in out and "已打开" in out
 
@@ -397,7 +397,7 @@ def test_status_enable_disable_and_remove(harness_cli, monkeypatch):
 
     monkeypatch.setattr("builtins.input", lambda question: "n")  # 问一遍：不删
     code, out, err = harness_cli("channels", "remove", "telegram")
-    assert code == 1 and harness_cli.store().get("telegram")["token"] == TOKEN
+    assert code == 1 and harness_cli.store().get("telegram")["credentials"].get("token", "") == TOKEN
     code, out, err = harness_cli("channels", "remove", "telegram", "--yes")
     assert code == 0 and "已删除 Telegram 的设置" in out and harness_cli.store().known() == []
 

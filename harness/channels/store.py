@@ -2,11 +2,12 @@
 
 里面按平台各有一份：
 
-  token      机器人的 token。它就是这个机器人的钥匙：谁拿到它，谁就能以机器人的身份收发消息。
-             所以它只存在这个文件里（权限 600，只有你的账号能读），不出现在发给浏览器的任何东西里
-             （页面只看得到最后 4 位），不写进日志，导出备份时换成占位符（见 export.MASKED_FILES），
-             助手的文件工具也读不了它（见 app.py 里的 protected）。
-  bot        机器人自己的名字（@username），给页面显示用
+  credentials  连接这个平台用的东西（Telegram 是 {"token"}，Slack 是 {"bot_token", "app_token"}，飞书是
+             {"app_id", "app_secret"}……要填哪些见 platforms.py 的 fields）。里面的密钥就是机器人的钥匙：谁拿到它，
+             谁就能以机器人的身份收发消息。所以它们只存在这个文件里（权限 600，只有你的账号能读），不出现在发给浏览器的
+             任何东西里（页面只看得到最后 4 位），不写进日志，导出备份时换成占位符（见 export.MASKED_FILES），
+             助手的文件工具也读不了它（见 app.py 里的 protected）。旧版本存的是一个 token 字段，读进来时换成 {"token": …}
+  bot        机器人自己的名字（@username）、打开和它聊天的链接，给页面显示用
   enabled    开着没有
   approval   这个通道里"要不要先问你"：ask / edits / all，和对话里的三档同名、同义（见 ../permissions.py）
   owner      配对绑定的主人：账号编号、名字、什么时候配对的。只有他发来的消息会被处理（见 pairing.py）
@@ -44,8 +45,19 @@ from ..permissions import MODES
 from ..safe import private_dir, to_json, write_file
 from . import pairing
 from .base import ChannelError
+from .platforms import fields, secret_fields
 
 FORMAT_VERSION = 1
+
+
+def pair_link(platform: str, bot: dict | None, code: str) -> str:
+    """配对时页面上"在 Telegram 里打开"那个按钮的链接。Telegram 的链接能替你把配对码发过去（/start 123456，
+    见 pairing.py）；别的平台只能打开和机器人的聊天，配对码要你自己发。没有的话是空字符串。"""
+    if not bot:
+        return ""
+    if platform == "telegram" and bot.get("username"):
+        return f"https://t.me/{bot['username']}?start={code}"
+    return bot.get("link", "")
 
 
 def _fresh() -> dict:
@@ -54,11 +66,48 @@ def _fresh() -> dict:
 
 def _blank() -> dict:
     """一个平台还什么都没设置时的样子。"""
-    return {"enabled": True, "approval": "ask", "token": "", "bot": None, "owner": None, "pairing": None, "chats": {}, "offset": 0, "ignored": 0, "last_active": 0.0}
+    return {"enabled": True, "approval": "ask", "credentials": {}, "bot": None, "owner": None, "pairing": None, "chats": {}, "offset": 0, "ignored": 0, "last_active": 0.0}
 
 
 def _text(value: Any, limit: int = 300) -> str:
     return value[:limit] if isinstance(value, str) else ""
+
+
+def _link(value: Any) -> str:
+    """只认 https:// 的链接（页面上会把它做成一个按钮）。"""
+    return value[:500] if isinstance(value, str) and value.startswith("https://") else ""
+
+
+def _credentials(item: dict) -> dict[str, str]:
+    raw = item.get("credentials")
+    found = {name[:40]: value[:400] for name, value in raw.items() if isinstance(name, str) and name and isinstance(value, str) and value} if isinstance(raw, dict) else {}
+    legacy = _text(item.get("token"), 400)
+    if legacy and "token" not in found:
+        found["token"] = legacy  # 第一版只有 Telegram，存的是一个 token 字段
+    return found
+
+
+def _bot(bot: Any) -> dict | None:
+    if not isinstance(bot, dict):
+        return None
+    return {
+        "id": _text(str(bot.get("id", ""))),
+        "username": _text(bot.get("username")),
+        "name": _text(bot.get("name")),
+        "at": bot.get("at") is not False,  # 名字前面加不加 @（Telegram、Discord、Slack 加；飞书、钉钉、QQ 的机器人没有 @用户名）
+        "app": _text(str(bot.get("app", ""))),  # 平台上"应用"的编号（Discord 登记命令、Slack 打开私聊要用）
+        "link": _link(bot.get("link")),  # 打开和机器人的聊天
+        "install": _link(bot.get("install")),  # 把机器人加到你的账号（Discord 要先加，才能和它私聊）
+    }
+
+
+def handle(bot: dict | None) -> str:
+    """机器人给人看的称呼：@zhifox_bot，或者（没有 @用户名的平台）它的名字。"""
+    if not bot:
+        return ""
+    if bot.get("at", True) and bot.get("username"):
+        return "@" + bot["username"]
+    return bot.get("name") or bot.get("username") or ""
 
 
 def _number(value: Any) -> float:
@@ -79,10 +128,8 @@ def _normalize(raw: Any) -> dict:
         entry = _blank()
         entry["enabled"] = item.get("enabled") is not False
         entry["approval"] = item.get("approval") if item.get("approval") in MODES else "ask"
-        entry["token"] = _text(item.get("token"), 400)
-        bot = item.get("bot")
-        if isinstance(bot, dict):
-            entry["bot"] = {"id": _text(str(bot.get("id", ""))), "username": _text(bot.get("username")), "name": _text(bot.get("name"))}
+        entry["credentials"] = _credentials(item)
+        entry["bot"] = _bot(item.get("bot"))
         owner = item.get("owner")
         if isinstance(owner, dict) and _text(owner.get("id")):
             entry["owner"] = {"id": _text(owner.get("id")), "name": _text(owner.get("name")), "paired_at": _number(owner.get("paired_at"))}
@@ -205,16 +252,25 @@ class ChannelStore:
 
     # ---- 页面、命令行上的操作 ----------------------------------------------
 
-    def connect(self, platform: str, token: str, bot: dict) -> None:
-        """记下（新的）token 和机器人的名字。换成了另一个机器人的话，原来的绑定和聊天记录作废，要重新配对。"""
+    def connect(self, platform: str, credentials: dict[str, str], bot: dict) -> None:
+        """记下（新的）凭据和机器人的名字。换成了另一个机器人的话，原来的绑定和聊天记录作废，要重新配对。"""
 
         def change(data: dict) -> None:
             entry = self._entry(data, platform)
             if entry["bot"] is not None and entry["bot"].get("id") != bot.get("id"):
                 entry.update(owner=None, pairing=None, chats={}, offset=0, ignored=0)
-            entry.update(token=token, bot=bot, enabled=True)
+            entry.update(credentials=dict(credentials), bot=_bot(bot), enabled=True)
 
         self._change(change)
+
+    def credentials(self, platform: str) -> dict[str, str]:
+        return self.get(platform)["credentials"]
+
+    def configured(self, platform: str) -> bool:
+        """这个平台要填的都填了没有（见 platforms.fields）。"""
+        given = self.credentials(platform)
+        wanted = [field["id"] for field in fields(platform)]
+        return bool(wanted) and all(given.get(name) for name in wanted)
 
     def set_enabled(self, platform: str, enabled: bool) -> None:
         self._change(lambda data: self._entry(data, platform).update(enabled=enabled))
@@ -315,18 +371,31 @@ class ChannelStore:
     # ---- 给页面看的 --------------------------------------------------------
 
     def summary(self, platform: str) -> dict:
-        """一个平台给页面看的样子。token 只露出最后 4 位；配对码要显示在页面上让你抄，所以照给。"""
+        """一个平台给页面看的样子。密钥只露出最后 4 位（不是密钥的 App ID 这类照给）；配对码要显示在页面上让你抄，所以照给。"""
         entry = self.get(platform)
         code = self.pairing(platform)
         bot, owner = entry["bot"], entry["owner"]
+        given = entry["credentials"]
+        hints = {}
+        for field in fields(platform):
+            value = given.get(field["id"], "")
+            hints[field["id"]] = (f"…{value[-4:]}" if field["secret"] else value) if value else ""
+        secrets = secret_fields(platform)
+        shown = {"username": bot["username"], "name": bot["name"], "handle": handle(bot), "link": bot["link"], "install": bot["install"]} if bot else None
         return {
-            "configured": bool(entry["token"]),
+            "configured": self.configured(platform),
             "enabled": entry["enabled"],
             "approval": entry["approval"],
-            "token_hint": f"…{entry['token'][-4:]}" if entry["token"] else "",
-            "bot": {"username": bot["username"], "name": bot["name"]} if bot else None,
+            "token_hint": hints.get(secrets[0], "") if secrets else "",
+            "hints": hints,
+            "bot": shown,
             "owner": {"name": owner["name"], "paired_at": owner["paired_at"]} if owner else None,
-            "pairing": {"code": code["secret"], "expires": code["expires"], "attempts_left": max(0, PAIRING_ATTEMPTS - code["attempts"])} if code else None,
+            "pairing": {
+                "code": code["secret"],
+                "expires": code["expires"],
+                "attempts_left": max(0, PAIRING_ATTEMPTS - code["attempts"]),
+                "link": pair_link(platform, bot, code["secret"]),
+            } if code else None,
             "last_active": entry["last_active"] or None,
             "ignored": entry["ignored"],
         }

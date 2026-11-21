@@ -87,6 +87,14 @@ CHANNEL_RETRY_SECONDS = 60  # 连不上时，重试的间隔从 1 秒起每次�
 CHANNEL_TYPING_SECONDS = 4  # 一轮还在进行时，每隔这么久发一次"正在输入"（Telegram 的这个状态只维持 5 秒）
 CHANNEL_DOWNLOAD_BYTES = 20_000_000  # 聊天里发来的文件最多下载这么大（Telegram 机器人能下载的上限就是 20 MB）
 CHANNEL_SHUTDOWN_SECONDS = 5  # 退出时最多等聊天里正在进行的几轮这么久，让它们收尾存盘
+# Discord、QQ 的网关断开以后重连：间隔从 1 秒起每次翻倍，最多隔这么久。比别的长，是因为 Discord 一天只许
+# "登录"（Identify）1000 次，超了会把机器人的 token 作废（见 channels/gateway.py）：隔 120 秒，一天最多 720 次
+GATEWAY_RETRY_SECONDS = 120
+CHANNEL_IDLE_SECONDS = 30  # Slack 这类连接这么久没收到任何东西，就发一个 ping 看看它还活着没有；再等这么久还没动静就重连
+CHANNEL_SEEN_MESSAGES = 500  # 记住最近这么多条消息的编号：QQ、飞书偶尔会把同一条推两次，第二次不处理
+# 手写的 WebSocket 客户端（见 net/websocket.py）
+WEBSOCKET_MAX_BYTES = 8_000_000  # 一条消息最大这么多字节（看到长度就拒绝，不会先读进内存）
+WEBSOCKET_CLOSE_SECONDS = 3  # 关闭时最多等对方回应这么久
 # 自定义 Agent（见 agents/）。主助手可以用 agent 工具把一项任务交给一个 Agent（"子 Agent"）去做：
 # 子 Agent 能不能再往下交，最多交几层。1 表示只有主助手能交，子 Agent 自己不能再叫别的 Agent。
 # 调大之前想一想：每多一层，花的钱、要你点的确认都会翻倍，出了问题也更难看清是谁做的
@@ -156,6 +164,12 @@ class Config:
     # Telegram Bot API 的地址。一般不用改；在连不上 api.telegram.org 的地方可以换成自建的 Bot API 服务器，
     # 测试和演示把它指向本地的假服务器。只能用环境变量 TELEGRAM_API_BASE 改，页面上改不了：token 会发到这个地址去
     telegram_api: str = "https://api.telegram.org"
+    # 别的聊天平台的接口地址，道理和 telegram_api 一样：只能用环境变量改（DISCORD_API_BASE……），测试和演示指向本地的假服务器
+    discord_api: str = "https://discord.com/api/v10"
+    slack_api: str = "https://slack.com/api"
+    qq_api: str = "https://api.bot.qq.com"  # 换 access_token、开网关、发消息都在这一个域名下（2026 年 8 月起的新地址）
+    feishu_api: str = "https://open.feishu.cn"
+    dingtalk_api: str = "https://api.dingtalk.com"
 
     @property
     def todo_file(self) -> Path:
@@ -234,6 +248,16 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+# 每个聊天平台的接口地址：Config 里的字段名、可以改它的环境变量、默认值
+API_BASES = [
+    ("discord_api", "DISCORD_API_BASE", "https://discord.com/api/v10"),
+    ("slack_api", "SLACK_API_BASE", "https://slack.com/api"),
+    ("qq_api", "QQ_API_BASE", "https://api.bot.qq.com"),
+    ("feishu_api", "FEISHU_API_BASE", "https://open.feishu.cn"),
+    ("dingtalk_api", "DINGTALK_API_BASE", "https://api.dingtalk.com"),
+]
+
+
 def load_config(workspace: Path | None = None) -> Config:
     """workspace：工作目录，不给的话是现在所在的目录（在服务器上用 --workspace 指定，见 cli.py）。
 
@@ -253,4 +277,5 @@ def load_config(workspace: Path | None = None) -> Config:
         default_provider=os.environ.get("HARNESS_PROVIDER", "anthropic"),
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
         telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
+        **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},
     )

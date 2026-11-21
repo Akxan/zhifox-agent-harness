@@ -186,33 +186,40 @@ class App:
         """
         return self._side_run(ui, approval, self.settings.provider, self.settings.model, source="task")
 
-    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str) -> UnattendedRun:
+    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str, persona: CustomAgent | None = None) -> UnattendedRun:
         """给聊天通道里的一个聊天（比如你和 Telegram 机器人的私聊）准备一个助手，以及只属于这个聊天的那几样东西。
 
-        和定时任务的一次运行是同一个做法（见上面的 unattended_agent），区别只有三处：
+        和定时任务的一次运行是同一个做法（见上面的 unattended_agent），区别只有几处：
           - 用的是这个聊天自己那段会话的那一家、那个模型（provider_id、model），历史由调用的人交还给它（见 channels/session.py）；
           - 权限是这个通道自己的那一档（channels.json 里的 approval），和网页对话、定时任务的都无关；
-          - 花的钱记在 channel 名下。
-        在聊天里发 /stop，只结束这个聊天自己的命令和 MCP 调用；网页上的"停止"、别的聊天、定时任务都碰不到它。
+          - 花的钱记在 channel 名下；
+          - 在聊天里发 /new 某个 Agent 的名字，这段会话就用它当角色（persona）：和网页上用它开始一段对话一样
+            （见 new_conversation），提示词换成它的设定，工具只有它放开的那些。
+        在聊天里发 /stop，只结束这个聊天自己的命令、MCP 调用和浏览器操作；网页上的"停止"、别的聊天、定时任务都碰不到它。
+        每一轮结束时调用 run.close，关掉这个聊天自己的浏览器标签页（和定时任务的一次运行一样）。
         """
-        return self._side_run(ui, approval, provider_id, model, source="channel")
+        return self._side_run(ui, approval, provider_id, model, source="channel", persona=persona)
 
-    def _side_run(self, ui: Any, approval: str, provider_id: str, model: str, source: str) -> UnattendedRun:
+    def _side_run(self, ui: Any, approval: str, provider_id: str, model: str, source: str, persona: CustomAgent | None = None) -> UnattendedRun:
         """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、记在 source 名下的账。"""
         shell = Shell(self.config.workspace)
         owner = object()  # 这次运行的 MCP 调用都记在它名下（见 McpManager.call）
-        # 浏览器也是这次运行自己的：自己的标签页，你的对话和别的任务看不到、碰不到（见 browser/session.py）
-        browser = self.browser.session(source)
-        own_browser = make_browser_tools(lambda: browser, lambda: self.browser.enabled) if self.browser.enabled else []
+        # 浏览器也是这次运行自己的：自己的标签页，你的对话和别的任务看不到、碰不到（见 browser/session.py）。
+        # 放在一个格子里：聊天通道里一段会话要跑很多轮，每一轮结束都 close（关掉自己的标签页），下一轮换一个新的 session，
+        # 工具还是同一套（一段对话里工具说明书不变）。定时任务只跑一轮，换上的那个新的没人用，随着这次运行一起丢掉
+        browser = [self.browser.session(source)]
+        own_browser = make_browser_tools(lambda: browser[0], lambda: self.browser.enabled) if self.browser.enabled else []
         tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser])
-        backend = self._backend_for(provider_id, model)
+        backend = self._backend_for(provider_id, model, persona)
         permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
         # 也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这次运行的那一档，停止只停这次运行，见 agents/runner.py）
         delegate = self.delegator.tool_for(agent)
         # 这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
         # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
-        agent.use_tools(ToolRegistry([*tools, *([delegate] if delegate else []), *self.mcp.snapshot(owner).tools]))
+        everything = [*tools, *([delegate] if delegate else []), *self.mcp.snapshot(owner).tools]
+        # 用一个 Agent 当角色的：只留它放开的工具（和网页上的 conversation_tools 一样）
+        agent.use_tools(ToolRegistry(agent_tools.allowed(persona.spec.tools, everything) if persona is not None else everything))
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source=source)
         # 也能用 Skill：历史是空的话，第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
@@ -222,9 +229,13 @@ class App:
         def stop() -> None:
             shell.kill_running()
             self.mcp.cancel_running(owner)
-            browser.stop()
+            browser[0].stop()
 
-        return UnattendedRun(agent=agent, shell=shell, stop=stop, close=browser.close)
+        def close() -> None:
+            browser[0].close()
+            browser[0] = self.browser.session(source)
+
+        return UnattendedRun(agent=agent, shell=shell, stop=stop, close=close)
 
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""

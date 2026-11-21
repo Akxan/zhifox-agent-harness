@@ -76,6 +76,9 @@ def setup(stream: IO[str] | None = None, level: int = logging.INFO) -> None:
     root.addHandler(handler)
     root.setLevel(level)
     root.propagate = False
-    # 各家的 API key 在环境变量里，先登记上
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "TELEGRAM_BOT_TOKEN"):
+    # 各家的 API key、聊天机器人的密钥可能在环境变量里，先登记上（名单和不让命令看到的是同一份）
+    # 用到时才导入：这个文件很底层，别让它一导入就拉进工具
+    from .tools.shell import SECRET_ENV_VARS
+
+    for name in sorted(SECRET_ENV_VARS):
         hide(os.environ.get(name))

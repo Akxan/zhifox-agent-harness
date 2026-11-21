@@ -47,6 +47,11 @@ class Message(str):
         message.values = values
         return message
 
+    def __getnewargs__(self) -> tuple[str, str, dict[str, Any]]:
+        # copy.deepcopy 和 pickle 重建它时要给 __new__ 的参数。不写的话只给文字，少了 key 和 values，会出错
+        # （一个用 t() 生成的名字存进 channels.json 时就是这样：store 读出来要 deepcopy）
+        return str(self), self.key, self.values
+
 
 @cache
 def table(language: str) -> dict[str, str]:
@@ -56,9 +61,28 @@ def table(language: str) -> dict[str, str]:
     return json.loads((_LOCALES / f"{language}.json").read_text(encoding="utf-8"))
 
 
+# 平台的名字（{platform}）旁边的一个空格，两边都是汉字时去掉。中文的句子给 {platform} 两边留了空格，是为 Telegram 这样的
+# 英文名字留的（"连接 Telegram"）；填进去的是"飞书"时，"连接 飞书"就多了一个空格。只管 {platform}：别的值（文件名、
+# 机器人的名字）两边的空格正好把它和句子隔开，留着。句子本身的空格也不动
+_CJK = "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+_FILL = re.compile(rf"(?:(?<=[{_CJK}]) (?=\{{platform\}}))?\{{(\w+)\}}(?:(?<=\{{platform\}}) (?=[{_CJK}]))?")
+_CJK_AT_START = re.compile(rf"^[{_CJK}]")
+_CJK_AT_END = re.compile(rf"[{_CJK}]$")
+
+
 def fill(text: str, values: dict[str, Any]) -> str:
     """把句子里的 {名字} 换成对应的值。只认这一种写法，值里的花括号原样保留，不会被再填一次。"""
-    return _PLACEHOLDER.sub(lambda match: str(values[match.group(1)]) if match.group(1) in values else match.group(0), text)
+
+    def one(match: re.Match) -> str:
+        whole, name = match.group(0), match.group(1)
+        if name not in values:
+            return whole
+        value = str(values[name])
+        before = " " if whole.startswith(" ") and not _CJK_AT_START.search(value) else ""
+        after = " " if whole.endswith(" ") and not _CJK_AT_END.search(value) else ""
+        return before + value + after
+
+    return _FILL.sub(one, text)
 
 
 def t(text: str, **values: Any) -> Message:

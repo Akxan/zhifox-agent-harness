@@ -31,6 +31,9 @@
     假机器人的 token（在"扩展 → 通道"的向导里粘贴它）和一个"手机"页面的地址（在另一个标签页里打开，
     就像拿着手机：发配对码、聊天、点"允许 / 拒绝"）。聊天里的回复也不占下面那一串：单数轮打个招呼，
     双数轮执行一条要你批准的命令（"每次确认"时会发来按钮，网页上也能答复）。
+  - Discord、Slack、飞书、钉钉、QQ 也各有一个假的（tests/fake_discord.py……），启动时打印每一家编造的 token
+    （或者 ID 和密钥），在向导里粘贴就能连上。它们共用另一个"手机"页面（tests/demo_phone.py，上面选平台）。
+    飞书、钉钉收消息本来要装官方的 SDK；演示里换成了假的长连接，当作已经装好了。加 --no-sdk 看没装时页面怎么说。
 
   - 浏览器（设置 → 浏览器）是开着的：发一句含有"演示商店"的话（比如"用浏览器看看演示商店里有什么"）开始一段新对话，
     助手会用真的 Chrome 打开这个脚本在本机起的一个"演示商店"网页：先问你能不能去这个网站，然后读页面、点搜索框、
@@ -66,6 +69,8 @@ parser.add_argument("--data", type=Path, help="数据放在哪个目录（默认
 parser.add_argument("--delay", type=float, default=0.035, help="逐字输出时每一小段之间隔多少秒")
 parser.add_argument("--no-key", action="store_true", help="不设置任何密钥，看第一次使用时的样子")
 parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram（\"手机\"页面）用的端口，默认随便挑一个空闲的")
+parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
+parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
 options = parser.parse_args()
 
@@ -76,7 +81,13 @@ if not options.no_key:
     os.environ["ANTHROPIC_API_KEY"] = "fake-claude-key-0001"
 
 import anthropic
+import fake_dingtalk
+import fake_discord
+import fake_feishu
+import fake_qq
+import fake_slack
 import openai
+from demo_phone import Phone
 from fake_api import _events, reply, text, thinking, tool_use
 from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
@@ -85,6 +96,7 @@ from fake_telegram import TOKEN, FakeTelegram
 import harness.webui.server as server_module
 from harness.agents import examples as agent_examples
 from harness.app import build_app
+from harness.channels import platforms
 from harness.config import Config
 from harness.tasks import new_run
 from harness.webui import lifecycle
@@ -537,6 +549,17 @@ for name, body in {
 
 # 假的 Telegram：机器人的 token 是编造的（tests/fake_telegram.py 里的 TOKEN），消息只在这台电脑上转
 telegram = FakeTelegram(max_poll=1.0).start(options.telegram_port)
+# 别的几家：都是编造的凭据，消息只在这台电脑上转（心跳慢一点，像真的那样）
+others = {
+    "discord": fake_discord.FakeDiscord(heartbeat_ms=20_000).start(),
+    "slack": fake_slack.FakeSlack().start(),
+    "feishu": fake_feishu.FakeFeishu().start(),
+    "dingtalk": fake_dingtalk.FakeDingTalk().start(),
+    "qq": fake_qq.FakeQQ(heartbeat_ms=20_000).start(),
+}
+phone = Phone(others, {name: str(platforms.label(name)) for name in others}).start(options.phone_port)
+# 飞书、钉钉的 SDK：演示里收消息用的是假的长连接，当作装好了（--no-sdk 时当作没装）
+platforms.sdk_ready = lambda platform: platforms.sdk(platform) is None or not options.no_sdk
 config = Config(
     effort="medium",
     max_tokens=64000,
@@ -546,6 +569,7 @@ config = Config(
     env_file=root / "env-file",  # 在页面上保存的密钥写到这里，不是项目里真正的 .env
     web=True,
     telegram_api=telegram.base_url,  # 通道连的是上面那个假的 Telegram，不是 api.telegram.org
+    **{key: value for fake in others.values() for key, value in fake.config().items()},  # 别的几家也连本地的假服务器
 )
 
 
@@ -592,9 +616,15 @@ if fresh:
     app.tasks.add({"title": "整理下载文件夹", "kind": "agent", "prompt": "把下载文件夹里超过 30 天的文件列出来，按类型分好，先别删", "schedule": {"type": "weekly", "days": [5], "time": "18:00"}, "enabled": False})
     app.tasks.add({"title": "站起来活动一下", "kind": "reminder", "prompt": "", "schedule": {"type": "interval", "minutes": 45}})
 server, url = server_module.create_server(app, ui, port=options.port)
+for name in ("feishu", "dingtalk"):  # 收消息的长连接换成假的（不用装 SDK）；发消息照常走 HTTP，连的是假服务器
+    server.web.channels.factories[name] = others[name].factory
 lifecycle.start(server.web)  # 和正式程序一样，定时任务和聊天通道只在网页界面开着的时候运行
 print(f"演示已启动，所有回复都是预设的，不花钱。在浏览器里打开：\n\n    {url}\n\n数据在 {root}。按 Ctrl-C 退出。", flush=True)
 print(f"\n假的 Telegram：机器人的 token 是\n\n    {TOKEN}\n\n“手机”页面（在另一个标签页里打开）：\n\n    {telegram.base_url}/\n", flush=True)
+print("别的几家（都是编造的，在向导里照着填）：", flush=True)
+for name, fake in others.items():
+    print(f"    {platforms.label(name)}：" + "  ".join(f"{key} = {value}" for key, value in fake.credentials.items()), flush=True)
+print(f"\n它们的“手机”页面（上面选平台）：\n\n    {phone.url}\n", flush=True)
 try:
     server.serve_forever()
 except KeyboardInterrupt:
@@ -602,5 +632,8 @@ except KeyboardInterrupt:
 finally:
     lifecycle.stop(server.web, 3)  # 停下通道和任务（也会关掉启动过的假 MCP 服务器进程）
     telegram.stop()
+    phone.stop()
+    for fake in others.values():
+        fake.stop()
     docs_server.stop()
     shop.server.shutdown()

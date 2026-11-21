@@ -46,12 +46,14 @@
 这个 Chrome 用的是智狐自己的配置文件夹，和你平时用的浏览器完全分开，看不到你的任何登录；和它说话的是手写的 DevTools 协议客户端，
 走管道、不开端口，别的程序连不上。看网页直接做；输入文字、提交表单、去一个新的网站先问你，往密码框、银行卡里输入不管选了哪一档都要问。
 Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐自己写的一套浏览器工具（见下面的"浏览器：智狐自己的一个 Chrome"）。
-还可以接上你自己的 Telegram 机器人（网页上一个四步的向导，或者用命令行），在手机上和它聊天，照片和文件也能发。
-不需要公网地址，也不用开端口：是智狐去问 Telegram 有没有新消息（长轮询）。只有用 6 位配对码配对过的那个账号能用；
-要执行命令、改文件时，聊天里会带着"允许 / 拒绝"按钮先问你（在网页上答复也行，先到的算数）。飞书、QQ、钉钉、Discord、Slack 是下一批。
+还可以接上你自己的机器人：Telegram、Discord、Slack、飞书、钉钉或者 QQ（网页上一个四步的向导，或者用命令行），
+在手机上和它聊天，照片和文件也能发。不需要公网地址，也不用开端口：是智狐主动去问 Telegram 有没有新消息（长轮询），
+对别的平台是智狐自己连出去、一直开着一条 WebSocket（手写的 RFC 6455 客户端；飞书和钉钉用官方的 SDK，想用才装）。
+只有用 6 位配对码配对过的那个账号能用；要执行命令、改文件时，聊天里会先问你：有按钮的平台带着"允许 / 拒绝"按钮，
+没有按钮的平台请你回复"允许"或"拒绝"（在网页上答复也行，先到的算数）。WhatsApp 和企业微信要公网地址，以后再做。
 它也能在服务器上一直运行：`harness serve` 不开浏览器，照样运行聊天通道和定时任务，日志按 journald 的习惯写，
 收到 SIGTERM 时干净地退出，还附带一份 systemd 的配置；用 `harness channels setup` / `pair` 设置、配对好，
-之后在 Telegram 里让它做服务器上的杂事。
+之后在聊天软件里让它做服务器上的杂事。
 还可以定制自己的 Agent：一个 Markdown 文件（和 Claude Code 的 subagent 是同一种格式）写着它擅长什么、能用哪些工具和模型、
 怎么做事。主助手可以把一项任务交给它（子 Agent：它在自己的一段新对话里做，只把结论交回来），你也可以直接用它开始一段对话
 （角色）。它能用的工具永远不会比叫它的那一方多，它要执行的命令照样先问你（见下面的"自定义 Agent：子 Agent 和角色"）。
@@ -267,25 +269,46 @@ uv run harness --web
 终端界面不运行它们；在终端里也可以让助手添加或删除任务，等下次网页界面或者服务器模式开着时运行。"立即运行"会马上运行一次，不改变原来的时间表。助手替你添加或删除"让助手去做"的任务时，
 会先问你，因为这个任务以后会自己花钱；提醒不用问。
 
-### 聊天通道（Telegram）
+### 聊天通道
 
-打开 **扩展 → 通道**，点 **连接 Telegram**。一个四步的向导会带你做完：
+打开 **扩展 → 通道**，选一个平台。一个四步的向导会带你做完：
 
-1. **建一个机器人。** 在 Telegram 里打开 [@BotFather](https://t.me/BotFather)，发送 `/newbot`，起一个名字和一个以 `bot`
-   结尾的用户名，把它给你的 token 复制下来（`123456789:AAH…`）。
-2. **粘贴 token。** 智狐拿它问一次 Telegram（`getMe`），显示出机器人的 @用户名。token 只存在 `data/channels.json` 里
-   （只有你的账号能读），之后页面上只显示它的最后 4 位。
-3. **配对。** 页面上出现一个 6 位数字和倒计时。用你自己的 Telegram 账号把它发给你的机器人（或者点 **在 Telegram 里打开**，
-   在 Telegram 里点 Start（开始）时它会替你发过去）。配对好了，页面自己会进到下一步。
+1. **建一个机器人。** 向导里写着这个平台的步骤（见下面），带着它开发者后台的链接。
+2. **粘贴 token**（或者 ID 和密钥）。智狐拿它问一次平台，显示出机器人的名字。密钥只存在 `data/channels.json` 里
+   （只有你的账号能读），之后页面上只显示最后 4 位。以后再编辑时只要粘贴换了的那一项：空着的接着用存着的。
+3. **配对。** 页面上出现一个 6 位数字和倒计时。用你自己的账号把它发给你的机器人。Telegram 上可以点 **在 Telegram 里打开**，
+   点 Start（开始）时它会替你发过去；别的平台上这个按钮打开和机器人的聊天。配对好了，页面自己会进到下一步。
 4. **确认方式。** 每次确认（默认）、自动允许改文件，或者全部自动允许，只管这一个通道。选全部自动允许时会提醒你：
    选了它，聊天里的一句话就能让助手执行任何命令。
 
+每个平台怎么建机器人（向导和 `harness channels setup <平台>` 印出来的是同一份）：
+
+- **Telegram。** 在 [@BotFather](https://t.me/BotFather) 那里发送 `/newbot`，起一个名字和一个以 `bot` 结尾的用户名，
+  把它给你的 token 复制下来（`123456789:AAH…`）。
+- **Discord。** 在[开发者后台](https://discord.com/developers/applications)：**New Application** → **Bot** → **Reset Token**，
+  复制这串 token（它只显示这一次）。在 **Installation** 里勾上 **User Install**。粘贴 token 以后，配对那一步会给你一个链接，
+  用它把机器人加到你自己的账号（**Add to My Apps**），再打开和它的私聊。不用打开 Message Content Intent：和机器人的私聊不受它限制。
+- **Slack。** [新建一个应用](https://api.slack.com/apps?new_app=1)，选 **From a manifest**，粘贴向导替你复制的那份清单
+  （权限、`message.im` 事件、按钮、Socket Mode 和 `/zhifox` 命令一次都设好了）。然后在 **OAuth & Permissions** 里点
+  **Install to Workspace**，得到 Bot token（`xoxb-…`）；在 **Basic Information → App-Level Tokens** 里生成一个带
+  `connections:write` 权限的，得到 App-level token（`xapp-…`）。在这个应用的 **Messages** 标签里聊天；命令写成
+  `/zhifox new`、`/zhifox stop`、`/zhifox status`、`/zhifox help`。
+- **飞书。** 先运行 `uv sync --extra feishu`。在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，复制 **App ID**
+  和 **App Secret**，加上 **机器人** 这项能力，开通"读取用户发给机器人的单聊消息""以应用的身份发消息""获取与上传图片或文件资源"
+  这几项权限。先把智狐连上（保存下面这项设置时它必须开着），再到 **事件与回调** 里，事件和回调都选"使用长连接接收事件"，
+  添加事件 `im.message.receive_v1` 和回调 `card.action.trigger`，最后创建一个版本并发布。
+- **钉钉。** 先运行 `uv sync --extra dingtalk`。在[钉钉开发者后台](https://open-dev.dingtalk.com)创建一个应用（没有公司也行：
+  在钉钉里自己建一个团队，你就是管理员），复制 **Client ID** 和 **Client Secret**，加上 **机器人** 这项能力，消息接收模式选
+  **Stream 模式**，然后发布机器人和应用的版本。钉钉免费版的组织每个月调用接口的次数有上限。
+- **QQ。** 用你的 QQ 登录 [QQ 开放平台](https://q.qq.com/qqbot/)，创建一个机器人（个人账号最多 5 个）。在它的 **开发设置**
+  里复制 **AppID** 和 **AppSecret**，事件选 WebSocket。你自己是管理员，不用上线、不用沙箱就能直接和它私聊。
+
 之后直接给你的机器人发消息就行。照片和文件经过的检查和页面上的附件一样（Word、Excel、PowerPoint 变成文字；
-语音和视频暂时还不支持）。聊天里可以用这几个命令：
+语音和视频暂时还不支持）。聊天里可以用这几个命令（在 Slack 里写成 `/zhifox new` 这样）：
 
 | 命令 | 作用 |
 |---|---|
-| `/new` | 开始一段新对话（之前那段还在会话栏里） |
+| `/new` | 开始一段新对话（之前那段还在会话栏里）。`/new <Agent 的名字>`：新的一段用这个自定义 Agent 当角色 |
 | `/stop` | 停下正在进行的这一轮，连同正在运行的命令；排着的消息也不再处理 |
 | `/status` | 模型、确认方式、当前的会话、现在在做什么、今天和本月花了多少 |
 | `/help` | 怎么用 |
@@ -293,9 +316,9 @@ uv run harness --web
 接上的通道那一行写着它的状态（在线、连接中、出错了以及原因）、绑定的账号、最后一次有人和它说话的时间，
 以及每个聊天正在做什么（带一个"停止"按钮）。和每一样存在你电脑上的东西一样，它有 **在访达中显示**（`channels.json`）、
 **编辑** 和 **删除**（在原地确认），另外还有一个启用开关和 **重新配对**（换一个账号配对；原来那个账号不再理会）。
-其他平台也列在那里，写着各自需要什么：飞书、QQ、钉钉、Discord、Slack 是下一批（它们的官方接口也不需要公网地址）；
-WhatsApp 和企业微信需要公网地址，以后再做；个人微信没有官方的机器人接口（别的办法都是冒充你登录，违反微信的使用条款，
-账号可能被封），所以不支持。
+某个平台要的 SDK 没装的话，它的卡片和那一行上会写着，连同要运行的命令。还没做的平台也列在那里，写着各自需要什么：
+WhatsApp 和企业微信只会把消息推到一个公网能访问的网址，以后再做；个人微信没有官方的机器人接口（别的办法都是冒充你登录，
+违反微信的使用条款，账号可能被封），所以不支持。
 
 通道在智狐作为一个长期运行的程序开着的时候工作：网页界面（`harness --web`），或者服务器模式
 （`harness serve`，见下面的[部署到服务器](#部署到服务器)）。终端界面不运行它们。
@@ -397,9 +420,10 @@ uv run --project "/这个项目的完整路径" harness
 | 共用的目录 | [harness/catalog.py](harness/catalog.py) | 有哪些 Skill、哪些 Agent 随时会变，系统提示词却不能变。两份列表都放在用户消息里，变了才再附一次 |
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你的对话同时运行并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
-| 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（现在是 Telegram）：手写的 Bot API 客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、带按钮的确认（见[聊天通道：在 Telegram 里和智狐说话](#聊天通道在-telegram-里和智狐说话)） |
+| 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（Telegram、Discord、Slack、飞书、钉钉、QQ）：每个平台一个小小的客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、用按钮或者回复文字答复的确认（见[聊天通道：在聊天软件里和智狐说话](#聊天通道在聊天软件里和智狐说话)） |
+| WebSocket 和 HTTP | [harness/net/](harness/net/) | Discord、Slack、QQ 的消息顺着机器人自己连出去的一条 WebSocket 推过来。一个用 `socket` + `ssl` 写的小小的 RFC 6455 客户端（掩码、分片、ping/pong、关闭握手、大小上限、超时、HTTP 代理），和一个"发 JSON、收 JSON"的 HTTPS 帮手（出错信息和重定向里都不带 token） |
 | 无界面模式 | [harness/serve.py](harness/serve.py)、[harness/log.py](harness/log.py)、[harness/webui/lifecycle.py](harness/webui/lifecycle.py) | 服务器上没有浏览器。`harness serve` 不开浏览器就启动调度器和通道，日志按 journald 的习惯写、密钥都遮住，收到 SIGTERM 时干净地退出；网页界面和无界面模式在同一个地方启动、停下这些后台的部分 |
-| 会话的认领 | [harness/claims.py](harness/claims.py) | 同一段会话可能同时开在网页上和 Telegram 里。每一轮开始前先"认领"这段会话，两边就不会同时往里写、把对方的那一轮冲掉 |
+| 会话的认领 | [harness/claims.py](harness/claims.py) | 同一段会话可能同时开在网页上和聊天软件里。每一轮开始前先"认领"这段会话，两边就不会同时往里写、把对方的那一轮冲掉 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
 | 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
 | 回复里的 Markdown | [harness/webui/markdown.js](harness/webui/markdown.js) | 模型用 Markdown 回答。一个手写的小渲染器在回复逐字输出的同时把它画成标题、列表、表格、代码块，从不把模型的输出当作 HTML |
@@ -742,9 +766,10 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 运行结束时马上发一次。被停下的运行照样给每个工具调用补上结果（还是 `Agent._run_tools` 里的那个 `finally`），
 所以它存下来的会话和别的会话一样可以接着聊。
 
-### 聊天通道：在 Telegram 里和智狐说话
+### 聊天通道：在聊天软件里和智狐说话
 
-聊天通道是进到同一个循环的又一条路。以 Telegram 为例（[harness/channels/](harness/channels/)）：
+聊天通道是进到同一个循环的又一条路。以 Telegram 为例（[harness/channels/](harness/channels/)）；别的平台只是"消息怎么来"不一样
+（见下面的[六个平台，三种收消息的办法](#六个平台三种收消息的办法)）：
 
 ```
 你的手机 ──消息──► Telegram 的服务器 ◄──长轮询（getUpdates）── 智狐（你的电脑或服务器）
@@ -787,6 +812,38 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
    （页面顶上的一条提示，以及 **扩展 → 通道** 里的一张卡片）；哪边的答复先到就算哪边的，聊天里的那条消息随即改成写明
    是谁决定的（"已在网页上允许"）。没有按钮的平台可以回一句"允许"或"拒绝"；打字的答复要等这条请求真的发到了聊天里才算数。
    选了 **自动允许改文件** 或 **全部自动允许** 时，没问你就做了的每一步照样会在聊天里说一声（"已自动允许：run_command $ …"）。
+6. **每个聊天可以有自己的角色。** 发 `/new researcher`，新的一段会话就用自定义 Agent *researcher* 当角色，
+   和在网页上用它开始一段对话一样（用它的提示词、只有它放开的工具、它写了模型的话用那个模型）。
+
+#### 六个平台，三种收消息的办法
+
+每个平台是 `Channel` 的一个子类：把平台的事件换成同样的 `Inbound` / `Press`，再把 router 交来的话发出去
+（[base.py](harness/channels/base.py)）。router、会话、配对、确认、网页都不知道自己在和哪个平台说话。
+没有一个需要公网地址，因为连接永远是智狐主动打开的：
+
+| 平台 | 消息怎么来 | 确认 | 排版 | 说明 |
+|---|---|---|---|---|
+| Telegram | 长轮询（`getUpdates`） | 按钮 | 一小套 HTML | 一条最多 4096 个 UTF-16 单位 |
+| Discord | Gateway 的 WebSocket（[gateway.py](harness/channels/gateway.py)）：Hello、Identify / Resume、心跳 | 按钮（message components） | Markdown 原样（`####` 以下的标题变成粗体） | 只要 `DIRECT_MESSAGES` 这一类事件；读私聊不需要 Message Content 这个特权。斜杠命令登记在和机器人的私聊里 |
+| Slack | Socket Mode 的 WebSocket：每个信封马上回执 | Block Kit 按钮 | mrkdwn（`*粗体*`、`<网址\|文字>`，`& < >` 要转义） | Slack 会把 `/` 开头的话都拦下来，所以命令写成 `/zhifox new`、`/zhifox stop`…… |
+| 飞书 | 官方 SDK `lark-oapi` 的长连接 | 卡片上的按钮（发不出卡片时退回成文字） | `post` 消息里 `md` 标签的 Markdown | 可选：`uv sync --extra feishu` |
+| 钉钉 | 官方 SDK `dingtalk-stream` 的 Stream 模式 | 回复"允许"或"拒绝"（能回传点击的按钮要先在卡片平台上建模板） | 钉钉的 markdown | 可选：`uv sync --extra dingtalk`。回复先用消息带来的 `sessionWebhook`，过期了改用单聊的主动发送接口 |
+| QQ | Gateway 的 WebSocket（和 Discord 是同一套），`access_token` 会定期换 | 回复"允许"或"拒绝" | 纯文字 | 一条消息 60 分钟内最多"被动回复" 4 次，之后改成主动消息 |
+
+- **网关**（[gateway.py](harness/channels/gateway.py)）给 Discord 和 QQ 写一遍、两边共用：第一次心跳先等"间隔 × 随机数"；
+  下一次心跳时上一次的还没回 ACK，说明连接已经僵死了（不做关闭握手直接断开，然后 Resume）；op 7 是"请你重连"，
+  op 9 说会话还能不能接着用。关闭代码的表每家各给一份：token 不对、不许用的 intents 这种情况直接停下不再重连，因为 Discord
+  一天里登录超过 1000 次会把机器人的 token 作废；同样的原因，重连的间隔最多拉到 120 秒。
+- **WebSocket 客户端**（[net/websocket.py](harness/net/websocket.py)）实现了 RFC 6455 里客户端要的那一部分：握手和
+  `Sec-WebSocket-Accept` 的核对；发出去的每一帧都加掩码（服务器发来带掩码的帧就拒绝）；分片的消息，中间可以夹着控制帧；
+  ping/pong；关闭握手；协议出错、文字不是合法的 UTF-8、消息太大时分别用 1002、1007、1009 关闭（太大的消息看到长度就拒绝）；
+  处处有超时；照着 `HTTPS_PROXY` 走 HTTP 代理（CONNECT）。明文的 `ws://` 只允许连这台电脑自己（测试里的假服务器）。
+- **官方 SDK** 是可选的依赖，只在 [feishu.py](harness/channels/feishu.py) 和 [dingtalk.py](harness/channels/dingtalk.py) 里导入，
+  而且只用来收消息：发消息、改卡片、下载文件都是普通的 HTTPS 请求，和别的平台一样。SDK 的几处毛病（模块级的事件循环、
+  没有公开的"停下"、Secret 不对时永远在重试、日志里打印连接用的票据）各用一个小小的 `Listener` 类绕开，测试也是从这里换成假的。
+- **加一个平台** 要做三件事：一个 `Channel` 的子类；在 `hub.FACTORIES` / `CHECKS` / `CLASSES` 里各登记一下；在
+  [platforms.py](harness/channels/platforms.py) 里写上它的一行（stage 改成 `ready`、要填哪几项），再在
+  [guides.py](harness/channels/guides.py) 里写上建机器人的步骤，网页上的向导和 `harness channels setup` 都照着它显示。
 
 ### 三类工具
 
@@ -1145,9 +1202,10 @@ MCP 的调用也会停下来等你批准。
 
 ## 部署到服务器
 
-智狐可以住在一台 Linux 服务器上，听你的 Telegram 机器人吩咐（"磁盘还剩多少？""今天早上以来 nginx 的日志里有没有报错？"
+智狐可以住在一台 Linux 服务器上，听你的机器人吩咐（"磁盘还剩多少？""今天早上以来 nginx 的日志里有没有报错？"
 "把 worker 重启一下"）。服务器上要有 Python 3.11 以上的版本和 [uv](https://docs.astral.sh/uv/)，能用 HTTPS 访问模型厂商的接口和
-`api.telegram.org`；不需要开放任何入站的端口。
+你用的聊天平台（`api.telegram.org`，`discord.com` 和 `gateway.discord.gg`，`slack.com` 和 `wss-*.slack.com`，`open.feishu.cn`，
+`api.dingtalk.com`，`api.bot.qq.com`）；不需要开放任何入站的端口。
 
 ```bash
 git clone https://github.com/Akxan/zhifox-agent-harness.git ~/zhifox && cd ~/zhifox
@@ -1158,6 +1216,12 @@ uv run harness channels pair telegram      # 打印一个 6 位配对码；把�
 uv run harness channels approval telegram ask    # ask | edits | all（默认是 ask）
 uv run harness channels status
 ```
+
+同样的命令也认 `discord`、`slack`、`feishu`、`dingtalk`、`qq`。`setup` 会印出这个平台的步骤，一项一项地问（密钥输入时不显示）；
+也可以先放在环境变量里（`DISCORD_BOT_TOKEN`，`SLACK_BOT_TOKEN` 和 `SLACK_APP_TOKEN`，`FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，
+`DINGTALK_CLIENT_ID` 和 `DINGTALK_CLIENT_SECRET`，`QQ_APP_ID` 和 `QQ_APP_SECRET`），或者从标准输入传进来，一行一项。
+飞书和钉钉要先装它们的 SDK：`uv sync --extra feishu --extra dingtalk`（以后运行 `uv sync` 时也带上同样的 `--extra`，
+不然它们会被卸掉）。
 
 然后把它作为服务运行。systemd 的配置文件 `/etc/systemd/system/zhifox.service`：
 
@@ -1202,15 +1266,17 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
   所以永远不对外开放。要用的话走 SSH 隧道：`ssh -L 8765:127.0.0.1:8765 你的服务器`，然后打开带口令的那个地址。
   没有终端的时候，这个地址不写进日志（能读日志的人都能拿它来用）；它在 `$HARNESS_DATA_DIR/.web-address` 里，
   只有你的账号能读。服务器上没有文件管理器，所以 **在访达中显示** 按钮改成告诉你文件的完整路径。
-- **连不上 Telegram？** 把 `TELEGRAM_API_BASE` 指向一个自己搭的 Bot API 服务器，或者设置 `HTTPS_PROXY`。
-- **更新。** `cd ~/zhifox && git pull && uv sync && sudo systemctl restart zhifox`。数据和 `.env` 都不会被动到。
+- **网络连不上？** 设置 `HTTPS_PROXY`：HTTPS 请求和手写的 WebSocket 客户端（Discord、Slack、QQ）都会走它（用 CONNECT 的
+  HTTP 代理）。Telegram 还可以把 `TELEGRAM_API_BASE` 指向一个自己搭的 Bot API 服务器。飞书 SDK 的长连接不走代理。
+- **更新。** `cd ~/zhifox && git pull && uv sync && sudo systemctl restart zhifox`（用了飞书、钉钉的话，`uv sync` 带上
+  `--extra feishu` / `--extra dingtalk`）。数据和 `.env` 都不会被动到。
 
 远程运维的安全模型：只为配对过的那个账号服务（陌生人得不到回复，群聊不理，配对码 10 分钟后或者猜错 5 次就作废）；
 默认的确认方式是 **每次确认**，每次都先给你看完整的命令和工作目录，你再点"允许"；**全部自动允许** 会先提醒你，
 而且要一个通道一个通道地有意去选；同一个聊天里一次只跑一轮，`/stop` 能停下它，连同正在运行的命令；
-机器人的 token 只存在 `channels.json` 里（权限 600），从不发给浏览器或模型，导出时遮住，助手的文件工具在任何模式下都打不开这个文件；
-shell 命令的环境里看不到 `TELEGRAM_BOT_TOKEN` 和各家的 API 密钥。你的 Telegram 账号成了这台服务器的一把钥匙，
-所以要保护好它（开两步验证），并且给这个服务用一个专门的、没有特权的用户。
+机器人的 token 和应用的密钥只存在 `channels.json` 里（权限 600），从不发给浏览器或模型，导出时遮住，日志和出错信息里都换掉，
+助手的文件工具在任何模式下都打不开这个文件；shell 命令的环境里看不到 `TELEGRAM_BOT_TOKEN`、别的平台存密钥的那几个环境变量
+和各家的 API 密钥。你的聊天账号成了这台服务器的一把钥匙，所以要保护好它（开两步验证），并且给这个服务用一个专门的、没有特权的用户。
 
 ## 数据存在哪里
 
@@ -1228,7 +1294,7 @@ shell 命令的环境里看不到 `TELEGRAM_BOT_TOKEN` 和各家的 API 密钥�
 | `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
-| `data/channels.json` | 聊天通道：机器人的 token（这是密钥）、机器人的 @用户名、配对的主人的账号编号和名字、确认方式、正在用的配对码、每个聊天接着的是哪一段会话，以及 Telegram 的消息读到了哪里。只有你的账号能读；助手的文件工具打不开它；导出时遮住 |
+| `data/channels.json` | 聊天通道，每个平台一份：凭据（机器人的 token，或者应用的 ID 和密钥；密钥就是钥匙）、机器人的名字、配对的主人的账号编号和名字、确认方式、正在用的配对码、每个聊天接着的是哪一段会话，以及 Telegram 的消息读到了哪里。只有你的账号能读；助手的文件工具打不开它；导出时遮住 |
 | `data/browser/profile/` | 智狐自己那个 Chrome 的配置文件夹：你在里面登录过的网站的 cookie 和登录状态、缓存、历史记录。只有你的账号能读。"设置 → 浏览器 → 清除"会删掉它 |
 | `data/browser/shots/` | 浏览器每一步截图的大图，文件名是内容的 SHA-256。30 天后删掉，对话里的小图还在 |
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
@@ -1275,8 +1341,8 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 万一在数据文件夹里发现像 `.env` 这样的文件，也会跳过。`data/mcp.json` 存在的话照样导出，但所有密钥都换成
 `<removed-from-backup>`：环境变量、请求头、名字像 key、token、password 的字段、`--token` 这类开关后面的值、网址里的密码，
 以及长得像 API 密钥的字符串；名字都留着，恢复以后知道要填回哪几项。这个文件不是合法的 JSON 的话，整个不导出，
-宁可少导出一份也不冒险带出密钥。`data/channels.json` 里机器人的 token 和正在用的配对码，
-导出时也同样换成 `<removed-from-backup>`。符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
+宁可少导出一份也不冒险带出密钥。`data/channels.json` 里每个机器人的 token、应用的密钥和正在用的配对码，
+导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
 `README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出。压缩包在数据文件夹以外的临时文件里生成，
 发给浏览器之后就删掉。
 
@@ -1286,8 +1352,8 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 2. 把压缩包解压到数据文件夹里（默认是项目里的 `data/`），覆盖同名的文件：`unzip -o zhifox-backup-….zip -d data`
    （用访达双击解压也行：把解压出来的文件夹里的内容拷进 `data/`）。想完全回到备份时的样子，先把现在的 `data/`
    挪到一边，再解压到一个新建的空 `data/` 里。
-3. 重新启动智狐。备份里有 MCP 服务器的话，把它们的密钥重新填上；接过聊天通道的话，把机器人的 token 重新粘贴一次
-   （"扩展 → 通道 → 编辑"，或者 `harness channels setup telegram`）。
+3. 重新启动智狐。备份里有 MCP 服务器的话，把它们的密钥重新填上；接过聊天通道的话，把它们的 token 或者密钥重新粘贴一次
+   （"扩展 → 通道 → 编辑"，或者 `harness channels setup <平台>`）。
 
 暂时还不能在网页界面里导入。
 
@@ -1408,11 +1474,18 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 [tests/fake_mcp.py](tests/fake_mcp.py)：一个两代协议都会说、stdio 和 HTTP 都能用的假 MCP 服务器。
 多媒体库的测试在 [tests/test_media.py](tests/test_media.py)（原件的存储和去重；从 Claude 和 OpenAI 两种格式的旧历史里找回附件；
 筛选和翻页；拼不出路径的编号；只在没有会话再用时才删原件）和 `tests/test_webui.py` 里多媒体的那一节（接口和响应头）。
-聊天通道的测试对着 [tests/fake_telegram.py](tests/fake_telegram.py)：一个本地的假 Bot API，像 Telegram 一样检查每条消息的 HTML 和长度，
-测试代码扮演你的手机。测的有：配对（对的、错的、过期的配对码，陌生人和群聊不理）、重启前后长轮询的 offset、拆开长回复、
-照片和文件、用按钮、打字和在网页上答复确认（几边抢着答）、每个通道自己的确认方式、`/new` `/stop` `/status`、
-Telegram 上的一轮和网页上的一轮同时进行、按来源 `channel` 记账，以及 token 从不出现在页面、日志和导出里
-（[tests/test_channels.py](tests/test_channels.py)、[tests/test_channels_web.py](tests/test_channels_web.py)）。
+聊天通道的测试对着每个平台各一个本地的假服务器，测试代码扮演你的手机：[tests/fake_telegram.py](tests/fake_telegram.py)
+（像 Telegram 一样检查每条消息的 HTML 和长度的假 Bot API）、[tests/fake_discord.py](tests/fake_discord.py) 和
+[tests/fake_qq.py](tests/fake_qq.py)（REST 加一个网关：能让你重连、让会话失效、不回心跳、用任意代码关掉连接）、
+[tests/fake_slack.py](tests/fake_slack.py)（Web API 加 Socket Mode，没收到回执的信封会再推一遍），以及
+[tests/fake_feishu.py](tests/fake_feishu.py) / [tests/fake_dingtalk.py](tests/fake_dingtalk.py)（HTTP 接口，加一个代替 SDK 的假长连接）。
+一套组装（[tests/channel_rig.py](tests/channel_rig.py)）把整个程序对着它们中的任何一个跑起来。测的有：配对（对的、错的、过期的配对码，
+陌生人和群聊不理）、同一条消息推了两次、拆开长回复、照片和文件、用按钮、打字和在网页上答复确认（几边抢着答）、
+每个通道自己的确认方式、`/new` `/stop` `/status`、断线重连和 Resume、限流，以及 token 和密钥从不出现在页面、日志、出错信息和导出里
+（[tests/test_channels.py](tests/test_channels.py)、[tests/test_channels_web.py](tests/test_channels_web.py)、`tests/test_channels_<平台>.py`、
+[tests/test_channels_platforms.py](tests/test_channels_platforms.py)）。装了 SDK 的时候，飞书的事件分发器和真的钉钉 Stream 客户端
+也会对着假服务器跑一遍；没装就跳过这几个。WebSocket 客户端和 HTTPS 帮手有自己的测试，对着本地的假服务器和假代理
+（[tests/test_websocket.py](tests/test_websocket.py)、[tests/test_net_http.py](tests/test_net_http.py)）。
 服务器模式和命令行在 [tests/test_serve.py](tests/test_serve.py)，其中有一个测试启动真实的 `harness serve` 进程，再用 SIGTERM 停下它。
 Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 自定义 Agent 在 [tests/test_agents.py](tests/test_agents.py)（文件格式和检查、只会变少的工具 allow-list、在假的家目录下存取和从 Claude Code 导入、
@@ -1444,8 +1517,9 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 它还预先接好了几个假的 MCP 服务器（其中一个启动不了、一个停用了）；"从 Claude 导入"读的是临时目录里编造的 Claude 配置，
 不是你电脑上的。
 全新的演示目录里预先放了一段"有多媒体库之前"的旧会话，"多媒体"里一打开就有东西可看，包括只剩文字的 Word 文件。
-演示还会启动一个假的 Telegram：它打印一个编造的机器人 token（粘贴到"通道"的向导里），以及一个简陋的"手机"页面的地址，
-在那个页面上可以发配对码、聊天、点"允许 / 拒绝"。
+演示还会给每个聊天平台各启动一个假的：每一家打印一个编造的 token（或者 ID 和密钥），粘贴到"通道"的向导里；
+另外打印两个简陋的"手机"页面的地址（一个给 Telegram，一个上面可以选别的平台），在那里可以发配对码、聊天、点"允许 / 拒绝"。
+加 `--no-sdk` 看飞书、钉钉的 SDK 没装时页面是什么样子。
 演示里浏览器是开着的：开始一段新对话，发一句含有"演示商店"的话（比如"用浏览器看看演示商店里有什么"），助手会用真的 Chrome
 打开演示在本机起的一个小商店网页：先问你能不能去这个网站，然后读页面、点搜索框、输入（又问你一次）、截图。
 加上 `--browser-window` 可以看着 Chrome 的窗口操作；这台电脑上没有 Chrome 的话，助手会说找不到。
@@ -1473,7 +1547,8 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
   HTML 按原文显示成文字，链接只认 http、https、mailto，不支持缩进四格的代码块、引用式链接和脚注。代码着色只认常见语言的
   注释、字符串、数字和关键字。终端界面照原样显示 Markdown 原文。
 - 定时任务和聊天通道只在网页界面或者 `harness serve` 开着的时候运行；定时任务最多同时三个。
-  聊天通道目前只有 Telegram，能收文字、图片和文件（还不能收语音和视频）。两次运行（或者一次运行和你的对话）改同一个文件的同一处时不会合并：
+  聊天通道能收文字、图片和文件（还不能收语音和视频）；WhatsApp 和企业微信要公网地址，还不支持。Discord、Slack、飞书、钉钉、QQ
+  是照着它们官方的文档写的，目前只对着本地的假服务器测过，还没有接过真的机器人。两次运行（或者一次运行和你的对话）改同一个文件的同一处时不会合并：
   每次改动整个做完，后改的那一边发现原文已经变了就会报错，模型会重新读一遍再改。
   提醒只显示在页面上，不会弹出系统通知。
 - 换成英文或西班牙语之后，工具返回的提示（比如"没有编号为 9 的待办"）和终端 `/tools` 里工具的说明仍然是中文：

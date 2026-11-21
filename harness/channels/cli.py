@@ -1,19 +1,22 @@
 """命令行里设置聊天通道：在没有浏览器的服务器上，用这几条命令代替网页上的"通道"那一页。
 
     harness channels status                       每个平台的情况
-    harness channels setup telegram               填机器人的 token（不回显；也可以放在环境变量 TELEGRAM_BOT_TOKEN 里）
-    harness channels pair telegram                显示配对码，等你从自己的账号发给机器人
-    harness channels approval telegram ask        这个通道里要不要先问你：ask / edits / all
-    harness channels enable|disable telegram      打开、关掉
-    harness channels remove telegram              删掉这个平台的全部设置
+    harness channels setup <平台>                 照着步骤建机器人，填 token 或 ID 和密钥（密钥不回显；也可以先放在环境变量里，
+                                                  比如 TELEGRAM_BOT_TOKEN、SLACK_BOT_TOKEN，见 platforms.py 的 fields）
+    harness channels pair <平台>                  显示配对码，等你从自己的账号发给机器人
+    harness channels approval <平台> ask          这个通道里要不要先问你：ask / edits / all
+    harness channels enable|disable <平台>        打开、关掉
+    harness channels remove <平台>                删掉这个平台的全部设置
 
-和网页用的是同一套规则（hub.connect 检查 token，store.py 管配对码和确认方式），这里只管怎么问、怎么打印。
+平台是 telegram、discord、slack、feishu（飞书）、dingtalk（钉钉）、qq。
+和网页用的是同一套规则（hub.connect 检查凭据，store.py 管配对码和确认方式，guides.py 是建机器人的步骤），
+这里只管怎么问、怎么打印。
 
 智狐开着（作为服务在运行）的时候也能用：改的是 channels.json，开着的那个两秒内就会发现（见 hub.py 的 _watch）。
 配对时：智狐开着的话，由它去收你发来的配对码，这里只是等着看配对成了没有；没开着的话，这里自己临时连上
-Telegram 去收（同一个机器人同一时间只能有一处在收消息），配好就退出。
+平台去收（同一个机器人同一时间只能有一处在收消息），配好就退出。
 
-token 绝不打印出来：输入时不回显，之后只显示最后 4 位。
+密钥绝不打印出来：输入时不回显，之后只显示最后 4 位。
 """
 
 from __future__ import annotations
@@ -27,37 +30,36 @@ import time
 from typing import IO
 
 from ..config import APP_NAME, Config
-from ..i18n import k, t
+from ..i18n import fill, k, t
 from ..permissions import MODES
 from .base import ChannelError, Event, Inbound
+from .guides import GUIDES
 from .hub import FACTORIES, connect
-from .platforms import READY, label
+from .platforms import ORDER, fields, label, missing_sdk
 from .router import pairing_reply
-from .store import ChannelStore
-
-TOKEN_ENV = {"telegram": "TELEGRAM_BOT_TOKEN"}  # 每个平台的 token 可以放在哪个环境变量里（.env 里写也行）
+from .store import ChannelStore, handle
 
 
 def add_parser(commands: argparse._SubParsersAction) -> None:
     """在 harness 的命令行里加上 channels 这一组命令。"""
-    parser = commands.add_parser("channels", help=t("聊天通道（Telegram……）：设置、配对、查看状态"))
+    parser = commands.add_parser("channels", help=t("聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：设置、配对、查看状态"))
     actions = parser.add_subparsers(dest="channels_action", required=True, metavar="ACTION")
     actions.add_parser("status", help=t("每个平台的情况"))
     for name, help_text in (
-        ("setup", t("填机器人的 token（不回显）。也可以先把它放在环境变量 TELEGRAM_BOT_TOKEN 里")),
+        ("setup", t("照着步骤建机器人，填 token 或 ID 和密钥（密钥不回显）。也可以先放在环境变量里，比如 TELEGRAM_BOT_TOKEN")),
         ("pair", t("显示配对码，等你从自己的账号发给机器人")),
         ("enable", t("打开这个通道")),
         ("disable", t("关掉这个通道")),
         ("remove", t("删掉这个平台的全部设置（token、绑定的账号）")),
     ):
         action = actions.add_parser(name, help=help_text)
-        action.add_argument("platform", choices=sorted(READY))
+        action.add_argument("platform", choices=ORDER)
         if name == "pair":
             action.add_argument("--no-wait", action="store_true", help=t("只显示配对码，不等"))
         if name == "remove":
             action.add_argument("--yes", action="store_true", help=t("不再问一遍"))
     approval = actions.add_parser("approval", help=t("这个通道里要不要先问你：ask 每次都问，edits 改工作目录里的文件不用问，all 全部自动允许"))
-    approval.add_argument("platform", choices=sorted(READY))
+    approval.add_argument("platform", choices=ORDER)
     approval.add_argument("mode", choices=list(MODES))
 
 
@@ -104,7 +106,7 @@ ALL_WARNING = k("注意：确认是你和模型之间唯一的一道关卡。全
 
 
 def _require(store: ChannelStore, platform: str) -> None:
-    if not store.get(platform)["token"]:
+    if not store.configured(platform):
         raise ChannelError(t("还没有连接 {platform}：先运行 harness channels setup {id}。", platform=label(platform), id=platform))
 
 
@@ -135,7 +137,7 @@ def _when(moment: float | None) -> str:
 def _status(store: ChannelStore, config: Config, out: IO[str]) -> int:
     running = _running(config)
     print(t("{name}正在运行：聊天通道开着。", name=APP_NAME) if running else t("{name}没有在运行：聊天通道只在 harness serve 或 harness --web 开着的时候工作。", name=APP_NAME), file=out)
-    for platform in sorted(READY):
+    for platform in ORDER:
         info = store.summary(platform)
         print(file=out)
         print(label(platform), file=out)
@@ -143,7 +145,7 @@ def _status(store: ChannelStore, config: Config, out: IO[str]) -> int:
             print("  " + t("还没有设置。运行 harness channels setup {id}。", id=platform), file=out)
             continue
         bot = info["bot"] or {}
-        print("  " + t("机器人：@{username}（token {hint}）", username=bot.get("username", "?"), hint=info["token_hint"]), file=out)
+        print("  " + t("机器人：{bot}（密钥 {hint}）", bot=bot.get("handle") or "?", hint=info["token_hint"]), file=out)
         print("  " + (t("已打开") if info["enabled"] else t("已关闭")), file=out)
         owner = info["owner"]
         print("  " + (t("主人：{name}（{when} 配对）", name=owner["name"], when=_when(owner["paired_at"])) if owner else t("还没有配对。运行 harness channels pair {id}。", id=platform)), file=out)
@@ -156,28 +158,47 @@ def _status(store: ChannelStore, config: Config, out: IO[str]) -> int:
     return 0
 
 
-def _read_token(platform: str) -> str:
-    """token 从哪儿来：环境变量（或者 .env 里写的）→ 标准输入（不是终端的时候，方便脚本用管道传进来）→ 问你（不回显）。"""
-    name = TOKEN_ENV.get(platform, "")
+def _read(field: dict) -> str:
+    """一项要填的东西从哪儿来：环境变量（或者 .env 里写的）→ 标准输入（不是终端的时候，方便脚本用管道传进来，
+    一行一项，按 fields 的顺序）→ 问你（密钥不回显）。"""
+    name = field.get("env", "")
     if name and os.environ.get(name, "").strip():
         return os.environ[name].strip()
     if not sys.stdin.isatty():
         return sys.stdin.readline().strip()
-    return getpass.getpass(t("粘贴机器人的 token（输入的内容不会显示出来）：")).strip()
+    if field["secret"]:
+        return getpass.getpass(t("粘贴 {field}（输入的内容不会显示出来）：", field=t(field["label"]))).strip()
+    return input(t("{field}：", field=t(field["label"]))).strip()
+
+
+def _guide(platform: str, out: IO[str]) -> None:
+    """照着 guides.py 印出建机器人的步骤（和网页上向导的第一步是同一份）。"""
+    for number, step in enumerate(GUIDES.get(platform, []), start=1):
+        print(f"{number}. " + fill(t(step["text"]), {"code": step.get("code", "")}), file=out)
+        if step.get("link"):
+            print("   " + step["link"], file=out)
+        if step.get("copy"):
+            print(file=out)
+            print(step["copy"], file=out)
+            print(file=out)
 
 
 def _setup(store: ChannelStore, config: Config, platform: str, out: IO[str]) -> int:
-    if platform == "telegram":
-        print(t("1. 在 Telegram 里找到 @BotFather（https://t.me/BotFather），发送 /newbot，按提示给机器人起名字。"), file=out)
-        print(t("2. 它会给你一串 token，长这样：123456789:AAH…。把它粘贴到下面。"), file=out)
-    token = _read_token(platform)
-    if not token:
+    problem = missing_sdk(platform)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
+    _guide(platform, out)
+    given = {field["id"]: _read(field) for field in fields(platform)}
+    if not any(given.values()):
         print(t("没有收到 token。"), file=sys.stderr)
         return 1
-    bot = connect(store, config, platform, token)
-    print(t("已连接机器人 @{username}（token {hint}）。", username=bot["username"], hint=store.summary(platform)["token_hint"]), file=out)
+    bot = connect(store, config, platform, given)
+    print(t("已连接机器人 {bot}（密钥 {hint}）。", bot=bot["handle"], hint=store.summary(platform)["token_hint"]), file=out)
+    if bot.get("install"):
+        print(t("先用这个链接把机器人加到你自己的账号（Add to My Apps），才能和它私聊：{link}", link=bot["install"]), file=out)
     if store.get(platform)["owner"] is None:
-        print(t("下一步：运行 harness channels pair {id}，把配对码发给 @{username}。", id=platform, username=bot["username"]), file=out)
+        print(t("下一步：运行 harness channels pair {id}，把配对码发给 {bot}。", id=platform, bot=bot["handle"]), file=out)
     return 0
 
 
@@ -185,9 +206,13 @@ def _pair(store: ChannelStore, config: Config, platform: str, out: IO[str], wait
     _require(store, platform)
     before = store.get(platform)["owner"]
     code = store.start_pairing(platform)
-    bot = (store.get(platform)["bot"] or {}).get("username", "")
+    summary = store.summary(platform)
+    bot = handle(store.get(platform)["bot"])
     print(t("配对码：{code}（{minutes} 分钟内有效）", code=f"{code['code'][:3]} {code['code'][3:]}", minutes=round((code["expires"] - store.clock()) / 60)), file=out)
-    print(t("用你自己的 Telegram 账号，把这 6 位数字发给 @{username}。也可以直接打开：https://t.me/{username}?start={code}", username=bot, code=code["code"]), file=out)
+    print(t("用你自己的 {platform} 账号，把这 6 位数字发给 {bot}。", platform=label(platform), bot=bot), file=out)
+    link = (summary["pairing"] or {}).get("link")
+    if link:
+        print(t("也可以直接打开：{link}", link=link), file=out)
     if not wait:
         return 0
     if _running(config):
@@ -232,7 +257,7 @@ def _pair_here(store: ChannelStore, config: Config, platform: str, before: dict 
     def deliver(event: Event) -> None:
         if not isinstance(event, Inbound):
             return
-        outcome, reply = pairing_reply(store, event)
+        outcome, reply = pairing_reply(store, event, channel.capabilities)
         if reply:
             try:
                 channel.send(event.chat, reply)

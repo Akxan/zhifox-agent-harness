@@ -17,8 +17,13 @@ DEFAULT_TIMEOUT = 60
 MAX_TIMEOUT = 600
 MAX_OUTPUT_CHARS = 20_000
 
-# 不让命令看到各家的 API key，免得密钥被打印出来或发到别处
-SECRET_ENV_VARS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "TELEGRAM_BOT_TOKEN"}
+# 不让命令看到各家的 API key 和聊天机器人的密钥，免得被打印出来或发到别处。
+# 机器人的那几个和 channels/platforms.py 里各平台 fields 的 env 一一对应（tests/test_channels_platforms.py 会对一遍）
+SECRET_ENV_VARS = {
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY",
+    "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN",
+    "FEISHU_APP_SECRET", "DINGTALK_CLIENT_SECRET", "QQ_APP_SECRET",
+}
 
 
 def _clip(output: str) -> str:
