@@ -62,6 +62,8 @@ const handlers = {
     renderBrowser(event.browser);
     renderComputer(event.computer);
     if (settings.open) renderSettings();
+    // 换模型的面板：开着的话重新取一次目录（换了模型、填了密钥、这一轮聊完了……）；第一次先取好，点开时马上就有
+    if (modelsFlyout.isOpen() || !modelsCatalog) refreshModels();
     renderApproval(event.approval);
     renderCommands(event.commands);
 

@@ -202,7 +202,7 @@ def test_deepseek_cannot_search_and_says_how_to_get_it(start_openai):
     web = item(overview(start_openai()), "web")
     assert web.status == "unavailable" and web.tools == [] and web.approval is None
     assert "DeepSeek" in web.reason and "Claude" in web.reason
-    assert actions(web)[0] == ("settings", "model")
+    assert actions(web)[0] == ("models", "")
 
 
 def test_web_search_switched_off_at_startup(start):
@@ -217,7 +217,7 @@ def test_the_computer_needs_a_model_that_can_see(start_openai, start_gpt, tmp_pa
     with_computer(deepseek)
     computer = item(overview(deepseek), "computer")
     assert computer.status == "unavailable" and "看不了图片" in computer.reason and "DeepSeek" in computer.reason
-    assert actions(computer)[0] == ("settings", "model") and computer.tools == []
+    assert actions(computer)[0] == ("models", "") and computer.tools == []
 
     gpt = start_gpt(data_dir=tmp_path / "gpt")  # 自己的数据目录：设置文件里记着的不是上面那个 DeepSeek
     with_computer(gpt)

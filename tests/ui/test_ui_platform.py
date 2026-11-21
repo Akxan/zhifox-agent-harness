@@ -125,7 +125,7 @@ def _walk(page, look) -> None:
     look("记忆（看一条）")
     steps.escape_closes(page, "memory-dialog")
 
-    steps.open_dialog(page, "#model", "settings")
+    steps.open_dialog(page, "#settings-open", "settings")
     look("设置")
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令")
@@ -134,6 +134,10 @@ def _walk(page, look) -> None:
     steps.escape_closes(page, "commands-dialog")
     if page.js(steps.is_open("settings")):
         steps.escape_closes(page, "settings")
+
+    steps.open_models(page)  # 换模型的面板：底下写着打开它的快捷键（⌘. / Ctrl+.）
+    look("换模型")
+    steps.escape_closes_flyout(page, "models", "#model")
 
     for tab in ("skills", "mcp", "channels", "agents"):
         steps.extensions_tab(page, tab)
@@ -222,7 +226,7 @@ def test_computer_use_says_plainly_that_windows_is_not_supported_yet(visit):
     steps.expand_capabilities(page)
     assert "Windows 上暂时不支持操作整台电脑" in page.text("#caps")
     steps.close_side(page)
-    steps.open_dialog(page, "#model", "settings")
+    steps.open_dialog(page, "#settings-open", "settings")
     page.wait("document.querySelector('#computer-checks .computer-check')", what="设置里“操作整台电脑”的检查")
     checks_text = page.text("#computer-checks")
     assert "Windows 上暂时不支持操作整台电脑" in checks_text

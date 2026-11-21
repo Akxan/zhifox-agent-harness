@@ -613,3 +613,21 @@ def test_in_the_web_it_answers_that_the_chat_is_not_here(bot):
     assert result_of(s.api.requests[2]) == {"text": NOT_IN_CHAT, "error": True}
     assert not s.browser.of_type("confirm")  # 不弹确认卡片
     assert s.tg.uploads == []
+
+
+def test_a_stop_that_came_just_before_registering_still_counts():
+    # 点"停止"时，界面只通知那一刻已经登记好的。紧接着才开始等的那一步（比如刚要开始上传的文件），
+    # 以前收不到这个停止，要等它自己做完才停：/stop 正好落在"开始发"和"开始等"之间时，这一轮停不下来
+    #（test_stop_while_a_file_is_uploading 偶尔失败就是这样）。现在登记时已经停了，马上调用
+    from harness.webui.ui import WebUI
+
+    ui = WebUI()
+    ui.begin_turn("发")
+    ui.request_stop()
+    called: list[str] = []
+    forget = ui.on_stop(lambda: called.append("停"))
+    assert called == ["停"]
+    forget()  # 取消登记照样不出错
+    ui.begin_turn("下一轮")  # 新的一轮：旗子放下了，新登记的不会被马上调用
+    ui.on_stop(lambda: called.append("又停"))
+    assert called == ["停"]

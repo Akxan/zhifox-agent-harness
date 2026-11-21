@@ -64,7 +64,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   screen points (Retina included). Claude uses Anthropic's computer use toolset; GPT and Gemini get hand-written
   stand-ins.
 - 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
-  or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
+  or `.skill` file, paste a GitHub link, or import the skills you already use in Claude Code, Codex, Cursor, Gemini CLI
+  and [other tools](#importing-from-other-tools). The model sees only each skill's name and
   description until a task calls for it, and the scripts a skill brings still need your approval to run.
 - 🤖 **Custom agents, used two ways.** One Markdown file, in the same format as a Claude Code subagent, describes an
   agent: what it's good at, which tools and model it may use, and its instructions. The main assistant can hand a task
@@ -98,7 +99,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🧩 **MCP, written by hand.** Connect any [Model Context Protocol](https://modelcontextprotocol.io) server, local
   (stdio) or remote (Streamable HTTP), and its tools become the model's tools. The client speaks both the current
   stateless protocol (2026-07-28) and the older handshake-based one; every call asks you first unless you mark that
-  tool "don't ask", and servers already set up in Claude Desktop or Claude Code can be imported in one click.
+  tool "don't ask", and servers already set up in Claude Desktop, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Goose
+  and [twenty-odd other tools](#importing-from-other-tools) can be imported in a few clicks.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. A middle mode lets commands that only look (`ls`, `df -h`, `git status`, `journalctl`…)
   run without asking while anything that could change something still asks; the check behind it is deliberately
@@ -250,6 +252,7 @@ Each part of the harness has its own file or directory:
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
+| Importing from other tools | [harness/imports/](harness/imports/) | You already set up MCP servers, skills and agents in other AI tools, each in its own place and format. A registry of where two dozen tools keep them, and small readers that rewrite each format the ZhiFox way before the usual checks (see [Importing from other tools](#importing-from-other-tools)) |
 | Shared catalog | [harness/catalog.py](harness/catalog.py) | The lists of skills and agents change at any time, but the system prompt mustn't. Both lists travel in user messages, attached again only when they change |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
@@ -267,6 +270,7 @@ Each part of the harness has its own file or directory:
 | App icon | [harness/webui/manifest.py](harness/webui/manifest.py), [harness/webui/icons/](harness/webui/icons/), [tests/make_icons.py](tests/make_icons.py) | A bookmark, a Chrome shortcut or an installed app needs a large icon and a web app manifest, or it shows a grey letter. The PNGs are drawn once from the logo by headless Chrome and committed; the server hands out only those, behind the token |
 | Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
+| Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
@@ -859,7 +863,7 @@ written by hand in [harness/mcp/](harness/mcp/) without the official SDK, one fi
 | [client.py](harness/mcp/client.py) | The protocol itself: find out which generation the server speaks, list its tools page by page, call them |
 | [bridge.py](harness/mcp/bridge.py) | MCP tool ↔ ZhiFox tool: names, parameter schemas and results |
 | [manager.py](harness/mcp/manager.py) | Starting, stopping and restarting servers, their status, and the per-conversation snapshot |
-| [config.py](harness/mcp/config.py), [importers.py](harness/mcp/importers.py) | `data/mcp.json`, hiding secrets from the page, importing from Claude Desktop and Claude Code |
+| [config.py](harness/mcp/config.py), [importers.py](harness/mcp/importers.py) | `data/mcp.json`, hiding secrets from the page, importing from other tools (see [Importing from other tools](#importing-from-other-tools)) |
 
 A call travels like this:
 
@@ -953,8 +957,9 @@ use it keep working. A skill marked `disable-model-invocation: true` is left out
 when you ask for it by name), and the model can still read it when you do.
 
 **Installing.** Only you can install, change or delete a skill, from the web UI; the model can't. ZhiFox keeps its own
-folder, `data/skills/`, and never reads Claude Code's folders on its own: **Import from Claude Code** looks in
-`~/.claude/skills/` and the project's `.claude/skills/` only when you click it, and copies the ones you tick, so later
+folder, `data/skills/`, and never reads other tools' folders on its own: **Import from other tools** looks in
+`~/.claude/skills/`, `~/.agents/skills/`, `~/.codex/skills/`, `.github/skills/` and the other documented places (see
+[Importing from other tools](#importing-from-other-tools)) only when you click it, and copies the ones you tick, so later
 changes on either side don't affect the other. Everything that comes from outside is shown to you before anything is
 written (its name, description, files and source) and treated as hostile:
 
@@ -1056,10 +1061,81 @@ Claude Code's tool names work: `Write` and `MultiEdit` mean `Edit`, `Grep`, `Glo
 `Agent`, and names ZhiFox doesn't have are kept and listed but ignored. ZhiFox's own `Browser` gives all the browser
 tools, when the caller has them (the browser is on); a subagent then works in its caller's tabs, under its caller's
 approvals. `Computer` likewise gives the computer use tools when the caller has them; the subagent shares its caller's
-screen session, and every one of its steps still asks you, with its name on the card. **Import from Claude Code** reads
-`~/.claude/agents/` and the project's `.claude/agents/` only when you click it, and copies what you tick. Three
+screen session, and every one of its steps still asks you, with its name on the card. **Import from other tools** reads
+Claude Code's, GitHub Copilot's, Gemini CLI's, OpenCode's, Codex's and other tools' agent folders only when you click it,
+rewrites the ones in another format the ZhiFox way, and copies what you tick (see
+[Importing from other tools](#importing-from-other-tools)). Three
 examples (a researcher with read-only files and web search, a read-only code reviewer, a writing assistant with no
 tools) are one click away; none is installed by default. The model has no tool that creates or changes agents.
+
+### Importing from other tools
+
+You may already have MCP servers, skills and agents set up in Claude Code, Cursor, VS Code, Codex, Gemini CLI or another
+AI tool. **Import from other tools** (one button on each of the Skills, MCP and Agents tabs) reads the places those
+tools document, shows what it found, and copies the items you tick into ZhiFox's own folders. Paths starting with `~`
+are in your home folder; the others are in the working folder (the project level):
+
+| Tool | MCP servers | Skills | Agents |
+|---|---|---|---|
+| [Claude Code](https://code.claude.com/docs/en/mcp) | `~/.claude.json` (yours, and this project's entry), `.mcp.json` | `~/.claude/skills`, `.claude/skills` | `~/.claude/agents`, `.claude/agents` (copied as is) |
+| [Claude Desktop](https://modelcontextprotocol.io/docs/develop/connect-local-servers) | `claude_desktop_config.json` (macOS `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`, Linux `~/.config/Claude/`) | | |
+| [Cursor](https://cursor.com/docs/context/mcp) | `~/.cursor/mcp.json`, `.cursor/mcp.json` | `~/.cursor/skills`, `.cursor/skills` | `~/.cursor/agents`, `.cursor/agents` |
+| [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) | the user `mcp.json` (Code and Code - Insiders), `settings.json` → `mcp.servers`, `.vscode/mcp.json` | | |
+| [GitHub Copilot](https://docs.github.com/en/copilot/reference/custom-agents-configuration) | `~/.copilot/mcp-config.json` | `~/.copilot/skills`, `.github/skills` | `~/.copilot/agents`, `.github/agents` (`*.agent.md`) |
+| [Codex](https://learn.chatgpt.com/docs/extend/mcp) | `~/.codex/config.toml`, `.codex/config.toml` (TOML) | `~/.codex/skills`, `.codex/skills` | `~/.codex/agents`, `.codex/agents` (TOML) |
+| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | `~/.gemini/settings.json`, `.gemini/settings.json` | `~/.gemini/skills`, `.gemini/skills` | `~/.gemini/agents`, `.gemini/agents` |
+| [Agent Skills](https://agentskills.io/client-implementation/adding-skills-support) (the folder many tools share) | | `~/.agents/skills`, `.agents/skills` | |
+| [Windsurf](https://docs.devin.ai/windsurf/plugins/cascade/mcp) | `~/.codeium/windsurf/mcp_config.json`, `~/.config/devin/mcp_config.json`, `.devin/mcp_config.json` | `~/.config/devin/skills`, `.windsurf/skills`, `.devin/skills` | |
+| [Cline](https://docs.cline.bot/mcp/mcp-overview) | `~/.cline/data/settings/cline_mcp_settings.json`, and its two older locations | | |
+| [Roo Code](https://roocodeinc.github.io/Roo-Code/features/mcp/using-mcp-in-roo) | `mcp_settings.json` in VS Code's globalStorage, `.roo/mcp.json` | `~/.roo/skills`, `.roo/skills` | |
+| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | `~/.continue/config.yaml` (YAML), `~/.continue/config.json`, `~/.continue/mcpServers/`, `.continue/mcpServers/` | | |
+| [Zed](https://zed.dev/docs/ai/mcp) | `settings.json` → `context_servers`, `.zed/settings.json` | | |
+| [OpenCode](https://opencode.ai/docs/mcp-servers/) | `~/.config/opencode/opencode.json(c)`, `opencode.json(c)`, `.opencode/opencode.json(c)` | `~/.config/opencode/skills`, `.opencode/skills` | `~/.config/opencode/agents`, `.opencode/agents` |
+| [Goose](https://goose-docs.ai/docs/guides/config-files) | `~/.config/goose/config.yaml` (YAML; Windows `%APPDATA%\Block\goose\config\`) | `.goose/skills` | |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | `~/.qwen/settings.json`, `.qwen/settings.json` | `~/.qwen/skills`, `.qwen/skills` | `~/.qwen/agents`, `.qwen/agents` |
+| [Kiro](https://kiro.dev/docs/mcp/configuration/) | `~/.kiro/settings/mcp.json`, `.kiro/settings/mcp.json` | `~/.kiro/skills`, `.kiro/skills` | `~/.kiro/agents`, `.kiro/agents` (JSON or Markdown) |
+| [Amazon Q Developer](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-configuration.html) | `~/.aws/amazonq/mcp.json`, `.amazonq/mcp.json` | | `~/.aws/amazonq/cli-agents`, `.amazonq/cli-agents` (JSON) |
+| [Junie](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html) | `~/.junie/mcp/mcp.json`, `.junie/mcp/mcp.json` | `~/.junie/skills`, `.junie/skills` | |
+| [Factory](https://docs.factory.com/cli/configuration/custom-droids) | | `~/.factory/skills`, `.factory/skills` | `~/.factory/droids`, `.factory/droids` |
+| [Amp](https://ampcode.com/docs/customize/skills) | | `~/.config/amp/skills`, `~/.config/agents/skills` | |
+| [Warp](https://docs.warp.dev/agents/capabilities/mcp) | `~/.warp/.mcp.json`, `.warp/.mcp.json`, `~/.agents/.mcp.json`, `.agents/.mcp.json` | | |
+| [LM Studio](https://lmstudio.ai/docs/app/mcp) | `~/.lmstudio/mcp.json` | | |
+
+The page opens on the tab you came from. At the top, every tool where something was found has a row with counts for the
+three kinds: click the current kind to jump to that tool's group, or another kind to switch to that tab's import page.
+Each group says which tool, which level (yours or this project's) and which file it came from; a file that can't be read
+shows the reason (for example "not valid JSON: line 4, column 3") and the other files are listed as usual. At the
+bottom, a collapsed **Not found** list names every tool ZhiFox knows for that kind, the places it looked, and a link to
+the tool's documentation.
+
+Each tool writes these files differently, so before checking an item with ZhiFox's own rules (the same ones as adding it
+by hand), [harness/imports/](harness/imports/) rewrites it the ZhiFox way and lists what changed on the item:
+
+- **MCP:** `servers` (VS Code), `context_servers` (Zed), TOML tables (Codex), the YAML `extensions` map (Goose), the
+  YAML list of Continue and OpenCode's `command` array all become Claude Desktop's format. References to environment
+  variables in any of the tools' styles (`${env:X}`, `$X`, `{env:X}`, `${{ secrets.X }}`, Codex's
+  `bearer_token_env_var`, Goose's `env_keys`) become ZhiFox's `${X}`, read from the environment when the server starts;
+  editor variables such as `${workspaceFolder}` are filled in; things only that tool can do (VS Code's `${input:…}`,
+  an `envFile`) are flagged for you to edit afterwards. Settings that skip approval in the other tool (`autoApprove`,
+  `alwaysAllow`, `trust`, and ZhiFox's own `approval` in a cloned `.mcp.json`) are never copied: an imported server
+  asks before every call. Settings ZhiFox doesn't use are listed as "not brought over" instead of being kept silently.
+  A server whose configuration refers to one of ZhiFox's model keys (`${ANTHROPIC_API_KEY}`) is shown but can't be
+  ticked, and the server refuses it again on import.
+- **Skills** are the same `SKILL.md` folders everywhere, so they are copied through the same hostile-archive checks as
+  an upload: links and hidden files inside a skill are skipped, paths, sizes and file counts are capped.
+- **Agents:** Claude Code's files are copied unchanged. Other tools' files are rewritten with only the fields ZhiFox
+  uses: tool names are mapped (`execute` and `run_shell_command` → `Bash`, `read_file` → `Read`, `server/*` and
+  `@server` → `mcp__server`…), tools ZhiFox doesn't have are dropped, a "read-only" or "no shell" setting stays
+  restrictive, an unrecognized model becomes "same as the caller", Codex's `developer_instructions` and Kiro's `prompt`
+  (including a `file://` next to the agent) become the body. A converted agent can only ever get fewer tools, never
+  more.
+
+Nothing is read until you open the page, nothing is run, and nothing is written outside ZhiFox's own data folder. The
+page only sends back "which source, which name"; the server reads the file again when importing. The values of
+environment variables and headers never reach the browser, only their last 4 characters. Adding a tool is one function
+in [registry.py](harness/imports/registry.py), plus a reader in [mcp_shapes.py](harness/imports/mcp_shapes.py) or
+[agent_formats.py](harness/imports/agent_formats.py) when its format is new. YAML is read by a small, safe subset parser
+([yaml_lite.py](harness/imports/yaml_lite.py)) rather than a new dependency: anchors, aliases and tags are refused.
 
 ### Browser use: a Chrome of its own
 
@@ -1595,14 +1671,34 @@ This starts a small server on your computer and opens the chat page in your brow
   text); for old Office files only the extracted text is left, and the library says so. A single attachment can't be
   deleted, because it is part of the conversation's record; deleting the conversation deletes its originals unless
   another conversation uses the same file.
-- **Settings** (the gear at the top right, or ⌘, / Ctrl+,; the button showing the current model opens it too). Add or delete each provider's API key, sync
-  each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
-  that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
-  and a list of placeholders such as `{name}` and `{workspace}` that are filled in before sending; other braces are left
-  alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
+- **Switch model** (the button in the middle of the top bar that shows the current model, such as
+  "Claude (Anthropic) · claude-opus-5-5", or ⌘. / Ctrl+.). A small panel opens right under the button; on a phone it
+  rises from the bottom of the screen. Models are grouped by provider (Claude, GPT, Gemini, DeepSeek), and each group
+  says whether its API key is set (showing only the last 4 characters). A provider without a key shows **Add API key →**,
+  which opens Settings at that provider's key field. Each model shows its name, what it can do, its price, and a check
+  mark on the one in use. What it can do is worked out by the program: **Web search** (Claude only, and only while web
+  search is on), **Reads images**, **Reads PDFs**, **Text only** (DeepSeek) and **Peak and off-peak prices** (DeepSeek).
+  Prices are US dollars per million tokens, input / output (hover a price for the off-peak one), or **No price**. Each
+  provider has a button that syncs its model list; once there are many models a search box stays at the top, and typing
+  anywhere in the list filters it. A model of the same provider is switched to at once and the conversation goes on, with
+  the result shown inside the panel. Another provider starts a new conversation, and if the current one already has
+  content, the panel first asks in place: "Switching to GPT starts a new conversation. This one is saved, and you can
+  come back to it any time." A conversation started with a custom agent keeps its persona when you switch, and the panel
+  says so. Keyboard: ↑ / ↓ (and Home / End) move, Enter picks, typing filters, Esc closes the panel and puts the focus
+  back on the button (while the in-place question is showing, Esc dismisses just the question first), and Tab stays
+  inside the panel. The shortcut isn't ⌘⇧M / Ctrl+Shift+M because Chrome uses that for its profile menu and Firefox for
+  its responsive design mode.
+- **Settings** (the gear at the top right, or ⌘, / Ctrl+,). Add or delete each provider's API key, sync each provider's
+  model list, enter model prices, and **edit the system prompt** (the text that tells the assistant who it is and how to
+  work). The prompt editor has a preview of exactly what the model receives and a list of placeholders such as `{name}`
+  and `{workspace}` that are filled in before sending; other braces are left alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
   conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
   a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
-  is also the way to pick up a newer built-in version after an upgrade. More sections at the bottom:
+  is also the way to pick up a newer built-in version after an upgrade. Models aren't chosen here: the **Current model**
+  section only shows the one in use, with a **Switch model** button that opens the model switcher. Why they're apart:
+  switching models is something you do in passing while chatting, entering keys or editing the prompt is something you
+  do now and then, and with one entrance for both you had to search a long page of settings just to change models. More
+  sections at the bottom:
   - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
     message on the page, and a system notification if the page is in the background and you allowed notifications).
     It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
@@ -1657,8 +1753,8 @@ This starts a small server on your computer and opens the chat page in your brow
     file. When a repository holds several skills, you pick which ones to install.
   - **Upload** takes a `.zip` or `.skill` file, a single `SKILL.md`, or a whole folder; you can also drag them onto the
     page.
-  - **Import from Claude Code** lists the skills in `~/.claude/skills/` and the project's `.claude/skills/`; tick the
-    ones to copy.
+  - **Import from other tools** lists the skills found in Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, the
+    shared `.agents/skills` and the [other supported tools](#importing-from-other-tools); tick the ones to copy.
   Everything is shown to you before it's installed, with a reminder that the assistant follows a skill's instructions,
   so you should install only from sources you trust. Changes take effect from your next message. Like memory edits,
   changing, deleting or installing a skill waits until the current turn ends.
@@ -1668,8 +1764,8 @@ This starts a small server on your computer and opens the chat page in your brow
   in place). Click a row to see its model, tools and instructions. The editor has two modes, **Form** and **Source**
   (the whole file), and switching between them goes through ZhiFox, which writes the form into the file and reads the
   file back into the form, so the rules live in one place. Unsaved changes are guarded like memory edits. Above the
-  list: **New**, **Examples** (the researcher, the code reviewer and the writing assistant) and **Import from Claude
-  Code**. When there are no agents yet, the page explains the two ways to use one and shows the examples. Editing an
+  list: **New**, **Examples** (the researcher, the code reviewer and the writing assistant) and **Import from other
+  tools**. When there are no agents yet, the page explains the two ways to use one and shows the examples. Editing an
   agent doesn't have to wait for the current turn: a running conversation or subagent keeps the version it started with
   (see [Custom agents](#custom-agents-subagents-and-personas)).
 - **Start with an agent.** The arrow next to **New conversation** opens a menu of your agents (arrow keys, Enter and Esc
@@ -1687,8 +1783,9 @@ This starts a small server on your computer and opens the chat page in your brow
   argument per line, working folder, environment variables) or a URL (with headers such as `Authorization`).
   Secret values are typed into password fields, and afterwards the page shows only their last 4 characters; leave one
   blank when editing to keep it. **Paste JSON** takes a configuration copied from Claude Desktop, Claude Code, Cursor
-  or VS Code, and **Import from Claude** lists the servers configured in Claude Desktop and Claude Code (read only when
-  you open that page) so you can tick the ones to copy. Changes apply from the next conversation (see
+  or VS Code, and **Import from other tools** lists the servers configured in Claude Desktop, Claude Code, Cursor,
+  VS Code, Codex, Gemini CLI, Goose and the [other supported tools](#importing-from-other-tools) (read only when you open
+  that page) so you can tick the ones to copy; what had to be rewritten is written on each one. Changes apply from the next conversation (see
   [MCP](#mcp-tools-written-by-someone-else)).
 - **Appearance and motion** (the sun/moon button at the top right). A small panel with two rows:
   - **Appearance:** Light by default. You can switch to Dark, or to Match system.
@@ -1698,15 +1795,28 @@ This starts a small server on your computer and opens the chat page in your brow
     for reduced motion).
 
   Click outside the panel, press Esc or click the button again to close it.
-- **Language** (the globe button at the top right): 中文, English, Español. Switching doesn't reload the page: the
+- **Language** (the globe button at the top right): 中文, English, Español, in a small panel under the button, the same
+  kind as the appearance panel and the model switcher (on a phone it rises from the bottom). Each language is written
+  large in its own words, so everyone recognizes theirs, with its name in the current interface language underneath
+  (in the Chinese interface, English reads "英语"); the one in use says **Current language** and carries a thin check
+  mark. A note that is always fully visible says that this changes the interface text, and that the assistant replies in
+  whatever language you write to it in. ↑ / ↓ move, Enter picks, Esc closes. Switching doesn't reload the page: the
   conversation in progress, your scroll position and a half-written message all stay as they were, and the interface
   text changes in place. The choice is saved, and the terminal UI uses it too.
 
 Appearance, motion, and whether the two side panels are open are remembered by your browser, not stored in `data/`.
 
 **Switching models.** Within the same provider, the conversation continues. Switching to another provider starts a new
-conversation, because providers' conversation formats aren't compatible. The model you choose is saved, and the next
-launch (terminal included) uses it again.
+conversation, because providers' conversation formats aren't compatible; the one you leave is saved, and you can open
+it from the sidebar to carry on. The model you choose is saved, and the next launch (terminal included) uses it again.
+A conversation started with an agent keeps its persona whichever model you switch to. The switcher can be opened while
+the assistant is replying, so you can look, but picking a model then is turned down with a note to wait for the turn to
+end or press Stop (the panel says so); and while a chat channel is
+running a turn in this conversation, even a switch within the same provider is refused, because the new model has to be
+saved into the same conversation file the channel is writing (see [harness/claims.py](harness/claims.py)). What a switch
+would do (continue, start fresh, or ask first) is worked out by the program in
+[harness/model_catalog.py](harness/model_catalog.py), by the same rule `App.select_model` follows when it actually
+switches; the page only draws the answer.
 
 **Lifecycle.** Refreshing the page doesn't lose the current conversation. Closing the page leaves the program running;
 press Ctrl-C in the terminal to quit. If the assistant is in the middle of a reply, ZhiFox stops it and saves the turn
@@ -1715,7 +1825,7 @@ starting another tells you to use the one that's open.
 
 After a restart you start in a new conversation; earlier ones are in the sidebar. Opening an old conversation switches
 back to the provider and model it used, and from then on that model is your chosen model: new conversations and the next
-launch use it until you change it in Settings. While the assistant is replying, you can't open, rename or delete
+launch use it until you switch models again. While the assistant is replying, you can't open, rename or delete
 conversations; wait for the turn to finish or click **Stop**. Conversation titles keep at most 40 characters.
 
 **Options.** `--port 9000` sets the port. Without it, ZhiFox uses 8765, or lets the system pick a free port if 8765 is
@@ -1746,8 +1856,8 @@ chat. Each row says:
   and a button that opens the right place: the Browser or Computer use section of Settings, the Skills / MCP / Agents
   tab of Extensions, or **Start a new conversation**), or *unavailable here* (only Claude can search the web; a model
   that can't see images, like DeepSeek, can't use computer use; this computer has no desktop to control; the persona of
-  this conversation doesn't allow it; sending files only exists in chat channels). Unavailable rows are folded away at
-  the bottom.
+  this conversation doesn't allow it; sending files only exists in chat channels; when another model would do, a
+  **Switch model** button opens the model switcher). Unavailable rows are folded away at the bottom.
 - **whether it asks you first, in the current approval mode**: a small label (*Direct*, *Asks some*, *Asks first*,
   *Asks always*) and, when you open the row, a sentence such as "Reads files in the working folder without asking;
   asks you before editing files" with a line per kind of action. Change the mode from the bar at the top of the list
@@ -1988,7 +2098,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/todos` | Show open to-dos |
 | `/tools` | Show what 智狐 can do: what's in use, whether it asks first, how to turn on what's off (the same list as the web UI's info panel) |
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
-| `/model` | Show the model in use (switch models in the web UI's Settings) |
+| `/model` | Show every provider's models: which one is in use (✓), what each can do, its price, and which providers have no key yet (the same catalog as the web UI's model switcher; switch with its model button, ⌘. / Ctrl+.) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto readonly`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
@@ -2322,8 +2432,8 @@ only the page holding this run's token can save one; the command is started from
 shell, so nothing in an argument is treated as part of a command; the model has no tool that adds or changes servers,
 and its file tool can't touch `data/mcp.json` in any mode; the programs don't receive your model API keys, and a
 configuration that tries to pass one on (`${ANTHROPIC_API_KEY}`) is refused; the values of environment variables and
-headers never reach the browser, only their last 4 characters; and Claude's configuration files are read only when you
-open the import page, and only the servers you tick are copied. Arguments of an MCP tool call go to that server, which
+headers never reach the browser, only their last 4 characters; and other tools' configuration files are read only
+when you open the import page, and only the servers you tick are copied, without their "don't ask" settings. Arguments of an MCP tool call go to that server, which
 may be on the internet, so check them on the approval card.
 
 Reading, editing and deleting a memory from the info panel are guarded the same way. The page sends back the name it was shown
@@ -2500,7 +2610,11 @@ reach another file, headers, the security policy, and the maskable fox staying i
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
-ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). Scheduled
+ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The model
+catalog is in [tests/test_model_catalog.py](tests/test_model_catalog.py): the JSON the page gets (keys only as their
+last 4 characters, tags, entered and built-in prices, off-peak prices), the switch endpoint agreeing with it (the same
+provider continues, another provider starts anew and keeps the old conversation, refused while a chat channel holds the
+conversation, readable but not switchable during a turn, the persona kept), and the terminal's `/model`. Scheduled
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
 server with a fake clock, so no test waits for 9 a.m.: a run beside a chat turn, two runs side by side, the queue past
@@ -2544,8 +2658,14 @@ against a fake, installing twice, refusing a busy data folder, status parsing, `
 opens a browser: `tests/conftest.py` makes them fail.
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
+Importing from other tools is in [tests/test_imports.py](tests/test_imports.py): a fixture file for every supported
+source in a fake home folder (JSON, JSONC with comments, Codex's TOML, Goose's and Continue's YAML, Markdown agents with
+different frontmatter, Kiro's and Codex's agent files), the rewriting of each format, masking, refusing model-key
+references, never carrying "don't ask" settings over, malformed files, Windows locations and backslash paths, project vs
+user level, and the YAML subset parser; [tests/ui/test_ui_imports.py](tests/ui/test_ui_imports.py) clicks through the
+three import pages.
 Custom agents are in [tests/test_agents.py](tests/test_agents.py) (the file format and its checks, the tool allow-list
-that never grows, storage and Claude Code import under a fake home folder, prompts, the `<agents>` catalog, delegation
+that never grows, storage under a fake home folder, prompts, the `<agents>` catalog, delegation
 against the fake API: a fresh history, the allowed tools, model overrides, approvals, Stop reaching the subagent's own
 shell and MCP calls, step and depth limits, spending recorded as `subagent`, the main request's prefix staying
 byte-identical; and personas saved and restored) and [tests/test_agents_web.py](tests/test_agents_web.py) (the
@@ -2613,7 +2733,11 @@ overflow at 390 px wide in all three languages; the Show in Finder / Edit / Dele
 (conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
 in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
 the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
-switching to another provider in Settings; the browser tool's thumbnails; the web app manifest as Chrome itself reads it
+the model switcher (what it lists, switching within a provider at once, asking in place before leaving a conversation
+for another provider, the link to a missing key, the keyboard, translating in place, rising from the bottom on a phone,
+just appearing with reduced motion) and saving a key in Settings, then switching to that provider; the language panel
+(each language in its own words, the keyboard, rising from the bottom on a phone); the gear and ⌘, / Ctrl+, opening
+Settings while the model button doesn't; the browser tool's thumbnails; the web app manifest as Chrome itself reads it
 (`Page.getAppManifest` with no errors, `Page.getInstallabilityErrors` empty, every icon fetched at its stated size, the
 security policy still blocking every other image) and the title bar color following the chosen appearance; and editing and regenerating the last turn
 (where the buttons sit, ↑ in the empty input box, Esc warning before throwing away an edit, the confirmation when the
@@ -2628,8 +2752,9 @@ animation feels, real touch screens) is still checked by hand in a real browser 
 To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
 the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
 doesn't touch your keys or `data/`. It also comes with a few fake MCP servers already connected (one of them broken,
-one disabled) and a few made-up skills, and its **Import from Claude** (MCP) and **Import from Claude Code** (skills)
-read made-up Claude configurations and a fake `~/.claude/skills` from the temporary directory, not yours.
+one disabled) and a few made-up skills, and **Import from other tools** reads made-up Claude Desktop, Claude Code,
+Cursor, VS Code, Codex (TOML), Goose (YAML) and GitHub Copilot files, plus a deliberately broken Kiro file, from the
+temporary directory, not yours.
 A fresh demo directory also starts with an older conversation whose attachments predate the media library, so the
 Media tab has something to show, including the "text only" Word file. The demo also starts a fake of every chat
 platform: it prints a made-up token (or ID and secret) for each one to paste into the **Channels** wizard, and the
@@ -2757,7 +2882,8 @@ The web UI's server accepts connections from your own machine only. See
 ### Which models does it support?
 
 Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-2`) through Anthropic's native API, and GPT, Gemini and
-DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings. Only Claude has
+DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings or the model
+switcher. Only Claude has
 been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
 Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
 added with one entry in `PROVIDERS`.

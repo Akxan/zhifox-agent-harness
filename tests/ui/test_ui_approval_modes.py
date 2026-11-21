@@ -105,7 +105,7 @@ def test_a_task_can_choose_the_readonly_mode(page):
 
 
 def _open_commands(page) -> None:
-    steps.open_dialog(page, "#model", "settings")
+    steps.open_dialog(page, "#settings-open", "settings")
     page.click("#commands-open")
     page.wait("document.getElementById('commands-dialog').open && !document.getElementById('settings').open", what="不用问的命令窗口打开")
     steps.idle(page)

@@ -1,6 +1,8 @@
 // ---- 设置面板 ------------------------------------------------------------
-// 右上角的设置面板：换模型、填或清除密钥、改这个模型的价格，以及在面板里说结果的 say()。面板里浏览器、操作整台电脑、
+// 右上角齿轮打开的设置面板：填或清除密钥、改这个模型的价格，以及在面板里说结果的 say()。面板里浏览器、操作整台电脑、
 // 后台运行、预算和导出那几节，各自在 browser.js、computer.js、service.js、spending.js 里画。
+// 换模型不在这里：顶上的模型按钮打开专门的面板（models.js）。这里的"当前模型"只写现在用的是哪个，给一个去那儿的按钮，
+// 规矩（同一家接着聊、换到另一家开始新对话）只在那边和程序里各写一处。
 
 let settingsDrawn = '';
 
@@ -8,23 +10,6 @@ function say(text, kind) {
   const box = $('settings-message');
   box.textContent = text;
   box.className = 'settings-message ' + (kind || '');
-}
-
-function fillModels(providerId, selected) {
-  const provider = state.providers.find((one) => one.id === providerId);
-  const options = provider.models.map((name) => {
-    const option = el('option', null, name);
-    option.value = name;
-    return option;
-  });
-  if (!options.length) {
-    const none = el('option', null, provider.has_key ? t('（先点下面的“同步模型”）') : t('（先填写这一家的 API 密钥）'));
-    none.value = '';
-    options.push(none);
-  }
-  pickModel.replaceChildren(...options);
-  if (provider.models.includes(selected)) pickModel.value = selected;
-  $('apply-model').disabled = !provider.has_key || !provider.models.length;
 }
 
 // 把最新的状态画到设置面板上。面板开着的时候状态可能更新，所以要保留用户正在输入的内容和焦点。
@@ -36,17 +21,10 @@ function renderSettings() {
   const typed = {};
   for (const field of settings.querySelectorAll('input[data-keep]')) typed[field.dataset.keep] = field.value;
   const focused = settings.contains(document.activeElement) ? document.activeElement.dataset.keep : null;
-  const chosenProvider = settings.dataset.ready ? pickProvider.value : state.provider;
-  const chosenModel = settings.dataset.ready ? pickModel.value : state.model;
   settings.dataset.ready = '1';
 
-  pickProvider.replaceChildren(...state.providers.map((provider) => {
-    const option = el('option', null, provider.has_key ? provider.label : t('{provider}（未设置密钥）', { provider: provider.label }));
-    option.value = provider.id;
-    return option;
-  }));
-  pickProvider.value = chosenProvider;
-  fillModels(chosenProvider, chosenModel);
+  const current = state.providers.find((provider) => provider.id === state.provider);
+  $('settings-model-name').textContent = (current ? current.label + ' · ' : '') + state.model;
 
   $('keys').replaceChildren(...state.providers.map((provider) => {
     const row = el('div', 'key-row');
@@ -168,9 +146,8 @@ function openSettings() {
   settings.showModal();
 }
 
-$('model').addEventListener('click', openSettings);
-// 顶栏上专门的"设置"按钮（齿轮）。上面那个模型按钮也能打开，但它看起来只是"现在用的模型"，用户找不到设置在哪儿
-// （"我的设置在哪里 没看见啊"）。快捷键 ⌘, / Ctrl+, 见 keyboard.js
+// 顶栏上专门的"设置"按钮（齿轮）。以前设置藏在模型按钮里，看起来只是"现在用的模型"，用户找不到设置在哪儿
+// （"我的设置在哪里 没看见啊"）；现在模型按钮只管换模型（models.js）。快捷键 ⌘, / Ctrl+, 见 keyboard.js
 $('settings-open').addEventListener('click', openSettings);
 // 齿轮的提示里写上快捷键：Mac 上是 ⌘,，别的系统是 Ctrl+,
 retitleSettingsButton();
@@ -178,10 +155,21 @@ retitleSettingsButton();
 function retitleSettingsButton() {
   $('settings-open').title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
 }
+
+// 打开设置，翻到"API 密钥"，焦点放在这一家的密钥输入框里（换模型的面板里"填写 API 密钥 →"用的）
+function openSettingsKeys(providerId) {
+  openSettings();
+  const field = settings.querySelector('input[data-keep="key-' + CSS.escape(providerId) + '"]');
+  if (!field) return;
+  field.closest('.key-row').scrollIntoView({ block: 'center', behavior: calm() ? 'auto' : 'smooth' });
+  field.focus({ preventScroll: true });
+}
+
+$('settings-model-switch').addEventListener('click', () => { settings.close(); openModels(); });
 $('setup-open').addEventListener('click', openSettings);
 $('close-settings').addEventListener('click', () => settings.close());
 // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog, commandsDialog]) {
+for (const dialog of [settings, approvalDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog, commandsDialog]) {
   let pressedOutside = false;
   dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
   dialog.addEventListener('click', (click) => {
@@ -189,9 +177,3 @@ for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDi
     if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor(); else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else if (dialog === commandsDialog) requestCloseCommands(); else dialog.close();  // 正在编辑、还没保存的，先提醒
   });
 }
-pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));
-$('apply-model').addEventListener('click', async () => {
-  if (!pickModel.value) return;
-  const result = await call('/api/model', { provider: pickProvider.value, model: pickModel.value });
-  if (result.ok) settings.close(); else say(result.error, 'bad');
-});

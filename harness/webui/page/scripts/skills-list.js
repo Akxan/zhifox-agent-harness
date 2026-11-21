@@ -95,7 +95,7 @@ function skillAdders() {
     skillButton('plus', k('新建'), 'primary', 'bar:new', () => showSkillView({ kind: 'create', name: '', description: '', body: '' })),
     skillButton('link', k('从网址添加'), '', 'bar:url', () => showSkillView({ kind: 'url', url: '' })),
     skillButton('upload', k('上传'), '', 'bar:upload', () => showSkillView({ kind: 'upload' })),
-    skillButton('import', k('从 Claude Code 导入'), '', 'bar:import', startSkillImport),
+    skillButton('import', k('从其他工具导入'), '', 'bar:import', startSkillImport),
   ];
 }
 
@@ -109,7 +109,7 @@ function skillEmpty() {
   const bar = words.appendChild(el('div', 'skill-bar'));
   bar.append(...skillAdders());
   const spec = words.appendChild(el('p', 'hint skill-spec'));
-  spec.appendChild(tel('span', null, k('格式是开放的 Agent Skills 标准：在 Claude、Claude Code 里用的 Skill 可以直接装进来。')));
+  spec.appendChild(tel('span', null, k('格式是开放的 Agent Skills 标准：在 Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot 这些工具里用的 Skill 可以直接装进来。')));
   spec.appendChild(document.createTextNode(' '));
   const link = spec.appendChild(tel('a', null, k('看看规范')));
   link.href = SKILL_SPEC;

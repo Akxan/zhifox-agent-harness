@@ -3240,7 +3240,7 @@ def test_skill_changes_wait_for_the_turn_but_looking_does_not(serve, monkeypatch
     assert s.browser.post("/api/skill/fetch", {"url": "https://example.com/SKILL.md"})[0] == 200
     upload = {"kind": "file", "label": "SKILL.md", "data": b64(skill_text("up").encode())}
     assert s.browser.post("/api/skill/upload", upload)[0] == 200
-    assert s.browser.post("/api/skill/claude", {})[0] == 200
+    assert s.browser.post("/api/skill/scan", {})[0] == 200
     assert s.browser.post("/api/skill/refresh", {})[0] == 200
 
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
@@ -3359,24 +3359,28 @@ def test_installing_skills_from_a_url(serve, monkeypatch):
 
 def test_importing_from_claude_code(serve):
     s = serve()
-    status, preview = s.browser.post("/api/skill/claude", {})
+    status, preview = s.browser.post("/api/skill/scan", {})
     assert status == 200 and preview["candidates"] == [] and preview["stage"] == ""
-    assert preview["places"] == ["~/.claude/skills", ".claude/skills"]
+    assert preview["places"][:2] == ["~/.claude/skills", ".claude/skills"]  # Claude Code 的两处在最前面，后面是别的工具的
+    assert all(tool["found"] is False for tool in preview["tools"])
 
     home = Path.home() / ".claude" / "skills"
     write(home / "alpha" / "SKILL.md", skill_text("alpha"))
     write(home / "alpha" / "scripts" / "run.sh", "echo")
     write(s.config.workspace / ".claude" / "skills" / "beta" / "SKILL.md", skill_text("beta"))
-    status, preview = s.browser.post("/api/skill/claude", {})
-    assert status == 200
+    status, preview = s.browser.post("/api/skill/scan", {})
+    assert status == 200 and preview["source"]["kind"] == "import"
     found = {item["key"]: item for item in preview["candidates"]}
     assert sorted(found) == [".claude/skills/beta", "~/.claude/skills/alpha"]
-    assert found["~/.claude/skills/alpha"]["group"] == "~/.claude/skills" and found["~/.claude/skills/alpha"]["count"] == 2
+    assert found["~/.claude/skills/alpha"]["group"] == "Claude Code · ~/.claude/skills" and found["~/.claude/skills/alpha"]["count"] == 2
+    assert found["~/.claude/skills/alpha"]["tool"] == "Claude Code"
+    assert {tool["id"]: tool for tool in preview["tools"]}["claude-code"]["counts"]["skills"] == 2
     picks = [{"key": "~/.claude/skills/alpha", "name": "alpha"}]
     body, state = skill_change(s, "install", {"stage": preview["stage"], "picks": picks})
     assert body["results"][0]["ok"]
     (installed,) = state["skills"]
-    assert installed["name"] == "alpha" and installed["source"]["kind"] == "claude-code" and installed["files"] == 2
+    assert installed["name"] == "alpha" and installed["files"] == 2
+    assert (installed["source"]["kind"], installed["source"]["tool"], installed["source"]["label"]) == ("import", "Claude Code", "~/.claude/skills/alpha")
     assert (home / "alpha" / "SKILL.md").exists()  # 是复制，不是挪走
 
 

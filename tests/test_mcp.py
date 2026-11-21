@@ -25,6 +25,7 @@ from modes import has_mode
 import harness.mcp.client as mcp_client
 import harness.mcp.manager as mcp_manager
 from harness.cli import handle_command
+from harness.imports.places import Env
 from harness.mcp import ConfigError, McpConfig, McpManager, Snapshot, importers
 from harness.mcp.bridge import claude_schema, exposed_name, portable_schema, render
 from harness.mcp.client import McpClient
@@ -971,10 +972,11 @@ def test_a_broken_config_file_is_never_overwritten(tmp_path):
 
 
 @pytest.mark.parametrize("platform", ["darwin", "linux"])
-def test_importing_from_claude_desktop_and_claude_code(tmp_path, make_config, monkeypatch, platform):
-    monkeypatch.setattr(importers.sys, "platform", platform)
+def test_importing_from_claude_desktop_and_claude_code(tmp_path, make_config, platform):
+    # 不改这台电脑的 sys.platform：换一个 Env 就能假装在另一种系统上（见 imports/places.py）
     home = Path.home()
     workspace = make_config().workspace
+    env = Env(home=home, workspace=workspace, platform=platform)
     desktop = home / ("Library/Application Support/Claude" if platform == "darwin" else ".config/Claude") / "claude_desktop_config.json"
     desktop.parent.mkdir(parents=True)
     desktop.write_text(json.dumps({"mcpServers": {
@@ -992,9 +994,13 @@ def test_importing_from_claude_desktop_and_claude_code(tmp_path, make_config, mo
     config.put("filesystem", {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]})  # 已经有一模一样的
     config.put("github", {"command": "other"})  # 名字被占了，但连的不是同一个
 
-    found = importers.sources(workspace)
+    found = importers.sources(workspace, env)
     listed = {source["id"]: source for source in importers.preview(found, config)}
-    assert all(source["found"] for source in listed.values())
+    claude = ("claude-desktop", "claude-code-user", "claude-code-local", "claude-code-project")
+    assert all(listed[source]["found"] for source in claude)
+    assert not any(source["found"] for source in listed.values() if source["id"] not in claude)  # 别的工具的文件都没有
+    assert listed["claude-code-user"]["tool"] == "Claude Code" and listed["claude-code-user"]["level"] == "用户级"
+    assert listed["claude-code-user"]["path"] == "~/.claude.json" and listed["claude-code-project"]["path"] == ".mcp.json"
     desktop_items = {item["name"]: item for item in listed["claude-desktop"]["servers"]}
     assert desktop_items["filesystem"]["duplicate"] is True
     assert desktop_items["github"]["target"] == "github-2" and desktop_items["github"]["duplicate"] is False
@@ -1015,7 +1021,9 @@ def test_importing_from_claude_desktop_and_claude_code(tmp_path, make_config, mo
 
 def test_missing_sources_are_listed_as_not_found(tmp_path, make_config):
     found = importers.sources(make_config().workspace)
-    assert [source.found for source in found] == [False, False, False, False]
+    # 登记过的每一处都列出来（页面上"没找到的"），一个都没有找到
+    assert {"claude-desktop", "claude-code-user", "claude-code-local", "claude-code-project", "cursor-user"} <= {source.id for source in found}
+    assert found and not any(source.found or source.servers or source.problem for source in found)
 
 
 @pytest.mark.parametrize(

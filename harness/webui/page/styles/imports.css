@@ -1,0 +1,55 @@
+/* ---- 扩展 · 从其他工具导入：三页共用的那几块（见 scripts/imports.js） --------------------------
+   顶上的总览（找到了东西的工具，每样各几个）、每一组的标题、一项"换了什么"的小字、最下面收起来的"没找到的"。
+   颜色只用主题里的几个变量，深浅两套外观自动跟着换；动的只有箭头的平移（transform），别的只是颜色的过渡。 */
+.import-overview { display: grid; gap: 10px; margin: 0 0 4px; padding: 12px 14px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.import-caption { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+/* 一行放几个按宽度自己排：窄屏上一个一行；minmax(0, …) 免得一个长名字把整列撑宽 */
+.import-tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 8px 18px; margin: 0; padding: 0; list-style: none; }
+.import-tool { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+.import-mark { flex: none; display: grid; place-items: center; width: 24px; height: 24px; font: 600 10.5px/1 var(--mono); letter-spacing: -.02em; color: var(--accent); background: var(--accent-soft); border-radius: 7px; }
+/* 名字和几样的数目在一行里，放不下就折到下一行 */
+.import-tool-words { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 5px; min-height: 24px; }
+.import-tool-name { min-width: 0; max-width: 100%; margin-right: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.import-chip { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; min-height: 22px; padding: 0 8px; font-size: 11.5px; line-height: 1.4; color: var(--ink-2); background: var(--hover); border: 0; border-radius: 999px; font-variant-numeric: tabular-nums; transition: color .15s ease, background-color .15s ease; }
+.import-chip > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+button.import-chip:hover { color: var(--accent); background: var(--accent-soft); }
+.import-chip.here { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent); }
+.import-chip.bad { color: var(--err); background: var(--err-soft); }
+.import-chip .import-go { flex: none; width: 11px; height: 11px; transition: transform .2s var(--ease); }
+.import-chip:hover .import-go { transform: translateX(2px); }
+
+/* 一组的标题：哪个工具、哪一级、哪个文件。总览里点了数字会滚到这里（留一点上边距，免得贴着顶） */
+.import-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 9px; margin: 14px 0 8px; font-size: 13px; font-weight: 600; scroll-margin-top: 14px; border-radius: 6px; }
+.import-group:focus { outline: none; }
+.import-group:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
+.import-group-tool { color: var(--ink); }
+.import-level { padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1.6; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
+.import-group .path { min-width: 0; font: 400 11.5px/1.5 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.skill-view > .import-group { margin: 2px 0 -4px; }  /* Skill、Agent 两页的卡片之间本来就有间距 */
+
+/* 一项的"换了什么、丢了什么"：小一号、淡一些，每条前面一个小点 */
+.import-notes { display: grid; gap: 2px; margin: 2px 0 0; padding: 0; list-style: none; }
+.import-notes li { position: relative; padding-left: 13px; font-size: 12px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.import-notes li::before { content: ""; position: absolute; left: 3px; top: .66em; width: 4px; height: 4px; background: currentColor; border-radius: 50%; opacity: .55; }
+
+/* 最下面的"没找到的"：收起来的，打开以后一个工具一行：名字（链到官方文档）、去过的地方 */
+.import-missing { margin: 6px 0 4px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+.import-missing summary { width: fit-content; max-width: 100%; font-size: 12.5px; color: var(--ink-2); cursor: pointer; border-radius: 6px; }
+.import-missing summary:hover { color: var(--ink); }
+.import-missing-lead { margin: 8px 0 10px; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
+.import-missing-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; margin: 0; padding: 0; list-style: none; }
+.import-missing-list li { display: grid; gap: 3px; min-width: 0; }
+/* 宽的时候名字在左边一栏、去过的地方在右边；窄的时候上下排 */
+@media (min-width: 641px) {
+  .import-missing-list li { grid-template-columns: 150px minmax(0, 1fr); column-gap: 14px; align-items: baseline; }
+  .import-missing-list li > :not(.import-missing-name) { grid-column: 2; }
+  .import-missing-name { grid-row: span 2; }
+}
+.import-missing-name { display: inline-flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; border-radius: 4px; }
+.import-missing-name span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.import-missing-name .icon { flex: none; width: 11px; height: 11px; color: var(--ink-3); transition: transform .2s var(--ease); }
+.import-missing-name:hover { color: var(--accent); }
+.import-missing-name:hover .icon { transform: translate(1px, -1px); }
+.import-missing-blurb { font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+.import-missing-where { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.import-missing-where .path { max-width: 100%; padding: 1px 6px; font: 11px/1.6 var(--mono); color: var(--ink-3); background: var(--hover); border-radius: 6px; overflow-wrap: anywhere; }

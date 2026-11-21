@@ -213,6 +213,20 @@ def expand(entry: dict) -> dict:
     return out
 
 
+def model_key_references(entry: dict) -> list[str]:
+    """这份配置引用了哪些智狐自己的模型密钥（${ANTHROPIC_API_KEY} 这些），按出现的顺序、不重复。
+
+    启动时 expand 会拒绝它们；从别处导入、粘贴进来的时候就先查一遍，有的话这个服务器不加进来（见 importers.py）。
+    """
+    texts = [entry.get(key) for key in ("command", "cwd", "url")]
+    texts += entry.get("args") if isinstance(entry.get("args"), list) else []
+    for key in ("env", "headers"):
+        if isinstance(entry.get(key), dict):
+            texts += list(entry[key].values())
+    found = (match.group(1) for text in texts if isinstance(text, str) for match in _REFERENCE.finditer(text))
+    return list(dict.fromkeys(name for name in found if name in SECRET_ENV_VARS))
+
+
 # ---- 给页面看的样子：密钥都遮住 ------------------------------------------------------
 
 

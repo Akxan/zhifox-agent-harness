@@ -113,7 +113,8 @@
 .settings .mcp-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .mcp-check input, .mcp-pick input { width: 16px; height: 16px; flex: none; margin: 0; accent-color: var(--accent); }
 /* 表单、导入、粘贴的底栏：贴在这一页的底部，长表单往下滚的时候也一直看得到"保存" */
-.mcp-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 18px -22px 0; padding: 12px 22px 14px; background: var(--sheet); border-top: 1px solid var(--line); }
+/* bottom 是负的：这一页的滚动区域底下还有 4 像素的内边距（.settings-body），贴住的时候盖住它，免得底下露出一条滚过去的字 */
+.mcp-foot { position: sticky; bottom: -4px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 18px -22px -4px; padding: 12px 22px 18px; background: var(--sheet); border-top: 1px solid var(--line); }
 .mcp-foot .mcp-help { flex: 1 1 200px; margin-right: auto; }
 /* 有了这一条底栏，对话框自己最下面那一行提示就先收起来（这些视图的提示写在底栏里），免得叠成两条 */
 .extensions:has(#panel-mcp:not([hidden]) .mcp-foot) #extensions-message { display: none; }

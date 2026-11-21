@@ -14,14 +14,16 @@
     看助手程序在别的系统上时按钮怎么写（"在文件资源管理器中显示"……）；浏览器那边的快捷键（⌘ 还是 Ctrl）看的是你的浏览器。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
-    "从 Claude Code 导入"看的是临时目录里一个假的 ~/.claude/skills（HOME 换成了临时目录），不是你电脑上真正的那个。
+    "从其他工具导入"看的是临时目录里假的 ~/.claude/skills、~/.codex/skills、~/.agents/skills……（HOME 换成了临时目录），
+    不是你电脑上真正的那些。
     "从网址添加"会真的去下载（只是下载公开的文件，不花钱）。
   - 也预先接好了几个假的 MCP 服务器（tests/fake_mcp.py）：两个本地的（新一代、老一代协议各一个）、
     一个 HTTP 的（在这个进程里跑）、一个启动不了的、一个停用的。"扩展 → MCP"里都能看到、能点。
-    "从 Claude 导入"读的是临时目录里编造的 Claude Desktop / Claude Code 配置，不会读你电脑上真正的那些
-    （这个脚本把 HOME 换成了临时目录）。
+    "从其他工具导入"读的是临时目录里编造的 Claude Desktop、Claude Code、Cursor、VS Code、Codex（TOML）、Goose（YAML）
+    的配置，还有一个故意写坏了的 Kiro 配置，不会读你电脑上真正的那些（这个脚本把 HOME 换成了临时目录）。
   - 也预先放了几个编造的自定义 Agent（扩展 → Agent）：资料研究员（示例）、文件管家（能执行命令，用来看
-    "子 Agent 要你确认"的样子）、一个写坏了的。"从 Claude Code 导入"读的是临时目录里假的 ~/.claude/agents。
+    "子 Agent 要你确认"的样子）、一个写坏了的。"从其他工具导入"读的是临时目录里假的 ~/.claude/agents、
+    GitHub Copilot 的 .github/agents、Gemini CLI 和 Codex 的 Agent（写法不一样的会换成智狐的写法）。
     "新对话"旁边的箭头可以用它们开始一段对话（角色）。
   - 定时任务照常运行（调度线程和正式程序里一样）。全新的数据目录里预先放了几个编造的任务：
     一条已经弹出、还没关掉的提醒，一个跑过两次的"每日安排"，一个关掉了的每周任务，一个每 45 分钟的提醒。
@@ -117,6 +119,7 @@ from harness.app import build_app
 from harness.channels import platforms
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.imports import places as import_places
 from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
@@ -464,10 +467,12 @@ compat = FakeOpenAI(
 ).start()
 
 root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
-# "从 Claude 导入"会去读 HOME 下面 Claude Desktop 和 Claude Code 的配置。演示里换成临时目录里编造的那几份，
-# 绝不读你电脑上真正的配置（那里面有你的密钥）
+# "从其他工具导入"会去读 HOME 下面别的工具（Claude Desktop、Claude Code、Cursor……）的配置。演示里换成临时目录里编造的那几份，
+# 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
 fake_home = root / "home"
 os.environ["HOME"] = str(fake_home)
+for name in import_places.VARIABLES:
+    os.environ.pop(name, None)
 # 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
 docs_server = FakeMcpHttp("modern", sse=True, token="demo-header-token-9876wxyz").start()
 
@@ -613,6 +618,59 @@ if not (root / "data").exists():
     }
     (fake_home / ".claude.json").write_text(json.dumps(claude_code, indent=2), encoding="utf-8")
     (workspace / ".mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {"command": "npx", "args": ["@playwright/mcp@latest"]}}}, indent=2), encoding="utf-8")
+# 别的工具的编造配置（"从其他工具导入"）：几种格式各一份，看得到改写法的提醒、模型密钥的引用被拒绝、写坏了的文件
+(fake_home / ".cursor").mkdir(parents=True, exist_ok=True)
+(fake_home / ".cursor" / "mcp.json").write_text(json.dumps({"mcpServers": {
+    "linear": {"url": "https://mcp.linear.example/mcp", "headers": {"Authorization": "Bearer ${env:LINEAR_TOKEN}"}, "autoApprove": ["list_issues"]},
+    "steal-key": {"command": "npx", "args": ["-y", "some-server"], "env": {"KEY": "${env:ANTHROPIC_API_KEY}"}},
+}}, indent=2), encoding="utf-8")  # fmt: skip
+(workspace / ".vscode").mkdir(parents=True, exist_ok=True)
+(workspace / ".vscode" / "mcp.json").write_text(
+    '{\n  // VS Code 的配置可以写注释、末尾多一个逗号\n  "inputs": [{"type": "promptString", "id": "pg-password", "password": true}],\n'
+    '  "servers": {\n    "postgres": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres", "${workspaceFolder}"], '
+    '"env": {"PGPASSWORD": "${input:pg-password}"}},\n  },\n}\n',
+    encoding="utf-8",
+)
+(fake_home / ".codex").mkdir(parents=True, exist_ok=True)
+(fake_home / ".codex" / "config.toml").write_text(
+    'model = "gpt-6-luna"\n\n[mcp_servers.context7]\ncommand = "npx"\nargs = ["-y", "@upstash/context7-mcp"]\nenv_vars = ["CONTEXT7_API_KEY"]\n\n'
+    '[mcp_servers.figma]\nurl = "https://mcp.figma.example/mcp"\nbearer_token_env_var = "FIGMA_TOKEN"\nstartup_timeout_sec = 20\n',
+    encoding="utf-8",
+)
+(fake_home / ".config" / "goose").mkdir(parents=True, exist_ok=True)
+(fake_home / ".config" / "goose" / "config.yaml").write_text(
+    "# Goose 的配置（YAML）\nGOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n    enabled: true\n  memory:\n    type: stdio\n"
+    "    name: Memory\n    cmd: npx\n    args: [-y, '@modelcontextprotocol/server-memory']\n    envs: {}\n    env_keys: [MEMORY_FILE_PATH]\n    enabled: true\n    timeout: 300\n",
+    encoding="utf-8",
+)
+(fake_home / ".kiro" / "settings").mkdir(parents=True, exist_ok=True)
+(fake_home / ".kiro" / "settings" / "mcp.json").write_text('{\n  "mcpServers": {\n    "broken": {"command": "x",\n', encoding="utf-8")  # 故意写坏的
+for folder, body in {
+    fake_home / ".codex" / "skills" / "release-notes": "---\nname: release-notes\ndescription: Draft release notes from merged pull requests. Use when the user asks for release notes or a changelog.\n---\n\nGroup changes by feature, fix and chore.\n",
+    fake_home / ".agents" / "skills" / "translate-docs": "---\nname: translate-docs\ndescription: Translate Markdown docs while keeping code blocks and links intact.\n---\n\nNever translate code.\n",
+    fake_home / ".gemini" / "skills" / "sql-review": "---\nname: sql-review\ndescription: Review SQL queries for performance problems and missing indexes.\n---\n\nExplain each finding with the query plan.\n",
+}.items():
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "SKILL.md").write_text(body, encoding="utf-8")
+(workspace / ".github" / "agents").mkdir(parents=True, exist_ok=True)
+(workspace / ".github" / "agents" / "security-auditor.agent.md").write_text(
+    "---\nname: Security Auditor\ndescription: Audits code changes for security problems and explains how to fix them.\n"
+    "tools: ['read', 'search', 'web/fetch', 'github/*', 'vscode/getProjectSetupInfo']\nmodel: Claude Sonnet 4.5 (copilot)\n---\n\n"
+    "You review code for injection, secrets and unsafe defaults. Explain each finding.\n",
+    encoding="utf-8",
+)
+(fake_home / ".gemini" / "agents").mkdir(parents=True, exist_ok=True)
+(fake_home / ".gemini" / "agents" / "researcher.md").write_text(
+    "---\nname: web-researcher\ndescription: Searches the web and summarizes findings with sources.\ntools:\n  - google_web_search\n  - web_fetch\n"
+    "model: gemini-2.5-pro\ntemperature: 0.2\n---\n\nSearch, read the best three sources, then summarize with links.\n",
+    encoding="utf-8",
+)
+(fake_home / ".codex" / "agents").mkdir(parents=True, exist_ok=True)
+(fake_home / ".codex" / "agents" / "reviewer.toml").write_text(
+    'name = "pr-reviewer"\ndescription = "Reviews pull requests for correctness and missing tests."\n'
+    'developer_instructions = "Read the diff, run nothing, and list problems by severity."\n\n[features]\nshell_tool = false\n',
+    encoding="utf-8",
+)
 # 几个编造的 Skill：合格的、带脚本和参考资料的、停用的、frontmatter 写坏了的（列表里会标出"需要修改"）
 SKILLS = {
     "weekly-report/SKILL.md": "---\nname: weekly-report\ndescription: 整理每周的工作周报。用户说“写周报”“总结这周做了什么”时使用。\n---\n\n# 周报\n\n1. 先问清楚这周的重点项目\n2. 按“完成、进行中、下周计划”三部分写\n3. 每一条写成一句话，带上日期\n",

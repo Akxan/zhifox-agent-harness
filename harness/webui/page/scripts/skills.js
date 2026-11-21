@@ -1,7 +1,7 @@
 // ---- 扩展 · Skill ----------------------------------------------------------
 // Skill 是教助手做某一类事的"说明书"：一个文件夹，里面的 SKILL.md 写着步骤，还可以带着脚本和参考资料
 // （格式是开放的 Agent Skills 标准，见 harness/skills/）。这一页管 data/skills/ 里的 Skill：
-// 列出来，打开看、编辑、启用停用、删除；也可以新建、上传、从网址添加、从 Claude Code 导入。
+// 列出来，打开看、编辑、启用停用、删除；也可以新建、上传、从网址添加、从其他工具导入。
 //
 // 列表跟着状态走：服务器每次发状态都重新看一遍 Skill 文件夹，页面不用自己去问。打开一个、下载预览这些另外请求。
 // 这一页有几种样子（view.kind）：
@@ -11,7 +11,7 @@
 //
 // 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具（Agent 一页也借用其中几个）。后面依次是
 // skills-list.js 列表、skills-detail.js 打开一个和编辑、skills-add.js 新建 / 网址 / 上传、
-// skills-review.js 从 Claude Code 导入和装之前的确认（最后在那里挂到扩展对话框上）。
+// skills-review.js 从其他工具导入和装之前的确认（最后在那里挂到扩展对话框上）。
 
 const skillPanel = $('panel-skills');
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;  // 和 harness/skills/spec.py 的 NAME 一样
@@ -38,7 +38,8 @@ function skillSource(source) {
   if (!source || typeof source !== 'object') return null;
   const place = String(source.label || source.url || '');
   if (source.kind === 'new') return [k('在智狐里新建')];
-  if (source.kind === 'claude-code') return [k('从 Claude Code 导入：{place}'), { place }];
+  if (source.kind === 'import') return [k('从 {tool} 导入：{place}'), { tool: String(source.tool || ''), place }];
+  if (source.kind === 'claude-code') return [k('从 Claude Code 导入：{place}'), { place }];  // 以前装的，记的是这个
   if (source.kind === 'upload') return place ? [k('上传的 {place}'), { place }] : [k('上传的文件')];
   if (source.kind === 'url') return [k('来自 {place}'), { place }];
   return null;
@@ -119,7 +120,7 @@ function skillHead(title, lead) {
 function skillTrust(calm) {
   const box = el('p', 'skill-trust' + (calm ? ' calm' : ''));
   box.append(icon(calm ? 'copy' : 'shield'), tel('span', null, calm
-    ? k('导入的是一份复制：之后在 Claude Code 那边改了、删了，都不会影响智狐这边。')
+    ? k('导入的是一份复制：之后在原来的工具里改了、删了，都不会影响智狐这边。')
     : k('只从你信任的地方安装。Skill 里的说明会被助手照着做，里面的脚本也可能被运行（运行之前仍然会问你）。')));
   return box;
 }

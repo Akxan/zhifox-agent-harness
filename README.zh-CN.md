@@ -42,7 +42,8 @@
 费用随时看得到：每调用一次模型就更新估算，Claude 和 DeepSeek 的价格是内置的（对照两家官方核对过，
 包括 DeepSeek 闲时的半价），各家的长对话都会自动压缩。
 还可以装 Skill，教它按你的方法做某一类事（格式是开放的 [Agent Skills](https://agentskills.io) 标准，见下面的"Skill 是怎么工作的"）。
-还可以通过 MCP 接上别人写好的工具（本地的程序或者网址），每次调用之前默认先问你。
+还可以通过 MCP 接上别人写好的工具（本地的程序或者网址），每次调用之前默认先问你。在 Claude Code、Cursor、VS Code、Codex、
+Gemini CLI 这些工具里已经配好的 MCP 服务器、写好的 Skill 和 Agent，点几下就能导入（见下面的"从其他工具导入"）。
 还可以让它用浏览器（browser use）：在设置里打开以后，助手在一个智狐自己启动的 Chrome 里打开网页、读、点、输入、截图。
 这个 Chrome 用的是智狐自己的配置文件夹，和你平时用的浏览器完全分开，看不到你的任何登录；和它说话的是手写的 DevTools 协议客户端，
 走管道、不开端口，别的程序连不上。看网页直接做；输入文字、提交表单、去一个新的网站先问你，往密码框、银行卡里输入不管选了哪一档都要问。
@@ -154,12 +155,26 @@ uv run harness --web
   原件存在 `data/media/` 里，所以 Word、Excel、PowerPoint 留下的是原文件，不只是取出的文字。有多媒体库之前发的附件，
   从会话的对话历史里找回来（图片、PDF、文本）；旧的 Office 文件只剩当时取出的文字，多媒体里会注明。
   单个附件不能删除：它是对话记录的一部分。删除它所在的会话时，原件会一起删掉（别的会话也用到同一个文件的除外）。
-- 设置（右上角的齿轮，快捷键 ⌘, 或 Ctrl+,；显示当前模型的那个按钮也能打开）：填写或删除各家的 API 密钥、同步每家可用的模型列表、选择和切换模型、
+- 换模型（顶栏中间写着当前模型的那个按钮，比如"Claude (Anthropic) · claude-opus-5-5"，快捷键 ⌘. 或 Ctrl+.）：
+  在按钮正下方弹出一个小面板，手机上改成从屏幕底下升起来。模型按家分组（Claude、GPT、Gemini、DeepSeek），每一家写着
+  有没有设置密钥（只显示最后 4 位）；还没有密钥的那一家有一个"填写 API 密钥 →"，点了直接打开设置、停在这一家的密钥那一栏。
+  每个模型写着名字、能做什么、价格，现在用的那个打着勾。能做什么由程序算好：能联网（只有 Claude，而且联网搜索要开着）、
+  看得懂图片、能读 PDF、只认文字（DeepSeek）、分时段计价（DeepSeek）。价格是每百万 token 多少美元，输入 / 输出
+  （分时段计价的，鼠标移到价格上能看到闲时的价），没有的写"没有价格"。每一家有一个同步按钮，重新取一次它的模型列表；
+  模型多的时候顶上一直有一个搜索框，在列表里直接打字也是搜索。
+  选同一家的模型马上就换，对话接着进行，结果写在面板里；选另一家的会开始一段新对话，现在这段已经聊过的话，
+  面板先在原地问一句："换到 GPT 会开始一段新对话。现在这段已经保存，随时可以回来接着聊。"用 Agent 开始的对话，
+  换模型不换角色，面板底下会写明。键盘：↑/↓（Home / End 到头尾）移动，回车换过去，直接打字就是搜索，
+  Esc 收起面板、焦点回到按钮上（正在原地问的时候，Esc 先收起这一问），开着的时候 Tab 只在面板里转。
+  快捷键没有用 ⌘⇧M / Ctrl+Shift+M：Chrome 用它打开切换个人资料的菜单，Firefox 用它打开响应式设计模式。
+- 设置（右上角的齿轮，快捷键 ⌘, 或 Ctrl+,）：填写或删除各家的 API 密钥、同步每家可用的模型列表、
   填写模型的价格，以及**编辑提示词**（告诉助手"你是谁、怎么做事"的那段话）。编辑框里可以预览实际发给模型的内容，
   下面列着可以用的占位符（比如 `{name}`、`{workspace}`），发送之前换成实际的值，别的花括号原样保留。
   改过的版本存在 `data/prompt.md`（也可以直接打开这个文件改），从下一段新对话开始生效：一段对话里途中换提示词，
   Claude 的缓存会失效、之前的思考内容也通不过校验；还没开始聊的这一段会马上换上。"恢复默认"回到内置的版本，
-  程序升级后想用新的内置提示词，也是点它。最下面还有几栏：
+  程序升级后想用新的内置提示词，也是点它。选模型不在这里："当前模型"一栏只写着现在用的是哪个，旁边一个"换模型"按钮
+  打开换模型的面板。为什么分开：换模型是聊着天随手就做的事，填密钥、改提示词是偶尔才做的事，放在同一个入口里，
+  想换个模型得先在一大页设置里找。最下面还有几栏：
   - 每月预算（美元，可以不填）：这个月的花费超过它时提醒你一次（页面上弹一句；页面在后台、又允许了系统通知的话，
     再弹一个系统通知），不会拦住任何操作。调高以后又超过了新的数，会再提醒一次；提醒过的会记下来，重启也不会重复。
     填的数比这个月已经花的还少，面板上当场就会说。
@@ -201,14 +216,15 @@ uv run harness --web
   - 从网址添加：GitHub 上的文件夹或整个仓库的链接、一个 `SKILL.md` 的链接，或者 `.zip` / `.skill` 文件的链接。
     一个仓库里有好几个 Skill 时，由你挑装哪几个。
   - 上传：`.zip` 或 `.skill` 文件、一个 `SKILL.md`，或者整个文件夹；也可以直接拖进来。
-  - 从 Claude Code 导入：列出 `~/.claude/skills/` 和项目里 `.claude/skills/` 下的 Skill，勾上要复制过来的。
+  - 从其他工具导入：列出 Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot、共用的 `.agents/skills`
+    和[别的支持的工具](#从其他工具导入)里的 Skill，勾上要复制过来的。
   装之前都会先给你看一眼，并提醒你：Skill 里的说明会被助手照着做，只装你信任的来源。
   改动从下一条消息起生效。和编辑记忆一样，改、删、装 Skill 都要等这一轮对话结束。
 - 扩展 → Agent（右上角的拼图按钮）：你定制的 Agent，每一个写着颜色、名字、说明、用哪个模型、能用几样工具。
   鼠标移上去（或者用 Tab 移到它上面），右边出现"用它开始新对话"和与会话行一样的三个按钮：
   "在访达中显示"（它的 `.md` 文件）、编辑、删除（在原地确认一次）。点一行打开它：模型、工具和它的设定。
   编辑有两种写法："表单"和"原文"（整个文件）；两者之间切换时由智狐换算（把表单写成文件、把文件读回表单），规矩只写在程序里一处。
-  有没保存的修改会先提醒，和编辑记忆一样。列表上面是"新建""示例"（资料研究员、代码审查员、写作助手）和"从 Claude Code 导入"；
+  有没保存的修改会先提醒，和编辑记忆一样。列表上面是"新建""示例"（资料研究员、代码审查员、写作助手）和"从其他工具导入"；
   一个都还没有时，这一页讲清楚两种用法，并摆出这三个示例。改 Agent 不用等这一轮对话结束：正在进行的对话和子 Agent
   用的是开始时读到的那一份（见"自定义 Agent：子 Agent 和角色"）。
 - 用 Agent 开始对话："新对话"右边的小箭头点开是你的 Agent 列表（方向键、回车、Esc 都能用），选一个就用它当角色开始一段新对话。
@@ -221,28 +237,35 @@ uv run harness --web
   每一个工具和它的说明（每个工具都有一个"不用问"的开关），还有它的日志。"添加服务器"打开一张表单：本地程序
   （命令、每行一个参数、工作目录、环境变量）或者网址（加上 `Authorization` 这类请求头）。密钥填在密码框里，
   保存之后页面上只显示最后 4 位；编辑时留空表示不变。"粘贴 JSON"收从 Claude Desktop、Claude Code、Cursor、
-  VS Code 的配置里复制来的内容；"从 Claude 导入"列出 Claude Desktop 和 Claude Code 里配好的服务器（只在你打开这一页时读），
-  勾选要复制过来的。改动从下一段新对话开始生效（原因见"MCP：别人写好的工具"）。
+  VS Code 的配置里复制来的内容；"从其他工具导入"列出 Claude Desktop、Claude Code、Cursor、VS Code、Codex、Gemini CLI、Goose
+  和[别的支持的工具](#从其他工具导入)里配好的服务器（只在你打开这一页时读），勾选要复制过来的；换写法时改了什么写在每一项上。改动从下一段新对话开始生效（原因见"MCP：别人写好的工具"）。
 - 外观和动效（右上角的太阳/月亮按钮）：点开是一个小面板，上下两排。
   - 外观：默认是浅色，可以换成深色，或者跟随系统的深浅色。
   - 动效：默认跟随系统设置（macOS 是"系统设置 → 辅助功能 → 显示 → 减弱动态效果"，Windows 是
     "设置 → 辅助功能 → 视觉效果 → 动画效果"）。也可以直接在这里选"减少"（不播放滑动、淡入和闪烁，内容直接出现），
     或者"完整"（即使系统要求减少动画，这个页面也播放全部动画）。
   点面板外面、按 Esc 或者再点一下按钮就收起来。
-- 语言（右上角的地球按钮）：中文、English、Español。换语言不刷新页面，正在进行的对话、滚动的位置、
-  写了一半的消息都原样留着，界面上的文字在原地换掉。选择会保存下来，终端版也跟着用。
+- 语言（右上角的地球按钮）：中文、English、Español，在按钮下面弹出一个小面板，和外观、换模型是同一种（手机上从底下升起来）。
+  每一项上面大字是这门语言用它自己的文字写的名字，谁都认得出自己的那一个；下面一行小字是用现在的界面语言写的名字
+  （界面是中文时，English 下面写"英语"）。现在用的那一项小字写"当前语言"，并打一个细细的勾。底下一直完整地写着一句
+  "换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。"↑/↓ 移动，回车选，Esc 收起。
+  换语言不刷新页面，正在进行的对话、滚动的位置、写了一半的消息都原样留着，界面上的文字在原地换掉。选择会保存下来，终端版也跟着用。
 
 外观、动效、两边的栏是展开还是收起，这几样选择记在浏览器里，不在 `data/` 里。
 
-换模型的规则：同一家之内换模型，对话可以接着进行；换到另一家会开始新对话，因为各家的对话格式不通用。
-选好的模型会保存下来，下次启动（包括终端版）还是它。
+换模型的规则：同一家之内换模型，对话可以接着进行；换到另一家会开始新对话，因为各家的对话格式不通用
+（离开的那一段已经存好，在左边的列表里打开就能接着聊）。选好的模型会保存下来，下次启动（包括终端版）还是它。
+用 Agent 开始的对话，换到哪个模型角色都不变。助手正在回复的时候也能打开换模型的面板看一看，但这时选了也不会换，面板里会说一声：等这一轮结束，或者点"停止"；
+聊天通道正在这段会话里跑一轮的时候，连同一家之内也不能换：新的模型要存进同一个会话文件，两边会抢着写（见 [harness/claims.py](harness/claims.py)）。
+"换过去会怎样"（接着聊、直接开始新的、先问一声）由程序在 [harness/model_catalog.py](harness/model_catalog.py) 里算，
+和真正换模型的 `App.select_model` 是同一条规矩；页面只照着画，不自己判断，规矩就只写在一处。
 
 刷新页面不会丢失当前对话。关闭页面后程序仍在运行，回到终端按 Ctrl-C 才会退出；
 如果这时助手正在回复，程序会先停下它、把这一轮存好（最多等 5 秒）再退出。
 同一个数据目录同时只能开一个网页版：已经有一个在运行时，再启动会提示你去用已经打开的那个。
 重新启动后看到的是一段新对话，之前的会话都在左侧的列表里。打开一段旧会话时，
 会自动换回它当时用的那家模型，而且这个模型从此就是"选好的模型"：之后新开的对话、下次启动用的都是它，
-直到你在设置里换掉。助手正在回复的时候，不能打开、改名或删除会话，要等这一轮结束或者点"停止"。
+直到你再换一个。助手正在回复的时候，不能打开、改名或删除会话，要等这一轮结束或者点"停止"。
 会话的标题最长保留 40 个字。
 
 可选参数：`--port 9000` 指定端口（不指定时用 8765，它被占用就自动换一个；指定的端口被占用则直接报错），`--no-browser` 不自动打开浏览器。
@@ -267,7 +290,7 @@ uv run harness --web
 - **这段对话能不能用**：在用；下一段对话（对话开始以后才在设置里打开的：一段对话的工具在它开始时定下，所以从下一段起生效）；
   关着（写着为什么，旁边一个按钮直接去对的地方：设置里"浏览器""操作整台电脑"那一节、扩展里 Skill / MCP / Agent 那一页，
   或者"开始新对话"）；这里用不了（只有 Claude 能联网搜索；看不了图片的模型，比如 DeepSeek，用不了操作整台电脑；
-  这台电脑上没有桌面可以操作；这段对话的角色没有放开它；发文件只在聊天通道里有）。用不了的收在最下面。
+  这台电脑上没有桌面可以操作；这段对话的角色没有放开它；发文件只在聊天通道里有；换个模型就能用的，旁边一个"换模型"按钮打开换模型的面板）。用不了的收在最下面。
 - **在现在的确认方式下问不问你**：一个小标签（直接做、部分先问、先问你、每步都问），点开以后是一句话，比如
   "读工作目录里的文件直接做；改文件前会问你"，再加上每一类操作各自怎样。在清单顶上那一条换确认方式，标签跟着变。
 - **在哪儿执行**：这台电脑上、Anthropic 的服务器上（联网搜索）、第三方的 MCP 服务器上。
@@ -458,7 +481,7 @@ uv run harness
 | `/todos` | 查看未完成的待办 |
 | `/tools` | 查看智狐能做的事：哪些在用、会不会先问你、关着的怎么打开（和网页信息栏里的是同一份清单） |
 | `/usage` | 查看本次运行的 token 用量和估算费用，以及今天、本月一共花了多少（设了每月预算的话也会显示） |
-| `/model` | 查看当前使用的模型（换模型在网页界面的设置里进行） |
+| `/model` | 查看各家的模型：现在用的是哪个（打 ✓）、每个能做什么、多少钱、哪一家还没有密钥（和网页上换模型的面板是同一份目录；换模型用网页界面顶上的模型按钮，快捷键 ⌘. 或 Ctrl+.） |
 | `/mcp` | 查看接入的 MCP 服务器和它们的状态（添加和管理在网页界面里） |
 | `/auto` | 查看或更改"要不要每次都问"：`/auto ask`、`/auto readonly`、`/auto edits`、`/auto all`（见下面的"权限规则"） |
 | `/retry` | 重新生成最后一个回答：你的消息原样再发一次 |
@@ -502,6 +525,7 @@ uv run --project "/这个项目的完整路径" harness
 | 记忆一栏 | [harness/memories.py](harness/memories.py) | 你看不到助手记住了什么。网页界面把记忆文件列出来、可以打开看、改、删，浏览器送来的路径出不了记忆文件夹 |
 | Skill | [harness/skills/](harness/skills/)、[harness/tools/skill.py](harness/tools/skill.py) | 模型不知道你希望某一类事怎么做。Skill 是一个写着做法（可能还带着脚本）的文件夹，事情对得上时模型才去读它 |
 | 自定义 Agent | [harness/agents/](harness/agents/)、[harness/tools/agent.py](harness/tools/agent.py) | 一个助手不可能什么都擅长；一件要查很多资料的事，又会把几十页原文塞进对话。Agent 是一个写着自己的设定、工具和模型的文件：主助手把任务交给它、只拿回结论（子 Agent），或者你直接和它对话（角色） |
+| 从其他工具导入 | [harness/imports/](harness/imports/) | 你在别的 AI 工具里已经配好了 MCP 服务器、写好了 Skill 和 Agent，各家放的地方、写法都不一样。一张登记表记着二十几个工具把它们放在哪儿，几个小的读法把各家的写法换成智狐的，再照常检查（见下面的"从其他工具导入"） |
 | 共用的目录 | [harness/catalog.py](harness/catalog.py) | 有哪些 Skill、哪些 Agent 随时会变，系统提示词却不能变。两份列表都放在用户消息里，变了才再附一次 |
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你的对话同时运行并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
@@ -519,6 +543,7 @@ uv run --project "/这个项目的完整路径" harness
 | 应用图标 | [harness/webui/manifest.py](harness/webui/manifest.py)、[harness/webui/icons/](harness/webui/icons/)、[tests/make_icons.py](tests/make_icons.py) | 书签、Chrome 的快捷方式、装成的应用都要一张够大的图标和一份网页应用清单，不然只有一个灰底的字。几张 PNG 由无界面的 Chrome 从标志画一次、提交进仓库；服务器只发这几张，而且要带口令 |
 | 联网回答的来源 | [harness/citations.py](harness/citations.py)、[harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | 联网搜索以后，Claude 会说明每句话出自哪个网页。这些引用按每段回答编号，画成小小的记号，回答末尾列出来源（网页、终端、聊天软件里都有），跟着会话保存；发回给 API 的历史一个字不动 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
+| 模型目录 | [harness/model_catalog.py](harness/model_catalog.py)、[harness/webui/models_api.py](harness/webui/models_api.py) | 光看模型的名字，不知道它能做什么、多少钱。一份由程序算好的目录：每一家有没有密钥（只露最后 4 位）、能选哪些模型、每个模型能做什么、价格（来自 `pricing.py`）、换过去会怎样；网页上换模型的面板（`POST /api/model/catalog`）和终端的 `/model` 都只是照着它画 |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
@@ -1077,7 +1102,7 @@ GPT、Gemini、DeepSeek 没有联网搜索，它们的回答不会带来源。
 | [client.py](harness/mcp/client.py) | 协议本身：弄清对面说的是哪一代协议，一页一页列出它的工具，调用它们 |
 | [bridge.py](harness/mcp/bridge.py) | MCP 的工具 ↔ 智狐的工具：名字、参数格式、结果 |
 | [manager.py](harness/mcp/manager.py) | 服务器的启动、停止、重启和状态，以及"一段对话里工具不变"的快照 |
-| [config.py](harness/mcp/config.py)、[importers.py](harness/mcp/importers.py) | `data/mcp.json`、给页面看时遮住密钥、从 Claude Desktop 和 Claude Code 导入 |
+| [config.py](harness/mcp/config.py)、[importers.py](harness/mcp/importers.py) | `data/mcp.json`、给页面看时遮住密钥、从其他工具导入（见"从其他工具导入"） |
 
 一次调用走的路：
 
@@ -1156,9 +1181,9 @@ Skill 不能替你放开这一关：Claude Code 把 `allowed-tools` 当作"用�
 Skill 里的 `${CLAUDE_SKILL_DIR}` 会换成这个 Skill 真实的文件夹，所以用到它的 Claude Code Skill 照样能用。
 标了 `disable-model-invocation: true` 的 Skill 不列给模型（作者的意思是"只在用户点名时用"），你点名要用它时，模型照样读得到。
 
-安装：装、改、删 Skill 只能由你在网页上做，模型做不了。智狐有自己的文件夹 `data/skills/`，不会自己去读 Claude Code 的：
-"从 Claude Code 导入"只有在你点了之后，才去看 `~/.claude/skills/` 和项目里的 `.claude/skills/`，你勾选了的才复制过来，
-之后两边各改各的，互不影响。从外面来的东西，写进去之前都先给你看（名字、说明、文件、来源），并且一律当作不可信的：
+安装：装、改、删 Skill 只能由你在网页上做，模型做不了。智狐有自己的文件夹 `data/skills/`，不会自己去读别的工具的：
+"从其他工具导入"只有在你点了之后，才去看 `~/.claude/skills/`、`~/.agents/skills/`、`~/.codex/skills/`、`.github/skills/`
+这些文档里写明的地方（见"从其他工具导入"），你勾选了的才复制过来，之后两边各改各的，互不影响。从外面来的东西，写进去之前都先给你看（名字、说明、文件、来源），并且一律当作不可信的：
 
 - 网址只认 https，跳转也只跟到 https；下载有超时，最多 20 MB。GitHub 上的文件夹链接（`…/tree/main/skills/pdf`）
   会从 `codeload.github.com` 下载那个分支的压缩包（一个请求，不占 GitHub API 每小时的额度），再从里面取出那个文件夹；
@@ -1243,9 +1268,69 @@ Agent 的列表放在用户消息里的 `<agents>` 块中，和 `<skills>` 块�
 `Grep`、`Glob`、`LS` 算 `Read`，`Task` 算 `Agent`；智狐没有的名字原样保留、列出来，但会被忽略。智狐自己的 `Browser`
 给的是浏览器的全部工具，前提是叫它的那一方手里有（浏览器开着）；这时子 Agent 用的是叫它的那一方的标签页，确认也跟着那一方。
 `Computer` 同样给的是操作电脑的全部工具（叫它的那一方手里有的话）；子 Agent 和叫它的那一方共用同一个屏幕的 session，
-它的每一步照样问你，卡片上写着是哪个 Agent。"从 Claude Code 导入"
-只在你点它的时候才去读 `~/.claude/agents/` 和项目里的 `.claude/agents/`，只复制你勾选的。三个示例（只读文件加联网搜索的资料研究员、
+它的每一步照样问你，卡片上写着是哪个 Agent。"从其他工具导入"
+只在你点它的时候才去读 Claude Code、GitHub Copilot、Gemini CLI、OpenCode、Codex 这些工具的 Agent，写法不一样的先换成智狐的写法，
+只复制你勾选的（见"从其他工具导入"）。三个示例（只读文件加联网搜索的资料研究员、
 只读的代码审查员、不用任何工具的写作助手）点一下就能加进来，默认一个都不装。模型没有任何能新建或修改 Agent 的工具。
+
+### 从其他工具导入
+
+你可能已经在 Claude Code、Cursor、VS Code、Codex、Gemini CLI 或者别的 AI 工具里配好了 MCP 服务器、写好了 Skill 和 Agent。
+Skill、MCP、Agent 三页各有一个"从其他工具导入"：点了才去读这些工具的文档里写明的位置，列出找到了什么，
+你勾选的复制进智狐自己的文件夹。`~` 开头的在你的家目录里，别的在工作目录里（项目级）：
+
+| 工具 | MCP 服务器 | Skill | Agent |
+|---|---|---|---|
+| [Claude Code](https://code.claude.com/docs/en/mcp) | `~/.claude.json`（你自己的，和这个项目的那一项）、`.mcp.json` | `~/.claude/skills`、`.claude/skills` | `~/.claude/agents`、`.claude/agents`（原样复制） |
+| [Claude Desktop](https://modelcontextprotocol.io/docs/develop/connect-local-servers) | `claude_desktop_config.json`（macOS `~/Library/Application Support/Claude/`，Windows `%APPDATA%\Claude\`，Linux `~/.config/Claude/`） | | |
+| [Cursor](https://cursor.com/docs/context/mcp) | `~/.cursor/mcp.json`、`.cursor/mcp.json` | `~/.cursor/skills`、`.cursor/skills` | `~/.cursor/agents`、`.cursor/agents` |
+| [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) | 用户的 `mcp.json`（Code 和 Code - Insiders）、`settings.json` 里的 `mcp.servers`、`.vscode/mcp.json` | | |
+| [GitHub Copilot](https://docs.github.com/en/copilot/reference/custom-agents-configuration) | `~/.copilot/mcp-config.json` | `~/.copilot/skills`、`.github/skills` | `~/.copilot/agents`、`.github/agents`（`*.agent.md`） |
+| [Codex](https://learn.chatgpt.com/docs/extend/mcp) | `~/.codex/config.toml`、`.codex/config.toml`（TOML） | `~/.codex/skills`、`.codex/skills` | `~/.codex/agents`、`.codex/agents`（TOML） |
+| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | `~/.gemini/settings.json`、`.gemini/settings.json` | `~/.gemini/skills`、`.gemini/skills` | `~/.gemini/agents`、`.gemini/agents` |
+| [Agent Skills](https://agentskills.io/client-implementation/adding-skills-support)（很多工具共用的文件夹） | | `~/.agents/skills`、`.agents/skills` | |
+| [Windsurf](https://docs.devin.ai/windsurf/plugins/cascade/mcp) | `~/.codeium/windsurf/mcp_config.json`、`~/.config/devin/mcp_config.json`、`.devin/mcp_config.json` | `~/.config/devin/skills`、`.windsurf/skills`、`.devin/skills` | |
+| [Cline](https://docs.cline.bot/mcp/mcp-overview) | `~/.cline/data/settings/cline_mcp_settings.json`，以及它以前的两个位置 | | |
+| [Roo Code](https://roocodeinc.github.io/Roo-Code/features/mcp/using-mcp-in-roo) | VS Code 的 globalStorage 里的 `mcp_settings.json`、`.roo/mcp.json` | `~/.roo/skills`、`.roo/skills` | |
+| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | `~/.continue/config.yaml`（YAML）、`~/.continue/config.json`、`~/.continue/mcpServers/`、`.continue/mcpServers/` | | |
+| [Zed](https://zed.dev/docs/ai/mcp) | `settings.json` 里的 `context_servers`、`.zed/settings.json` | | |
+| [OpenCode](https://opencode.ai/docs/mcp-servers/) | `~/.config/opencode/opencode.json(c)`、`opencode.json(c)`、`.opencode/opencode.json(c)` | `~/.config/opencode/skills`、`.opencode/skills` | `~/.config/opencode/agents`、`.opencode/agents` |
+| [Goose](https://goose-docs.ai/docs/guides/config-files) | `~/.config/goose/config.yaml`（YAML；Windows 上在 `%APPDATA%\Block\goose\config\`） | `.goose/skills` | |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | `~/.qwen/settings.json`、`.qwen/settings.json` | `~/.qwen/skills`、`.qwen/skills` | `~/.qwen/agents`、`.qwen/agents` |
+| [Kiro](https://kiro.dev/docs/mcp/configuration/) | `~/.kiro/settings/mcp.json`、`.kiro/settings/mcp.json` | `~/.kiro/skills`、`.kiro/skills` | `~/.kiro/agents`、`.kiro/agents`（JSON 或 Markdown） |
+| [Amazon Q Developer](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-configuration.html) | `~/.aws/amazonq/mcp.json`、`.amazonq/mcp.json` | | `~/.aws/amazonq/cli-agents`、`.amazonq/cli-agents`（JSON） |
+| [Junie](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html) | `~/.junie/mcp/mcp.json`、`.junie/mcp/mcp.json` | `~/.junie/skills`、`.junie/skills` | |
+| [Factory](https://docs.factory.com/cli/configuration/custom-droids) | | `~/.factory/skills`、`.factory/skills` | `~/.factory/droids`、`.factory/droids` |
+| [Amp](https://ampcode.com/docs/customize/skills) | | `~/.config/amp/skills`、`~/.config/agents/skills` | |
+| [Warp](https://docs.warp.dev/agents/capabilities/mcp) | `~/.warp/.mcp.json`、`.warp/.mcp.json`、`~/.agents/.mcp.json`、`.agents/.mcp.json` | | |
+| [LM Studio](https://lmstudio.ai/docs/app/mcp) | `~/.lmstudio/mcp.json` | | |
+
+打开的是你点它的那一页。顶上是总览：找到了东西的工具一个一行，后面写着三样各有几个；点这一样的数字，滚到那个工具的那一组，
+点另外两样，换到那一页去导入。每一组的标题写着哪个工具、哪一级（你自己的还是这个项目的）、哪个文件；读不出来的文件写明原因
+（比如"不是合法的 JSON：第 4 行第 3 列"），别的文件照常列出来。最下面收着一栏"没找到的"：这一样智狐认得、但没有找到的工具，
+去过哪些地方，和它们的官方文档。
+
+各家的写法不一样，所以检查之前（检查的规矩和你自己添加时一样），[harness/imports/](harness/imports/) 先把它换成智狐的写法，
+换了什么写在那一项上：
+
+- **MCP**：VS Code 的 `servers`、Zed 的 `context_servers`、Codex 的 TOML、Goose 的 YAML `extensions`、Continue 的 YAML 列表、
+  OpenCode 写成列表的 `command`，都换成 Claude Desktop 的写法。各家引用环境变量的写法（`${env:X}`、`$X`、`{env:X}`、
+  `${{ secrets.X }}`、Codex 的 `bearer_token_env_var`、Goose 的 `env_keys`）换成智狐的 `${X}`，启动时从环境变量里取；
+  `${workspaceFolder}` 这类编辑器的变量直接填好；只有那个工具做得到的（VS Code 的 `${input:…}`、`envFile`）标出来，
+  请你导入后编辑。别的工具里"不用问"的设置（`autoApprove`、`alwaysAllow`、`trust`，以及克隆来的 `.mcp.json` 里智狐自己的
+  `approval`）一律不搬：导入的服务器每次调用前都先问你。智狐用不上的设置列成"没有搬过来"，不悄悄留在配置里。
+  引用了智狐自己的模型密钥（`${ANTHROPIC_API_KEY}`）的服务器列出来但勾不上，导入时服务器也会再拒绝一次。
+- **Skill** 各家都是同一种带 `SKILL.md` 的文件夹，复制时和上传一样当作不可信的：里面的链接、隐藏文件不要，路径、大小、个数都有上限。
+- **Agent**：Claude Code 的文件原样复制。别家的只写智狐用得上的几项：工具名换成智狐的叫法（`execute`、`run_shell_command` → `Bash`，
+  `read_file` → `Read`，`服务器/*`、`@服务器` → `mcp__服务器`……），智狐没有的工具不搬，"只读""不许执行命令"照样不放开，
+  认不出来的模型改成"和叫它的那一方一样"，Codex 的 `developer_instructions`、Kiro 的 `prompt`（包括指向旁边文件的 `file://`）
+  成为正文。换过来的 Agent 能用的工具只会更少，不会更多。
+
+不打开这一页什么都不读，什么都不运行，除了智狐自己的数据目录什么都不写。页面送回来的只有"哪个来源的哪个名字"，
+导入时服务器重新读一遍文件。环境变量和请求头的值不会发到浏览器，只有最后 4 位。加一个工具，是在
+[registry.py](harness/imports/registry.py) 里写一个函数；它的写法是新的，再在 [mcp_shapes.py](harness/imports/mcp_shapes.py)
+或 [agent_formats.py](harness/imports/agent_formats.py) 里加一种读法。YAML 用的是一个小而安全的子集解析器
+（[yaml_lite.py](harness/imports/yaml_lite.py)），没有加新的依赖：锚点、别名和标签一律拒绝。
 
 ### 浏览器：智狐自己的一个 Chrome
 
@@ -1885,7 +1970,8 @@ Linux 上没有通用的"选中某个文件"的办法，打开的是文件所在
 只有带着这次运行的口令的页面能保存；命令用参数列表启动，不经过 shell，参数里有什么字符都不会被当成命令的一部分；
 模型没有任何能添加或修改服务器的工具，它的文件工具在任何模式下都碰不了 `data/mcp.json`；
 这些程序拿不到各家模型的 API 密钥，配置里想把密钥转交出去（`${ANTHROPIC_API_KEY}`）会被拒绝；
-环境变量和请求头的值不会发到浏览器，只有最后 4 位；Claude 的配置文件只在你打开导入页的时候读，只复制你勾选的服务器。
+环境变量和请求头的值不会发到浏览器，只有最后 4 位；别的工具的配置文件只在你打开导入页的时候读，只复制你勾选的服务器，
+它们"不用问"的设置不复制。
 MCP 工具调用的参数会发给那个服务器（它可能在网上），所以在确认卡片上看清楚再允许。
 
 在信息栏里查看、修改、删除一条记忆也是同样的防法：页面送回来的是列表里给它的名字（比如 `projects/zhifox.md`），
@@ -2033,6 +2119,9 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 花费账本和预算在 [tests/test_ledger.py](tests/test_ledger.py)（用固定的钟测 DeepSeek 的高峰、闲时价，文件末尾的半行，
 旧明细的合并），导出在 [tests/test_export.py](tests/test_export.py)（压缩包里一个密钥都没有），
 它们在网页上的接口在 [tests/test_spending_web.py](tests/test_spending_web.py)。
+模型目录在 [tests/test_model_catalog.py](tests/test_model_catalog.py)（页面拿到的 JSON：密钥只有最后 4 位、标签、自己填的和内置的价格、闲时价；
+换模型的接口和目录对得上：同一家接着聊、换一家开始新的一段而旧的那段还在、聊天通道占着这段会话时不许换、对话进行中目录照样能看但不能换、
+角色不变；还有终端的 `/model`）。
 定时任务的测试在 [tests/test_tasks.py](tests/test_tasks.py)（时间表，包括月底和夏令时；保存；工具和它们的权限）和
 [tests/test_task_runs.py](tests/test_task_runs.py)（通过真实的服务器运行任务，用的是假的钟，所以没有哪个测试要等到早上 9 点：
 任务和你的对话同时进行、两个任务一起跑、超过上限的排队、"停止"只停它自己那一次、四档确认方式；假 API 按每次运行的指令分开回答，
@@ -2066,7 +2155,11 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 还有一个真的 `serve --service launchd` 进程自己写日志文件。没有任何测试会运行真的 `launchctl`、`systemctl`，或者打开浏览器：
 `tests/conftest.py` 让它们一调用就失败。
 Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
-自定义 Agent 在 [tests/test_agents.py](tests/test_agents.py)（文件格式和检查、只会变少的工具 allow-list、在假的家目录下存取和从 Claude Code 导入、
+从其他工具导入在 [tests/test_imports.py](tests/test_imports.py)：假的家目录里给每一个支持的来源放一份文件（JSON、带注释的 JSONC、
+Codex 的 TOML、Goose 和 Continue 的 YAML、frontmatter 各不相同的 Markdown Agent、Kiro 和 Codex 的 Agent 文件），测每种写法怎么换、
+密钥遮住、引用模型密钥的拒绝、"不用问"的设置不搬、写坏了的文件、Windows 上的位置和反斜杠路径、项目级和用户级，还有 YAML 的子集解析器；
+[tests/ui/test_ui_imports.py](tests/ui/test_ui_imports.py) 在三页的导入里实际点一遍。
+自定义 Agent 在 [tests/test_agents.py](tests/test_agents.py)（文件格式和检查、只会变少的工具 allow-list、在假的家目录下存取、
 提示词、`<agents>` 目录、对着假 API 的委派：新的历史、放开的工具、换模型、确认、"停止"停到子 Agent 自己的 shell 和 MCP 调用、
 步数和层数的上限、账本里记成 `subagent`、主助手请求的开头一字不差；还有角色的保存和恢复）和
 [tests/test_agents_web.py](tests/test_agents_web.py)（`/api/agent/…` 接口、用 Agent 开始对话、网页里子 Agent 的事件、确认和停止）。
@@ -2115,7 +2208,9 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 （对话、滚动位置、写了一半的话、开着的面板都留着），以及把每一个面板和窗口打开一遍，找没翻译的中文；三种语言下 390 像素宽的窄屏上文字有没有冲出容器；
 每一种存在本地的东西（会话、待办、定时任务、记忆、Skill、MCP 服务器、Agent、聊天通道）悬停和键盘移进来时都有
 "在访达中显示 / 编辑 / 删除"，删除先在原地确认；有没保存的修改时关窗口先问（Esc、×、取消、点外面、焦点不在窗口里时按 Esc）；
-下拉框的箭头是页面自己画的；扩展的四页和空状态；多媒体库和查看器；在设置里换到另一家模型；浏览器每一步的小截图；
+下拉框的箭头是页面自己画的；扩展的四页和空状态；多媒体库和查看器；换模型的面板（列出来的东西、同一家马上换、换到另一家之前在原地先问、
+没有密钥时带你去设置里填、键盘、就地重译、手机上从底下升起来、减少动态效果时直接出现），以及在设置里填好密钥、再在面板里换到那一家；
+语言面板（每种语言用自己的文字写、键盘、手机上从底下升起来）；齿轮和 ⌘, / Ctrl+, 打开设置，模型按钮不打开设置；浏览器每一步的小截图；
 Chrome 自己怎么看网页应用清单（`Page.getAppManifest` 没有错、`Page.getInstallabilityErrors` 是空的、每张图标都取得到且尺寸对、
 别的图片照样被安全策略拦下）和标题栏的颜色跟着选的外观走；编辑最后一条消息和重新生成（按钮在哪儿、输入框空着时按 ↑、改过了按 Esc 先提醒、这一轮执行过命令时先确认、失败的那一轮单独一排"重新生成"、
 另一个标签页跟着变并留住它没发出去的修改）。
@@ -2126,9 +2221,9 @@ Chrome 自己怎么看网页应用清单（`Page.getAppManifest` 没有错、`Pa
 
 想不花钱地到处点点、看看界面，可以运行 `uv run python tests/demo_web.py`：它启动的是真实的服务器和页面，
 后面接的是本地的假模型，回复都是预设的，数据写在临时目录里，不碰你的密钥和 `data/`。
-里面预先装了几个编造的 Skill，"从 Claude Code 导入"看的也是临时目录里一个假的 `~/.claude/skills`。
-它还预先接好了几个假的 MCP 服务器（其中一个启动不了、一个停用了）；"从 Claude 导入"读的是临时目录里编造的 Claude 配置，
-不是你电脑上的。
+里面预先装了几个编造的 Skill，还预先接好了几个假的 MCP 服务器（其中一个启动不了、一个停用了）；
+"从其他工具导入"读的是临时目录里编造的 Claude Desktop、Claude Code、Cursor、VS Code、Codex（TOML）、Goose（YAML）、
+GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是你电脑上的。
 全新的演示目录里预先放了一段"有多媒体库之前"的旧会话，"多媒体"里一打开就有东西可看，包括只剩文字的 Word 文件。
 演示还会给每个聊天平台各启动一个假的：每一家打印一个编造的 token（或者 ID 和密钥），粘贴到"通道"的向导里；
 另外打印两个简陋的"手机"页面的地址（一个给 Telegram，一个上面可以选别的平台），在那里可以发配对码、聊天、点"允许 / 拒绝"。

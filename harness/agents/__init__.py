@@ -24,7 +24,7 @@
   spec.py          文件的格式：每一项的要求、怎么检查、怎么从表单写出来
   tools.py         tools 一项的写法，和"按它从一套工具里挑出能用的"（永远只会更少）
   store.py         data/agents/：列出、读、新建、改、删
-  claude_code.py   从 Claude Code 导入（复制一份过来）
+  from_tools.py    从别的工具导入（Claude Code、Codex、Cursor……，复制一份过来）
   examples.py      内置的几个示例（点一下才加进来）
   catalog.py       告诉主助手有哪些 Agent 可以交给（放在用户消息里，和 Skill 的目录一样）
   prompt.py        一个 Agent 的系统提示词：它的设定，加上程序附上的环境说明

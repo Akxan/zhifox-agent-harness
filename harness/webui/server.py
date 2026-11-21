@@ -20,12 +20,12 @@
   POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词），页面只说是哪一个
   POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
-  POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / Claude Code 安装（见 skills_api.py）
-  POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从 Claude Code 导入（见 agents_api.py）
+  POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / 别的工具安装（见 skills_api.py）
+  POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从别的工具导入（见 agents_api.py）
   POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/mcp/...    MCP 服务器：查看详情、添加或编辑、删除、启用停用、重启、改"问不问你"、
-                       从 Claude Desktop / Claude Code 导入、粘贴 JSON（见 WebApp 的"MCP"一节）
+                       从别的工具导入、粘贴 JSON（见 WebApp 的"MCP"一节）
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
@@ -34,6 +34,7 @@
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
+  POST /api/model/catalog  换模型面板要的目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（见 model_catalog.py）
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
@@ -84,7 +85,7 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, quote, urlsplit
 
-from .. import export, i18n, instance, machine, media, memories, rewind
+from .. import export, i18n, instance, machine, media, memories, model_catalog, rewind
 from .. import prompt as prompts
 from ..agents import AgentError
 from ..app import App, build_app, retry_turn, run_turn
@@ -105,20 +106,23 @@ from ..config import (
 from ..conversations import ConversationError
 from ..exits import EXIT_SIGNALS
 from ..i18n import k, t
+from ..imports.overview import overview
+from ..imports.places import Env
+from ..imports.registry import MCP
 from ..mcp import ConfigError
 from ..mcp import importers as mcp_imports
 from ..media import Entry, MediaError
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
 from ..pricing import estimate, price_of
-from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
+from ..providers import PROVIDERS, ProviderError, has_key
 from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
-from . import lifecycle
+from . import lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
@@ -374,11 +378,8 @@ class WebApp:
         }
 
     def _models(self, provider_id: str) -> list[str]:
-        """一家可以选择的模型：同步到的列表；Claude 在同步之前先用内置的几个。"""
-        models = list(self.app.settings.models.get(provider_id) or (CLAUDE_MODELS if provider_id == "anthropic" else []))
-        if provider_id == self.app.settings.provider and self.app.settings.model not in models:
-            models.insert(0, self.app.settings.model)
-        return models
+        """一家可以选择的模型（规矩在 model_catalog.models_of，换模型的面板用的也是它）。"""
+        return model_catalog.models_of(self.app.settings, provider_id)
 
     # ---- 对话 --------------------------------------------------------------
 
@@ -1021,13 +1022,12 @@ class WebApp:
             return t("保存配置文件失败：{error}", error=exc)
         return ""
 
-    def mcp_scan(self) -> list[dict]:
-        """去读 Claude Desktop 和 Claude Code 的配置，列出可以导入的服务器（密钥遮住）。只在你点了"导入"时才读。"""
-        found = mcp_imports.sources(self.app.config.workspace)
-        listed = mcp_imports.preview(found, self.app.mcp.config)
-        for source in listed:
-            source["label"] = t(source["label"])
-        return listed
+    def mcp_scan(self) -> dict:
+        """去读别的工具（Claude Desktop、Claude Code、Cursor、VS Code、Codex……）的配置，列出可以导入的服务器（密钥遮住）。
+        只在你点了"从其他工具导入"时才读。tools 是顶上的总览：每个工具里三样各有几个（见 imports/overview.py）。"""
+        env = Env.here(self.app.config.workspace)
+        found = mcp_imports.sources(env.workspace, env)
+        return {"sources": mcp_imports.preview(found, self.app.mcp.config), "tools": overview(env, {MCP: mcp_imports.counted(found)})}
 
     def mcp_import(self, picks: list[tuple[str, str]]) -> tuple[str, list[str], list[str]]:
         """导入勾选的那些。配置的内容在这里重新从文件里读，页面只给了"哪个来源的哪个名字"。"""
@@ -1052,7 +1052,7 @@ class WebApp:
         try:
             servers = mcp_imports.parse_pasted(text)
             if names is None:
-                listed = mcp_imports.preview([mcp_imports.Source("paste", "", Path(), servers, True)], self.app.mcp.config)
+                listed = mcp_imports.preview([mcp_imports.pasted(servers)], self.app.mcp.config)
                 return "", {"servers": listed[0]["servers"]}
             added, skipped = mcp_imports.apply(self.app.mcp.config, servers, names)
         except (ConfigError, OSError) as exc:
@@ -1100,6 +1100,11 @@ class WebApp:
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
                 if blocked:
                     return blocked
+            else:
+                # 同一家：这段会话接着用新模型，要存一次盘。它正在聊天通道里跑一轮的话，两边会抢着写同一个文件（见 claims.py）
+                held = self._held_elsewhere(self.app.conversation.id)
+                if held:
+                    return held
             continued = self.app.select_model(provider_id, model)
             if not continued:
                 self._left()
@@ -1477,6 +1482,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.select_model(provider, model.strip()))
+        elif path == "/api/model/catalog":
+            # 只读内存里的设置和环境变量，不改任何东西，所以不拿对话的锁：对话进行中也能打开换模型的面板看一看
+            self._send_json(200, {"ok": True, "catalog": models_api.page_state(web.app)})
         elif path == "/api/key":
             provider, key = body.get("provider"), body.get("key")
             if provider not in PROVIDERS or not isinstance(key, str):
@@ -1554,7 +1562,7 @@ class Handler(BaseHTTPRequestHandler):
             mcp.refresh()
             self._send_json(200, {"ok": True})
         elif action == "scan":
-            self._send_json(200, {"ok": True, "sources": web.mcp_scan()})
+            self._send_json(200, {"ok": True, **web.mcp_scan()})
         elif action == "reveal":
             error, shown = web.mcp_reveal()
             self._answer(error, path=shown)

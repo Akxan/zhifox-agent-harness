@@ -1,5 +1,5 @@
 // ---- 扩展 · MCP · 列表 ------------------------------------------------------
-// MCP 一页的第一层：接入的服务器和它们的状态、上面一排"添加 / 粘贴 JSON / 从 Claude 导入"、一个都没有时的说明，
+// MCP 一页的第一层：接入的服务器和它们的状态、上面一排"添加 / 粘贴 JSON / 从其他工具导入"、一个都没有时的说明，
 // 以及每一行：启用开关、重启，和别处一样的"在访达中显示 / 编辑 / 删除"（删除先在原地确认）。
 
 function drawMcpList(focus) {
@@ -40,7 +40,7 @@ function mcpToolbar() {
   const paste = tools.appendChild(panelButton('clipboard', k('粘贴 JSON')));
   paste.dataset.focus = 'paste';
   paste.addEventListener('click', openMcpPaste);
-  const importer = tools.appendChild(panelButton('import', k('从 Claude 导入')));
+  const importer = tools.appendChild(panelButton('import', k('从其他工具导入')));
   importer.dataset.focus = 'import';
   importer.addEventListener('click', openMcpImport);
   const reveal = tools.appendChild(iconButton('folder', byServer(k('在访达中显示配置文件'), k('在文件资源管理器中显示配置文件'), k('在文件管理器中显示配置文件'))));
@@ -63,7 +63,7 @@ function mcpEmpty() {
   add.addEventListener('click', () => openMcpForm(null));
   const paste = row.appendChild(panelButton('clipboard', k('粘贴 JSON')));
   paste.addEventListener('click', openMcpPaste);
-  const importer = row.appendChild(panelButton('import', k('从 Claude 导入')));
+  const importer = row.appendChild(panelButton('import', k('从其他工具导入')));
   importer.addEventListener('click', openMcpImport);
   return box;
 }

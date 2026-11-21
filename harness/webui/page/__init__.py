@@ -65,10 +65,14 @@ STYLES = (
     "styles/channels.css",  # 扩展 · 通道
     "styles/memory-editor.css",  # 记忆窗口里的编辑
     "styles/agents.css",  # 自定义 Agent
+    "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/commands.css",  # 不用问的命令
     "styles/spending.css",  # 花费
+    "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
     "styles/appearance.css",  # 外观面板
+    "styles/models.css",  # 换模型的面板
+    "styles/language.css",  # 选语言的面板
     "styles/notices.css",  # 浮在最上面的提示
     "styles/narrow.css",  # 窄屏
     "styles/animations.css",  # 入场动画
@@ -86,6 +90,7 @@ SCRIPTS = (
     "scripts/platform.js",  # 是哪种电脑：快捷键看浏览器那台（forKeys），文件管理器的名字看助手程序那台（byServer）
     "scripts/helpers.js",  # 小工具：el()、icon()……
     "scripts/motion.js",  # 动效：calm()、play()、relayout()、crossfade()
+    "scripts/flyouts.js",  # 顶栏上的按钮弹出来的小面板：开、关、位置、点外面收起、Esc 和 Tab（外观、换模型、语言共用）
     "scripts/follow.js",  # 跟着最新内容滚动
     "scripts/requests.js",  # 提示和请求：toast()、call()、post()、announce()
     "scripts/approval-modes.js",  # 要不要先问你：几档的名字和说明（对话、任务、通道三处共用）
@@ -114,6 +119,7 @@ SCRIPTS = (
     "scripts/media.js",  # 多媒体
     "scripts/prompt.js",  # 提示词
     "scripts/extensions.js",  # 扩展对话框的壳
+    "scripts/imports.js",  # 扩展 · 从其他工具导入：Skill、MCP、Agent 三页共用的总览、分组的标题、"没找到的"
     "scripts/skills.js",  # 扩展 · Skill：共用的状态和小工具
     "scripts/skills-list.js",  # 扩展 · Skill · 列表
     "scripts/skills-detail.js",  # 扩展 · Skill · 打开一个、编辑 SKILL.md
@@ -138,6 +144,7 @@ SCRIPTS = (
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）
     "scripts/settings.js",  # 设置面板
+    "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑
     "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端

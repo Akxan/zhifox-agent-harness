@@ -19,4 +19,7 @@
 @media (max-width: 520px) { .tab { gap: 5px; padding: 0 10px; } .tab .icon { display: none; } }
 /* 前面要带上 .settings-body：它的 padding 写在后面（padding-top 是 0），只写 .tab-panel 盖不过它，每一页的内容都会贴着标签 */
 .settings-body.tab-panel { padding-top: 14px; }
+/* 好几种视图（导入、确认安装、表单）的底栏贴在这一页的下边。用 Tab 键走到下面的一项、或者别的地方让它"滚到看得见"时，
+   浏览器只滚到刚好露出它，它就藏在底栏后面了：滚动的时候在底下留出底栏那么高的一截 */
+.settings-body.tab-panel { scroll-padding-bottom: 84px; }
 .tab-panel[hidden] { display: none; }

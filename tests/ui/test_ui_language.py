@@ -89,7 +89,7 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.escape_closes(page, "spend-dialog")
     steps.close_side(page)
 
-    steps.open_dialog(page, "#model", "settings")
+    steps.open_dialog(page, "#settings-open", "settings")
     look("设置", ["#settings"])
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
@@ -112,14 +112,25 @@ def _sweep(page) -> dict[str, list[str]]:
     page.wait("document.getElementById('appearance').matches(':popover-open')")
     look("外观", ["#appearance"])
     page.key("Escape")
-    steps.open_dialog(page, "#language", "language-dialog")
-    look("语言", ["#language-dialog"])  # "中文"这个选项照原样写（每种语言用它自己的文字），在 checks.ALLOWED_WORDS 里
-    steps.escape_closes(page, "language-dialog")
+    steps.open_flyout(page, "#language", "languages")
+    look("语言", ["#languages"])  # "中文"这个选项照原样写（每种语言用它自己的文字），在 checks.ALLOWED_WORDS 里
+    steps.escape_closes_flyout(page, "languages", "#language")
+    steps.open_models(page)
+    look("换模型", ["#models"])
+    page.click("#models-menu [role=menuitemradio][data-model='claude-sonnet-5-5']")  # 同一家：马上换，底下写一句
+    page.wait("document.getElementById('models-status').classList.contains('good')", what="换好了")
+    look("换模型（换好以后）", ["#models"])
+    steps.escape_closes_flyout(page, "models", "#model")
 
     for tab in ("skills", "mcp", "channels", "agents"):
         steps.extensions_tab(page, tab)
         look(f"扩展 · {tab}", ["#extensions"])
     steps.escape_closes(page, "extensions")
+    # 从其他工具导入：三页各一个（顶上的总览、每一组、换写法的提醒、点开的"没找到的"）
+    for tab in ("mcp", "skills", "agents"):
+        steps.import_view(page, tab)
+        look(f"扩展 · {tab} · 从其他工具导入", ["#extensions"])
+    steps.close_extensions(page)
 
     steps.open_nav(page)
     steps.open_dialog(page, "#memory-open", "memory-dialog")

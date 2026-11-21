@@ -25,7 +25,7 @@ STAGE_SECONDS = 30 * 60
 @dataclass
 class Stage:
     candidates: dict[str, tuple[str, Candidate]]  # key → (来自哪里, 候选)
-    source: dict  # {"kind": "url" | "upload" | "claude-code", "label": …, 可能还有 "url"、"commit"}
+    source: dict  # {"kind": "url" | "upload" | "import", "label": …, 可能还有 "url"、"commit"}（以前从 Claude Code 导入的是 "claude-code"）
     created: float
 
 
@@ -84,10 +84,10 @@ class Installer:
             result["error"] = str(problem)
             return result
         source = dict(stage.source)
-        if len(stage.candidates) > 1 and key and stage.source.get("kind") != "claude-code":
+        if stage.source.get("kind") == "import":  # 从别的工具导入的：记下是哪个工具、哪个文件夹
+            source.update(tool=candidate.tool, label=key)
+        elif len(stage.candidates) > 1 and key:
             source["label"] = f"{source.get('label', '')}/{key}".lstrip("/")
-        if stage.source.get("kind") == "claude-code":
-            source["label"] = key
         try:
             self.store.install(candidate.load(), name, replace=replace, source=source)
         except SkillInvalid as exc:

@@ -17,7 +17,7 @@ LONG_TASK = "每周五下午把这一周所有项目的进展、遇到的问题�
 
 
 def _surfaces(page):
-    """(名字, 打开它, 要查的范围, 查完要关上的窗口)。"""
+    """(名字, 打开它, 要查的范围, 查完要关上的窗口：窗口的 id，或者一个收起它的函数)。"""
     return [
         ("对话", lambda: None, [".stage"], None),
         ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
@@ -25,13 +25,20 @@ def _surfaces(page):
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
-        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#model", "settings")), ["#settings"], "settings"),
+        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], "settings"),
+        # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
+        ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
+        ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
         ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
         ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
-        ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], "extensions"),
+        ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], None),
+        # 从其他工具导入：很长的路径（~/Library/Application Support/Code/User/……）、换写法的提醒、"没找到的"都要折行
+        ("扩展 · MCP · 从其他工具导入", lambda: steps.import_view(page, "mcp"), ["#extensions"], None),
+        ("扩展 · Skill · 从其他工具导入", lambda: steps.import_view(page, "skills"), ["#extensions"], None),
+        ("扩展 · Agent · 从其他工具导入", lambda: steps.import_view(page, "agents"), ["#extensions"], lambda: steps.close_extensions(page)),
         ("记忆", lambda: (steps.open_nav(page), steps.open_dialog(page, "#memory-open", "memory-dialog")), ["#memory-dialog"], "memory-dialog"),
         ("新建任务", lambda: (steps.nav_tab(page, "tasks"), steps.open_dialog(page, "#task-new", "task-editor")), ["#task-editor"], "task-editor"),
         # 这一轮加过待办（会改动东西）：重新生成之前先在原地确认；编辑框里按回车，确认放在编辑框里
@@ -82,7 +89,9 @@ def test_no_text_overflow_at_phone_width(page, code):
             problems = checks.overflow(page, roots)
             if problems:
                 found[name] = problems
-            if close:
+            if callable(close):
+                close()
+            elif close:
                 steps.escape_closes(page, close)
         assert found == {}, f"{code}：这些地方的文字冲出了容器：\n" + "\n".join(f"{where}:\n  " + "\n  ".join(items) for where, items in found.items())
     finally:

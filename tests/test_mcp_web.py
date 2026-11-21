@@ -155,9 +155,15 @@ def test_importing_from_claude_code(serve):
     assert status == 200
     sources = {source["id"]: source for source in body["sources"]}
     assert sources["claude-code-user"]["found"] is True and sources["claude-desktop"]["found"] is False
-    assert sources["claude-code-user"]["label"] == "Claude Code（用户级）"
-    assert [item["name"] for item in sources["claude-code-user"]["servers"]] == ["from-code"]
+    # 工具名是产品名（不翻译）；level 是原文，页面按当前的语言翻译；path 是给人看的写法
+    user = sources["claude-code-user"]
+    assert (user["tool"], user["tool_id"], user["level"], user["path"]) == ("Claude Code", "claude-code", "用户级", "~/.claude.json")
+    assert [item["name"] for item in user["servers"]] == ["from-code"]
     assert SECRET_ENV not in json.dumps(body)
+    # 顶上的总览：每个登记过的工具一项，Claude Code 找到了一个 MCP 服务器
+    overview = {tool["id"]: tool for tool in body["tools"]}
+    assert overview["claude-code"]["found"] is True and overview["claude-code"]["counts"]["mcp"] == 1
+    assert overview["cursor"]["found"] is False
 
     status, body = s.browser.post("/api/mcp/import", {"picks": [{"source": "claude-code-user", "name": "from-code"}, {"source": "nowhere", "name": "x"}]})
     assert status == 200 and body["added"] == ["from-code"] and len(body["skipped"]) == 1

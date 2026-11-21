@@ -262,9 +262,16 @@ class WebUI:
 
     def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]:
         """登记一个函数，用户点"停止"时调用它（比如结束正在运行的命令）。返回的函数用来取消登记：
-        子 Agent 只在它运行的那一会儿登记（见 agents/runner.py），做完就取消。"""
+        子 Agent 只在它运行的那一会儿登记（见 agents/runner.py），做完就取消。
+
+        这一轮已经点过"停止"了的话，登记的同时马上调用它：request_stop 只通知那一刻已经登记好的，
+        紧接着才开始等的那一步（比如刚要开始上传的文件、刚要启动的命令）不然就收不到，要等它自己做完这一轮才停得下来。
+        """
         with self._changed:
             self._stop_callbacks.append(callback)
+            already = self._stop_requested
+        if already:
+            callback()  # 在锁外面调用：它可能要做慢事（结束一个进程），也可能回头来调用界面
 
         def forget() -> None:
             with self._changed:

@@ -4,7 +4,7 @@
 以及把 Agent 列表放进状态里（summaries）。用一个 Agent 开始新对话走的是 /api/new（带上 agent），在 server.py 里。
 
   POST /api/agent/read      打开一个 Agent：全文、表单里的各项、问题
-  POST /api/agent/options   编辑时要用的选项：能勾的工具（内置的、此刻连着的 MCP 服务器的）、示例、导入时去哪里找
+  POST /api/agent/options   编辑时要用的选项：能勾的工具（内置的、此刻连着的 MCP 服务器的）、示例
   POST /api/agent/parse     原文 → 表单（从"原文"切回"表单"时用；检查的规矩只在程序里写一份）
   POST /api/agent/compose   表单 → 原文（从"表单"切到"原文"、或者按表单保存时用；只改你改过的那几项）
   POST /api/agent/create    新建（送来的是原文）
@@ -13,7 +13,7 @@
   POST /api/agent/reveal    在文件管理器里显示一个 Agent 的文件（不给名字就是整个 Agent 文件夹）
   POST /api/agent/refresh   页面回到前台：Agent 文件夹变了的话，发一次新的状态
   POST /api/agent/example   把一个内置的示例加进来
-  POST /api/agent/claude    找出 Claude Code 里的 Agent，给你勾选
+  POST /api/agent/scan      找出别的工具（Claude Code、Copilot、Gemini CLI……）里的 Agent，给你勾选
   POST /api/agent/import    导入勾选的那几个（按编号重新读文件，页面送来的不是文件内容）
 
 规矩和别的接口一样：参数不对回答 400；做不成（不存在、不合格、同名）回答 409，说明写在 error 里，
@@ -35,12 +35,15 @@ from ..agents import (
     AgentError,
     AgentInvalid,
     BadRequest,
-    claude_code,
     examples,
+    from_tools,
 )
 from ..agents import tools as agent_tools
 from ..agents.spec import COLORS, Fields, compose, normal
 from ..i18n import t
+from ..imports.overview import overview
+from ..imports.places import Env
+from ..imports.registry import AGENTS
 from ..mcp.bridge import server_prefix
 from ..skills.store import described
 
@@ -80,9 +83,8 @@ class AgentsAPI:
             if [agent.summary() for agent in self.store.list()] != self._shown:
                 self.web.publish_state()
             return 200, {"ok": True}
-        if action == "claude":
-            workspace = self.web.app.config.workspace
-            return self._do(lambda: {"candidates": claude_code.discover(workspace, self.store), "places": [label for label, _ in claude_code.places(workspace)]})
+        if action == "scan":
+            return self._do(self._scan)
         if action == "create":
             return self._change(lambda: {"name": self.store.create(_text(body))})
         if action == "save":
@@ -99,8 +101,8 @@ class AgentsAPI:
                 return 400, {"error": t("参数不正确")}
             return self._change(lambda: {"name": self.store.install(example.text)})
         if action == "import":
-            workspace = self.web.app.config.workspace
-            return self._change(lambda: {"results": claude_code.import_picked(workspace, self.store, body.get("picks"))})
+            env = Env.here(self.web.app.config.workspace)
+            return self._change(lambda: {"results": from_tools.import_picked(env.workspace, self.store, body.get("picks"), env)})
         return 404, {"error": "not found"}
 
     def reveal(self, name: str | None) -> tuple[int, dict]:
@@ -131,8 +133,17 @@ class AgentsAPI:
                 {"id": example.id, "name": example.name, "color": example.color, "blurb": example.blurb, "exists": self.store.exists(example.name)}
                 for example in examples.EXAMPLES
             ],
-            "places": [label for label, _ in claude_code.places(app.config.workspace)],
         }
+
+    def _scan(self) -> dict:
+        """别的工具里的 Agent。顶上的总览（tools）里，Agent 的数目就是这里找到的，不再另外数一遍。"""
+        env = Env.here(self.web.app.config.workspace)
+        candidates = from_tools.discover(env.workspace, self.store, env)
+        counts: dict[str, tuple[int, int]] = {}
+        for candidate in candidates:
+            before = counts.get(candidate["tool_id"], (0, 0))
+            counts[candidate["tool_id"]] = (before[0] + 1, before[1])
+        return {"candidates": candidates, "places": from_tools.places_looked(env.workspace, env), "tools": overview(env, {AGENTS: counts})}
 
     # ---- 内部 --------------------------------------------------------------
 
