@@ -183,6 +183,32 @@ class WebUI:
         if open_turns > 0:
             self.publish("turn_end")  # 保存的内容停在一轮中间：补上结尾，免得页面以为还在进行
 
+    def last_turn_events(self) -> tuple[int, list[dict]]:
+        """日志里最后一轮的事件（从最后一个 user 事件开始），和那个 user 事件是第几个。没有用户消息时是 (0, [])。
+
+        每发一次状态都要看一眼最后一轮能不能倒回去（见 rewind.py），所以只从末尾往前找，不把整段日志复制一遍。
+        """
+        with self._changed:
+            for index in range(len(self._events) - 1, -1, -1):
+                if self._events[index]["type"] == "user":
+                    return index, self._events[index:]  # 复制的只是列表：日志里的事件发出去以后不会再改
+        return 0, []
+
+    def rewind(self, keep_user: bool) -> list[dict]:
+        """倒回最后一轮（见 rewind.py）：保存用的事件从最后一条用户消息那里截断，再按截断后的样子重画页面。
+
+        keep_user：重新生成时留着那条用户消息（之后只开始新的一轮，见 begin_again）；编辑时连它一起去掉。
+        页面上的做法和打开一段会话一样：发一个 reset，再把留下的事件重放一遍（所有开着的页面都会收到，
+        各自原地重画，不用刷新）。调用的人接着发一次状态，重放到那里就结束了，之后的新内容照常播放入场动画。
+        返回截断后的事件（保存的样子）。
+        """
+        saved = self.export_events()
+        last = max((index for index, entry in enumerate(saved) if entry.get("type") == "user"), default=None)
+        if last is not None:
+            saved = saved[: last + 1 if keep_user else last]
+        self.load_events(saved)
+        return saved
+
     def user_events(self) -> list[dict]:
         """当前会话里用户发的每一条消息（日志里的事件本身，不复制）。多媒体库靠它列出当前这段会话里的附件：
         这段会话可能还没存进文件（第一轮还没结束，或者存盘失败了），文件里的就不全。"""
@@ -195,7 +221,9 @@ class WebUI:
 
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
-    def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = ()) -> None:
+    def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = (), mark: int | None = None) -> None:
+        """一轮开始：显示用户的消息。mark 是这一轮开始时适配层的位置（Backend.mark），记在 user 事件上、跟着存进会话文件，
+        以后要编辑这条消息、重新生成回答时，从这里倒回去（见 rewind.py）。不给就不记，这一轮倒不回去。"""
         with self._changed:
             self._stop_requested = False
             self._drop_stale_states()
@@ -203,7 +231,16 @@ class WebUI:
         # 原件在多媒体库里（见 media.py），也在对话历史里（发给模型用）。
         # at：什么时候发的，多媒体库按它排序、分组（"今天""昨天"）
         extra = {"attachments": [item.summary() for item in attachments], "at": round(time.time(), 3)} if attachments else {}
+        if mark is not None:
+            extra["mark"] = mark
         self.publish("user", text=user_text, **extra)
+        self.publish("turn_start")
+
+    def begin_again(self) -> None:
+        """重新生成：用户的那条消息已经在页面上了（倒回时留着它，见 rewind），只开始新的一轮。"""
+        with self._changed:
+            self._stop_requested = False
+            self._drop_stale_states()
         self.publish("turn_start")
 
     def end_turn(self) -> None:

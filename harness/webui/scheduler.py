@@ -276,6 +276,11 @@ class Scheduler:
         with self._lock:
             return next((pending for pending in self._queue if pending.task_id == task_id), None)
 
+    def running(self, task_id: str) -> str:
+        """这个任务正在运行的话，返回它的标题；没在运行（包括还在排队）返回空字符串。"""
+        pending = self._find(task_id) if task_id else None
+        return pending.title if pending is not None and pending.started_at is not None else ""
+
     def _enqueue(self, task: dict, now: float, *, due: float | None, catch_up: bool, missed: int, manual: bool) -> Pending | None:
         """排进队里，有空位的话马上开始。返回排进去的那一个；已经在排队或者正在跑、或者程序要退出了，返回 None。"""
         with self._enqueuing:
@@ -368,6 +373,7 @@ class Scheduler:
         problem = ""
         if messages:  # 和平常一样：一点内容都没有（第一次请求就失败了）的不存
             conversation.messages = messages
+            conversation.dropped = agent.backend.dropped()
             conversation.events = ui.export_events()
             conversation.context_tokens = agent.usage.context_tokens
             try:

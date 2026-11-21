@@ -92,8 +92,11 @@ class OpenAICompatBackend:
     def export(self) -> list:
         return self._messages[1:]  # 系统提示词不用存，每次启动都会重新生成
 
-    def restore(self, messages: list) -> None:
+    def restore(self, messages: list, dropped: int = 0) -> None:
         self._start_history(messages)
+        # 这份历史当初已经被压缩掉了多少条（保存会话时记下的，见 dropped）。接着往下数，
+        # 以前记下的位置（会话里每一轮开头的 mark，见 rewind.py）重新打开之后才仍然指向同一条消息
+        self._dropped = max(0, dropped)
 
     def mark(self) -> int:
         # 位置按"从对话开始数的第几条"算，被压缩掉的也算在内。这样循环在一轮开头记下的位置，
@@ -102,8 +105,19 @@ class OpenAICompatBackend:
 
     def rollback(self, mark: int) -> None:
         # 第一条是系统提示词，永远保留。退回的位置不会落进被压缩掉的那一段：循环只会退回到这一轮的开头，
-        # 而正在进行的这一轮，压缩时总是原样留着（见 compaction.find_cut）
-        del self._messages[max(mark - self._dropped, 1) :]
+        # 而正在进行的这一轮，压缩时总是原样留着（见 compaction.find_cut）；倒回最后一轮之前也先用 turn_at 查过
+        index = max(mark - self._dropped, 1)
+        if index < len(self._messages):
+            del self._messages[index:]
+            self._compaction_failed = False  # 退回去了一截：之后是新的一次尝试，压缩可以再试
+
+    def dropped(self) -> int:
+        return self._dropped
+
+    def turn_at(self, mark: int) -> bool:
+        # 压缩以后，开头是系统提示词和一问一答两条摘要；被压缩掉的那一轮，它的位置落在这几条上或者更前面
+        index = mark - self._dropped
+        return 1 <= index < len(self._messages) and compaction.is_turn_start(self._messages[index])
 
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
         self._compaction_failed = False  # 新的一轮：上一轮没压缩成的话，这一轮可以再试
@@ -143,8 +157,9 @@ class OpenAICompatBackend:
                 pictures += result.images
             self._messages.append({"role": "tool", "tool_call_id": result.id, "content": text})
         if pictures:
-            # 这套格式里，工具结果只能是文字。图片只能放在用户消息里，所以紧跟着结果追加一条，说明它们是哪儿来的
-            content: list[dict] = [{"type": "text", "text": "（上面的工具结果里的图片，按顺序排列，不是用户发的。）"}]
+            # 这套格式里，工具结果只能是文字。图片只能放在用户消息里，所以紧跟着结果追加一条，说明它们是哪儿来的。
+            # 它的 role 也是 user，但不是一轮的开头：压缩找切口时靠开头这句话认出它（见 compaction.is_turn_start）
+            content: list[dict] = [{"type": "text", "text": compaction.TOOL_IMAGES_NOTE}]
             content += [{"type": "image_url", "image_url": {"url": f"data:{image.media_type};base64,{image.data}"}} for image in pictures]
             self._messages.append({"role": "user", "content": content})
 

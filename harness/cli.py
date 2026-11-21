@@ -13,10 +13,11 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import i18n
-from .app import App, build_app, run_turn
+from . import i18n, rewind
+from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .config import APP_NAME, Config, load_config
 from .i18n import k, t
@@ -46,6 +47,8 @@ HELP = k("""\
 /model   查看当前使用的模型
 /mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
 /auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
+/retry   重新生成最后一个回答（只去掉这一轮里模型写的、做的，你的消息原样再发一次）
+/edit    改最后一条消息再发：上一条会填在输入行里，改完按回车；也可以直接写 /edit 新的文字
 /exit    退出""")
 
 COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model", "/mcp", "/auto"}
@@ -78,6 +81,60 @@ def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
         ui.plain(t(AUTO_NOTES[argument]))
         if argument == "all":
             ui.error(t(AUTO_RISK))
+
+
+@dataclass(frozen=True)
+class LastTurn:
+    """终端里的最后一轮：从历史的哪个位置开始（Backend.mark），你说的话。/retry、/edit 从这里倒回去（见 rewind.py）。"""
+
+    mark: int
+    text: str
+
+
+def ask_turn(app: App, ui: TerminalUI, text: str) -> LastTurn:
+    """跑一轮新的对话，返回记下的这一轮。"""
+    mark = app.agent.backend.mark()
+    ui.turn_events = []
+    run_turn(app.agent, ui, text)
+    return LastTurn(mark, text)
+
+
+def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: LastTurn | None) -> LastTurn | None:
+    """/retry：重新生成最后一个回答；/edit：改最后一条消息再发。返回之后的最后一轮（没做成就是原来那一轮）。
+
+    和网页界面一样只能倒最后一轮（原因见 rewind.py 开头）；这一轮做过可能改动了电脑的事，先问一次：
+    倒回去的只是对话，已经执行的命令、改过的文件不会复原。
+    """
+    if last is None:
+        ui.error(t("这段对话里还没有可以重新生成或编辑的消息。"))
+        return last
+    backend = app.agent.backend
+    present = backend.turn_at(last.mark)
+    if not present and backend.mark() != last.mark:
+        ui.error(t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。"))
+        return last
+    text = last.text
+    if command == "/edit":
+        if not argument and not ui.interactive:
+            ui.error(t("用法：/edit 新的文字"))
+            return last
+        text = (argument or ui.read_input(default=last.text) or "").strip()
+        if not text or text == last.text:
+            ui.info(t("没有改动，已取消。"))
+            return last
+    found = rewind.effects(ui.turn_events)
+    if found:
+        lines = "\n".join(f"    {line}" for line in rewind.shown_effects(found))
+        if not ui.agree(t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)):
+            ui.info(t("已取消。"))
+            return last
+    if command == "/retry" and present:
+        ui.turn_events = []
+        retry_turn(app.agent, ui, last.mark)
+        return last
+    # 编辑：连那条消息一起倒回去；再试一次（上一次没答出第一步就失败了，消息已经撤回）：本来就不在历史里，什么都不用去掉
+    backend.rollback(last.mark)
+    return ask_turn(app, ui, text)
 
 
 def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
@@ -157,6 +214,7 @@ def run_terminal(config: Config) -> int:
         return 1
     ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
 
+    last: LastTurn | None = None  # 最后一轮（/retry、/edit 用）
     try:
         while True:
             text = ui.read_input()
@@ -165,11 +223,17 @@ def run_terminal(config: Config) -> int:
             text = text.strip()
             if not text:
                 continue
-            if text in COMMANDS or text.startswith("/auto "):  # 只有 /auto 可以带参数
+            name, _, argument = text.partition(" ")
+            if text == "/retry" or name == "/edit":  # /edit 可以带上新的文字
+                last = rewind_last(name, argument.strip(), app, ui, last)
+                continue
+            if text in COMMANDS or text.startswith("/auto "):  # /auto 可以带参数
                 if not handle_command(text, app, ui):
                     break
+                if text == "/new":
+                    last = None
                 continue
-            run_turn(app.agent, ui, text)
+            last = ask_turn(app, ui, text)
     finally:
         app.close()  # 关掉启动过的 MCP 服务器
 

@@ -76,6 +76,10 @@ ATTACHMENTS_NOTE = "较早的对话里，用户发过这些附件：{names}。�
 # 有的模型（比如 DeepSeek 的推理模型）不接受连着两条用户消息
 SUMMARY_ACK = "好的，我会根据这份摘要接着之前的对话。"
 
+# 工具结果里有图片时，适配层紧跟着结果追加的那条用户消息的开头（见 openai_compat.add_tool_results）。
+# 它不是用户说的话，也不是一轮的开头
+TOOL_IMAGES_NOTE = "（上面的工具结果里的图片，按顺序排列，不是用户发的。）"
+
 # 文本附件在历史里的样子是 <attachment name="文件名">……（见 attachments.wrap_text），从这里取出文件名
 _ATTACHMENT_NAME = re.compile(r'<attachment name="([^"]*)"')
 
@@ -96,19 +100,30 @@ def is_summary(message: dict) -> bool:
     return message.get("role") == "user" and isinstance(content, str) and content.startswith(f"<{_TAG}>")
 
 
+def is_turn_start(message: dict) -> bool:
+    """这条消息是不是一轮对话的开头：用户发来的一条消息。
+
+    在 OpenAI 格式的历史里，role 为 user 的消息有三种来源：用户发来的一条消息、上一次压缩留下的摘要，
+    和工具结果里带图片时适配层补的那一条（工具结果本身的 role 是 tool）。只有第一种是一轮的开头。
+    """
+    if not isinstance(message, dict) or message.get("role") != "user" or is_summary(message):
+        return False
+    content = message.get("content")
+    if isinstance(content, list) and content and isinstance(content[0], dict):
+        return content[0].get("text") != TOOL_IMAGES_NOTE
+    return True
+
+
 def find_cut(messages: list[dict], keep_turns: int = COMPACTION_KEEP_TURNS) -> int | None:
     """切口在哪里。返回一个下标：它之前的部分（系统提示词除外）写进摘要，它和它之后的部分原样留着。
     对话还不到 keep_turns 轮、没有可以压缩的内容时，返回 None。
 
-    在 OpenAI 格式的历史里，role 为 user 的消息只有一种来源：用户发来的一条消息（工具结果的 role 是 tool）。
-    所以每一条 user 消息都是一轮的开头，切在它前面，工具调用和它的结果一定在同一边。
+    切口只落在一轮的开头（is_turn_start），所以工具调用和它的结果一定在同一边。
     上一次压缩留下的摘要不算一轮：它会和更早的内容一起，写进新的摘要。
+    工具结果后面补的那条图片消息也不算：把它当成一轮的话，正在进行的这一轮会从中间被切开，
+    这一轮的开头（用户的那条消息）被写进摘要，循环再想退回到这一轮的开头就找不到它了。
     """
-    starts = [
-        index
-        for index, message in enumerate(messages)
-        if index > 0 and message.get("role") == "user" and not is_summary(message)
-    ]
+    starts = [index for index, message in enumerate(messages) if index > 0 and is_turn_start(message)]
     # 正在进行的这一轮永远保留，所以至少留 1 轮。适配层的 mark / rollback 靠这一点（见 openai_compat.py）
     keep = max(1, keep_turns)
     if len(starts) <= keep:

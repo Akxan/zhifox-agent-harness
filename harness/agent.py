@@ -112,6 +112,24 @@ class Agent:
         parts = [self._context_note(), *notes] + ([user_text] if user_text.strip() else [])
         # 附件和文字是同一条消息：出错撤回时一起撤回，不会只剩下半条
         self.backend.add_user(parts, attachments or ())
+        self._finish_turn(start)
+
+    def retry_turn(self, start: int) -> None:
+        """重新生成最后一轮的回答（网页上的"重新生成"、终端里的 /retry，见 rewind.py）。
+
+        start 是这一轮开始时记下的位置（backend.mark()），这一轮的用户消息就在那里（调用的人先用 backend.turn_at 查过）。
+        历史退回到这条用户消息之后：用户消息原样留着，连同当时的时间说明和附件，所以这一次请求的开头和上一次
+        一字不差，缓存照样命中；模型这一轮写的、做的（思考、回答、工具调用和它们的结果）全部去掉，再照常跑一遍。
+
+        只能是最后一轮。去掉的只是历史的末尾，前面的一个字都不动：要是改了中间的某一轮，它后面的缓存全部作废，
+        后面每一块思考的签名也都对不上了，API 会拒绝请求（原因见 providers/claude.py 开头的规矩）。
+        """
+        self.backend.rollback(start + 1)
+        self.outcome = ""
+        self._finish_turn(start)
+
+    def _finish_turn(self, start: int) -> None:
+        """用户消息已经在 start 这个位置上了：跑循环，直到这一轮结束。"""
         try:
             self._loop(start)
         except BaseException:

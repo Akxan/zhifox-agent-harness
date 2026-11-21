@@ -101,14 +101,28 @@ class AnthropicBackend:
     def export(self) -> list:
         return self._messages  # 历史里只有普通的字典和字符串，可以直接存成 JSON
 
-    def restore(self, messages: list) -> None:
+    def restore(self, messages: list, dropped: int = 0) -> None:
         self._messages = list(messages)
 
     def mark(self) -> int:
         return len(self._messages)
 
     def rollback(self, mark: int) -> None:
+        # 只从末尾去掉：留下的每一块思考，它前面的内容都和当初一字不差，签名照样对得上（见 __init__ 里的规矩）
         del self._messages[mark:]
+
+    def dropped(self) -> int:
+        return 0  # Claude 的历史从不在本地压缩（压缩在 Anthropic 的服务器上做，历史照样只追加）
+
+    def turn_at(self, mark: int) -> bool:
+        # 用户消息有两种：用户说的话，和工具结果（content 里全是 tool_result 块）。开始一轮的是前一种
+        if not 0 <= mark < len(self._messages):
+            return False
+        message = self._messages[mark]
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(message, dict) or message.get("role") != "user" or not isinstance(content, list) or not content:
+            return False
+        return not all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
         # 附件放在文字前面：文档建议先给图片和文档、再提问题，模型读得更好。

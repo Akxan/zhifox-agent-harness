@@ -7,6 +7,7 @@
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
+  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
@@ -77,11 +78,11 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import export, i18n, media, memories
+from .. import export, i18n, media, memories, rewind
 from .. import prompt as prompts
 from ..agents import AgentError
-from ..app import App, build_app, run_turn
-from ..attachments import Attachment, AttachmentError
+from ..app import App, build_app, retry_turn, run_turn
+from ..attachments import MAX_ATTACHMENTS, Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
 from ..budget import valid_budget
 from ..channels.base import ChannelError
@@ -295,6 +296,8 @@ class WebApp:
             file_manager=has_file_manager(),
             # 浏览器：开没开、在不在运行、正在操作没有、找到的 Chrome、配置文件夹（见 browser_api.py）
             browser=self.browser.state(),
+            # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
+            rewind=self._rewind_state(),
         )
 
     def _mcp_state(self) -> dict:
@@ -379,14 +382,25 @@ class WebApp:
         platform = self.channels.holder(conversation_id)
         return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform) if platform else ""
 
-    def _run_turn(self, text: str, attachments: list[Attachment]) -> None:
+    def _run_turn(self, text: str, attachments: list[Attachment], again: int | None = None) -> None:
+        """跑一轮。again：重新生成时，这一轮开始的位置（见 rewind）。那条用户消息已经在页面上了，不再显示一遍；
+        它还在历史里的话原样留着，只重跑模型的那部分（Agent.retry_turn），不在的话（上一次在模型答出第一步之前就失败了）
+        用同样的文字和附件再发一次。"""
         try:
             self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
-            attachments = self._keep_originals(attachments)  # 原件存进多媒体库，概要里记上编号
             self.app.name_conversation(text, attachments)  # 新会话用第一句话当标题（没写字的话用第一个附件的名字）
-            self.ui.begin_turn(text, attachments)
+            backend = self.app.agent.backend
+            if again is None:
+                attachments = self._keep_originals(attachments)  # 原件存进多媒体库，概要里记上编号
+                # 记下这一轮从历史的哪个位置开始：以后编辑这条消息、重新生成回答，从这里倒回去
+                self.ui.begin_turn(text, attachments, mark=backend.mark())
+            else:
+                self.ui.begin_again()
             self.publish_state()  # 让新会话马上出现在列表里
-            run_turn(self.app.agent, self.ui, text, attachments)
+            if again is not None and backend.turn_at(again):
+                retry_turn(self.app.agent, self.ui, again)
+            else:
+                run_turn(self.app.agent, self.ui, text, attachments)
         finally:
             try:
                 self.ui.end_stream()
@@ -396,6 +410,116 @@ class WebApp:
                 # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
                 # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
                 self.ui.end_turn()
+                self.claims.release(self.app.conversation.id, "web")
+                self._turn.release()
+
+    # ---- 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）-------------------
+
+    def _rewind_state(self) -> dict | None:
+        """状态里的 rewind：最后一轮能不能倒回去，不能的话为什么，倒回去之前要不要先问。一条用户消息都没有时是 None。
+
+          turn     这一轮的 user 事件的编号。页面发请求时带回来（连同会话的编号），这边对一下，免得倒回的是别的一轮
+          mark     这一轮在历史里的位置（见 rewind.py）。只是给人看、给测试看的，页面不用
+          ok       能不能编辑、重新生成（正在进行一轮时页面自己把按钮收起来，这里不管）
+          reason   不能的原因（换语言时页面照着原文重译）
+          effects  这一轮做过的、可能改动了东西的事（每件一行）。不是空的，倒回去之前在原地问你一次
+          more     太多了没列出来的还有几项（"……还有几项"那一句由页面自己写）
+        """
+        start, events = self.ui.last_turn_events()
+        turn = rewind.last_turn(events, start)
+        if turn is None:
+            return None
+        problem = self._rewind_problem(turn)
+        effects, more = rewind.listed(rewind.effects(turn.events))
+        return {
+            "turn": turn.id,
+            "mark": turn.mark,
+            "ok": not problem,
+            "reason": said(problem) if problem else None,
+            "effects": effects,
+            "more": more,
+        }
+
+    def _rewind_problem(self, turn: rewind.Turn) -> str:
+        """最后一轮为什么倒不回去；能倒回去返回空字符串。"""
+        conversation = self.app.conversation
+        if turn.mark is None:
+            if conversation.task:
+                return t("定时任务自己跑的那一轮不能编辑或重新生成：发给模型的指令和这里显示的不一样。可以接着发一条新消息。")
+            return t("这一轮是旧版本的智狐记下的，没有记下倒回去的位置。可以接着发一条新消息。")
+        platform = self.channels.holder(conversation.id)
+        if platform:
+            return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform)
+        running = self.tasks.running(conversation.task)
+        if running:
+            return t("定时任务“{title}”正在运行。等它跑完再编辑或重新生成。", title=running)
+        backend = self.app.agent.backend
+        if backend.turn_at(turn.mark) or backend.mark() == turn.mark:
+            return ""  # 还在历史里；或者这一轮还没答出第一步就失败了，消息已经撤回（见 rewind.py 开头）
+        if backend.mark() > turn.mark:
+            return t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。")
+        return t("这一轮在对话历史里找不到了，倒不回去。可以接着发一条新消息。")
+
+    def rewind(self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False) -> tuple[str, dict]:
+        """编辑最后一条消息（action 是 edit，text 是改过的文字，keep 是留下第几个附件，None 是全部）、
+        重新生成最后一个回答（retry）。返回（不能做的原因，回答里另外带的东西）；做成了返回空字符串，新的一轮在后台开始。
+
+        target 是页面看到的那一轮：（会话的编号，它的 user 事件的编号）。和现在的最后一轮对不上（另一个标签页刚倒回过、
+        已经换了一段会话、聊天通道刚聊过一轮），就不做。
+        这一轮做过可能改动了东西的事、而你还没有确认（confirmed），也不做，回答里带上 effects，页面在原地问你。
+
+        和发消息一样拿着对话的锁、认领这段会话（见 claims.py），新的一轮跑完才放开。倒回去以后马上存一次盘：
+        会话文件里的 messages 和 events 一起截断，搜索和多媒体的索引跟着更新（ConversationStore.save → _remember），
+        这时候程序退出，再打开看到的也是倒回去以后的样子。
+        """
+        provider = self.app.provider
+        if not has_key(provider):
+            return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label), {}
+        if not self._turn.acquire(blocking=False):
+            return self._busy(t("上一轮对话还没有结束")), {}
+        started = False
+        try:
+            elsewhere = self._claim()
+            if elsewhere:
+                return elsewhere, {}
+            start, events = self.ui.last_turn_events()
+            turn = rewind.last_turn(events, start)
+            if turn is None or turn.mark is None or (self.app.conversation.id, turn.id) != target:
+                self.publish_state()  # 页面上看到的已经过时了：先把最新的发过去
+                return t("对话刚刚变过了，最后一轮已经不是这一条。看一眼最新的内容再试。"), {}
+            mark = turn.mark
+            problem = self._rewind_problem(turn)
+            if problem:
+                return problem, {}
+            found = rewind.effects(turn.events)
+            if found and not confirmed:
+                effects, more = rewind.listed(found)
+                return t("这一轮做过可能改动了电脑的事，倒回去之前要先确认。"), {"effects": effects, "more": more}
+            backend = self.app.agent.backend
+            kept = action == "retry" and backend.turn_at(mark)  # 重新生成、用户消息还在历史里：原样留着它
+            attachments: list[Attachment] = []
+            if not kept:
+                try:
+                    attachments = rewind.attachments_of(turn, keep if action == "edit" else None, self.app.media, backend.export(), self.app.conversation.created_at)
+                except media.MediaError as exc:
+                    return str(exc), {}
+                text = text if action == "edit" else turn.text
+                if not text.strip() and not attachments:
+                    return t("消息不能为空，也不能太长"), {}
+                problem = self.app.attachment_problem(attachments)  # 换过模型的话，现在这个可能看不了图片
+                if problem:
+                    return problem, {}
+            if action == "edit":
+                self.app.retitle(turn.text, turn.attachments, text, attachments, earlier=self.ui.user_events()[:-1])
+            backend.rollback(mark + 1 if kept else mark)
+            self.ui.rewind(keep_user=action == "retry")
+            self._save()
+            self.publish_state()  # 重放到这里结束：之后新的一轮照常播放入场动画
+            threading.Thread(target=self._run_turn, args=(turn.text if kept else text, attachments, mark if action == "retry" else None), daemon=True).start()
+            started = True
+            return "", {}
+        finally:
+            if not started:
                 self.claims.release(self.app.conversation.id, "web")
                 self._turn.release()
 
@@ -1083,6 +1207,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
             else:
                 self._send_json(409, {"error": t("这个确认请求已经处理过了")})
+        elif path in ("/api/turn/edit", "/api/turn/retry"):
+            action, confirmed = path.removeprefix("/api/turn/"), body.get("confirmed", False)
+            conversation_id, turn_id = body.get("conversation"), body.get("turn")
+            text, keep = body.get("text", ""), body.get("keep")
+            bad = not isinstance(conversation_id, str) or not isinstance(turn_id, int) or isinstance(turn_id, bool) or not isinstance(confirmed, bool)
+            if action == "edit":
+                bad = bad or not isinstance(text, str) or len(text) > MAX_MESSAGE_CHARS
+                indexes = keep if isinstance(keep, list) else []
+                bad = bad or not (keep is None or isinstance(keep, list))
+                bad = bad or len(indexes) > MAX_ATTACHMENTS or len(set(map(repr, indexes))) != len(indexes)
+                bad = bad or not all(isinstance(index, int) and not isinstance(index, bool) for index in indexes)
+            if bad:
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                target = (conversation_id, turn_id)
+                error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed)
+                if error:
+                    self._send_json(409, {"error": error, **extra})
+                else:
+                    self._send_json(200, {"ok": True})
         elif path == "/api/stop":
             web.stop()
             self._send_json(200, {"ok": True})

@@ -2373,7 +2373,8 @@ def test_a_message_with_attachments_from_the_page_to_the_model_and_back(serve):
     # 存下来的会话：事件里只有概要，完整的内容只在对话历史里
     saved = saved_file(s.config, first)
     assert saved["title"] == "季度报表截图.png"
-    assert saved["events"][0] == {"type": "user", "text": "", "attachments": user["attachments"], "at": user["at"]}
+    # mark：这一轮从历史的哪个位置开始（编辑、重新生成时从这里倒回去，见 rewind.py）
+    assert saved["events"][0] == {"type": "user", "text": "", "attachments": user["attachments"], "at": user["at"], "mark": 0}
     assert PNG not in json.dumps(saved["events"]) and PNG in json.dumps(saved["messages"])
 
     # 刷新页面：附件跟着用户的话一起重放

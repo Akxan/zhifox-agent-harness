@@ -50,6 +50,9 @@ class Conversation:
     updated_at: float = 0.0
     context_tokens: int = 0  # 最近一次请求时这段会话占用的上下文，打开旧会话时用来提示费用
     messages: list = field(default_factory=list)
+    # messages 之前已经被压缩掉了多少条（GPT、Gemini、DeepSeek 的压缩，见 providers/compaction.py；Claude 永远是 0）。
+    # 适配层记的位置是从对话开始数的（Backend.mark），打开会话时把它交还给适配层，events 里每一轮记下的位置才对得上
+    dropped: int = 0
     events: list = field(default_factory=list)
     saved: bool = False  # 有没有写到磁盘上（新会话在第一轮对话完成之前只在内存里）
     task: str = ""  # 由哪个定时任务运行出来的（任务的编号）；你自己开的会话是空字符串
@@ -174,6 +177,8 @@ class ConversationStore:
             "events": conversation.events,
             "version": FORMAT_VERSION,
         }
+        if conversation.dropped:
+            data["dropped"] = conversation.dropped
         if conversation.task:
             data["task"] = conversation.task
         if conversation.channel:
@@ -273,6 +278,7 @@ class ConversationStore:
                 context_tokens=int(data.get("context_tokens", 0)),
                 messages=data["messages"],
                 events=data.get("events", []),
+                dropped=int(data.get("dropped", 0)),
                 saved=True,
                 task=data.get("task") if isinstance(data.get("task"), str) else "",
                 channel=data.get("channel")[:40] if isinstance(data.get("channel"), str) else "",
@@ -286,6 +292,6 @@ class ConversationStore:
         texts_ok = all(isinstance(value, str) for value in (conversation.provider, conversation.model, conversation.title))
         lists_ok = isinstance(conversation.messages, list) and isinstance(conversation.events, list)
         times_ok = math.isfinite(conversation.created_at) and math.isfinite(conversation.updated_at)
-        if not (texts_ok and lists_ok and times_ok):
+        if not (texts_ok and lists_ok and times_ok) or conversation.dropped < 0:
             raise ConversationError(t("这段会话的文件读不出来，可能已经损坏。"))
         return conversation

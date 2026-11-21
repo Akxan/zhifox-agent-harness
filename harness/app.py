@@ -295,7 +295,7 @@ class App:
         reuse = same_provider and self.prompt_in_use == self.system_prompt and persona is None and self.persona is None
         backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona)
         backend.model = conversation.model
-        backend.restore(conversation.messages)
+        backend.restore(conversation.messages, conversation.dropped)
         self.agent.backend = backend
         self.prompt_in_use = self.system_prompt
         self.persona = persona
@@ -375,14 +375,18 @@ class App:
         self.browser.close()
 
     def save_conversation(self, events: list) -> bool:
-        """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。"""
+        """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。
+
+        存过盘的会话，历史空了也照样存：那是把第一条消息倒回去了（编辑第一条消息，见 rewind.py），
+        磁盘上要跟着变，不然重新打开时，倒回去的那一轮又回来了。
+        """
         conversation = self.conversation
         messages = self.agent.backend.export()
-        if not messages:
-            if not conversation.saved:
-                conversation.title = ""  # 第一条消息就失败了：当它没发生过
+        if not messages and not conversation.saved:
+            conversation.title = ""  # 第一条消息就失败了：当它没发生过
             return False
         conversation.messages = messages
+        conversation.dropped = self.agent.backend.dropped()
         conversation.events = events
         conversation.provider, conversation.model = self.settings.provider, self.settings.model
         conversation.context_tokens = self.agent.usage.context_tokens
@@ -393,6 +397,29 @@ class App:
         """新会话用用户的第一句话当标题。第一条消息只有附件、没有文字时，用第一个附件的文件名。"""
         if not self.conversation.title:
             self.conversation.title = make_title(first_message) or (make_title(attachments[0].name) if attachments else "")
+
+    def retitle(
+        self, old_text: str, old_attachments: Sequence[dict], text: str, attachments: Sequence[Attachment], earlier: Sequence[dict] = ()
+    ) -> None:
+        """编辑了一条消息（见 rewind.py）：标题要是就是照着它原来的样子起的（你没改过名），跟着换成照新的样子起的。
+        不然倒回去的那句话还留在会话列表里，也还搜得到。old_attachments 是原来那条消息的附件概要。
+
+        earlier 是它前面的那些用户消息（user 事件）。其中有一条起出来的标题也是这一个（比如第一条和这一条都是"你好"），
+        标题就是从前面那条来的，不动它。
+        """
+        def auto(message: str, summaries: Sequence[dict]) -> str:
+            first = summaries[0].get("name", "") if summaries and isinstance(summaries[0], dict) else ""
+            return make_title(message) or make_title(first if isinstance(first, str) else "")
+
+        title = self.conversation.title
+        if not title or title != auto(old_text, old_attachments):
+            return
+        for event in earlier:
+            summaries = event.get("attachments") if isinstance(event.get("attachments"), list) else []
+            if auto(event.get("text") if isinstance(event.get("text"), str) else "", summaries) == title:
+                return
+        self.conversation.title = ""
+        self.name_conversation(text, attachments)
 
     def attachment_problem(self, attachments: Sequence[Attachment]) -> str:
         """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。"""
@@ -539,8 +566,17 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
 
 def run_turn(agent: Agent, ui: Any, text: str, attachments: Sequence[Attachment] | None = None) -> None:
     """跑一轮对话。出错后程序不退出，把原因显示出来，可以接着聊。附件只有网页界面会传。"""
+    _guarded(ui, lambda: agent.run_turn(text, attachments))
+
+
+def retry_turn(agent: Agent, ui: Any, start: int) -> None:
+    """重新生成最后一轮的回答（见 Agent.retry_turn）。出错时和 run_turn 一样，说明原因、不退出。"""
+    _guarded(ui, lambda: agent.retry_turn(start))
+
+
+def _guarded(ui: Any, work: Callable[[], None]) -> None:
     try:
-        agent.run_turn(text, attachments)
+        work()
     except KeyboardInterrupt:
         ui.info(t("已中断。"))
     except ProviderError as exc:

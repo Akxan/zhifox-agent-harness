@@ -42,6 +42,9 @@ class TerminalUI:
                 history = FileHistory(str(history_file))  # 按上方向键可以找回以前输入过的话
             self._session = PromptSession(history=history)
         self._streaming: str | None = None  # 正在逐字输出的内容类型："thinking" 或 "text"
+        # 这一轮里的工具调用和确认，记成和网页界面一样的事件。/retry、/edit 倒回这一轮之前，
+        # 靠它看这一轮做过什么可能改动了电脑的事（见 rewind.effects），要先问你一次
+        self.turn_events: list[dict] = []
 
     # ---- 基础输出 ---------------------------------------------------------
 
@@ -72,21 +75,40 @@ class TerminalUI:
 
     # ---- 输入 -------------------------------------------------------------
 
-    def read_input(self) -> str | None:
-        """读取用户输入的一行。返回 None 表示用户要退出。"""
+    def read_input(self, default: str = "") -> str | None:
+        """读取用户输入的一行。返回 None 表示用户要退出。default 是预先填好的文字（/edit 把上一条消息填进去，可以直接改）。"""
         self.end_stream()
         try:
             if self._session is not None:
                 self._write("\n")
-                return self._session.prompt(t("你> "))
+                return self._session.prompt(t("你> "), default=default)
             return input()
         except KeyboardInterrupt:
             return ""  # 在输入时按 Ctrl-C：清空这一行，不退出
         except EOFError:
             return None
 
+    @property
+    def interactive(self) -> bool:
+        return self._interactive
+
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
         """请用户确认一个操作。返回（是否允许，用户附带的话）。agent 是哪个子 Agent 在问（主助手自己问时是空的）。"""
+        allowed, feedback = self._confirm(description, agent)
+        self.turn_events.append({"type": "confirm", "outcome": "allowed" if allowed else "denied"})
+        return allowed, feedback
+
+    def agree(self, warning: str) -> bool:
+        """问一句"要继续吗"，默认不继续（/retry、/edit 倒回一轮之前用，见 cli.py）。不是交互式终端时不继续。"""
+        self._line(YELLOW, "\n⚠️  " + warning)
+        if not self._interactive:
+            return False
+        try:
+            return ask(t("继续吗？y 继续；回车取消 > ")).strip().lower() in YES
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    def _confirm(self, description: str, agent: str) -> tuple[bool, str]:
         self.end_stream()
         asking = t("「{agent}」想要", agent=agent) if agent else t("助手想要")
         self._write(self._paint(YELLOW, "\n⚠️  " + asking + description) + "\n")
@@ -139,7 +161,9 @@ class TerminalUI:
     # ---- 工具调用 ---------------------------------------------------------
 
     def tool_call(self, name: str, tool_input: object) -> None:
-        self._line(CYAN, f"🔧 {describe_call(name, tool_input)}")
+        summary = describe_call(name, tool_input)
+        self.turn_events.append({"type": "tool_call", "name": name, "summary": summary, "input": tool_input})
+        self._line(CYAN, f"🔧 {summary}")
 
     def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
         # 浏览器的截图在终端里画不出来，只说一声大图存在哪儿（网页界面里点小图就能看）
@@ -157,6 +181,7 @@ class TerminalUI:
         if step == "start":
             self._line(CYAN, "🤖 " + t("交给「{agent}」：{task}", agent=name, task=short(str(data.get("task", "")), 120)))
         elif step == "tool_call":
+            self.turn_events.append({"type": "subagent", "step": "tool_call", "name": data.get("name"), "summary": data.get("summary"), "input": data.get("input")})
             self._line(CYAN, f"   🔧 {data.get('summary', '')}")
         elif step == "tool_result":
             self._line(RED if data.get("is_error") else DIM, f"      ↳ {short(str(data.get('text', '')), 100)}")

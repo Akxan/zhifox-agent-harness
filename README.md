@@ -239,6 +239,7 @@ Each part of the harness has its own file or directory:
 | Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
 | WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects |
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
+| Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -401,6 +402,45 @@ includes the working directory, so if you start ZhiFox in a different directory 
 system prompt has changed and that thinking no longer matches. The request includes a parameter telling the API to drop
 mismatched thinking instead of rejecting the request. The old conversation still continues; the model just can't see how
 it reasoned at the time.
+
+### Editing the last message and regenerating
+
+Both are the same move: rewind the conversation a little, then run the turn again. **Regenerate** rewinds to just
+after your last message. That message stays exactly as it was, with its time note and attachments, so the new request
+starts byte for byte like the old one (and hits the cache); everything the model did in the turn (thinking, text, tool
+calls and their results) is removed. **Edit** rewinds to just before your last message and sends the edited one as a
+new turn.
+
+Only the last turn can be rewound, because the history is append-only (see above). Changing a turn in the middle would
+invalidate the cache for everything after it, and every later Claude thinking block is signed against what came
+before it. Cutting from the end leaves the prefix of every remaining block untouched.
+
+**Where to rewind to.** When a turn starts, the web UI records the adapter's position in the history
+(`Backend.mark()`) on the turn's `user` event, and it is saved with the conversation. GPT, Gemini and DeepSeek count
+positions from the start of the conversation, including the messages compaction has replaced; the conversation file
+records how many were replaced (`dropped`), so the recorded positions still match after reopening or restarting.
+Before rewinding, the adapter is asked whether that position still holds the turn's user message (`Backend.turn_at`):
+
+- It does: rewind there.
+- It doesn't, and the history ends right there: the turn failed before the model answered, and the message was taken
+  back (the page still shows it). Regenerate sends it again; its attachments come back from the media library.
+- It doesn't, and the history goes on: the turn has been folded into a summary. It can't be rewound, and the buttons
+  say why. Turns saved before this feature, and the turn a scheduled task ran by itself (the model got an instruction
+  that differs from what the page shows), can't be rewound either.
+
+**What can't be undone.** Only the conversation goes back. If the turn ran a command, edited a file, called an MCP
+tool, or clicked or typed in the browser (directly or through a subagent), the page lists those steps and asks once.
+Steps you denied don't count, and neither do failed calls to ZhiFox's own to-do, file, memory and task tools: they
+check everything before writing, so a failure changed nothing. A tool ZhiFox doesn't recognize counts as a change.
+
+**Money.** What was spent stays spent: the spending record keeps every call, and this conversation's usage and cost in
+the side panel aren't reduced. The context size updates with the next request.
+
+**On the page.** The server truncates the history and the saved events together, saves the conversation straight away
+(so search and the media library follow), then sends `reset` and replays the events that remain, the same way it
+opens a conversation. Every open tab redraws in place without reloading. A request names the conversation and the
+turn it means, so a tab that is behind is turned away instead of rewinding something else, and a tab that was in the
+middle of an edit puts the unsent text back into its input box.
 
 ### Three interface languages
 
@@ -1118,6 +1158,14 @@ This starts a small server on your computer and opens the chat page in your brow
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
+- **Edit and regenerate.** Hover over your last message for **Edit** (or press ↑ in the empty input box): the message
+  turns into an editor in place, with its attachments, which you can remove one by one. Enter sends the edited message
+  as a new turn; Esc or **Cancel** warns once before throwing away your changes. Under the last reply, **Regenerate**
+  asks the model again with exactly the same message; when a turn ended without a reply (an error, or you stopped it),
+  **Regenerate** sits below it on its own. If that turn did something that may have changed your computer (ran a
+  command, edited a file, called an MCP tool, clicked or typed in the browser), ZhiFox first lists those steps and asks
+  once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
+  (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)).
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
   **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
   shown below the input.
@@ -1459,6 +1507,8 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
+| `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
+| `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
@@ -1795,6 +1845,11 @@ The media library is covered in
 [tests/test_media.py](tests/test_media.py) (storing and deduplicating originals, recovering attachments from older
 histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
 only when no conversation uses them) and in the media section of `tests/test_webui.py` (the endpoints and their headers).
+Editing and regenerating are covered in [tests/test_rewind.py](tests/test_rewind.py) (in both formats: a request that
+starts byte for byte like the original, no orphan tool results, earlier thinking blocks unchanged, reopening after a
+restart, compaction, which steps count as changes), [tests/test_rewind_web.py](tests/test_rewind_web.py) (the
+endpoints and their refusals, the confirmation, the event stream after a rewind in two tabs, the saved file, search and
+the media library) and [tests/test_rewind_cli.py](tests/test_rewind_cli.py) (`/retry` and `/edit`).
 Chat channels are tested against a local fake of each platform, while the test code plays your phone:
 [tests/fake_telegram.py](tests/fake_telegram.py) (a Bot API that checks the HTML and the length of every message the
 way Telegram does), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a

@@ -145,9 +145,15 @@ class Backend(Protocol):
 
     def reset(self) -> None: ...  # 清空对话
     def export(self) -> list: ...  # 把对话历史交出来保存（只含能写成 JSON 的普通数据）
-    def restore(self, messages: list) -> None: ...  # 换上一份以前保存的对话历史
+    # 换上一份以前保存的对话历史。dropped 是当时 dropped() 的值：交还给它，以前记下的位置（mark）才仍然对得上
+    def restore(self, messages: list, dropped: int = 0) -> None: ...
     def mark(self) -> int: ...  # 记下历史现在的位置（中途压缩过历史，这个位置也仍然有效）
     def rollback(self, mark: int) -> None: ...  # 把历史退回到某个位置（只会从末尾去掉内容）
+    # 压缩换掉了多少条历史（位置是从对话开始数的，换掉的也算在内）。保存会话时一起存下，见 restore
+    def dropped(self) -> int: ...
+    # mark 这个位置上，是不是还留着开始一轮对话的那条用户消息：没被撤回、没被压缩进摘要。
+    # 倒回最后一轮（编辑、重新生成，见 rewind.py）之前先问它，压缩掉了的那一轮倒不回去
+    def turn_at(self, mark: int) -> bool: ...
     # 追加一条用户消息。parts 是几段文字（时间说明、用户的话），attachments 是随消息发来的附件。
     # 附件怎么放进消息由各家自己决定；这一家收不了的附件（比如看不了图片）抛出 ProviderError，什么都不追加
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None: ...

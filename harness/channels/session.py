@@ -306,7 +306,8 @@ class Session:
             done = threading.Event()
             if self.router.capabilities(self.platform).typing:
                 threading.Thread(target=self._typing, args=(done,), daemon=True).start()
-            self.ui.begin_turn(text, attachments)
+            # 记下这一轮从历史的哪个位置开始：网页上打开这段会话时，最后一轮能编辑、重新生成（见 rewind.py）
+            self.ui.begin_turn(text, attachments, mark=agent.backend.mark())
             if self._stop_asked:
                 self.ui.request_stop()  # 准备的时候就被 /stop 了：begin_turn 刚把旗子放下，再立起来
             try:
@@ -390,7 +391,7 @@ class Session:
             self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model, self._persona(conversation))
             self.agent = self.run.agent
             if conversation.messages:
-                self.agent.backend.restore(conversation.messages)
+                self.agent.backend.restore(conversation.messages, conversation.dropped)
             self.agent.usage.context_tokens = conversation.context_tokens
             self.agent.on_usage = self.router.changed
             self.agent.notes.append(_first_note(self.platform, self.router.capabilities(self.platform).buttons))
@@ -467,6 +468,7 @@ class Session:
                 conversation.title = ""  # 第一条消息就失败了：当它没发生过
             return
         conversation.messages = messages
+        conversation.dropped = agent.backend.dropped()
         conversation.events = self.ui.export_events()
         conversation.provider, conversation.model = agent.backend.provider, agent.backend.model
         conversation.context_tokens = agent.usage.context_tokens
