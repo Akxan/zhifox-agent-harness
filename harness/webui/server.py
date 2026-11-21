@@ -103,6 +103,7 @@ from ..config import (
     Config,
 )
 from ..conversations import ConversationError
+from ..exits import EXIT_SIGNALS
 from ..i18n import k, t
 from ..mcp import ConfigError
 from ..mcp import importers as mcp_imports
@@ -148,8 +149,9 @@ MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
 
 
 def has_file_manager() -> bool:
-    """这台电脑上能不能打开文件管理器。服务器上通常没有图形界面（没有 DISPLAY），也没有 xdg-open。"""
-    if sys.platform == "darwin":
+    """这台电脑上能不能打开文件管理器。服务器上通常没有图形界面（没有 DISPLAY），也没有 xdg-open。
+    macOS 和 Windows 总是有（访达、文件资源管理器）。"""
+    if sys.platform in ("darwin", "win32"):
         return True
     return bool(shutil.which("xdg-open")) and bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
@@ -165,6 +167,9 @@ def reveal_in_file_manager(path: Path) -> None:
     或者什么都不给（commands_api.py 的 reveal：只显示 data/commands.json））；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
     if not has_file_manager():
+        return
+    if sys.platform == "win32":
+        _reveal_in_explorer(path)
         return
     if sys.platform == "darwin":
         command = ["open", "-R", str(path)] if path.is_file() else ["open", str(path)]  # -R：在访达里选中这个文件，而不是打开它
@@ -186,6 +191,28 @@ def reveal_in_file_manager(path: Path) -> None:
             raise OSError(t("{command} 没有成功（退出码 {code}）", command=command[0], code=process.returncode))
     except subprocess.TimeoutExpired:
         pass  # 有的文件管理器会一直开着不退出，那也算打开了，不用等它
+
+
+def windows_reveal_command(path: Path, is_file: bool) -> str:
+    """Windows 上打开文件资源管理器的那一行命令：文件是 explorer /select,"路径"（打开它所在的文件夹并选中它），文件夹是直接打开。
+
+    为什么是一整行字符串、不是参数列表：explorer 不按通常的规则解析命令行，/select, 和路径必须连在一起、路径单独加引号；
+    交给 subprocess 一个列表的话，它会把 "/select,带空格的路径" 整个括进一对引号，explorer 就不认了。
+    字符串在 Windows 上也不经过 shell（CreateProcess 直接运行），路径是程序自己算出来的，Windows 的文件名里也不可能有引号。
+    """
+    explorer = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "explorer.exe")  # 完整路径：PATH 里同名的程序冒充不了
+    return f'"{explorer}" /select,"{path}"' if is_file else f'"{explorer}" "{path}"'
+
+
+def _reveal_in_explorer(path: Path) -> None:
+    if '"' in str(path):
+        raise OSError(t("路径里有引号，没法交给文件资源管理器：{path}", path=path))
+    # explorer 把事情交给已经开着的那个文件资源管理器就退出了，而且成功了也常常返回 1：不看退出码
+    subprocess.Popen(  # 见 windows_reveal_command：不经过 shell，路径由程序算出来
+        windows_reveal_command(path, path.is_file()),
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env={name: value for name, value in os.environ.items() if name not in SECRET_ENV_VARS},
+    )
 
 
 class WebApp:
@@ -1962,11 +1989,13 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     # 停下正在进行的一轮、存好盘，再放开数据目录。不接的话 SIGTERM 会直接把进程杀掉，这一轮做过的事在会话里不留记录。
     # 在打印地址之前就接上：看到地址就发 SIGTERM 的人（测试、脚本），不能赶在接上之前。
     # 收到第一个之后换回默认的处理：真想马上结束，再发一次就行
+    # Windows 上还有 Ctrl+Break（SIGBREAK，见 exits.py）
     def interrupted(signum: int, frame: object) -> None:
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        for number in EXIT_SIGNALS:
+            signal.signal(number, signal.SIG_DFL)
         raise KeyboardInterrupt
 
-    previous = signal.signal(signal.SIGTERM, interrupted) if threading.current_thread() is threading.main_thread() else None
+    previous = {number: signal.signal(number, interrupted) for number in EXIT_SIGNALS} if threading.current_thread() is threading.main_thread() else None
     try:
         print(t("{name}（网页界面）已启动。在浏览器里打开这个地址：", name=APP_NAME) + "\n")
         print(f"    {url}\n")
@@ -1983,10 +2012,10 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        if previous is not None:
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)  # 正在收尾：这时再来一个 SIGTERM 不要打断存盘
+        for number in previous or ():
+            signal.signal(number, signal.SIG_IGN)  # 正在收尾：这时再来一个 SIGTERM 不要打断存盘
         shut_down(server, app)
-        if previous is not None:
-            signal.signal(signal.SIGTERM, previous)
+        for number, handler in (previous or {}).items():
+            signal.signal(number, handler)
     print("\n" + t("再见。"))
     return 0

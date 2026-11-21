@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
-from harness import i18n
+from harness import commands as commands_module
+from harness import i18n, winacl
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
@@ -185,6 +186,14 @@ def isolated_environment(monkeypatch, tmp_path):
     def forbidden(*args, **kwargs):
         raise AssertionError(f"测试里不许运行真的系统命令或者打开浏览器：{args}")
 
+    # Windows 上收紧访问权限（winacl.py）要运行 icacls：测试里换成什么都不做的假的（每建一个临时目录就运行一次太慢），
+    # 真的 icacls 只在 tests/test_winacl.py 里、只在 Windows 上测
+    monkeypatch.setattr(winacl, "runner", lambda args: (0, '"test\\me","S-1-5-21-1-2-3-1001"'))
+    winacl.forget()
+    # "只读的命令不用问"在 Windows 上整个关着（每条都问，见 harness/commands/__init__.py）。测拆词、名单的那几百个测试
+    # 在 Windows 上照样要跑（路径的检查在那里才真正有 Windows 的样子），所以默认按 macOS、Linux 的规矩判断；
+    # 测 Windows 上"一律不算只读"的测试自己把它换回 True（tests/test_commands.py 的 test_on_windows_nothing_is_readonly）
+    monkeypatch.setattr(commands_module, "WINDOWS", False)
     monkeypatch.setattr(service_base, "run_command", forbidden)
     monkeypatch.setattr(service_base, "run_attached", forbidden)
     monkeypatch.setattr(service_cli, "_open_browser", forbidden)

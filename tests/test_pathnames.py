@@ -168,7 +168,7 @@ def test_junctions_and_symlinks_are_links_but_cloud_files_are_not():
 
 
 def test_entries_are_looked_at_with_a_real_lstat_on_windows(tmp_path, symlinks):
-    (tmp_path / "file.txt").write_text("x")
+    (tmp_path / "file.txt").write_text("x", encoding="utf-8")
     (tmp_path / "link").symlink_to(tmp_path / "file.txt")
     entries = {entry.name: entry for entry in os.scandir(tmp_path)}
     assert pathnames.entry_linked(entries["link"], windows=True)
@@ -212,8 +212,8 @@ def test_open_without_o_nofollow_creates_new_files(tmp_path, monkeypatch):
 def editor(tmp_path):
     workspace = tmp_path / "work"
     (workspace / "data").mkdir(parents=True)
-    (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n")
-    (workspace / "data" / "channels.json").write_text("{}\n")
+    (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n", encoding="utf-8")
+    (workspace / "data" / "channels.json").write_text("{}\n", encoding="utf-8")
     protected = [workspace / ".env", workspace / "data" / "channels.json"]
     return FileEditor(workspace, tmp_path / "backups", protected=protected)
 
@@ -313,11 +313,11 @@ def places(tmp_path):
     """按 Windows 的规矩看的 Places（在哪个系统上都能跑：比较的是 pathnames.key 算出来的写法）。"""
     ws, home = tmp_path / "ws", tmp_path / "home"
     (ws / "data" / "conversations").mkdir(parents=True)
-    (ws / ".env").write_text("K=1\n")
-    (ws / "data" / "channels.json").write_text("{}\n")
-    (ws / "data" / "conversations" / "c1.json").write_text("{}\n")
+    (ws / ".env").write_text("K=1\n", encoding="utf-8")
+    (ws / "data" / "channels.json").write_text("{}\n", encoding="utf-8")
+    (ws / "data" / "conversations" / "c1.json").write_text("{}\n", encoding="utf-8")
     (ws / "src").mkdir()
-    (ws / "src" / "a.txt").write_text("a\n")
+    (ws / "src" / "a.txt").write_text("a\n", encoding="utf-8")
     home.mkdir()
     protected = [ws / ".env", ws / "data" / "channels.json"]
     places = Places(ws.resolve(), protected=protected, private=[ws / "data"], home=home, windows=True)
@@ -344,7 +344,7 @@ def test_commands_never_touch_network_or_device_paths(places, monkeypatch, word)
 
 
 def test_short_names_on_disk_are_unclear(places):
-    (places.workspace / "ENV~1").write_text("其实可能就是 .env\n")
+    (places.workspace / "ENV~1").write_text("其实可能就是 .env\n", encoding="utf-8")
     with pytest.raises(Unclear, match="短名字"):
         places.check("ENV~1")
     places.check("HEAD~1")  # 磁盘上没有这个名字：git 的写法，什么都读不到
@@ -377,7 +377,7 @@ def test_a_folder_scan_finds_a_hard_link_with_a_real_lstat(places):
 def memory_root(tmp_path):
     root = tmp_path / "memories"
     root.mkdir()
-    (root / "notes.md").write_text("记住的东西\n")
+    (root / "notes.md").write_text("记住的东西\n", encoding="utf-8")
     return root
 
 
@@ -403,7 +403,7 @@ def test_memories_still_work_on_windows(memory_root, windows, monkeypatch):
 def test_a_junction_inside_the_memory_folder_is_not_followed(memory_root, monkeypatch):
     """目录联接的 st_mode 是"文件夹"：每一层都要问 pathnames.linked，不能只看 S_ISLNK。"""
     (memory_root / "junction").mkdir()
-    (memory_root / "junction" / "secret.md").write_text("外面的东西\n")
+    (memory_root / "junction" / "secret.md").write_text("外面的东西\n", encoding="utf-8")
     real = pathnames.linked
     monkeypatch.setattr(pathnames, "linked", lambda info: real(info) or stat.S_ISDIR(info.st_mode) and info.st_ino == os.lstat(memory_root / "junction").st_ino)
     with pytest.raises(memories.MemoryFileError, match="链接"):
@@ -482,7 +482,7 @@ def test_the_memory_tool_refuses_windows_tricks_before_the_sdk_sees_them(tmp_pat
     with pytest.raises(ToolError, match="这种写法不认"):
         tool.run({"command": "create", "path": path, "file_text": "x"})
     tool.run({"command": "create", "path": "/memories/notes.md", "file_text": "x"})  # 普通的路径照常
-    assert (tmp_path / "data" / "memories" / "notes.md").read_text() == "x"
+    assert (tmp_path / "data" / "memories" / "notes.md").read_text(encoding="utf-8") == "x"
 
 
 # ---- 真的 Windows -------------------------------------------------------------------

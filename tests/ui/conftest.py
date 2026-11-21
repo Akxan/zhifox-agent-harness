@@ -24,7 +24,6 @@ import contextlib
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -33,6 +32,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from processes import ask_to_exit, end_tree, own_group
 
 from harness.browser import chrome
 from harness.tools.shell import SECRET_ENV_VARS
@@ -76,7 +76,7 @@ class Demo:
         ]
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", start_new_session=True,
+            text=True, encoding="utf-8", errors="replace", **own_group(),
         )
         self.output: list[str] = []
         self._found = threading.Event()
@@ -134,11 +134,11 @@ class Demo:
 
     def stop(self) -> None:
         if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)  # 和按 Ctrl-C 一样：演示自己收尾（关掉假服务器、它开的 Chrome）
+            ask_to_exit(self.process)  # 演示自己收尾（关掉假服务器、它开的 Chrome）；Windows 上是 Ctrl+Break（见 tests/processes.py）
             try:
                 self.process.wait(15)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                end_tree(self.process)
                 self.process.wait(5)
 
 

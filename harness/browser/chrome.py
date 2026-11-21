@@ -16,6 +16,20 @@ Chrome 是一个"进程树"：一个主进程，加上每个标签页、显卡�
 
 和它说话用的是两根管道（见 cdp.py）：启动时把它们放在 Chrome 的第 3、4 号文件描述符上。
 用 os.posix_spawn 而不是 subprocess：subprocess 只能原样传递描述符，没法指定"放在 3 号和 4 号上"。
+
+## Windows
+
+Windows 上没有"第 3、4 号描述符"可以交给子进程，Chrome 为此另有一个参数：--remote-debugging-io-pipes=读,写，
+两个数是管道的句柄（Windows 的 HANDLE，十进制写），Chrome 用 _open_osfhandle 把它们接过去（见 Chromium 的
+content/browser/devtools/devtools_agent_host_impl.cc）。所以 Windows 上的做法是：
+  1. os.pipe() 开两根管道（Python 开的默认不让子进程继承）；
+  2. 只把给 Chrome 的那两头设成可以继承，写进参数；
+  3. 用 subprocess 启动，STARTUPINFO 的 lpAttributeList 里 handle_list 只列这两个句柄（加上标准输入输出）：
+     Windows 只让子进程继承列表里的这几个，我们开着的别的文件、套接字一个都不会漏给 Chrome。
+这样 Windows 上也只走管道、不开端口：这台电脑上别的程序（包括你自己账号下的别的程序）没有办法连上它、替它点网页。
+不用 --remote-debugging-port 的理由和 macOS、Linux 上一样（见 cdp.py 开头）：端口谁都连得上。
+
+Windows 也没有进程组和信号：关的时候先礼貌地请它退出（Browser.close），不走就用 taskkill /T 结束它和它的子进程。
 """
 
 from __future__ import annotations
@@ -25,6 +39,7 @@ import os
 import platform
 import shutil
 import signal
+import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -52,6 +67,22 @@ LINUX_COMMANDS = [
     "brave-browser",
 ]
 LINUX_PATHS = ["/snap/bin/chromium", "/usr/bin/chromium", "/opt/google/chrome/chrome"]
+# Windows 上常见的几个位置：{文件夹的环境变量}\后面这一段。Chrome（装给所有人的、只装给自己的）排前面；
+# Edge 是每台 Windows 10、11 都有的，同一个内核，所以没装 Chrome 也能用
+WINDOWS_APPS = [
+    ("ProgramFiles", r"Google\Chrome\Application\chrome.exe"),
+    ("ProgramFiles(x86)", r"Google\Chrome\Application\chrome.exe"),
+    ("LOCALAPPDATA", r"Google\Chrome\Application\chrome.exe"),
+    ("LOCALAPPDATA", r"Chromium\Application\chrome.exe"),
+    ("ProgramFiles", r"Google\Chrome Beta\Application\chrome.exe"),
+    ("ProgramFiles", r"Google\Chrome Dev\Application\chrome.exe"),
+    ("LOCALAPPDATA", r"Google\Chrome SxS\Application\chrome.exe"),
+    ("ProgramFiles(x86)", r"Microsoft\Edge\Application\msedge.exe"),
+    ("ProgramFiles", r"Microsoft\Edge\Application\msedge.exe"),
+    ("ProgramFiles", r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+    ("LOCALAPPDATA", r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+]
+WINDOWS = os.name == "nt"
 
 # 环境变量：在 settings 里没填路径时，可以用它指定（服务器上常用）
 PATH_ENV = "HARNESS_CHROME"
@@ -67,7 +98,9 @@ def find_chrome(override: str = "") -> Path | None:
         path = Path(chosen).expanduser()
         return path if path.is_file() and os.access(path, os.X_OK) else None
     candidates: list[Path] = []
-    if platform.system() == "Darwin":
+    if WINDOWS:
+        candidates += [Path(os.environ[folder]) / rest for folder, rest in WINDOWS_APPS if os.environ.get(folder)]
+    elif platform.system() == "Darwin":
         for base in (Path("/Applications"), Path.home() / "Applications"):
             candidates += [base / app for app in MAC_APPS]
     else:
@@ -78,7 +111,7 @@ def find_chrome(override: str = "") -> Path | None:
 
 def needs_headless() -> bool:
     """这台电脑能不能显示窗口。Linux 上没有图形界面（服务器、SSH 进来的）时只能无界面运行。"""
-    if platform.system() == "Darwin":
+    if WINDOWS or platform.system() == "Darwin":
         return False
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
@@ -110,17 +143,20 @@ def arguments(executable: Path, profile: Path, headless: bool) -> list[str]:
 
 
 class Chrome:
-    """一个正在运行的 Chrome：进程号、和它说话的连接。"""
+    """一个正在运行的 Chrome：进程号、和它说话的连接。process 只在 Windows 上有（subprocess 开的，靠它知道退出了没有）。"""
 
-    def __init__(self, pid: int, connection: Connection, executable: Path, headless: bool):
+    def __init__(self, pid: int, connection: Connection, executable: Path, headless: bool, process: subprocess.Popen | None = None):
         self.pid = pid
         self.connection = connection
         self.executable = executable
         self.headless = headless
         self.started = time.time()
+        self._process = process
 
     def alive(self) -> bool:
         """进程还在不在。顺便把已经退出的收掉（不然它会变成僵尸进程）。"""
+        if self._process is not None:
+            return self._process.poll() is None
         try:
             done, _ = os.waitpid(self.pid, os.WNOHANG)
         except ChildProcessError:
@@ -149,10 +185,20 @@ class Chrome:
     def kill(self) -> None:
         """立刻结束整个进程组，不等（程序退出时的最后一道保险：atexit 里不能慢）。"""
         self._signal(signal.SIGKILL)
+        if self._process is not None:
+            self._process.poll()
+            return
         with contextlib.suppress(ChildProcessError, OSError):
             os.waitpid(self.pid, os.WNOHANG)
 
     def _signal(self, which: int) -> None:
+        if self._process is not None:
+            # Windows：没有信号。"请退出"是不带 /F 的 taskkill（给它的窗口发"关闭"），"立刻结束"是带 /F 的；/T 连同子进程。
+            # 已经退出了的不再去结束：Popen 一直拿着它的句柄，进程号不会被别的程序用上，但也没有必要再打扰谁。
+            # 它的子进程（渲染进程这些）在主进程没了以后会自己退出
+            if self.alive():
+                _taskkill(self.pid, force=which != signal.SIGTERM)
+            return
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(self.pid, which)  # 进程组的编号就是主进程的编号（启动时 setpgroup=0）
 
@@ -163,6 +209,16 @@ class Chrome:
                 return True
             time.sleep(0.05)
         return not self.alive()
+
+
+def _taskkill(pid: int, force: bool) -> None:
+    from ..tools.shell import system32
+
+    subprocess.run(
+        [system32("taskkill.exe"), "/T", *(["/F"] if force else []), "/PID", str(pid)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
 
 
 def _high(fd: int) -> int:
@@ -191,6 +247,8 @@ def launch(
     """
     profile.mkdir(parents=True, exist_ok=True)
     os.chmod(profile, 0o700)
+    if WINDOWS:
+        return _launch_windows(executable, profile, headless, on_close, extra_args)
     to_chrome_read, to_chrome_write = (_high(fd) for fd in os.pipe())
     from_chrome_read, from_chrome_write = (_high(fd) for fd in os.pipe())
     args = arguments(executable, profile, headless) + (extra_args or [])
@@ -218,3 +276,39 @@ def launch(
         os.close(from_chrome_write)
     connection = Connection(from_chrome_read, to_chrome_write, on_close=on_close)
     return Chrome(pid, connection, executable, headless)
+
+
+def _launch_windows(
+    executable: Path, profile: Path, headless: bool, on_close: Callable[[], None] | None, extra_args: list[str] | None,
+) -> Chrome:
+    """Windows 上的启动：管道的两个句柄写进 --remote-debugging-io-pipes，只让 Chrome 继承这两个（见文件开头）。"""
+    import msvcrt
+
+    from ..tools.shell import SECRET_ENV_VARS
+
+    to_chrome_read, to_chrome_write = os.pipe()
+    from_chrome_read, from_chrome_write = os.pipe()
+    given = [msvcrt.get_osfhandle(to_chrome_read), msvcrt.get_osfhandle(from_chrome_write)]  # Chrome 读的、Chrome 写的
+    for handle in given:
+        os.set_handle_inheritable(handle, True)
+    args = arguments(executable, profile, headless)
+    args.insert(2, f"--remote-debugging-io-pipes={given[0]},{given[1]}")  # 紧跟在 --remote-debugging-pipe 后面
+    args += extra_args or []
+    startup = subprocess.STARTUPINFO()
+    startup.lpAttributeList = {"handle_list": given}  # 只继承这两个（subprocess 会再加上下面的三个标准输入输出）
+    env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS}
+    try:
+        process = subprocess.Popen(
+            args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,  # Chrome 往终端里写的日志很多，扔掉
+            env=env, startupinfo=startup, close_fds=True, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except BaseException:
+        os.close(to_chrome_write)
+        os.close(from_chrome_read)
+        raise
+    finally:
+        # 给 Chrome 的那两头，我们自己不用：不关掉的话，Chrome 退出时我们读不到结尾
+        os.close(to_chrome_read)
+        os.close(from_chrome_write)
+    connection = Connection(from_chrome_read, to_chrome_write, on_close=on_close)
+    return Chrome(process.pid, connection, executable, headless, process=process)

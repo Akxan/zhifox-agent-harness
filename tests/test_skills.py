@@ -27,6 +27,7 @@ import pytest
 from conftest import symlinks_work
 from fake_api import failure, reply, text, tool_use
 from fake_openai import chat
+from modes import has_mode
 
 from harness.providers import ProviderError
 from harness.skills import (
@@ -394,7 +395,7 @@ def test_create_list_and_read(store):
     assert store.read_file("pdf-tools", "scripts/fill.py")["text"] == "print('hi')\n"
 
     # 文件只有自己的账号能读；skills.json 记下了它是怎么来的
-    assert stat.S_IMODE((folder / "SKILL.md").stat().st_mode) == 0o600
+    assert has_mode((folder / "SKILL.md"), 0o600)
     assert json.loads(store.state_file.read_text(encoding="utf-8"))["sources"]["pdf-tools"]["kind"] == "new"
 
 
@@ -579,7 +580,7 @@ def test_skill_names_from_outside_cannot_be_paths(store, name):
 def test_folder_of_without_a_name_creates_the_root(store):
     assert not store.root.exists()
     assert store.folder_of(None) == store.root
-    assert store.root.is_dir() and stat.S_IMODE(store.root.stat().st_mode) == 0o700
+    assert store.root.is_dir() and has_mode(store.root, 0o700)
 
 
 @pytest.mark.parametrize(
@@ -774,9 +775,9 @@ def test_executable_bit_survives_installation(store):
     (candidate,) = bundle.candidates(files)
     store.install(candidate.load(), "good", replace=False, source={"kind": "upload"})
     folder = store.root / "good"
-    modes = {path: stat.S_IMODE((folder / path).stat().st_mode) for path in ("SKILL.md", "run.sh", "setuid", "windows.txt")}
-    # 只分"能不能执行"两种，setuid 这类特殊权限一律不带过来
-    assert modes == {"SKILL.md": 0o600, "run.sh": 0o700, "setuid": 0o700, "windows.txt": 0o600}
+    expected = {"SKILL.md": 0o600, "run.sh": 0o700, "setuid": 0o700, "windows.txt": 0o600}
+    # 只分"能不能执行"两种，setuid 这类特殊权限一律不带过来（Windows 上没有权限位，见 tests/modes.py）
+    assert all(has_mode(folder / path, mode) for path, mode in expected.items())
 
 
 def test_candidates_in_a_bundle():
@@ -1166,7 +1167,7 @@ def test_importing_copies_and_skips_inner_links(symlinks, store, claude_dirs):
     alpha = store.root / "alpha"
     assert sorted(str(path.relative_to(alpha)) for path in alpha.rglob("*") if path.is_file()) == ["SKILL.md", "scripts/run.sh"]
     assert not (alpha / "leak.txt").exists() and not (alpha / ".hidden").exists()
-    assert stat.S_IMODE((alpha / "scripts" / "run.sh").stat().st_mode) == 0o700
+    assert has_mode((alpha / "scripts" / "run.sh"), 0o700)
     assert not (store.root / "gamma").is_symlink()  # 复制的是内容，不是链接
     assert "name: beta" in (store.root / "beta" / "SKILL.md").read_text(encoding="utf-8")  # 补上了 name
     sources = {skill.name: skill.source for skill in store.list()}

@@ -196,10 +196,11 @@ class Ledger:
     def _append(self, line: str) -> None:
         """往文件末尾写一行。新文件只有自己的账号能读。"""
         private_dir(self.path.parent)
-        descriptor = os.open(self.path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+        # O_BINARY：Windows 上 os.open 默认是文字模式，会把 \n 写成 \r\n（别的系统上没有这个标记，是 0）
+        descriptor = os.open(self.path, os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
         try:
             size = os.fstat(descriptor).st_size
-            if size and os.pread(descriptor, 1, size - 1) != b"\n":
+            if size and _last_byte(descriptor, size) != b"\n":
                 line = "\n" + line  # 上一次写到一半就断了：另起一行，不和那半行粘在一起
             data = line.encode()
             while data:  # 一行很短，一次就写完；万一没写完，接着写剩下的
@@ -312,3 +313,12 @@ def _breakdown(items: Iterable[tuple[Key, Tally]]) -> dict:
         "unpriced": ranked(unpriced, lambda group: {"provider": group[0], "model": group[1]}),
         "sources": ranked(sources, lambda group: {"source": group}),
     }
+
+
+def _last_byte(descriptor: int, size: int) -> bytes:
+    """文件的最后一个字节。macOS、Linux 用 pread（不挪读写的位置）；Windows 没有 pread，先挪过去再读：
+    文件是追加着打开的，之后的 write 总是写在末尾，挪过的位置不影响它。"""
+    if hasattr(os, "pread"):
+        return os.pread(descriptor, 1, size - 1)
+    os.lseek(descriptor, size - 1, os.SEEK_SET)
+    return os.read(descriptor, 1)

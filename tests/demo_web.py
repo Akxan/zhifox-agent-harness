@@ -63,6 +63,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
 import tempfile
 import threading
@@ -110,7 +111,7 @@ from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
 
 import harness.webui.server as server_module
-from harness import machine
+from harness import console, machine
 from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.channels import platforms
@@ -120,6 +121,14 @@ from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
+
+console.use_utf8()  # Windows 上输出接到管道（页面测试读它）时也用 UTF-8，和正式程序一样（见 harness/console.py）
+if hasattr(signal, "SIGBREAK"):
+    # Windows 上页面测试请它退出用的是 Ctrl+Break（见 tests/processes.py）：和 Ctrl-C 一样收尾
+    def _interrupted(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGBREAK, _interrupted)
 
 if options.script and options.script not in demo_scripts.SCRIPTS:
     parser.error(f"没有叫 {options.script} 的剧本，有这几个：{'、'.join(demo_scripts.SCRIPTS)}")

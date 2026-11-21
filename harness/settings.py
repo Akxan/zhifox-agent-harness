@@ -15,7 +15,7 @@ import re
 import threading
 from pathlib import Path
 
-from . import i18n
+from . import i18n, winacl
 from .budget import valid_budget
 from .safe import private_dir, to_json, write_file
 
@@ -189,8 +189,9 @@ def save_api_key(env_file: Path, name: str, value: str) -> None:
         os.environ.pop(name, None)
 
     temp = env_file.with_name(env_file.name + ".tmp")
-    temp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    temp.write_text("\n".join(kept) + "\n", encoding="utf-8", newline="")
     temp.chmod(0o600)  # 只有你自己的账号能读
+    winacl.restrict(temp, folder=False)  # Windows 上靠访问控制列表（见 winacl.py）；先设好再换上去，换上去的那一刻就已经是这样了
     temp.replace(env_file)
 
 

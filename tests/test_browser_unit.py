@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import fake_chrome
 import pytest
+from modes import has_mode
 
 import harness.browser.manager as manager_module
 from harness.browser import chrome, keys, urls
@@ -278,8 +279,8 @@ def test_shots_are_named_by_their_content_and_kept_private(tmp_path):
     assert store.read(shot) == b"jpeg-bytes"
     assert store.save(b"jpeg-bytes") == shot  # 同一张只存一份
     assert [path.name for path in (tmp_path / "shots").iterdir()] == [f"{shot}.jpg"]
-    assert (tmp_path / "shots").stat().st_mode & 0o777 == 0o700
-    assert (tmp_path / "shots" / f"{shot}.jpg").stat().st_mode & 0o777 == 0o600
+    assert has_mode(tmp_path / "shots", 0o700)
+    assert has_mode(tmp_path / "shots" / f"{shot}.jpg", 0o600)
 
 
 @pytest.mark.parametrize("shot_id", ["", "../../etc/passwd", "A" * 64, "g" * 64, "a" * 63, "a" * 65, "a" * 64 + ".jpg", "a" * 64 + "\n"])

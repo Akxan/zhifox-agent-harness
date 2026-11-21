@@ -196,6 +196,7 @@ class Connection:
     def close(self) -> None:
         """关掉连接（我们这一头的两个描述符）。所有还在等的都收到 CDPClosed。"""
         self._shut("连接已经关闭")
+        _cancel_read(self._read_fd)
         for fd in (self._write_fd, self._read_fd):
             try:
                 os.close(fd)
@@ -308,3 +309,15 @@ class Expectation:
 
     def cancel(self) -> None:
         self._connection._forget(self._pending)
+
+
+def _cancel_read(fd: int) -> None:
+    """Windows 上，读线程正卡在这根管道的 ReadFile 里时，直接关掉它会一直等下去（关闭要等那次读完）。
+    先用 CancelIoEx 叫停那次读（Chromium 自己在同一个地方也是这么做的），读线程收到错误就退出了。macOS、Linux 上不用。"""
+    if os.name != "nt":
+        return
+    import ctypes
+    import msvcrt
+
+    with contextlib.suppress(OSError, ValueError, AttributeError):
+        ctypes.windll.kernel32.CancelIoEx(ctypes.c_void_p(msvcrt.get_osfhandle(fd)), None)

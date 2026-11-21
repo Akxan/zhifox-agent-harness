@@ -15,7 +15,6 @@ import contextlib
 import json
 import os
 import random
-import stat
 import threading
 import time
 
@@ -23,6 +22,7 @@ import anthropic
 import pytest
 from fake_api import FakeAPI, reply, text, tool_use
 from fake_telegram import TOKEN, FakeTelegram, utf16, visible
+from modes import has_mode
 from sample_files import JPEG_BYTES
 from test_webui import Browser
 
@@ -89,8 +89,8 @@ def test_the_settings_file_is_private_and_written_atomically(tmp_path, monkeypat
     store.connect("telegram", {"token": TOKEN}, BOT)
 
     # token 是机器人的钥匙：文件只有自己的账号能读，所在的文件夹也只有自己能进
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert has_mode(path, 0o600)
+    assert has_mode(path.parent, 0o700)
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["platforms"]["telegram"]["credentials"] == {"token": TOKEN} and saved["version"] == 1
     # 改设置时用来"别的程序先别动"的锁文件就在旁边；写到一半的临时文件一个都不留

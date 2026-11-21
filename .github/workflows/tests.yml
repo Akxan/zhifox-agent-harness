@@ -15,7 +15,7 @@ jobs:
   test:
     name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30  # 并行跑（见 pyproject 的 addopts），平时几分钟；万一哪里卡住了，不让它一直占着机器
+    timeout-minutes: 45  # 并行跑（见 pyproject 的 addopts），平时几分钟；万一哪里卡住了，不让它一直占着机器
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +40,7 @@ jobs:
           elif [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ]; then powershell -c "(Get-Item 'C:/Program Files/Google/Chrome/Application/chrome.exe').VersionInfo.ProductVersion"
           else echo "没有找到 Chrome"; fi
       - name: Tests
-        run: uv run pytest -q --continue-on-collection-errors -p no:cacheprovider
+        run: uv run pytest -q -rfE --tb=short --durations=20 -p no:cacheprovider
         shell: bash
         env:
           HARNESS_UI_REQUIRED: "1"  # 页面测试找不到 Chrome 时算失败，而不是跳过

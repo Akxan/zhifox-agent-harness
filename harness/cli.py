@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import capabilities, i18n, rewind
+from . import capabilities, console, i18n, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -282,6 +282,7 @@ def run_terminal(config: Config) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    console.use_utf8()  # Windows 上输出接到管道或者文件时也用 UTF-8，打印中文不会出错（见 console.py）
     config = load_config()
     # 先按设置文件定下界面语言，下面的命令行说明（--help）才是这种语言
     i18n.choose(Settings(config.settings_file, config.default_provider, config.default_model).language)

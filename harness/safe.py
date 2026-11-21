@@ -24,6 +24,8 @@ import secrets
 from pathlib import Path
 from typing import Any
 
+from . import winacl
+
 REPLACEMENT = "�"  # 显示成"�"：这里本来有一个没法表示的字符
 
 
@@ -109,11 +111,17 @@ def to_json(value: Any, readable: bool = False, **options: Any) -> str:
 
 
 def private_dir(path: Path) -> None:
-    """建一个只有自己的账号能进的目录（已经存在的话，把权限改成这样）。沿途新建的上级目录也一样。"""
+    """建一个只有自己的账号能进的目录（已经存在的话，把权限改成这样）。沿途新建的上级目录也一样。
+
+    macOS、Linux 上是权限 700。Windows 上权限位没有意义，靠的是访问控制列表：断开继承、只留下你自己的账号
+    （和 SYSTEM、管理员），里面以后新建的文件也照这个来（见 winacl.py）。
+    """
     missing = [folder for folder in (path, *path.parents) if not folder.exists()]
     for folder in reversed(missing):
         folder.mkdir(mode=0o700, exist_ok=True)
     path.chmod(0o700)
+    for folder in [*reversed(missing), *([] if path in missing else [path])]:
+        winacl.restrict(folder, folder=True)
 
 
 def write_file(path: Path, text: str | bytes) -> None:
@@ -128,8 +136,9 @@ def write_file(path: Path, text: str | bytes) -> None:
     temp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
     binary = isinstance(text, bytes)
     try:
-        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb" if binary else "w", encoding=None if binary else "utf-8") as handle:
+        # O_BINARY 和 newline=""：Windows 上不把 \n 换成 \r\n，写进去的就是给的那些字节，三种系统上一模一样
+        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(descriptor, "wb" if binary else "w", encoding=None if binary else "utf-8", newline=None if binary else "") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())

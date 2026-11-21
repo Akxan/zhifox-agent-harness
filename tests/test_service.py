@@ -24,13 +24,13 @@ import os
 import plistlib
 import re
 import shutil
-import signal
-import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from modes import has_mode
+from processes import ask_to_exit, own_group
 from test_channels import until
 
 from harness import cli, filelock, instance, log
@@ -60,7 +60,7 @@ def hold(data_dir: Path, pid: int | None = None, kind: str = "service", note: bo
     """像另一个智狐那样占住数据目录：锁住 .lock，写上 {pid, kind}。pid 不给就是这个测试进程自己。
     note=False 是旧版本的智狐：只锁住，不写是谁。返回打开着的文件，关掉就放开了。"""
     data_dir.mkdir(parents=True, exist_ok=True)
-    handle = open(data_dir / instance.LOCK_NAME, "a+")  # noqa: SIM115 —— 测试结束时关
+    handle = open(data_dir / instance.LOCK_NAME, "a+", encoding="utf-8")  # noqa: SIM115 —— 测试结束时关
     filelock.lock(handle, wait=False)
     handle.truncate(0)
     if note:
@@ -340,7 +340,7 @@ def test_the_plist_holds_no_secrets_and_is_644(mac):
     content = mac.manager.file.read_bytes()
     for secret in (b"SECRETSECRET", b"SECRETBOT", b"proxy-password", b"token"):
         assert secret not in content.lower() if secret == b"token" else secret not in content
-    assert stat.S_IMODE(mac.manager.file.stat().st_mode) == 0o644
+    assert has_mode(mac.manager.file, 0o644)
     out, err = said(mac.system)
     assert "proxy-password" not in out + err and "SECRET" not in out + err
     assert "HTTPS_PROXY" in err  # 只说名字：它只在终端里设置了，服务读不到
@@ -352,7 +352,7 @@ def test_plutil_accepts_the_plist(tmp_path, make_config):
     workspace.mkdir()
     path = tmp_path / "zhifox.plist"
     path.write_bytes(launchd.render(make_plan(make_config(workspace=workspace), environ={"PATH": PATH})))
-    checked = subprocess.run(["plutil", "-lint", str(path)], capture_output=True, text=True, check=False)
+    checked = subprocess.run(["plutil", "-lint", str(path)], capture_output=True, text=True, check=False, encoding="utf-8")
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
@@ -436,7 +436,7 @@ def test_install_on_mac_bootstraps_the_agent_and_waits_until_it_is_up(mac):
     assert "已经装好了" in out and plist in out and str(mac.config.data_dir / "logs" / "service.log") in out
     assert f"已经开起来了（进程 {os.getpid()}）" in out and "uv run harness service open" in out
     assert TOKEN not in out + err
-    assert (mac.config.data_dir / "logs").is_dir() and stat.S_IMODE((mac.config.data_dir / "logs").stat().st_mode) == 0o700
+    assert (mac.config.data_dir / "logs").is_dir() and has_mode((mac.config.data_dir / "logs"), 0o700)
 
 
 def test_mac_stop_start_and_restart(mac):
@@ -499,7 +499,7 @@ def test_install_on_linux_enables_the_user_unit(linux):
     assert service_cli.run(args_for("install"), linux.config, linux.system) == 0
     assert linux.fake.verbs() == [["daemon-reload"], ["daemon-reload"], ["enable", "--now", UNIT]]
     text = linux.manager.file.read_text(encoding="utf-8")
-    assert '"--service" "systemd"' in text and stat.S_IMODE(linux.manager.file.stat().st_mode) == 0o644
+    assert '"--service" "systemd"' in text and has_mode(linux.manager.file, 0o644)
     out, err = said(linux.system)
     assert "智狐的后台服务（systemd）：已经装好了" in out and f"已经开起来了（进程 {os.getpid()}）" in out
     assert "journalctl --user -u zhifox" in out
@@ -1117,14 +1117,14 @@ def test_the_service_log_rotates_keeps_dates_and_hides_secrets(tmp_path, monkeyp
         r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d info ---- zhifox started, pid \d+ ----\n\d{4}-\d\d-\d\d \d\d:\d\d:\d\d warning token 是 <hidden>\n",
         first,
     )
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert has_mode(path, 0o600) and has_mode(path.parent, 0o700)
     for n in range(80):
         logger.info("第 %d 行：写满了就换一个新文件", n)
     names = sorted(item.name for item in path.parent.iterdir())
     assert names == ["service.log", *(f"service.log.{n}" for n in range(1, SERVICE_LOG_BACKUPS + 1))]  # 最多留这么多份
     # 标准库按字符数估计这一行有多长，汉字一个占 3 个字节，所以可能比上限多出一行；不会多出更多
     assert all(item.stat().st_size < 400 + 200 for item in path.parent.iterdir())
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600  # 换的新文件也是只给自己看
+    assert has_mode(path, 0o600)  # 换的新文件也是只给自己看
     assert "第 79 行" in path.read_text(encoding="utf-8")
 
 
@@ -1208,17 +1208,17 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
     }
     env.pop("JOURNAL_STREAM", None)
     # 不加 -P 会怎样：同一个工作目录里，Python 先导入了埋好的 json.py
-    unsafe = subprocess.run([command[0], "-m", "harness", "--help"], cwd=workspace, env=env, capture_output=True, text=True, check=False)
+    unsafe = subprocess.run([command[0], "-m", "harness", "--help"], cwd=workspace, env=env, capture_output=True, text=True, check=False, encoding="utf-8")
     assert unsafe.returncode != 0 and "埋的 json.py" in unsafe.stderr
     with open(log_file, "ab") as output:
-        process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
+        process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **own_group())
     address = data / ".web-address"
     try:
         url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=30, what="网页的地址")
         assert re.fullmatch(r"http://127\.0\.0\.1:\d+/\?token=[\w-]+", url)
-        assert stat.S_IMODE(address.stat().st_mode) == 0o600
+        assert has_mode(address, 0o600)
         assert instance.holder(data) == instance.Holder(process.pid, "service")  # 数据目录的锁上记着：它是后台服务
-        process.send_signal(signal.SIGTERM)  # launchctl bootout / 退出登录
+        ask_to_exit(process)  # launchctl bootout / 退出登录（Windows 上是 Ctrl+Break，见 tests/processes.py）
         assert process.wait(15) == 0
     finally:
         if process.poll() is None:
@@ -1233,7 +1233,7 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
     assert all(re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (info|warning|error) ", line) for line in lines), lines
     assert lines[-1].endswith("再见。")
     assert not address.exists()  # 退出时删掉
-    assert stat.S_IMODE(log_file.stat().st_mode) == 0o600
+    assert has_mode(log_file, 0o600)
 
 
 def test_config_has_one_place_for_the_address_and_the_log(make_config):

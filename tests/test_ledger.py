@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import stat
 from datetime import UTC, date, datetime, timedelta
 
 from fake_api import reply, text
 from fake_openai import chat
+from modes import has_mode
 
 from harness import budget
 from harness.ledger import Ledger
@@ -52,7 +52,7 @@ def test_each_call_is_written_with_its_price_at_that_moment(tmp_path):
         "cost": round(4 + 0.2 + 5 + 20 + 0.02, 6),
     }
     # 账本和设置一样是私人数据：只有自己的账号能读
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert has_mode(path, 0o600)
     assert ledger.day_total(date(2026, 11, 20)) == round(29.22, 6)
     assert ledger.month_total("2026-11") == round(29.22, 6) and ledger.month_total("2026-10") == 0
     assert ledger.error == ""
@@ -257,7 +257,7 @@ def test_old_details_are_merged_per_day_and_totals_do_not_change(tmp_path):
     assert "不认识的一行" in lines  # 读不懂的不删
     assert any(isinstance(line, dict) and line.get("at") == "2026-11-19T09:00:00" for line in lines)  # 新的明细原样留着
     assert after.report(date(2026, 11, 20), 60) == {**before, "skipped": 1}
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert has_mode(path, 0o600)
 
     # 已经合并过的不会再动：再启动一次，文件一字不变
     snapshot = path.read_bytes()

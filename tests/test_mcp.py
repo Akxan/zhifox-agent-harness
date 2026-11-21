@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import json
 import re
-import stat
 import sys
 import threading
 import time
@@ -21,6 +20,7 @@ from fake_api import reply, text, tool_use
 from fake_mcp import PNG, FakeMcpHttp
 from fake_openai import call as openai_call
 from fake_openai import chat
+from modes import has_mode
 
 import harness.mcp.client as mcp_client
 import harness.mcp.manager as mcp_manager
@@ -838,7 +838,7 @@ def test_the_model_cannot_touch_mcp_json_in_any_mode(start, make_config):
         for command in ({"command": "view", "path": str(h.config.mcp_file)}, {"command": "create", "path": str(h.config.mcp_file), "file_text": "{}"}):
             with pytest.raises(ToolError, match="密钥"):
                 editor.run(command)
-    assert "secret-value" in h.config.mcp_file.read_text()
+    assert "secret-value" in h.config.mcp_file.read_text(encoding="utf-8")
 
 
 # ---- 配置和密钥 -------------------------------------------------------------------
@@ -904,10 +904,10 @@ def test_child_processes_do_not_see_the_model_keys(manager, monkeypatch, tmp_pat
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak")
     out = tmp_path / "env.txt"
     script = tmp_path / "dump.py"
-    script.write_text(f"import os, sys\nopen({str(out)!r}, 'w').write(os.environ.get('ANTHROPIC_API_KEY', '') + '|' + os.environ.get('MINE', ''))\nsys.exit(1)\n")
+    script.write_text(f"import os, sys\nopen({str(out)!r}, 'w').write(os.environ.get('ANTHROPIC_API_KEY', '') + '|' + os.environ.get('MINE', ''))\nsys.exit(1)\n", encoding="utf-8")
     manager({"dump": {"command": sys.executable, "args": [str(script)], "env": {"MINE": "given"}}})
     wait_until(out.exists, what="子进程写出环境变量")
-    assert out.read_text() == "|given"
+    assert out.read_text(encoding="utf-8") == "|given"
 
 
 def test_normalize_rejects_what_we_cannot_use():
@@ -933,25 +933,25 @@ def test_the_config_file(tmp_path):
     servers = config.servers()
     assert servers["good"][0]["command"] == "x" and servers["bad"][0] is None and servers["bad"][1]
     config.put("third", {"command": "y"})
-    on_disk = json.loads(path.read_text())
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert list(on_disk["mcpServers"]) == ["good", "bad", "third"]  # 写错了的那个也原样留着
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert has_mode(path, 0o600)
     with pytest.raises(ConfigError, match="已经有一个"):
         config.put("good", {"command": "z"})
     config.put("renamed", {"command": "x2"}, original="good")
-    assert list(json.loads(path.read_text())["mcpServers"]) == ["renamed", "bad", "third"]  # 改名不挪位置
+    assert list(json.loads(path.read_text(encoding="utf-8"))["mcpServers"]) == ["renamed", "bad", "third"]  # 改名不挪位置
 
     config.set_approval("renamed", "t1", "auto")
     config.set_approval("renamed", None, "auto")
-    assert json.loads(path.read_text())["mcpServers"]["renamed"]["approval"] == {"default": "auto"}  # 和默认值一样的就不单独记
+    assert json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["renamed"]["approval"] == {"default": "auto"}  # 和默认值一样的就不单独记
     assert config.approval("renamed", "t1") == "auto" and config.approval("third", "t1") == "ask"
 
     # 你在编辑器里改了文件：改之前重新读，不会被内存里的旧内容盖掉
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["mcpServers"]["by-hand"] = {"command": "h"}
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     config.put("fourth", {"command": "f"})
-    assert "by-hand" in json.loads(path.read_text())["mcpServers"]
+    assert "by-hand" in json.loads(path.read_text(encoding="utf-8"))["mcpServers"]
 
 
 def test_a_broken_config_file_is_never_overwritten(tmp_path):
@@ -962,8 +962,8 @@ def test_a_broken_config_file_is_never_overwritten(tmp_path):
     assert config.problem and config.servers() == {}
     with pytest.raises(ConfigError, match="读不出来"):
         config.put("x", {"command": "y"})
-    assert path.read_text() == "{ this is not json"
-    path.write_text(json.dumps({"mcpServers": {}}))
+    assert path.read_text(encoding="utf-8") == "{ this is not json"
+    path.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
     assert config.reload() is True and config.problem == ""
 
 
@@ -980,13 +980,13 @@ def test_importing_from_claude_desktop_and_claude_code(tmp_path, make_config, mo
     desktop.write_text(json.dumps({"mcpServers": {
         "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]},
         "github": {"command": "npx", "args": ["-y", "server-github"], "env": {"GITHUB_TOKEN": "ghp_" + "s" * 36}},
-    }}))
+    }}), encoding="utf-8")
     (home / ".claude.json").write_text(json.dumps({
         "numStartups": 3,
         "mcpServers": {"user-a": {"type": "stdio", "command": "uvx", "args": ["a"]}},
         "projects": {str(workspace): {"mcpServers": {"local-b": {"type": "http", "url": "https://b.example/mcp"}}}, "/elsewhere": {"mcpServers": {"other": {"command": "o"}}}},
-    }))
-    (workspace / ".mcp.json").write_text(json.dumps({"mcpServers": {"proj-c": {"command": "c"}, "old-sse": {"type": "sse", "url": "https://c.example/sse"}}}))
+    }), encoding="utf-8")
+    (workspace / ".mcp.json").write_text(json.dumps({"mcpServers": {"proj-c": {"command": "c"}, "old-sse": {"type": "sse", "url": "https://c.example/sse"}}}), encoding="utf-8")
 
     config = McpConfig(make_config().mcp_file)
     config.put("filesystem", {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]})  # 已经有一模一样的

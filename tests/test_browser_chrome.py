@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import contextlib
 import os
-import stat
 import time
 from pathlib import Path
 
 import fake_chrome
 import pytest
+from modes import has_mode
+from processes import WINDOWS, alive
 
 from harness.browser import chrome
 from harness.browser.cdp import CDPClosed
@@ -34,6 +35,8 @@ def wait_until(check, timeout: float = 5, what: str = "条件") -> None:
 def exists(pid: int) -> bool:
     """这个进程还在不在。已经退出、只是还没被收走的（僵尸）算不在了：它的父进程死了以后，由系统去收，
     有的环境（比如没有 init 的容器）收得很慢甚至不收，所以 Linux 上看一眼 /proc 里它的状态。"""
+    if WINDOWS:
+        return bool(alive(pid))  # Windows 上不能用 os.kill(pid, 0)：那是 Ctrl-C（见 tests/processes.py）
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -74,7 +77,7 @@ def launch(tmp_path):
 def grandchild(browser: chrome.Chrome, tmp_path: Path, index: int = 0) -> int:
     """假 Chrome 起的那个孙进程的进程号（它在回答第一个命令之前就写好了）。"""
     browser.connection.call("Browser.getVersion", timeout=5)
-    pid = int((tmp_path / f"grandchild-{index}.pid").read_text())
+    pid = int((tmp_path / f"grandchild-{index}.pid").read_text(encoding="utf-8"))
     assert exists(pid)
     return pid
 
@@ -82,6 +85,25 @@ def grandchild(browser: chrome.Chrome, tmp_path: Path, index: int = 0) -> int:
 # ---- 启动 ---------------------------------------------------------------------
 
 
+posix_only = pytest.mark.skipif(WINDOWS, reason="Windows 上没有 3、4 号描述符和进程组：管道是继承的句柄（见下面 Windows 的那个测试）")
+
+
+@pytest.mark.skipif(not WINDOWS, reason="只有 Windows 用 --remote-debugging-io-pipes")
+def test_on_windows_the_pipes_are_two_inherited_handles(launch):
+    browser = launch()
+    assert browser.connection.call("Browser.getVersion", timeout=5)["product"] == "FakeChrome/1.0"
+    argv = browser.connection.call("Fake.argv", timeout=5)["argv"]
+    assert argv[0] == "--remote-debugging-pipe" and argv[1].startswith("--remote-debugging-io-pipes=")
+    handles = [int(part) for part in argv[1].split("=", 1)[1].split(",")]
+    assert len(handles) == 2 and all(handle > 0 for handle in handles)
+    # 我们这一头的两个不让子进程继承：漏过去的话，Chrome 退出时我们读不到结尾
+    import msvcrt
+
+    for fd in (browser.connection._read_fd, browser.connection._write_fd):
+        assert not os.get_handle_inheritable(msvcrt.get_osfhandle(fd))
+
+
+@posix_only
 def test_launch_talks_over_the_pipes_on_fds_3_and_4(launch):
     browser = launch()
     assert browser.connection.call("Browser.getVersion", timeout=5)["product"] == "FakeChrome/1.0"
@@ -101,6 +123,7 @@ def test_launch_talks_over_the_pipes_on_fds_3_and_4(launch):
     assert child - {0, 1, 2, 3, 4} <= inheritable
 
 
+@posix_only
 def test_launch_gives_chrome_its_own_process_group(launch):
     browser = launch()
     process = browser.connection.call("Fake.process", timeout=5)
@@ -124,6 +147,8 @@ def test_launch_removes_api_keys_from_chromes_environment(launch, monkeypatch):
 def test_launch_passes_chromes_flags_first_and_extra_args_last(launch, tmp_path):
     browser = launch(headless=True)
     argv = browser.connection.call("Fake.argv", timeout=5)["argv"]
+    if WINDOWS:  # 管道的两个句柄（见上面 Windows 的那个测试）
+        argv = [one for one in argv if not one.startswith("--remote-debugging-io-pipes=")]
     expected = chrome.arguments(fake_chrome.executable(tmp_path), tmp_path / "profile", True)[1:]
     assert argv[: len(expected)] == expected
     assert len(argv) == len(expected) + 1 and argv[-1].startswith(fake_chrome.SCRIPT_FLAG)
@@ -132,7 +157,7 @@ def test_launch_passes_chromes_flags_first_and_extra_args_last(launch, tmp_path)
 def test_launch_makes_the_profile_folder_private(launch, tmp_path):
     (tmp_path / "profile").mkdir(mode=0o755)
     launch()
-    assert stat.S_IMODE((tmp_path / "profile").stat().st_mode) == 0o700
+    assert has_mode((tmp_path / "profile"), 0o700)
 
 
 def test_a_failed_launch_does_not_leak_pipes(tmp_path):

@@ -40,6 +40,7 @@ from . import instance, log
 from .app import build_app
 from .channels.platforms import ORDER, label
 from .config import APP_NAME, EXIT_BUSY, EXIT_CONFIG, EXIT_OK, Config
+from .exits import EXIT_SIGNALS
 from .i18n import t
 from .providers import has_key
 from .safe import write_file
@@ -98,7 +99,7 @@ def run_serve(config: Config, web: bool = False, port: int | None = None, servic
         return EXIT_BUSY
     stop = threading.Event()
     previous = {}
-    for number in (signal.SIGTERM, signal.SIGINT):
+    for number in (*EXIT_SIGNALS, signal.SIGINT):  # SIGTERM，Windows 上还有 Ctrl+Break（见 exits.py）
         previous[number] = signal.signal(number, lambda *_: stop.set())  # 信号处理只立个旗子，收尾在下面做
     if service == "taskscheduler":
         watch_input(getattr(sys.stdin, "buffer", None), stop)  # Windows：supervise.py 关掉标准输入，就是请我们停下

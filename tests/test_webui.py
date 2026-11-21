@@ -7,7 +7,6 @@ import http.client
 import json
 import os
 import shutil
-import stat
 import subprocess
 import threading
 import time
@@ -20,6 +19,7 @@ import openai
 import pytest
 from fake_api import FakeAPI, reply, text, thinking, tool_use
 from fake_openai import FakeOpenAI, chat
+from modes import has_mode
 from sample_files import (
     JPEG_BYTES,
     PDF,
@@ -659,7 +659,7 @@ def test_saving_a_key_stores_it_syncs_models_and_never_shows_it(serve):
     assert s.config.env_file.read_text(encoding="utf-8") == (
         "# 我的笔记\nHARNESS_EFFORT=high\nDEEPSEEK_API_KEY=sk-test-12345678\n"
     )
-    assert stat.S_IMODE(s.config.env_file.stat().st_mode) == 0o600
+    assert has_mode(s.config.env_file, 0o600)
     # 模型列表自动同步了，用的是刚保存的 key
     deepseek = provider_state(s.browser, "deepseek")
     assert deepseek["has_key"] is True and deepseek["key_hint"] == "…5678"
@@ -1692,6 +1692,35 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
     server_module.reveal_in_file_manager(plain)
 
 
+def test_windows_selects_the_file_in_file_explorer(monkeypatch, tmp_path):
+    """Windows：explorer /select,"路径"。explorer 不按通常的规则拆命令行，所以是一整行（见 windows_reveal_command），
+    但照样不经过 shell；explorer 成功了也常常返回 1，所以不看退出码。"""
+    calls = []
+
+    class FakeProcess:
+        def __init__(self, command, **options):
+            calls.append((command, options))
+
+        def wait(self, timeout=None):
+            raise AssertionError("不等 explorer、不看它的退出码")
+
+    monkeypatch.setattr(server_module.subprocess, "Popen", FakeProcess)
+    monkeypatch.setenv("SystemRoot", "C:\\Windows")
+    monkeypatch.setattr(server_module.sys, "platform", "win32")
+    assert server_module.has_file_manager()
+    file = tmp_path / "a b & c; $(x).json"
+    file.write_text("{}", encoding="utf-8")
+    server_module.reveal_in_file_manager(file)
+    server_module.reveal_in_file_manager(tmp_path)
+    explorer = str(Path("C:\\Windows") / "explorer.exe")
+    assert [command for command, _ in calls] == [f'"{explorer}" /select,"{file}"', f'"{explorer}" "{tmp_path}"']
+    assert all(not options.get("shell") for _, options in calls)
+    assert all("ANTHROPIC_API_KEY" not in options["env"] for _, options in calls)
+    with pytest.raises(OSError, match="引号"):
+        server_module.reveal_in_file_manager(Path('C:\\x\\"; calc.exe'))  # Windows 的文件名里不可能有引号；有的话就不是我们算出来的
+    assert len(calls) == 2
+
+
 # ---- 记忆 -----------------------------------------------------------------
 # 信息栏的"记忆"一栏：列出 data/memories/ 里的文件、点开看内容、删掉一条、在文件管理器里打开文件夹。
 # 浏览器送来的路径不能全信，所以重点测"出不了记忆文件夹"。
@@ -2019,7 +2048,7 @@ def test_revealing_the_memory_folder(serve, monkeypatch):
     # 文件夹不在了：先建一个空的（只有自己的账号能进），再打开
     shutil.rmtree(root)
     assert s.browser.post("/api/memory/reveal", {}) == (200, {"ok": True, "path": str(root), "opened": True})
-    assert root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert root.is_dir() and has_mode(root, 0o700)
     assert s.revealed == [root, root, root]
 
     # 只是打开来看看，对话进行中也能点
@@ -2587,8 +2616,8 @@ def test_sent_attachments_are_kept_as_originals_and_listed_newest_first(serve):
     assert sorted(path.name for path in media_dir(s).iterdir()) == sorted(f"{sha(c)}.{ext}" for c, ext in originals.items())
     for content, ext in originals.items():
         path = media_dir(s) / f"{sha(content)}.{ext}"
-        assert path.read_bytes() == content and stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(media_dir(s).stat().st_mode) == 0o700
+        assert path.read_bytes() == content and has_mode(path, 0o600)
+    assert has_mode(media_dir(s), 0o700)
 
     # 两段会话里的都在：最新的在前，同一条消息里的按原来的顺序
     body = media_list(s)
@@ -3156,7 +3185,7 @@ def test_revealing_skill_folders(serve):
     root = s.app.skills.root
     # 不给名字：整个 Skill 文件夹（还不存在的话先建一个空的）
     assert s.browser.post("/api/skill/reveal", {}) == (200, {"ok": True, "path": str(root)})
-    assert root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert root.is_dir() and has_mode(root, 0o700)
     s.app.skills.create("pdf-tools", SKILL_DESCRIPTION, "")
     assert s.browser.post("/api/skill/reveal", {"name": "pdf-tools"}) == (200, {"ok": True, "path": str(root / "pdf-tools")})
     # 路径由服务器算：页面给的名字只能是 Skill 文件夹里真实存在的一个子文件夹

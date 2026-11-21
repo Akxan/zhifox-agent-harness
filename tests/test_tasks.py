@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import threading
 import time
 from datetime import datetime
@@ -16,6 +15,7 @@ from functools import partial
 
 import pytest
 from fake_api import reply, text, tool_use
+from modes import has_mode
 
 from harness import i18n, safe
 from harness.i18n import Message
@@ -292,7 +292,7 @@ def test_tasks_are_saved_and_read_back(tmp_path):
 
     assert task["next_run"] == at(2026, 11, 21, 9, 0) and task["created_at"] == now()
     assert agent["next_run"] == now() + 3600
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600  # 只有自己的账号能读
+    assert has_mode(path, 0o600)  # 只有自己的账号能读
     assert "起来喝杯水" in path.read_text(encoding="utf-8")  # 中文原样写进去，打开就能看懂
 
     again = TaskStore(path)  # 重新启动

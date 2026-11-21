@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import stat
-
 import pytest
 from fake_api import reply, text
 from fake_openai import chat
+from modes import has_mode
 
 from harness.config import MAX_PROMPT_CHARS
 from harness.prompt import (
@@ -40,7 +39,7 @@ def test_the_built_in_prompt_is_used_until_the_user_saves_one(make_config):
     assert load_template(config) == DEFAULT_TEMPLATE and not config.prompt_file.exists()
     save_template(config, "你是{name}。只说英语。\r\n")
     assert load_template(config) == "你是{name}。只说英语。\n"  # Windows 的换行统一成 \n
-    assert stat.S_IMODE(config.prompt_file.stat().st_mode) == 0o600  # 和别的数据文件一样只有自己能读
+    assert has_mode(config.prompt_file, 0o600)  # 和别的数据文件一样只有自己能读
     assert build_system_prompt(config) == "你是智狐。只说英语。\n"
     # 文件是空的、读不了：用内置的
     config.prompt_file.write_text("  \n", encoding="utf-8")

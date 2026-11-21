@@ -87,7 +87,7 @@ def test_every_script_passes_node_check(tmp_path):
     files = [page.FOLDER / name for name in page.FIRST_PAINT + page.SCRIPTS] + [whole]
 
     def check(path):
-        result = subprocess.run([node, "--check", str(path)], check=False, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([node, "--check", str(path)], check=False, capture_output=True, text=True, timeout=60, encoding="utf-8")
         return result.returncode, result.stderr
 
     with ThreadPoolExecutor(max_workers=8) as pool:

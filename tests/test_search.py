@@ -384,7 +384,7 @@ def test_repeated_characters_do_not_stall_the_search():
     # 这个测试放到另一个进程里跑：万一哪天又卡住了，到时间就算失败，不会连累整套测试一起卡住。
     root = Path(__file__).resolve().parent.parent
     done = subprocess.run(
-        [sys.executable, "-c", STALL_SCRIPT], check=False, cwd=root, capture_output=True, text=True, timeout=5
+        [sys.executable, "-c", STALL_SCRIPT], check=False, cwd=root, capture_output=True, text=True, timeout=5, encoding="utf-8"
     )
     assert done.returncode == 0, done.stderr
     report = json.loads(done.stdout)

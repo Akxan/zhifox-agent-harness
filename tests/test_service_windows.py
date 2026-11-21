@@ -19,7 +19,6 @@ import io
 import ntpath
 import os
 import random
-import stat
 import subprocess
 import sys
 import threading
@@ -27,6 +26,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
+from modes import has_mode
 from test_channels import until
 from test_service import (
     OTHER_PID,
@@ -896,7 +896,7 @@ def test_the_real_supervisor_stops_its_child_through_its_input(tmp_path):
         if process.poll() is None:
             process.kill()
             process.wait()
-    assert marker.read_text() == "got eof"  # 子进程等到了"输入结束"，自己退出的（不是被结束的）
+    assert marker.read_text(encoding="utf-8") == "got eof"  # 子进程等到了"输入结束"，自己退出的（不是被结束的）
     text = (data / SERVICE_LOG).read_text(encoding="utf-8")
     assert "收到停下的请求" in text and text.rstrip().endswith("已经停下了。")
 
@@ -920,7 +920,7 @@ def test_when_the_supervisor_is_ended_its_child_still_finishes_cleanly(tmp_path)
         process.kill()
         process.wait(30)
         # 等写完，不只是等文件出现（write_text 先建文件、再写内容，中间那一下读到的是空的）
-        until(lambda: marker.exists() and marker.read_text() == "got eof", timeout=30, what="子进程看到输入结束、自己收尾")
+        until(lambda: marker.exists() and marker.read_text(encoding="utf-8") == "got eof", timeout=30, what="子进程看到输入结束、自己收尾")
     finally:
         if process.poll() is None:
             process.kill()
@@ -1027,4 +1027,4 @@ def test_open_works_the_same_on_windows(win):
 @pytest.mark.skipif(os.name == "nt", reason="Windows 上的文件权限不是这样表示的")
 def test_the_task_file_is_private(win):
     service_cli.run(args_for("install"), win.config, win.system)
-    assert stat.S_IMODE(win.manager.file.stat().st_mode) == 0o600
+    assert has_mode(win.manager.file, 0o600)
