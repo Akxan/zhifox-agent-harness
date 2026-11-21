@@ -117,6 +117,8 @@ def _walk(page, look) -> None:
     page.wait("document.querySelectorAll('#memories > li').length > 0", what="记忆列表")
     page.click("#memories > li .memory-open")
     page.wait("document.getElementById('memory-text').textContent.length > 0", what="一条记忆的内容")
+    # 编辑按钮先在、后能点（见 test_ui_rows 的记忆编辑）：等它能点再点，慢的机器上点早了什么都不会发生
+    page.wait("document.getElementById('memory-edit') && !document.getElementById('memory-edit').disabled", what="编辑按钮能点")
     page.click("#memory-edit")
     page.wait("document.getElementById('memory-save')", what="开始编辑")
     look("记忆（编辑）")
@@ -205,6 +207,8 @@ def test_the_shortcuts_use_ctrl_on_windows(visit):
     steps.open_dialog(page, "#memory-open", "memory-dialog")
     page.click("#memories > li .memory-open")
     page.wait("document.getElementById('memory-text').textContent.length > 0", what="一条记忆的内容")
+    # 编辑按钮先在、后能点（见 test_ui_rows 的记忆编辑）：等它能点再点，慢的机器上点早了什么都不会发生
+    page.wait("document.getElementById('memory-edit') && !document.getElementById('memory-edit').disabled", what="编辑按钮能点")
     page.click("#memory-edit")
     page.wait("document.getElementById('memory-save')", what="开始编辑")
     assert "Ctrl+Enter" in page.text("#memory-foot .memory-message")
