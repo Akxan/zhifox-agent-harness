@@ -304,8 +304,15 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   **测试和演示永远不碰真的屏幕、鼠标和键盘**：conftest 把 `desktop.backend.detect` 换成"用不了"，要测的用 `tests/fake_desktop.py` 的 `install`，
   演示页面用的也是假电脑；真后端只在 Xvfb 上测（`tests/test_desktop_x11.py`，CI 只在 ubuntu 跑）。macOS 上只能调用不弹窗的预检函数
   （`CGPreflightScreenCaptureAccess`、`AXIsProcessTrusted`），不许调用任何 `Request…`，也不改系统设置。
-  问不问写在 `permissions.review_computer`：除了 `wait` 和 `cursor_position`，每一步都问，`auto_allows` 在任何模式下都说"要问"；
-  唯一能放宽的是截图，记在这段对话自己的 `DesktopSession.trust_screenshots` 上，只能由对话里的确认卡片打开。
+  问不问写在 `permissions.review_computer` 和 `Permissions._computer_allowance`：默认除了 `wait` 和 `cursor_position` 每一步都问，
+  "只读的命令""改工作目录里的文件"两档不放开它。只有两种情况不问（2026-11-21 用户定的）：一是这段对话里放开了这一类——截图一类
+  （`trust_screenshots`）或点击打字一类（`trust_actions`），归哪一类看 `desktop/session.trust_of`，记在这段对话自己的 `DesktopSession` 上；
+  只有 `attended` 的 session（`App.chat_desktop`）能打开，只能由网页对话里正在等答复、而且给了这个选择的那张确认卡片打开
+  （`/api/computer/trust` 带 `what` 和 `confirm`，由 `WebUI.offered` 核对），设置里的"恢复每一步都问"（`/api/computer/untrust`）收回，
+  换一段对话从头再问；二是这次运行实际用的那一档是 all（对话的、任务自己的、聊天通道的都算）。定时任务和聊天通道的 session 不是
+  attended 的：卡片上不给，也打不开。放开了也不变的：危险的组合键（`keys.DANGEROUS`，按系统分）每次都问，问题标 `always`、不带 offer；
+  不许碰的程序照样拒绝；没问就做的每一步都调用 `auto_allowed()`（这段对话里放开的 why 是 `trusted`）。
+  一轮结束时先 `chat_desktop.release()` 再 `end_turn()`：让出屏幕会刷新状态，顺序反过来，页面马上发来的请求会撞上还没放开的锁。
   键盘动作前把问你时最前面的程序换回来（`_focus`），鼠标动作前那一点换了窗口就不做（`_guard`），因为点"允许"会把浏览器换到最前面。
   屏幕只有一个：`DesktopManager.claim` 让一个运行占着它，这一轮结束 `release` 或 `run.close`；"停止"之后这一轮里一直拒绝。
   工具包和浏览器同一套写法：Claude 用 `computer_toolset_20260801`，一轮里失败后的结果用 `tools/computer.HALTED`（和浏览器那句不同，文档规定）；
