@@ -23,7 +23,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-dark-zh.webp">
-    <img alt="智狐的网页界面：一段对话，里面有一次添加待办的工具调用，和一张等你确认的执行命令卡片" src="docs/assets/screenshot-light-zh.webp" width="900">
+    <img alt="智狐的网页界面：助手调用工具读出待办，用一张 Markdown 表格排好这周的计划，执行命令之前先弹出确认卡片；左边的会话栏里有之前的对话，包括一段 Telegram 聊天、一次定时任务的运行和一段用自定义 Agent 开始的对话" src="docs/assets/screenshot-light-zh.webp" width="900">
   </picture>
 </p>
 
@@ -182,6 +182,11 @@ uv run harness --web
   最下面的"在访达中打开记忆文件夹"（Linux 上是"打开记忆文件夹"）会在文件管理器里打开整个文件夹。
   列表自己会跟着变：助手在这一轮里记下的，这一轮还没结束就会出现；你在访达里改的、删的，切回这个页面时就会更新。
   助手工作时不能删，要等这一轮结束：它可能正在改的就是这一条。
+
+<p align="center">
+  <img alt="“扩展”窗口的 Skill 这一页：四个装好的 Skill，每一个写着说明、大小、从哪儿来的（在智狐里新建、GitHub 网址、从 Claude Code 导入）和一个启用开关；旁边是 MCP、通道、Agent 三页" src="docs/assets/extensions-light-zh.webp" width="720">
+</p>
+
 - 扩展 → Skill（右上角的拼图按钮）：装好的 Skill，每一个写着说明、有几个文件、从哪儿来的。
   每一行有一个开关，可以启用或停用；鼠标移上去（或者用 Tab 移到它上面），右边出现和会话行一样的三个按钮：
   "在访达中显示"（这个 Skill 的文件夹）、铅笔（编辑 SKILL.md，保存时检查 frontmatter；改了 name，文件夹也跟着改名；
@@ -277,6 +282,10 @@ uv run harness --web
   这次运行标着"补跑"，记着错过了几次，也会告诉助手原定是什么时候。
 - **每次运行都有记录。** 每个任务保留最近 20 次运行：开始和结束的时间、结果、调用了几次模型、估算费用、
   最后回答的开头，失败时还有原因。不设花费上限。
+
+<p align="center">
+  <img alt="一个定时任务的详情：正在运行的这一次（第几步、已用时间、花费和停止按钮），下面是下次运行的时间、要不要先问你、让助手做什么，以及运行记录" src="docs/assets/tasks-light-zh.webp" width="560">
+</p>
 
 **定时任务只在网页界面（`uv run harness --web`）或者服务器模式（`uv run harness serve`）开着的时候运行。**
 终端界面不运行它们；在终端里也可以让助手添加或删除任务，等下次网页界面或者服务器模式开着时运行。"立即运行"会马上运行一次，不改变原来的时间表。助手替你添加或删除"让助手去做"的任务时，

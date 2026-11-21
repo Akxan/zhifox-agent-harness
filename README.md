@@ -23,7 +23,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-dark-en.webp">
-    <img alt="The ZhiFox web UI: a conversation in which the assistant adds a to-do through a tool call, followed by an approval card asking whether to run a shell command" src="docs/assets/screenshot-light-en.webp" width="900">
+    <img alt="The ZhiFox web UI: the assistant reads the to-do list through a tool call, plans the week in a Markdown table and asks for approval before running a shell command; the sidebar lists earlier conversations, including a Telegram chat, a scheduled task run and one started with a custom agent" src="docs/assets/screenshot-light-en.webp" width="900">
   </picture>
 </p>
 
@@ -1456,6 +1456,11 @@ This starts a small server on your computer and opens the chat page in your brow
   itself up to date: a memory the assistant writes appears while the turn is still running, and changes you make in
   Finder appear as soon as you switch back to the page. Deleting waits until the assistant has finished its turn,
   because it may be in the middle of editing that very memory.
+
+<p align="center">
+  <img alt="The Extensions dialog on its Skills tab: four installed skills, each with its description, size, where it came from (created in ZhiFox, a GitHub URL, imported from Claude Code) and an on/off switch, next to the MCP, Channels and Agents tabs" src="docs/assets/extensions-light-en.webp" width="720">
+</p>
+
 - **Extensions → Skill** (the puzzle-piece button at the top right). Your installed skills, each with its description,
   number of files and where it came from. Each row has a switch to enable or disable the skill, and on hover (or Tab) the
   same three buttons as a conversation row: **Show in Finder** (that skill's folder), the **pencil** (edit `SKILL.md`;
@@ -1581,6 +1586,10 @@ How agent tasks behave:
   the number of missed times, and the assistant is told when it should have run.
 - **Every run is recorded.** Each task keeps its last 20 runs: start and end time, status, number of model calls,
   estimated cost, the beginning of the final answer, and the error if it failed. There is no spending cap.
+
+<p align="center">
+  <img alt="A scheduled task's details: the run in progress with its step count, time so far, cost and a Stop button, then the next run, the approval setting, the instruction and the run history" src="docs/assets/tasks-light-en.webp" width="560">
+</p>
 
 **Tasks run only while the web UI (`uv run harness --web`) or the server mode (`uv run harness serve`) is running.**
 The terminal UI doesn't run them; you can still ask the assistant there to add or delete tasks, and they run the next
