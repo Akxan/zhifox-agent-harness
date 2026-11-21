@@ -72,7 +72,7 @@ def test_auto_with_an_argument_is_handled_as_a_command(make_config, monkeypatch,
     typed = iter(["/auto", "/auto all", "  /auto edits  ", "/autopilot", None])  # None：用户按了 Ctrl-D
     monkeypatch.setattr(TerminalUI, "read_input", lambda self: next(typed))
     sent = []  # 本该发给模型的话记在这里，不真的发出去
-    monkeypatch.setattr(cli, "run_turn", lambda agent, ui, text: sent.append((text, agent.permissions.mode)))
+    monkeypatch.setattr(cli, "run_turn", lambda agent, ui, text, again=False: sent.append((text, agent.permissions.mode)))
 
     assert cli.run_terminal(make_config()) == 0
 

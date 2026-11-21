@@ -57,6 +57,11 @@ def _sweep(page) -> dict[str, list[str]]:
     page.click("#log .confirm .button.primary")
     steps.reply(page, "命令执行完了")
     look("对话（答复以后）")
+    # 这一轮的运行记录：合计、瀑布图（悬停一行，上面那一行字写着它的数字）、逐段的详情
+    steps.open_trace(page)
+    page.hover("#trace-body .trace-lane", 1)
+    look("运行记录", ["#trace-dialog"])
+    steps.escape_closes(page, "trace-dialog")
 
     # 编辑、重新生成（这一轮执行过命令，所以都要先确认）：重新生成之前的确认、编辑框、编辑框里的确认
     page.click("#log .turn-retry")

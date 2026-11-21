@@ -52,6 +52,11 @@ class TerminalUI:
         # 这一轮里的工具调用和确认，记成和网页界面一样的事件。/retry、/edit 倒回这一轮之前，
         # 靠它看这一轮做过什么可能改动了电脑的事（见 rewind.effects），要先问你一次
         self.turn_events: list[dict] = []
+        self.last_trace: dict | None = None  # 最后一轮的运行记录（见 trace/），/trace 把它写出来
+
+    def trace(self, record: dict) -> None:
+        """一轮结束时循环交过来的运行记录。终端不存会话，只留着最后一轮的，输入 /trace 时再写出来。"""
+        self.last_trace = record
 
     # ---- 基础输出 ---------------------------------------------------------
 
