@@ -67,6 +67,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1907,23 +1908,35 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
         print(t("无法在端口 {port} 上启动：{error}", port=port, error=exc))
         return 1
 
-    print(t("{name}（网页界面）已启动。在浏览器里打开这个地址：", name=APP_NAME) + "\n")
-    print(f"    {url}\n")
-    provider = app.provider
-    print(t("模型：{model}    工作目录：{workspace}", model=f"{provider.label} · {app.settings.model}", workspace=config.workspace))
-    if not has_key(provider):
-        print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
-    print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
-    # 定时任务和聊天通道只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的任务，补跑一次
-    lifecycle.start(server.web)
-    if open_browser:
-        webbrowser.open(url)
+    # 普通的 kill（SIGTERM，关机、注销、别的程序叫它退出时发的就是它）和 Ctrl-C 走同一条收尾的路：
+    # 停下正在进行的一轮、存好盘，再放开数据目录。不接的话 SIGTERM 会直接把进程杀掉，这一轮做过的事在会话里不留记录。
+    # 在打印地址之前就接上：看到地址就发 SIGTERM 的人（测试、脚本），不能赶在接上之前。
+    # 收到第一个之后换回默认的处理：真想马上结束，再发一次就行
+    def interrupted(signum: int, frame: object) -> None:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        raise KeyboardInterrupt
 
+    previous = signal.signal(signal.SIGTERM, interrupted) if threading.current_thread() is threading.main_thread() else None
     try:
+        print(t("{name}（网页界面）已启动。在浏览器里打开这个地址：", name=APP_NAME) + "\n")
+        print(f"    {url}\n")
+        provider = app.provider
+        print(t("模型：{model}    工作目录：{workspace}", model=f"{provider.label} · {app.settings.model}", workspace=config.workspace))
+        if not has_key(provider):
+            print(t("还没有设置 {provider} 的 API 密钥：打开页面后，点右上角的“设置”填写。", provider=provider.label))
+        print(t("地址里的 token 是这次运行的口令，不要发给别人。按 Ctrl-C 退出。"))
+        # 定时任务和聊天通道只在这个程序开着的时候运行。刚启动时先看一眼：关着的这段时间里错过的任务，补跑一次
+        lifecycle.start(server.web)
+        if open_browser:
+            webbrowser.open(url)
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)  # 正在收尾：这时再来一个 SIGTERM 不要打断存盘
         shut_down(server, app)
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
     print("\n" + t("再见。"))
     return 0
