@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from harness import winjob  # noqa: E402
+from harness import console, winjob  # noqa: E402
 from harness.browser import chrome  # noqa: E402
 from harness.browser.manager import BrowserManager  # noqa: E402
 
@@ -62,13 +62,14 @@ def attempt(name, env=None, job=True, manager=False):
         os.environ.update(saved)
 
 
+console.use_utf8()
 print("chrome:", chrome.find_chrome(), "threads", threading.active_count(), flush=True)
 home = Path(tempfile.mkdtemp(prefix="home-"))
 attempt("plain")
 attempt("nojob", job=False)
-attempt("userprofile-missing", env={"USERPROFILE": str(home / "nope")})
 attempt("userprofile-exists", env={"USERPROFILE": str(home)})
+attempt("userprofile-exists-nojob", env={"USERPROFILE": str(home)}, job=False)
 attempt("noproxy", env={"NO_PROXY": "*", "no_proxy": "*"})
-attempt("manager")
-attempt("manager-up-missing", env={"USERPROFILE": str(home / "nope2")}, manager=True)
-attempt("manager-plain", manager=True)
+attempt("manager", manager=True)
+attempt("manager-up-exists", env={"USERPROFILE": str(home)}, manager=True)
+attempt("userprofile-missing-nojob", env={"USERPROFILE": str(home / "nope")}, job=False)
