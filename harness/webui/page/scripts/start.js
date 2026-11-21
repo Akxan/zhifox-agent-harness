@@ -29,7 +29,7 @@ function markSynced() {
   clearTimeout(syncTimer);
   if (synced) return;
   synced = true;
-  if (block) setStreaming(true);  // 刷新页面时正好有一段文字在输出：从现在起它是实时的了
+  if (block && !block.paused) setStreaming(true);  // 刷新页面时正好有一段文字在输出：从现在起它是实时的了
   if (unsettled && !replaying) settle();
 }
 

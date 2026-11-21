@@ -256,6 +256,7 @@ Each part of the harness has its own file or directory:
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
+| Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
@@ -605,6 +606,42 @@ drawn once, in its final form, with no animation.
 Search still works: results come from the Markdown source, and when the hit includes syntax that isn't visible
 (`**`, `` ` ``), the page drops those marks before looking for it on the page. A hit that only exists in the source
 (such as a link's address) scrolls to the reply. The terminal shows the Markdown source as is.
+
+### Sources of web-search answers
+
+When Claude answers from a web search, the API cuts the answer into consecutive `text` blocks at every citation, and
+each cited block carries a `citations` list: the page's address, its title, the quoted text (up to 150 characters) and
+an `encrypted_index` that must be sent back unchanged. While streaming, each citation is a `citations_delta`; the SDK
+collects them on the block, so ZhiFox reads them when the block ends
+([harness/providers/claude.py](harness/providers/claude.py)). Anthropic asks that answers shown to people keep their
+sources, so they are no longer dropped:
+
+- **Two copies, one untouched.** The conversation history (`messages`) keeps the blocks exactly as the API returned
+  them, `citations` and all, so the next request is byte-for-byte the same prefix and the cache still hits. The
+  display copy is made separately by [harness/citations.py](harness/citations.py): only `http` and `https` addresses,
+  titles and quotes cleaned and shortened, the same page in one answer given one number, in order of first appearance.
+- **One event per cited span.** In the web UI each cited span becomes a `cite` event right after its text:
+  `{"type": "cite", "marks": [{"n": 1, "quote": "…"}], "sources": [{"n": 1, "url": "…", "title": "…", "site": "…"}]}`.
+  `marks` are the numbers for this spot; `sources` lists only the pages that appear for the first time in this answer.
+  The numbers are worked out by the program, and the page only draws them. The events are saved with the conversation,
+  so an old conversation shows its sources again when you open it.
+- **Drawing.** The page keeps the reply's text as it is (search and Copy use it) and inserts a private marker
+  wherever a citation goes when it hands the text to the Markdown renderer, which asks the page to build the element.
+  The marker skips trailing spaces and line breaks, and never goes inside code or link text, so it can't break a code
+  fence or add a table column. The number is drawn by CSS, not as text, so selecting a sentence or searching for it
+  isn't thrown off by stray digits.
+- **Copy** copies plain text: `[1]` after each cited sentence and the titles and full addresses at the end, so a
+  pasted answer still says where each claim came from.
+- **Terminal and chat apps** get the same thing as text: `[1]` after the cited sentence and a short
+  "Sources:" list with the title and site (the terminal adds the full address on the next line; chat apps make the
+  title a link). The chat message is split by the platform's length limit as usual.
+- **Old, fragmented answers.** Before the paragraph fix, every one of those blocks ended with a `block_end`, so saved
+  conversations replayed as many tiny paragraphs (". Anuncia", "," on lines of their own, each with its own Copy
+  button). Now a `block_end` only pauses a reply: if the next event is more text, it is the same paragraph; anything
+  else (a tool call, a notice, your next message, the end of the turn) ends it. Live streaming goes through the same
+  code, so a reply that resumes after `pause_turn` looks the same live and after a refresh.
+
+GPT, Gemini and DeepSeek have no web search, so their answers never carry sources.
 
 ### Scheduled tasks: running when nobody is watching
 
@@ -1409,6 +1446,10 @@ This starts a small server on your computer and opens the chat page in your brow
   label, light syntax colors and a **Copy code** button. Links open in a new tab; images aren't loaded, you see their
   description and address instead. You can expand the model's thinking. Each tool call is a card you can open to see
   its parameters and result; a browser or computer use step also carries a small screenshot you can click to enlarge. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
+  An answer written after a web search carries its sources: a small number after each cited sentence (hover it, or
+  move to it with the keyboard, to see the site, the page title and the quoted text; click it to open the page in a new
+  tab) and a **Sources** list under the answer. **Copy** then writes the numbers as `[1]` and adds the titles and
+  addresses at the end (see [Sources of web-search answers](#sources-of-web-search-answers)).
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.

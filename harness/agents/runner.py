@@ -45,6 +45,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Protocol
 
+from .. import citations
 from ..agent import UI, Agent
 from ..config import AGENT_MAX_DEPTH, AGENT_MAX_RESULT_CHARS, AGENT_MAX_STEPS, Config
 from ..display import describe_call
@@ -94,6 +95,7 @@ class SubUI:
         self.answer = ""  # 最后一次调用工具之后写的文字，就是它交回去的回答
         self.calls: Counter[str] = Counter()  # 它调用了哪些工具、各几次
         self.infos: list[str] = []  # 循环自己的提示（截断了、步数用完了、被拒绝了），由 Delegator 换成给主助手的话
+        self.sources = citations.Numbering()  # 回答引用的网页（它联网搜索过才有），和 answer 一样从最后一次调用工具之后算
         self._doing = ""
 
     def _pulse(self, doing: str) -> None:
@@ -109,6 +111,12 @@ class SubUI:
         self.answer += text
         self._pulse("writing")
 
+    def cite(self, sources: list[dict]) -> None:
+        # 联网搜索的回答引用了网页：回答里写上 [1]，来源由 Delegator 附在交回的回答后面、画在卡片上（见 _result）
+        marks, _ = self.sources.add(sources)
+        if marks:
+            self.answer = citations.insert(self.answer, citations.marker(marks))
+
     def notice(self, level: str, text: str) -> None:
         self.parent.check_stop()
         self.parent.subagent("note", run=self.run, agent=self.name, level=level, text=text)
@@ -121,6 +129,7 @@ class SubUI:
 
     def tool_call(self, name: str, tool_input: object) -> None:
         self.answer = ""
+        self.sources.clear()
         self._doing = "tool"
         self.calls[name] += 1
         self.parent.subagent("tool_call", run=self.run, agent=self.name, name=name, summary=describe_call(name, tool_input), input=tool_input)
@@ -289,9 +298,11 @@ class Delegator:
         return None if unpriced else round(total, 6)
 
     def _done(self, parent: Agent, sub: Agent, ui: SubUI, status: str, answer: str = "", error: str | Message = "") -> None:
+        # sources：回答引用的网页（[{"n", "url", "title", "site"}]，见 citations.py），卡片在回答下面列出来。没有就不带
+        extra = {"sources": ui.sources.sources} if answer and ui.sources.sources else {}
         parent.ui.subagent(
             "done", run=ui.run, agent=ui.name, status=status, answer=answer, error=error,
-            cost=self._cost(sub), steps=sub.usage.requests, calls=sum(ui.calls.values()),
+            cost=self._cost(sub), steps=sub.usage.requests, calls=sum(ui.calls.values()), **extra,
         )
 
     def _failed(self, parent: Agent, sub: Agent, ui: SubUI, error: str | Message) -> ToolOutput:
@@ -316,6 +327,8 @@ class Delegator:
             reason = f"它用完了 {AGENT_MAX_STEPS} 次模型调用还没做完。" if outcome == "steps" else "它没有写出回答。"
             return ToolOutput(text=f"Agent「{agent.name}」没有交回内容：{reason}{did}。", is_error=True)
         shown = answer
+        if ui.sources.sources:  # 回答里的 [1] 指的是哪个网页：主助手转述时要能写出出处
+            answer += "\n\n" + citations.for_model(ui.sources.sources)
         if len(answer) > AGENT_MAX_RESULT_CHARS:
             answer = answer[:AGENT_MAX_RESULT_CHARS] + f"\n……（回答太长，后面的 {len(answer) - AGENT_MAX_RESULT_CHARS} 个字没有交回）"
         if outcome == "steps":

@@ -72,6 +72,7 @@ const handlers = {
   },
 
   user(event) {
+    endBlock();  // 上一段回复停在 block_end 上（见 pauseBlock）：到这里一定结束了。平时 turn_end 已经收过尾
     const attachments = Array.isArray(event.attachments) ? event.attachments : [];
     if (attachments.length) add(attachmentRow(attachments, event.at));
     if (event.text || !attachments.length) add(el('div', 'msg user', event.text));
@@ -90,7 +91,8 @@ const handlers = {
 
   thinking(event) { stream('thinking', event.text); },
   text(event) { stream('text', event.text); },
-  block_end() { endBlock(); },
+  cite(event) { noteCite(event); },  // 刚写完的那段文字引用了网页（见 citations.js）
+  block_end() { pauseBlock(); },  // 先停一下，不马上收尾（为什么见 streaming.js 的 pauseBlock）
 
   notice(event) {
     endBlock();

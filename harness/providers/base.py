@@ -132,6 +132,9 @@ class StreamUI(Protocol):
     def notice(self, level: str, text: str) -> None: ...  # 一行提示：tool / result / error / info
     def end_stream(self) -> None: ...  # 正在逐字输出的那段文字结束了
     def info(self, text: str) -> None: ...
+    # 刚写完的那一小段回答引用了这些网页：[{"url", "title", "quote"}]（citations.from_citations 的结果）。
+    # 只有 Claude 联网搜索后的回答才有；编号、怎么显示由界面决定（见 citations.py）
+    def cite(self, sources: list[dict]) -> None: ...
 
 
 class Backend(Protocol):

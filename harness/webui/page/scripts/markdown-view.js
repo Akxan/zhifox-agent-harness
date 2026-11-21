@@ -17,14 +17,16 @@ const markdownHooks = {
   },
 };
 
-function markdownView(holder) {
-  try { return window.Markdown.createView(holder, markdownHooks); } catch (problem) { console.error(problem); return null; }
+// record：这是一段回复（streaming.js 的 block）的话，它引用网页的记号也画出来（见 citations.js）
+function markdownView(holder, record) {
+  const hooks = record ? { ...markdownHooks, cite: (index) => citeMark(record, index) } : markdownHooks;
+  try { return window.Markdown.createView(holder, hooks); } catch (problem) { console.error(problem); return null; }
 }
 
-// 按现在攒到的文字画一次。final：这段回复已经完整了，没写完的代码块也按写完了画
+// 按现在攒到的文字画一次（连同来源的记号）。final：这段回复已经完整了，没写完的代码块也按写完了画
 function draw(record, final) {
   if (record.view) {
-    try { record.view.update(record.text, final); return; } catch (problem) {
+    try { record.view.update(citedSource(record), final); return; } catch (problem) {
       console.error(problem);
       record.view = null;
     }

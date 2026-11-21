@@ -608,6 +608,75 @@ test('the streaming dot sits after the last character, and goes away at the end'
   assert.deepEqual(carets(), []);
 });
 
+// ---- 来源的记号 --------------------------------------------------------------
+// 联网搜索的回答里，页面在被引用的那段文字后面插一个记号： 编号 （见 page/scripts/citations.js）。
+// 渲染器认出它，调用页面的 hooks.cite(编号) 建元素，自己不建链接；代码里、链接文字里不放；不成对的半个记号丢掉。
+
+const OPEN = '', CLOSE = '';
+const mark = (n) => OPEN + n + CLOSE;
+
+// 页面那一边的 hooks.cite：建一个 <sup>（页面自己建的元素，不受白名单限制），记下被要了哪几个编号
+function citing() {
+  const doc = new FakeDocument();
+  const root = doc.createElement('div');
+  const asked = [];
+  const hooks = hooksFor(doc);
+  hooks.cite = (n) => {
+    asked.push(n);
+    doc.trusted = true;
+    try { const sup = new FakeElement(doc, 'sup'); sup.appendChild(doc.createTextNode('[' + n + ']')); return sup; } finally { doc.trusted = false; }
+  };
+  return { root, asked, view: Markdown.createView(root, hooks) };
+}
+
+function renderCited(text) {
+  const { root, asked, view } = citing();
+  view.update(text, true);
+  return { html: root.childNodes.map(html).join(''), asked };
+}
+
+test('a citation mark becomes whatever the page builds for it, right where it sits', () => {
+  assert.deepEqual(renderCited('Shannon was born in 1916' + mark(0) + ' in Petoskey' + mark(1) + mark(2) + '.'),
+    { html: '<p>Shannon was born in 1916<sup>[0]</sup> in Petoskey<sup>[1]</sup><sup>[2]</sup>.</p>', asked: [0, 1, 2] });
+  // 粗体、列表、表格、标题里都放得下
+  assert.equal(renderCited('**粗体的结论' + mark(3) + '**').html, '<p><strong>粗体的结论<sup>[3]</sup></strong></p>');
+  assert.equal(renderCited('- 第一项' + mark(0) + '\n- 第二项').html, '<ul class="md-tight"><li><p>第一项<sup>[0]</sup></p></li><li><p>第二项</p></li></ul>');
+  assert.equal(renderCited('| 公司 | 城市 |\n|---|---|\n| Perfect Items' + mark(0) + ' | Madrid |').html,
+    '<div class="md-table"><table><thead><tr><th scope="col">公司</th><th scope="col">城市</th></tr></thead><tbody><tr><td>Perfect Items<sup>[0]</sup></td><td>Madrid</td></tr></tbody></table></div>');
+  assert.equal(renderCited('## 标题' + mark(5)).html, '<h2>标题<sup>[5]</sup></h2>');
+});
+
+test('citation marks never land inside code or link text, and never break a link', () => {
+  // 代码里的记号去掉（行内代码和代码块都是），代码原样
+  assert.deepEqual(renderCited('`npm install' + mark(0) + '`'), { html: '<p><code>npm install</code></p>', asked: [] });
+  assert.deepEqual(renderCited('```sh\nls' + mark(0) + '\n```'),
+    { html: '<div class="md-code"><div class="md-code-bar"><span class="md-code-lang">sh</span><button class="md-copy"></button></div><pre><code>ls</code></pre></div>', asked: [] });
+  // 链接的文字里不放（链接里不能再套链接）
+  assert.deepEqual(renderCited('[维基百科' + mark(0) + '](https://en.wikipedia.org)'),
+    { html: '<p><a href="https://en.wikipedia.org/">维基百科</a></p>', asked: [] });
+  // 裸网址到记号为止，记号照样画在后面
+  assert.deepEqual(renderCited('见 https://example.com/a' + mark(1) + ' 这里'),
+    { html: '<p>见 <a href="https://example.com/a">https://example.com/a</a><sup>[1]</sup> 这里</p>', asked: [1] });
+});
+
+test('without a cite hook, or with half a mark, nothing extra shows up', () => {
+  assert.equal(render('结论' + mark(0) + '。'), '<p>结论。</p>');  // 子 Agent 的卡片这类地方没有 hooks.cite：什么都不画
+  assert.deepEqual(renderCited('半个' + OPEN + '记号' + CLOSE + '和' + OPEN + 'x' + CLOSE + '。'), { html: '<p>半个记号和x。</p>', asked: [] });
+  assert.deepEqual(renderCited(OPEN + '1234567' + CLOSE), { html: '<p>1234567</p>', asked: [] });  // 编号太长：不是记号
+});
+
+test('a mark added while streaming only redraws the block it is in', () => {
+  const { root, asked, view } = citing();
+  view.update('第一段。\n\n第二段的结论', false);
+  const first = root.childNodes[0];
+  view.update('第一段。\n\n第二段的结论' + mark(0), false);
+  assert.equal(root.childNodes[0], first);  // 定稿的第一段没有重画
+  assert.equal(root.childNodes.map(html).join(''), '<p>第一段。</p><p class="md-caret">第二段的结论<sup>[0]</sup></p>');
+  view.update('第一段。\n\n第二段的结论' + mark(0) + '，接着写。', true);
+  assert.equal(root.childNodes.map(html).join(''), '<p>第一段。</p><p>第二段的结论<sup>[0]</sup>，接着写。</p>');
+  assert.deepEqual(asked, [0, 0]);
+});
+
 // ---- 很长的输入 --------------------------------------------------------------
 
 function timed(label, budget, run) {
