@@ -108,6 +108,7 @@
  "Telegram 的回答看不懂。": "No se entiende la respuesta de Telegram.",
  "Token 用量": "Uso de tokens",
  "WhatsApp Cloud API 只会把消息推到一个公网能访问的网址，要先有服务器或者隧道。": "WhatsApp Cloud API solo envía los mensajes a una dirección pública, accesible desde internet, así que primero hace falta un servidor o un túnel.",
+ "Windows 上命令在 PowerShell 里运行，还认不出哪些只是看，所以每条命令都先问你；你加的“不用问的命令”暂时也不起作用。": "En Windows los comandos se ejecutan en PowerShell y todavía no se distingue cuáles solo miran, así que cada comando te pregunta antes; los que añadiste en «Comandos sin preguntar» tampoco se aplican de momento.",
  "Windows 上命令是在 PowerShell 里运行的，这里的判断还只认得 macOS、Linux 的写法，所以暂时不起作用：每条命令都会先问你，内置的只读命令和你加的命令都一样。": "En Windows los comandos se ejecutan en PowerShell, y esta comprobación solo entiende la sintaxis de macOS y Linux, así que de momento no se aplica: cada comando te pregunta antes, tanto los de solo lectura integrados como los que has añadido tú.",
  "Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。": "Todavía no se puede controlar todo el ordenador en Windows: por ahora solo funciona en macOS y Linux (escritorios X11).",
  "Windows 拒绝开它（0x800710E0）：多半是你还没有登录": "Windows se negó a iniciarlo (0x800710E0): lo más probable es que no hayas iniciado sesión",

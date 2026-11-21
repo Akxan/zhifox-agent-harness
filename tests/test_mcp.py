@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import sys
 import threading
@@ -203,7 +204,8 @@ def test_a_slow_starting_modern_server_still_ends_up_modern(manager, monkeypatch
 def test_a_missing_command_fails_with_a_helpful_message(manager):
     m = manager({"typo": {"command": "definitely-not-a-command-xyz"}})
     row = status_of(m, "typo")
-    assert row["status"] == "failed" and "definitely-not-a-command-xyz" in row["error"] and "which" in row["error"]
+    assert row["status"] == "failed" and "definitely-not-a-command-xyz" in row["error"]
+    assert ("Get-Command" if os.name == "nt" else "which") in row["error"]  # 怎么查：Windows 上是 PowerShell 的 Get-Command
     assert any("连接失败" in line["text"] for line in m.detail("typo")["log"])
 
 

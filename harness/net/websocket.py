@@ -65,6 +65,8 @@ CONTROL_OPS = {OP_CLOSE, OP_PING, OP_PONG}
 NORMAL, GOING_AWAY, PROTOCOL_ERROR, BAD_DATA, TOO_BIG = 1000, 1001, 1002, 1007, 1009
 NO_STATUS, ABNORMAL = 1005, 1006
 _RESERVED_CODES = {1004, 1005, 1006, 1015}
+WINDOWS = os.name == "nt"
+_WINDOWS_SLICE = 0.2  # Windows 上一次最多在 select 里等多久（见 _fill）
 
 
 class WebSocketError(Exception):
@@ -310,12 +312,15 @@ class WebSocket:
         pending = isinstance(sock, ssl.SSLSocket) and sock.pending() > 0  # TLS 已经解密好、还没取走的
         if not pending:
             wait = None if deadline is None else max(0.0, deadline - time.monotonic())
+            # Windows 上，别的线程 shutdown 这个套接字（close、abort，见 _finish）不会让正卡在 select 里的这个线程醒过来，
+            # 所以那里只等一小段（_WINDOWS_SLICE），醒来回到 _read 的循环里看一眼是不是已经关了，没关接着等
+            step = wait if not WINDOWS else _WINDOWS_SLICE if wait is None else min(wait, _WINDOWS_SLICE)
             try:
-                ready, _, _ = select.select([sock], [], [], wait)
+                ready, _, _ = select.select([sock], [], [], step)
             except (OSError, ValueError):  # 套接字已经被别的线程关掉了
                 ready = [sock]
             if not ready:
-                return False
+                return WINDOWS and (wait is None or step < wait)  # Windows 上只是一小段到了，还没到时候：回去看一眼再等
         try:
             chunk = sock.recv(65_536)
         except TimeoutError:

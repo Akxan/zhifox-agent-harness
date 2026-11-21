@@ -64,6 +64,12 @@ def jpeg_size(data: bytes) -> tuple[int, int]:
 IMAGEMAGICK = shutil.which("magick") or shutil.which("convert")
 
 
+def _program(path: str) -> str:
+    """命令是哪个程序：去掉文件夹，Windows 上再去掉 .exe（Windows 的 CI 上装着 ImageMagick，找到的是 magick.EXE）。"""
+    name = Path(path).name
+    return name[:-4] if name.lower().endswith(".exe") else name
+
+
 class FakeRun:
     """扮演 subprocess.run：xdotool 只记下参数；import 交回一张编造的截图；convert 真的运行（只处理那张图）。"""
 
@@ -76,7 +82,7 @@ class FakeRun:
     def __call__(self, args, input=None, capture_output=True, timeout=None, env=None, check=False, **_):
         self.commands.append(list(args))
         self.envs.append(env or {})
-        name = Path(args[0]).name
+        name = _program(args[0])
         if name == "xdotool":
             verb = args[1]
             if verb in self.fail:
@@ -188,7 +194,7 @@ def test_x11_captures_are_scaled_and_cropped_by_imagemagick():
     assert jpeg_size(full) == (500, 312) and jpeg_size(thumb) == (320, 200)
     zoomed = backend.capture([Shot(300, 150, 70)], region=Box(10, 20, 200, 100))[0]
     assert jpeg_size(zoomed) == (300, 150)
-    convert = [command for command in run.commands if Path(command[0]).name in ("convert", "magick")][-1]
+    convert = [command for command in run.commands if _program(command[0]) in ("convert", "magick")][-1]
     assert convert[1:] == ["png:-", "-crop", "200x100+10+20", "+repage", "-resize", "300x150!", "-quality", "70", "jpeg:-"]
 
 

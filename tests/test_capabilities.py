@@ -31,6 +31,7 @@ from test_mcp import FAKE, settle, stdio, write_config
 from test_webui import latest_state
 
 from harness import capabilities, i18n
+from harness import commands as commands_module
 from harness.agents import examples
 from harness.app import build_app
 from harness.cli import handle_command
@@ -661,6 +662,19 @@ def test_your_own_commands_are_mentioned_where_they_count(start):
     s.agent.permissions.mode = "all"
     assert item(overview(s), "shell").approval.note == ""  # 什么都不问了，不用再提
     assert actions(item(overview(s), "shell")) == [("approval", ""), ("commands", "")]
+
+
+def test_on_windows_the_shell_says_every_command_asks_and_why(start, monkeypatch):
+    """Windows 上命令是 PowerShell，一条都不算只读、你加的也不算（commands/__init__.py）：清单照实说"每条都先问"，并写明原因。"""
+    monkeypatch.setattr(commands_module, "WINDOWS", True)
+    s = start()
+    s.agent.permissions.mode = "readonly"
+    shell = item(overview(s), "shell")
+    assert shell.approval.level == "ask" and "PowerShell" in shell.approval.note  # 每条都先问（"部分先问"是 some）
+    s.agent.permissions.mode = "ask"
+    assert item(overview(s), "shell").approval.note == ""  # 每次都问的那一档：本来就都问，不用多说
+    s.agent.permissions.commands.add("npm test")
+    assert "暂时也不起作用" in item(overview(s), "shell").approval.note
 
 
 # ---- 对话中途改设置 ------------------------------------------------------------------------

@@ -108,6 +108,7 @@
  "Telegram 的回答看不懂。": "Couldn't understand Telegram's reply.",
  "Token 用量": "Token usage",
  "WhatsApp Cloud API 只会把消息推到一个公网能访问的网址，要先有服务器或者隧道。": "The WhatsApp Cloud API only pushes messages to a publicly reachable URL, so you need a server or a tunnel first.",
+ "Windows 上命令在 PowerShell 里运行，还认不出哪些只是看，所以每条命令都先问你；你加的“不用问的命令”暂时也不起作用。": "On Windows commands run in PowerShell, and ZhiFox can't yet tell which ones only look, so every command asks you first; the commands you added to “Commands that don't ask” don't apply yet either.",
  "Windows 上命令是在 PowerShell 里运行的，这里的判断还只认得 macOS、Linux 的写法，所以暂时不起作用：每条命令都会先问你，内置的只读命令和你加的命令都一样。": "On Windows, commands run in PowerShell, and this check only understands macOS and Linux syntax, so it doesn't apply yet: every command asks you first, both the built-in read-only ones and the ones you added.",
  "Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。": "Controlling the whole computer isn't supported on Windows yet: for now it only works on macOS and Linux (X11 desktops).",
  "Windows 拒绝开它（0x800710E0）：多半是你还没有登录": "Windows refused to start it (0x800710E0): most likely you aren't logged in",

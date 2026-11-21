@@ -11,6 +11,9 @@ Windows 管"谁能读"的是每个文件、文件夹上的访问控制列表（A
 所以不能指望默认的样子。这里做的是：对数据目录和 .env，断开继承（/inheritance:r），只留下三项：
 你自己的账号（按 SID，不按名字，改名、域账号都不会认错）、SYSTEM、Administrators，都是完全控制。
 数据目录加上 (OI)(CI)：里面以后新建的文件、文件夹都继承这一份，所以 safe.write_file 写的每个文件不用再一个个设。
+（Python 3.13 起，os.mkdir(mode=0o700) 在 Windows 上自己也会给新建的文件夹设一份差不多的 ACL：SYSTEM、管理员和
+OWNER RIGHTS，也就是"所有者"。但 3.11、3.12 不会，已经存在的文件夹和 .env 这种文件也不会，所以这里照样设一遍；
+它留下的 OWNER RIGHTS 那一项指的就是你自己，留着无妨。）
 
 为什么留着 SYSTEM 和 Administrators：它们本来就能读（管理员可以夺取任何文件的所有权），去掉它们挡不住谁，
 反而会让备份、杀毒软件、Windows 自己的索引报错。这和 macOS、Linux 上 root 读得到 600 的文件是一样的。

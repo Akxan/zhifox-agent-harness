@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from fake_telegram import TOKEN
 
@@ -69,6 +70,14 @@ def test_read_only_commands_run_without_a_card_and_say_why(page):
     page.wait("!document.getElementById('approval-dialog').open && document.getElementById('approval').className === 'approval readonly'", what="换成只读这一档")
     assert page.text("#approval-label") == "自动允许只读命令"
     steps.send(page, "[ui:approve] 跑一条只读的命令")  # 剧本里的命令是 echo，只是打印
+    if os.name == "nt":
+        # 演示服务器真的在 Windows 上：命令是 PowerShell，一条都不算只读（harness/commands/__init__.py），照样弹卡片；
+        # 这一档的说明也照实写着为什么
+        steps.pending_confirm(page)
+        assert "PowerShell" in page.js("document.querySelector(\"#approval-options .option[data-mode='readonly'] span\").textContent")
+        page.click("#log .confirm .button.primary")
+        steps.reply(page, "命令执行完了")
+        return
     steps.reply(page, "命令执行完了")
     assert page.js("document.querySelector('#log .confirm')") is None, "只读的命令不该弹确认卡片"
     assert page.text("#log .call .auto-tag") == "自动允许（只读）"

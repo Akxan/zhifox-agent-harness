@@ -112,8 +112,39 @@ def _acl(path) -> str:
     return subprocess.run([winacl._system32("icacls.exe"), str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
+# 可以出现在 ACL 里的：你自己、SYSTEM、Administrators，以及 OWNER RIGHTS（"这个文件的所有者"，也就是你：
+# Python 3.13 起 os.mkdir(mode=0o700) 在 Windows 上自己就会建一份只给这几位的 ACL，里面带着它）
+ALLOWED = ("NT AUTHORITY\\SYSTEM", "BUILTIN\\Administrators", "OWNER RIGHTS")
+# 不该出现的：这台电脑上别的账号都能借着它们读到
+FORBIDDEN = ("Everyone", "BUILTIN\\Users", "Authenticated Users", "NT AUTHORITY\\INTERACTIVE")
+
+
+def _entries(path) -> list[str]:
+    """icacls 列出的每一项："谁:(权限)"。第一行前面是路径，最后是"成功处理了 1 个文件"。"""
+    listing = _acl(path)
+    lines = [line for line in listing.splitlines() if line.strip() and ":" in line and not line.startswith("Successfully")]
+    first = str(path)
+    return [line[len(first):].strip() if line.startswith(first) else line.strip() for line in lines]
+
+
+def _only_mine(path, user: str) -> list[str]:
+    entries = _entries(path)
+    assert entries, _acl(path)
+    for entry in entries:
+        who = entry.rsplit(":", 1)[0]
+        assert not any(bad in who for bad in FORBIDDEN), entries
+        assert who in ALLOWED or who.lower() == user.lower(), entries
+    assert any(entry.rsplit(":", 1)[0].lower() == user.lower() for entry in entries), entries  # 你自己一定在里面
+    return entries
+
+
+def _me() -> str:
+    """whoami 说的"域\\用户名"，和 icacls 列出来的写法一样。"""
+    return subprocess.run(["whoami"], capture_output=True, text=True, check=True).stdout.strip()
+
+
 @needs_windows
-def test_real_icacls_leaves_only_three_entries(monkeypatch, tmp_path):
+def test_real_icacls_leaves_only_me_system_and_administrators(monkeypatch, tmp_path):
     monkeypatch.setattr(winacl, "runner", winacl._run)
     winacl.forget()
     folder = tmp_path / "data"
@@ -121,14 +152,12 @@ def test_real_icacls_leaves_only_three_entries(monkeypatch, tmp_path):
     assert winacl.restrict(folder, folder=True)
     sid = winacl.current_sid()
     assert sid and sid.startswith("S-1-5-")
-    listing = _acl(folder)
-    lines = [line for line in listing.splitlines()[:-1] if line.strip()]  # 最后一行是"成功处理了 1 个文件"
-    assert len(lines) == 3, listing  # 只剩三项：继承来的 Users、Authenticated Users 都没有了
-    assert "(OI)(CI)" in listing and "(I)" not in listing  # 往下继承、自己不再继承上一层的
-    # 里面新建的文件继承这三项
+    entries = _only_mine(folder, _me())
+    assert all("(OI)(CI)" in entry and "(I)" not in entry for entry in entries), entries  # 往下继承、自己不再继承上一层的
+    # 里面新建的文件继承这几项
     (folder / "x.json").write_text("{}", encoding="utf-8")
-    inner = _acl(folder / "x.json")
-    assert len([line for line in inner.splitlines()[:-1] if line.strip()]) == 3, inner
+    inner = _only_mine(folder / "x.json", _me())
+    assert all("(I)" in entry for entry in inner), inner
 
 
 @needs_windows
@@ -138,8 +167,7 @@ def test_real_private_dir_and_env_file(monkeypatch, tmp_path):
     safe.private_dir(tmp_path / "data")
     safe.write_file(tmp_path / "data" / "token", "abc\n")
     assert (tmp_path / "data" / "token").read_bytes() == b"abc\n"
-    assert "(I)" in _acl(tmp_path / "data" / "token")  # 继承自数据目录
+    assert all("(I)" in entry for entry in _only_mine(tmp_path / "data" / "token", _me()))  # 继承自数据目录
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     settings.save_api_key(tmp_path / ".env", "OPENAI_API_KEY", "sk-test-1234")
-    listing = _acl(tmp_path / ".env")
-    assert "(I)" not in listing and len([line for line in listing.splitlines()[:-1] if line.strip()]) == 3, listing
+    assert all("(I)" not in entry for entry in _only_mine(tmp_path / ".env", _me()))  # .env 自己的，不从项目文件夹继承
