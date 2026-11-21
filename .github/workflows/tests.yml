@@ -15,7 +15,7 @@ jobs:
   test:
     name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30  # 平时 8 分钟左右；万一哪里卡住了，不让它一直占着机器
+    timeout-minutes: 30  # 并行跑（见 pyproject 的 addopts），平时几分钟；万一哪里卡住了，不让它一直占着机器
     strategy:
       fail-fast: false
       matrix:
@@ -67,4 +67,4 @@ jobs:
       - name: Real X11 backend on a virtual screen
         env:
           ZHIFOX_REQUIRE_XVFB: "1"
-        run: uv run pytest -q -rs tests/test_desktop_x11.py
+        run: uv run pytest -q -n 0 -rs tests/test_desktop_x11.py  # 一个一个跑：几个进程同时开 Xvfb 可能挑中同一个屏幕编号

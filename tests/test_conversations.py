@@ -277,8 +277,9 @@ def test_malformed_ids_are_rejected(store, tmp_path, bad_id):
 # 没有锁的话每次都会出错，有锁的话后来的那个线程只是多等一会儿。
 
 
-def in_thread(job, errors: list) -> threading.Thread:
-    """在一个新线程里做 job，马上开始。线程里抛出的错误记进 errors：不记的话只会打印出来，测试照样通过。"""
+def in_thread(job, errors: list, name: str | None = None) -> threading.Thread:
+    """在一个新线程里做 job，马上开始。线程里抛出的错误记进 errors：不记的话只会打印出来，测试照样通过。
+    name：线程的名字。线程里的代码要认出"是不是这个线程"时按名字认（见下面的 PAGE_SCAN）。"""
 
     def guarded() -> None:
         try:
@@ -286,9 +287,14 @@ def in_thread(job, errors: list) -> threading.Thread:
         except BaseException as exc:  # noqa: BLE001 —— 什么错误都要带回主线程
             errors.append(exc)
 
-    thread = threading.Thread(target=guarded, daemon=True)
+    thread = threading.Thread(target=guarded, daemon=True, name=name)
     thread.start()
     return thread
+
+
+# 按名字认出"页面第一次列出会话"的那个线程。不能拿 in_thread 返回的对象去比：线程一开始就在跑，
+# 机器忙的时候（并行跑测试），它可能在变量赋值之前就走到了要比的地方
+PAGE_SCAN = "page-scan"
 
 
 def assert_matches_disk(store: ConversationStore, queries: list[str]) -> None:
@@ -321,14 +327,14 @@ def test_saving_many_conversations_while_the_list_is_first_read(tmp_path, monkey
 
     def read(self, conversation_id):
         conversation = real_read(self, conversation_id)
-        if threading.current_thread() is page and not scanning.is_set():
+        if threading.current_thread().name == PAGE_SCAN and not scanning.is_set():
             scanning.set()  # 页面的扫描已经读到了第一个文件的旧内容，还没记进目录
             all_saved.wait(timeout=0.3)  # 等别的线程存完（有锁的话它们存不了，等到超时就接着扫）
         return conversation
 
     monkeypatch.setattr(ConversationStore, "_read", read)
     errors: list = []
-    page = in_thread(store.summaries, errors)
+    page = in_thread(store.summaries, errors, name=PAGE_SCAN)
     assert scanning.wait(timeout=2)
     savers = [in_thread(partial(store.save, conversation), errors) for conversation in changed]
     for saver in savers:

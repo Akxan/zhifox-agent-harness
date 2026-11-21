@@ -71,6 +71,10 @@ packages = ["harness"]  # harness/ 下的文件都会打进包里，包括网页
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 默认并行跑（pytest-xdist）：有几个 CPU 核心就开几个进程，全部测试从九分钟左右降到一分多钟。
+# 每个进程各有自己的假服务器、临时目录（页面测试还有自己的演示服务器和 Chrome），互不相干。
+# 想一个一个跑（调试、看 print 的输出）时加 -n 0
+addopts = ["-n", "auto"]
 markers = [
     "ui: 页面测试（tests/ui/）：用无界面的 Chrome 打开演示页面实际操作。没有 Chrome 时跳过",
 ]
@@ -78,4 +82,5 @@ markers = [
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "pytest-xdist>=3.8.0",
 ]

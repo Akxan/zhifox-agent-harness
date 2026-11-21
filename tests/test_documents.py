@@ -181,6 +181,9 @@ def test_slides_follow_the_playback_order_with_their_notes():
         (docx("<w:p><w:r><w:drawing/></w:r></w:p>"), "没有找到文字（可能只有图片）"),
         (pptx(["", ""]), "没有找到文字（可能只有图片）"),
     ],
+    # 每一种情况起一个固定的名字。不起的话 pytest 拿内容本身当名字，而 zip 里记着打包的时刻：
+    # 并行跑测试时（pytest -n），几个进程相差一秒打包，名字就对不上，整轮测试跑不起来
+    ids=["旧版或加密的 Office", "纯文字", "不是 Office 的 zip", "截断的 docx", "写到一半的 XML", "只有图片的 docx", "只有图片的 pptx"],
 )
 def test_files_that_cannot_be_read_say_why(content, error):
     with pytest.raises(DocumentError, match=error):

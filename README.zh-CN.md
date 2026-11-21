@@ -1739,10 +1739,12 @@ def make_dice_tool() -> Tool:
 ## 测试
 
 ```bash
-uv run pytest
+uv run pytest          # 并行跑：有几个 CPU 核心就开几个进程（pytest-xdist），全部跑完一分钟左右
+uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 ```
 
-测试不需要 API 密钥，也不花钱。[tests/fake_api.py](tests/fake_api.py) 和 [tests/fake_openai.py](tests/fake_openai.py)
+测试不需要 API 密钥，也不花钱。默认是并行跑的（[pyproject.toml](pyproject.toml) 里的 `addopts`）：每个进程各有自己的
+假服务器和临时目录，页面测试在每个进程里各开自己的演示服务器和 Chrome，彼此不共用任何东西。[tests/fake_api.py](tests/fake_api.py) 和 [tests/fake_openai.py](tests/fake_openai.py)
 是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
