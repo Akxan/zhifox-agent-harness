@@ -51,6 +51,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
   or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
   description until a task calls for it, and the scripts a skill brings still need your approval to run.
+- 🤖 **Custom agents, used two ways.** One Markdown file, in the same format as a Claude Code subagent, describes an
+  agent: what it's good at, which tools and model it may use, and its instructions. The main assistant can hand a task
+  to it as a *subagent* (a fresh history of its own; only its conclusions come back), or you can start a conversation
+  with it as the *persona*. An agent never gets more tools than whoever calls it, and its commands still ask you first.
 - ⏰ **Scheduled and recurring tasks.** Free reminders, or instructions the assistant runs on its own at a set time:
   once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs happen alongside
   your conversation (up to three at once), ask for approval the way you choose for each task (Ask every time by
@@ -207,6 +211,8 @@ Each part of the harness has its own file or directory:
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
+| Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
+| Shared catalog | [harness/catalog.py](harness/catalog.py) | The lists of skills and agents change at any time, but the system prompt mustn't. Both lists travel in user messages, attached again only when they change |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
@@ -686,12 +692,94 @@ an unquoted value (real YAML parsers reject it too, and Claude Code then loads t
 stay text, so `version: 1.0` is `"1.0"`, not a number. Fields outside the standard, such as Claude Code's `argument-hint`
 or `hooks`, are kept in the file untouched.
 
+### Custom agents: subagents and personas
+
+A skill teaches the assistant *how* to do a kind of task. An **agent** is a different assistant altogether: its own
+instructions, its own tools and its own model. Each one is a Markdown file in `data/agents/`, in the same format as a
+[Claude Code subagent](https://code.claude.com/docs/en/sub-agents), so files written there import unchanged:
+
+```markdown
+---
+name: researcher                  letters (any script), digits, - and _; also the file name (researcher.md)
+description: Researches and       what it's good at and when to hand work to it (≤ 1024 characters)
+  reads web pages, then returns a summary with sources.
+tools: Read, WebSearch, WebFetch  optional; leave it out to get everything the caller has, [] for none
+model: inherit                    optional: provider/model (deepseek/deepseek-flash), inherit, or opus / sonnet
+color: blue                       optional: red, orange, yellow, green, cyan, blue, purple or pink
+---
+You are a careful researcher…     the instructions (its system prompt)
+```
+
+The same file is used in two quite different ways, and the difference is the heart of what "agent" means:
+
+| | Subagent | Persona |
+|---|---|---|
+| Who starts it | The main assistant, with the `agent` tool, when a task matches the description (or you say "have the researcher look into…") | You, from the arrow next to **New conversation** |
+| What it sees | Only the task the main assistant wrote: not your conversation, not your attachments | The whole conversation, like the normal assistant |
+| History | A fresh one per task, thrown away afterwards; only its final answer goes back into the main conversation | It *is* the conversation, saved and reopened like any other |
+| Who it talks to | The main assistant (it can't ask you questions; you watch its progress on a card) | You, directly |
+| Good for | Context isolation: twenty web pages read inside the subagent cost the main conversation one paragraph | A specialised assistant you work with for a while: a writing partner, a code reviewer |
+
+**Running a subagent** ([harness/agents/runner.py](harness/agents/runner.py)). When the model calls
+`agent(name, task)`, ZhiFox builds a second `Agent`, the same loop class as the main assistant, with:
+
+- **a fresh history** whose first user message is the task (plus the usual `<context>` time note);
+- **its own system prompt:** the agent's instructions followed by an environment section the program appends (the
+  working folder, the operating system, what the `<context>` block means, that web pages and files are material and not
+  instructions, and that its "user" is the main assistant, which only receives its final answer, so it should report
+  conclusions and say what is missing instead of asking). The environment lines are the same text as in the built-in
+  prompt ([harness/prompt.py](harness/prompt.py) keeps them as named parts), and "you can search the web" is written
+  only when it really got a web tool;
+- **only the allowed tools, never more than the caller has:** the allow-list is applied to the caller's own tools, so a
+  read-only persona can't summon a subagent that edits files, and a subagent on DeepSeek doesn't get Claude's web
+  search. `Read` gives the file tool in a read-only form whose writes are refused before anything asks you (`Tool.check`).
+  It also gets its own shell and its own MCP calls (a fresh snapshot under its own owner, filtered to the tools the
+  caller had), exactly like a scheduled task run;
+- **the chosen model**, or the caller's when it says `inherit`.
+
+Every tool call it makes goes through the same `Permissions` object as its caller: in your conversation, the approval
+mode you picked; in a scheduled task, that task's own mode. Approval cards appear in the conversation as usual, saying
+which agent is asking. **Stop** reaches it too: while it runs, its stop function is registered on the caller's
+interface, so it kills its own command and cancels its own MCP calls and nothing else, and the interrupted `agent` call
+gets its result like any other tool call. Its model calls are written to the spending record with the source
+`subagent`, and its tokens and cost are added to the caller's totals (but not its step count or context size). It may
+call the model at most `AGENT_MAX_STEPS` times (25), and subagents can't call further subagents unless you raise
+`AGENT_MAX_DEPTH` (1) in [harness/config.py](harness/config.py). The tool result the main assistant receives is the
+subagent's final answer plus one line on what it did (how many model calls, which tools).
+
+**Why the main conversation stays cheap and stable.** The `agent` tool is always registered, even before you create
+your first agent, and its description never names any agent; the list of agents travels in user messages as an
+`<agents>` block, exactly like the `<skills>` block ([harness/agents/catalog.py](harness/agents/catalog.py); both use
+[harness/catalog.py](harness/catalog.py)). So the main assistant's system prompt and tool specs stay byte-for-byte the
+same across turns, before and after a delegation, and the prompt cache keeps working.
+
+**Personas.** Starting a conversation with an agent swaps three things for that conversation: the system prompt (its
+instructions with the same `{workspace}`-style placeholders as your own prompt, plus the appended environment section),
+the tools (its allow-list applied to the normal set) and the model (if it names one; that becomes the current model,
+as when you reopen an old conversation). The conversation file records the agent's name, the sidebar shows it as a
+small colored badge and the top bar shows it as a chip. A persona can't change mid-conversation (the system prompt and
+tools mustn't), so you start a new one instead; switching to another provider keeps the persona. Reopening the
+conversation rebuilds the prompt from the agent's current file, like the built-in prompt; if the agent has since been
+deleted, the conversation continues with the built-in prompt and you're told so.
+
+**Managing agents.** **Extensions → Agent** lists them; each one can be edited in a form (name, description, a model
+picked from your synced model lists, a color, a tool checklist grouped into built-in, Skill and MCP, and the
+instructions) or as raw Markdown, and both are checked by the same parser as `SKILL.md`
+([harness/skills/frontmatter.py](harness/skills/frontmatter.py)). Saving from the form rewrites only the fields you
+changed, so comments and fields ZhiFox doesn't use (Claude Code's `permissionMode`, `hooks`…) stay as they were.
+Claude Code's tool names work: `Write` and `MultiEdit` mean `Edit`, `Grep`, `Glob` and `LS` mean `Read`, `Task` means
+`Agent`, and names ZhiFox doesn't have are kept and listed but ignored. **Import from Claude Code** reads
+`~/.claude/agents/` and the project's `.claude/agents/` only when you click it, and copies what you tick. Three
+examples (a researcher with read-only files and web search, a read-only code reviewer, a writing assistant with no
+tools) are one click away; none is installed by default. The model has no tool that creates or changes agents.
+
 ### Permissions
 
 | Action | Handling |
 |---|---|
 | To-dos, memory | Runs directly (only touches the assistant's own files in `data/`) |
 | Reading an enabled skill | Runs directly (read-only, and it can't leave that skill's folder). A skill's scripts run through `run_command`, so they ask |
+| Handing a task to a subagent (`agent`) | Runs directly (it only calls a model). Every tool call the subagent makes is reviewed by this same table, with its caller's approval mode, and the card says which agent is asking |
 | Adding or deleting a reminder | Runs directly (at the set time it only shows a reminder: no model call, no cost) |
 | Adding or deleting a task the assistant runs on its own | Asks you first, and shows the schedule and the instruction (it will spend money later, with nobody watching) |
 | Reading files in the working directory | Runs directly |
@@ -870,6 +958,22 @@ This starts a small server on your computer and opens the chat page in your brow
   Everything is shown to you before it's installed, with a reminder that the assistant follows a skill's instructions,
   so you should install only from sources you trust. Changes take effect from your next message. Like memory edits,
   changing, deleting or installing a skill waits until the current turn ends.
+- **Extensions → Agent** (the puzzle-piece button at the top right). Your custom agents, each with its color, name,
+  description, model and number of tools. On hover (or Tab) a row shows **Start a new conversation with it** followed by
+  the same three buttons as a conversation row: **Show in Finder** (its `.md` file), **Edit** and **Delete** (confirmed
+  in place). Click a row to see its model, tools and instructions. The editor has two modes, **Form** and **Source**
+  (the whole file), and switching between them goes through ZhiFox, which writes the form into the file and reads the
+  file back into the form, so the rules live in one place. Unsaved changes are guarded like memory edits. Above the
+  list: **New**, **Examples** (the researcher, the code reviewer and the writing assistant) and **Import from Claude
+  Code**. When there are no agents yet, the page explains the two ways to use one and shows the examples. Editing an
+  agent doesn't have to wait for the current turn: a running conversation or subagent keeps the version it started with
+  (see [Custom agents](#custom-agents-subagents-and-personas)).
+- **Start with an agent.** The arrow next to **New conversation** opens a menu of your agents (arrow keys, Enter and Esc
+  work); pick one to start a conversation with it as the persona. The top bar shows its name (click it to open the
+  agent), and the conversation's row in the sidebar carries a small badge. When the main assistant hands a task to a
+  subagent, the conversation shows a card **Handed to *name*: …** with what the subagent is doing right now (thinking,
+  writing, calling a tool, waiting for you), each tool call it made, its answer rendered as Markdown, and its model,
+  number of calls and cost.
 - **Extensions → MCP** (the puzzle-piece button at the top right). The MCP servers ZhiFox connects to, each with its
   status (connecting, connected, failed with the reason and the last line the server printed, or disabled), its
   number of tools and an on/off switch. Hovering over a row (or moving to it with Tab) shows **Restart** and the same
@@ -1029,10 +1133,11 @@ The keys and data still come from the project's own `.env` and `data/`.
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/skills/` | Installed skills, one folder each. You can manage them under **Extensions → Skill** or by hand |
 | `data/skills.json` | Which skills are disabled and where each one came from |
+| `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language and your monthly budget. No keys |
-| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat or scheduled task, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
+| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
@@ -1108,7 +1213,7 @@ What the program does to keep cost under control:
 
 - **Estimated cost.** The web UI's info panel and the terminal's `/usage` convert usage into US dollars. It's only an
   estimate; each provider's bill is what counts, and bills usually lag.
-- **Spending record.** Every model call, from a chat or a scheduled task, is written to `data/ledger.jsonl` with its
+- **Spending record.** Every model call, from a chat, a scheduled task or a subagent, is written to `data/ledger.jsonl` with its
   price at that moment (DeepSeek's peak or off-peak rate included), so today's and this month's totals survive
   restarts. Changing a price later doesn't rewrite old entries; calls to a model without a price keep their tokens and
   count as $0 until it has one. Each call is appended as one line, so a crash can at most leave half a line, which is
@@ -1129,6 +1234,9 @@ What the program does to keep cost under control:
   most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
   PowerPoint file costs what its text costs. Like the rest of the
   history, attachments are resent on every turn, and caching is what keeps that cheap.
+- **Subagents.** Handing a task to a subagent costs its own model calls (at most 25 per task), recorded as source
+  "subagent" and shown on its card. In exchange, the pages it reads stay in its history, not in the main conversation,
+  so the main conversation's later turns don't keep paying for them.
 - **Scheduled tasks.** Each run of an agent task costs about as much as sending its instruction as a message, and it
   runs whether or not you're there. There is no spending cap: a task every 5 minutes is 288 runs a day. The estimated
   cost of every run is recorded with the task. Reminders are free.
@@ -1233,6 +1341,13 @@ histories in both Claude's and OpenAI's formats, filtering and paging, ids that 
 only when no conversation uses them) and in the media section of `tests/test_webui.py` (the endpoints and their headers).
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
+Custom agents are in [tests/test_agents.py](tests/test_agents.py) (the file format and its checks, the tool allow-list
+that never grows, storage and Claude Code import under a fake home folder, prompts, the `<agents>` catalog, delegation
+against the fake API: a fresh history, the allowed tools, model overrides, approvals, Stop reaching the subagent's own
+shell and MCP calls, step and depth limits, spending recorded as `subagent`, the main request's prefix staying
+byte-identical; and personas saved and restored) and [tests/test_agents_web.py](tests/test_agents_web.py) (the
+`/api/agent/…` endpoints, starting a conversation with an agent, and the subagent events, confirmations and Stop in
+the web UI).
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is

@@ -1371,6 +1371,195 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .memory-foot .button { display: inline-flex; align-items: center; gap: 7px; }
 .memory-foot .button .icon { width: 14px; height: 14px; }
 
+/* ---- 自定义 Agent ------------------------------------------------------------
+   这一节管和自定义 Agent 有关的全部样子：扩展里的 Agent 一页（#panel-agents）、会话栏里"新对话"旁边的选择、
+   顶上的角色名、会话列表里的小标记、对话里"交给 某某"的卡片。
+   Agent 一页的版式和 Skill 一页一样（返回、标题、表单、底部一排按钮、列表的行和悬停的三个按钮），直接用 skill- 开头的
+   那几个版式类；Agent 自己的东西用 agents-（一页里的）、persona-（角色）、subagent-（卡片）开头。
+   每个 Agent 可以选八种颜色之一（和 Claude Code 一样）：每种颜色一对变量，深的那个用在字和图标上，浅的那个用作底色，
+   两套外观各一份，对比度都在 4.5:1 以上。 */
+:root {
+  --c-red: #c22f3a; --c-red-soft: rgba(194, 47, 58, .11);
+  --c-orange: #b04f08; --c-orange-soft: rgba(176, 79, 8, .11);
+  --c-yellow: #876500; --c-yellow-soft: rgba(214, 170, 0, .17);
+  --c-green: #11794b; --c-green-soft: rgba(17, 121, 75, .11);
+  --c-cyan: #0a7684; --c-cyan-soft: rgba(10, 118, 132, .11);
+  --c-blue: #2c58d6; --c-blue-soft: rgba(44, 88, 214, .11);
+  --c-purple: #6d41d8; --c-purple-soft: rgba(109, 65, 216, .11);
+  --c-pink: #b52c73; --c-pink-soft: rgba(181, 44, 115, .11);
+}
+:root[data-theme="dark"] {
+  --c-red: #ff8f97; --c-red-soft: rgba(255, 143, 151, .14);
+  --c-orange: #ffad73; --c-orange-soft: rgba(255, 173, 115, .14);
+  --c-yellow: #f2c35b; --c-yellow-soft: rgba(242, 195, 91, .14);
+  --c-green: #5fd3a5; --c-green-soft: rgba(95, 211, 165, .13);
+  --c-cyan: #62d3e2; --c-cyan-soft: rgba(98, 211, 226, .13);
+  --c-blue: #8fb5ff; --c-blue-soft: rgba(143, 181, 255, .14);
+  --c-purple: #b9aaff; --c-purple-soft: rgba(185, 170, 255, .15);
+  --c-pink: #f590c6; --c-pink-soft: rgba(245, 144, 198, .14);
+}
+/* 带颜色的东西都写 data-color：字和图标用 --tone，底色用 --tone-soft。没选颜色的用强调色 */
+[data-color] { --tone: var(--accent); --tone-soft: var(--accent-soft); }
+[data-color="red"] { --tone: var(--c-red); --tone-soft: var(--c-red-soft); }
+[data-color="orange"] { --tone: var(--c-orange); --tone-soft: var(--c-orange-soft); }
+[data-color="yellow"] { --tone: var(--c-yellow); --tone-soft: var(--c-yellow-soft); }
+[data-color="green"] { --tone: var(--c-green); --tone-soft: var(--c-green-soft); }
+[data-color="cyan"] { --tone: var(--c-cyan); --tone-soft: var(--c-cyan-soft); }
+[data-color="blue"] { --tone: var(--c-blue); --tone-soft: var(--c-blue-soft); }
+[data-color="purple"] { --tone: var(--c-purple); --tone-soft: var(--c-purple-soft); }
+[data-color="pink"] { --tone: var(--c-pink); --tone-soft: var(--c-pink-soft); }
+/* 一个 Agent 的"脸"：带颜色的圆角方块，里面是它名字的第一个字。比统一的图标更好认，几个 Agent 排在一起一眼就分得开 */
+.agents-face { position: relative; width: 34px; height: 34px; flex: none; display: grid; place-items: center; font: 600 15px/1 var(--sans); color: var(--tone); background: var(--tone-soft); border-radius: 11px; transition: transform .4s var(--spring); }
+.agents-face.small { width: 20px; height: 20px; font-size: 11px; border-radius: 6px; }
+.agents-face.large { width: 46px; height: 46px; font-size: 20px; border-radius: 14px; }
+.agents-dot { width: 7px; height: 7px; flex: none; background: var(--tone); border-radius: 50%; }
+
+/* 列表的一行：和 Skill 的行一样（skill-row），只是没有启用开关、右边多一个"用它开始新对话"，名字用正文的字体 */
+#panel-agents { padding-bottom: 18px; }
+.agents-row .skill-open { padding-right: 12px; }
+.agents-row .skill-open:hover .agents-face { transform: rotate(-8deg) scale(1.06); }
+.agents-row .skill-name, .agents-cand .skill-name { font: 600 14px/1.45 var(--sans); }
+.agents-row.bad .agents-face { color: var(--err); background: var(--err-soft); }
+.agents-row .skill-actions { padding-left: 64px; }
+@media (hover: none) { .agents-row .skill-open { padding-right: 130px; } }
+.agents-chip { flex: none; max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 7px; font: 11px/1.6 var(--mono); color: var(--ink-2); background: var(--hover); border-radius: 999px; }
+/* 空的时候：讲清楚两种用法，下面是三个示例，点一下就加进来 */
+.agents-empty { display: grid; gap: 18px; margin: auto 0; padding: 10px 2px; }
+.settings .agents-empty h3 { margin: 0 0 8px; font: 600 22px/1.3 var(--serif); letter-spacing: -.01em; }
+.agents-empty > div > p { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink-2); }
+.agents-ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.agents-way { display: grid; gap: 6px; align-content: start; padding: 13px 15px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.agents-way b { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.agents-way b .icon { width: 15px; height: 15px; color: var(--accent); }
+.agents-way p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.agents-examples { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.agents-example { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; height: 100%; padding: 13px 14px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: transform .2s var(--ease), border-color .15s ease, box-shadow .15s ease; }
+.agents-example:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--tone); box-shadow: 0 0 0 3px var(--tone-soft); }
+.agents-example:active:not(:disabled) { transform: scale(.98); }
+.agents-example:disabled { opacity: .55; cursor: default; }
+.agents-example b { font-size: 13.5px; font-weight: 600; }
+.agents-example span { font-size: 12px; line-height: 1.55; color: var(--ink-2); }
+.agents-example .agents-add { margin-top: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--tone); }
+.agents-example .agents-add .icon { width: 13px; height: 13px; stroke-width: 2.2; }
+.agents-section-title { margin: 6px 0 0; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+@media (max-width: 640px) { .agents-ways { grid-template-columns: minmax(0, 1fr); } }
+/* 打开的一个：头上是它的脸、名字和说明；下面几项事实；然后是它的设定 */
+.agents-head { display: flex; align-items: flex-start; gap: 12px; }
+.agents-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 0; }
+.agents-fact { min-width: 0; padding: 10px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.agents-fact dt { font-size: 11.5px; font-weight: 600; letter-spacing: .03em; color: var(--ink-3); }
+.agents-fact dd { margin: 3px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.agents-fact dd code { font: 12px var(--mono); }
+.agents-fact .agents-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.agents-fact .agents-tools span { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 7px; font: 11px/1.7 var(--mono); color: var(--ink-2); background: var(--hover); border-radius: 6px; }
+.agents-warn { margin: 0; padding: 10px 14px; font-size: 12.5px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 12px; overflow-wrap: anywhere; }
+.agents-body { flex: 1 1 auto; min-height: 160px; margin: 0; padding: 14px 16px; overflow: auto; font: 12.5px/1.75 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+@media (max-width: 560px) { .agents-facts { grid-template-columns: minmax(0, 1fr); } }
+/* 编辑：上面一排切换"表单 / 原文"，下面是表单或者整个文件 */
+.agents-modes { flex: none; align-self: flex-start; display: inline-flex; gap: 3px; padding: 3px; background: var(--hover); border-radius: 10px; }
+.agents-mode { height: 28px; padding: 0 12px; font-size: 12.5px; font-weight: 500; color: var(--ink-2); background: none; border: 0; border-radius: 8px; }
+.agents-mode[aria-checked="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, .06); }
+.agents-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 640px) { .agents-grid { grid-template-columns: minmax(0, 1fr); } }
+.agents-colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.agents-color { position: relative; width: 26px; height: 26px; padding: 0; background: var(--tone-soft); border: 1px solid var(--line); border-radius: 8px; }
+.agents-color::after { content: ""; position: absolute; inset: 7px; background: var(--tone); border-radius: 50%; transition: transform .25s var(--spring); }
+.agents-color[aria-checked="true"] { border-color: var(--tone); box-shadow: 0 0 0 2px var(--tone-soft); }
+.agents-color[aria-checked="true"]::after { transform: scale(1.25); }
+.agents-color.none::after { inset: 6px; background: none; border: 1.5px solid var(--ink-3); }
+/* 工具的清单：先选"和叫它的一样多"还是"只用勾选的"，勾选的按三组排：内置的、MCP、Skill 和 Agent */
+.agents-tools-box { display: grid; gap: 10px; padding: 12px 14px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.agents-choice { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.settings .agents-choice label, .settings .agents-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 400; color: var(--ink); }
+.agents-choice input, .agents-check input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.agents-group { display: grid; gap: 4px; }
+.agents-group h4 { margin: 4px 0 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.agents-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 3px 14px; }
+.settings .agents-check { min-width: 0; padding: 3px 0; }
+.agents-check > span { min-width: 0; display: flex; flex-direction: column; }
+.agents-check b { font-weight: 500; overflow-wrap: anywhere; }
+.agents-check code { font: 11px var(--mono); color: var(--ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agents-server { display: grid; gap: 2px; padding: 6px 0 4px; }
+.agents-server + .agents-server { border-top: 1px solid var(--line); }
+.agents-server > .agents-checks { padding-left: 22px; }
+.agents-tools-box[data-all="true"] .agents-group { opacity: .5; }
+.agents-unknown { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.agents-unknown span:not(:first-child) { padding: 0 7px; font: 11px/1.7 var(--mono); color: var(--warn); background: var(--warn-soft); border-radius: 6px; }
+.agents-hint { margin: 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.skill-view.skill-fill textarea.agents-instructions { min-height: 180px; }
+
+/* 会话栏："新对话"右边连着一个小按钮，点开是 Agent 的列表，选一个就用它开始新对话 */
+.new-row { position: relative; flex: none; display: flex; gap: 6px; margin: 4px 6px 8px; }
+.new-row .new-chat { flex: 1; min-width: 0; margin: 0; }
+.new-row .new-chat > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.persona-open { position: relative; flex: none; width: 40px; display: grid; place-items: center; padding: 0; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: transform .15s var(--ease); }
+.persona-open:hover:not(:disabled) { color: var(--ink); border-color: var(--line-2); }
+.persona-open:active:not(:disabled) { transform: scale(.94); }
+.persona-open:disabled { opacity: .5; }
+.persona-open .icon { transform: rotate(90deg); transition: transform .3s var(--ease); }  /* 图标是向右的箭头，转成向下 */
+.persona-open[aria-expanded="true"] { color: var(--ink); border-color: var(--line-3); }
+.persona-open[aria-expanded="true"] .icon { transform: rotate(-90deg); }
+.persona-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; display: grid; gap: 2px; max-height: min(420px, 60vh); padding: 6px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow-2); transform-origin: top right; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.persona-menu-title { padding: 6px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.persona-item { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 7px 8px; text-align: left; background: none; border: 0; border-radius: 9px; }
+.persona-item:hover, .persona-item:focus-visible { background: var(--hover); outline: none; }
+.persona-item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.persona-item > span:last-child { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.persona-item b { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.persona-item small { font-size: 11.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.persona-item.manage { margin-top: 4px; color: var(--ink-2); border-top: 1px solid var(--line); border-radius: 0 0 9px 9px; }
+.persona-item.manage .icon { width: 15px; height: 15px; margin: 0 2px 0 3px; }
+.persona-empty { margin: 0; padding: 6px 8px 8px; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
+/* 顶上标题前面的角色名：点一下打开这个 Agent */
+.persona-chip { flex: 0 1 auto; min-width: 0; max-width: 34%; display: inline-flex; align-items: center; gap: 7px; height: 28px; margin-left: 8px; padding: 0 10px 0 8px; font-size: 12.5px; font-weight: 500; color: var(--tone); background: var(--tone-soft); border: 0; border-radius: 999px; transition: transform .15s var(--ease); }
+.persona-chip span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.persona-chip:active { transform: scale(.96); }
+.persona-chip.missing { color: var(--ink-3); background: var(--hover); text-decoration: line-through; text-decoration-color: var(--line-3); }
+.persona-chip + .title { margin-left: 6px; }
+/* 空白页上：现在是在和哪个 Agent 说话 */
+.hero-persona { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: 0 0 12px; padding: 5px 12px 5px 6px; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.hero-persona b { color: var(--tone); font-weight: 600; white-space: nowrap; }
+.hero-persona span:last-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* 会话列表里用 Agent 开始的会话：时间前面一个带颜色的小标记 */
+.persona-badge { display: inline-flex; align-items: center; gap: 4px; max-width: 60%; margin-right: 5px; vertical-align: -1px; color: var(--tone); font-weight: 500; }
+.persona-badge::before { content: ""; width: 6px; height: 6px; flex: none; background: var(--tone); border-radius: 50%; }
+
+/* 对话里"交给 某某"的卡片：外面是普通的工具卡片（.call），摘要一行写着交给谁、做什么、现在在干什么 */
+.call.subagent-card { border-color: color-mix(in srgb, var(--tone) 28%, var(--line)); }
+.subagent-card > summary { min-height: 46px; }
+.subagent-card .agents-face { width: 24px; height: 24px; font-size: 12px; border-radius: 7px; }
+.subagent-who { flex: none; max-width: 40%; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subagent-who em { font-style: normal; color: var(--tone); }
+.subagent-task { flex: 1 1 0; min-width: 0; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subagent-live { flex: 0 1 auto; min-width: 0; max-width: 40%; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subagent-live > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.subagent-live i { width: 6px; height: 6px; flex: none; background: var(--tone); border-radius: 50%; animation: breathe 1.4s ease-in-out infinite; }
+.subagent-live.done i, .subagent-live.done:empty { display: none; }
+.subagent-live.failed { color: var(--err); }
+.subagent-card .tool-body { display: grid; gap: 2px; }
+.subagent-steps { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
+.subagent-step { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; font-size: 12px; }
+.subagent-step .status { width: 16px; height: 16px; }
+.subagent-step .status .icon { width: 10px; height: 10px; }
+.subagent-step code { flex: 1 1 0; min-width: 0; font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subagent-step .auto-tag { flex: none; }
+.subagent-step small { flex: 0 1 auto; min-width: 0; max-width: 40%; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subagent-step.failed small { color: var(--err); }
+.subagent-step.note { color: var(--ink-3); }
+.subagent-answer { padding: 10px 14px; background: var(--sunken); border-radius: 10px; font-size: 14px; }
+.subagent-answer.md-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+.subagent-meta { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.subagent-error { margin: 6px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--err); overflow-wrap: anywhere; }
+.subagent-card .subagent-nested { margin: 4px 0; }
+@media (max-width: 560px) {  /* 窄屏：摘要一行放不下任务的开头，让给"交给谁"和它现在的样子；任务的原文点开就能看到 */
+  .subagent-task { display: none; }
+  .subagent-who { flex: 1 1 auto; max-width: none; min-width: 0; }
+}
+/* 确认卡片：子 Agent 在问时，前面写着它的名字 */
+.confirm-who { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; color: var(--tone); font-weight: 600; }
+:root[data-motion="reduce"] .subagent-live i { animation: none; }
+.persona-menu:not([hidden]) { animation: menu-in .18s var(--ease); }
+
 /* ---- 设置面板 ------------------------------------------------------------ */
 .settings { width: min(680px, calc(100vw - 32px)); max-height: min(780px, calc(100vh - 48px)); padding: 0; overflow: hidden; font-size: 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--shadow-2); }
 .settings[open] { display: flex; flex-direction: column; animation: dialog-in .32s var(--ease); }
@@ -1660,6 +1849,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   <symbol id="i-locate" viewBox="0 0 24 24"><path d="M12 18.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M12 12.01v-.02"/></symbol>
   <symbol id="i-zoom-in" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3M8 11h6M11 8v6"/></symbol>
   <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3M8 11h6"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7.5L7 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5zM8 10.5h8M8 13.5h5"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5 5 5M15.5 9.5h.01"/></symbol>
 </svg>
 
@@ -1673,7 +1863,11 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       <span class="brand"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg><span data-i18n>智狐</span></span>
       <button id="nav-close" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
     </div>
-    <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新对话</span></button>
+    <div class="new-row">
+      <button id="new" class="new-chat" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>新对话</span></button>
+      <button id="persona-open" class="persona-open" type="button" title="用一个 Agent 开始新对话" aria-label="用一个 Agent 开始新对话" data-i18n-title data-i18n-aria-label aria-haspopup="menu" aria-expanded="false" aria-controls="persona-menu"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+      <div id="persona-menu" class="persona-menu" role="menu" aria-label="用一个 Agent 开始新对话" data-i18n-aria-label hidden></div>
+    </div>
     <button id="memory-open" class="nav-link" type="button" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><span data-i18n>记忆</span><span id="memory-count" class="nav-link-count"></span></button>
     <div id="nav-tabs" class="nav-tabs" role="tablist" aria-label="会话、任务和多媒体" data-i18n-aria-label hidden>
       <button id="nav-tab-chats" class="nav-tab" type="button" role="tab" aria-selected="true" aria-controls="conversations" title="会话" data-i18n-title><span data-i18n>会话</span></button>
@@ -1714,9 +1908,10 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       <header class="bar">
         <button id="nav-open" class="icon-button" type="button" title="展开会话栏" aria-label="展开会话栏" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
         <button id="new-compact" class="icon-button" type="button" title="新对话" aria-label="新对话" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+        <button id="persona" class="persona-chip" type="button" hidden><span class="agents-dot" aria-hidden="true"></span><span id="persona-name"></span></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
-          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、Agent" aria-label="扩展：Skill、MCP、Agent" data-i18n-title data-i18n-aria-label hidden><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
+          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、Agent" aria-label="扩展：Skill、MCP、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
           <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
@@ -1748,8 +1943,9 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
           <div id="empty" class="hero" hidden>
             <div class="hero-inner">
               <div class="hero-mark"><svg class="mark" aria-hidden="true"><use href="#i-fox"/></svg></div>
+              <p id="hero-persona" class="hero-persona" hidden></p>
               <h2><span id="greeting" data-i18n>你好，</span><span class="hl" data-i18n>今天想做点什么？</span></h2>
-              <p data-i18n>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
+              <p id="hero-lead" data-i18n>说出要做的事，我会调用工具去完成：记事、管理待办、读写这个目录里的文件、运行命令。</p>
             </div>
           </div>
           <div class="column">
@@ -1829,7 +2025,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       <section>
         <h2 data-i18n>模型可以使用的工具</h2>
         <ul id="tools" class="tool-chips"></ul>
-        <div class="legend"><span><i class="dot"></i><span data-i18n>在这台电脑上执行</span></span><span id="legend-remote"><i class="dot remote"></i><span data-i18n>在厂商的服务器上执行</span></span></div>
+        <div id="tools-legend" class="legend"><span><i class="dot"></i><span data-i18n>在这台电脑上执行</span></span><span id="legend-remote"><i class="dot remote"></i><span data-i18n>在厂商的服务器上执行</span></span></div>
       </section>
       <section>
         <h2 data-i18n>工作目录</h2>
@@ -2427,7 +2623,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     sendButton.disabled = !busy && !input.value.trim() && !pending.length;  // 只带附件、不写字也能发
     tattr(sendButton, 'title', label);
     tattr(sendButton, 'aria-label', label);
-    newButton.disabled = $('new-compact').disabled = busy;
+    newButton.disabled = $('new-compact').disabled = $('persona-open').disabled = busy;
     body.classList.toggle('busy', busy);
     working.classList.toggle('on', busy);
     working.classList.toggle('waiting', busy && !stopping && confirms.size > 0);
@@ -2717,10 +2913,156 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     block = null;
   }
 
+  // ---- 交给子 Agent 的卡片 ----------------------------------------------------
+  // 主助手调用 agent 工具（把一项任务交给一个自定义 Agent，见 harness/agents/runner.py）时，对话里画的不是普通的工具卡片，
+  // 而是这一张：摘要一行写着交给了谁、做什么、它此刻在干什么（在想、在写、在调用哪个工具）；点开能看到任务的原文、
+  // 它调用过的每个工具、它交回的回答，以及用了哪个模型、调用了几次、花了多少。
+  // 它的进展是一串 subagent 事件（step：start、activity、tool_call、tool_result、auto、note、done），按 run 编号找到这张卡片。
+  // "在想 / 在写"只是此刻的样子，不存进会话；重放旧会话时卡片照样画出来，只是不播动画。
+  // 它要你确认的操作，确认卡片照常画在对话里（写着是哪个 Agent 在问），不藏在这张卡片里面。
+
+  const subRuns = new Map();  // run 编号 → 这次交出去的任务在页面上的那张卡片
+
+  const SUB_DONE = {
+    done: k('做完了'), limit: k('步数用完了，没做完'), refused: k('被模型拒绝了'), empty: k('没有交回内容'),
+    failed: k('出错了'), stopped: k('被中断了'), truncated: k('回答被截断了'),
+  };
+
+  // 一张卡片（还没有 run 编号：等 start 事件来了再记上）。nested：画在另一张卡片里面（再往下一层的子 Agent）
+  function subagentCard(event, nested) {
+    const input = event.input && typeof event.input === 'object' ? event.input : {};
+    const name = String(input.name || event.agent || ''), task = String(input.task || event.task || '');
+    const card = el('details', 'call subagent-card' + (nested ? ' subagent-nested' : ''));
+    card.dataset.color = (agentByName(name) || {}).color || '';
+    const summary = card.appendChild(el('summary'));
+    const status = summary.appendChild(el('span', 'status pending'));
+    status.appendChild(tel('span', 'sr-only', k('正在执行')));
+    const face = summary.appendChild(agentFace({ name, color: card.dataset.color }));
+    summary.appendChild(tel('span', 'subagent-who', k('交给「{agent}」'), { agent: name }));
+    summary.appendChild(el('span', 'subagent-task', firstLine(task)));
+    const live = summary.appendChild(el('span', 'subagent-live'));
+    live.appendChild(el('i'));
+    const liveText = live.appendChild(el('span'));
+    const outcome = summary.appendChild(el('span', 'tool-outcome'));
+    summary.appendChild(icon('chevron', 'chev'));
+    const details = card.appendChild(el('div', 'tool-body'));
+    details.appendChild(tel('div', 'label', k('交给它的任务')));
+    details.appendChild(el('pre', null, task));
+    const stepsLabel = details.appendChild(tel('div', 'label', k('它做了什么')));
+    const steps = details.appendChild(el('ul', 'subagent-steps'));
+    const answerLabel = details.appendChild(tel('div', 'label', k('它交回的回答')));
+    const answer = details.appendChild(el('div', 'subagent-answer md'));
+    const error = details.appendChild(el('p', 'subagent-error'));
+    const meta = details.appendChild(el('p', 'subagent-meta'));
+    stepsLabel.hidden = answerLabel.hidden = answer.hidden = error.hidden = meta.hidden = true;
+    const sub = { name, card, face, live, liveText, steps, stepsLabel, answer, answerLabel, error, meta, status, run: '', last: null, done: false, nested };
+    setSubLive(sub, k('正在准备'));
+    if (!nested) add(card);
+    return { card, status, outcome, details, summary, sub };
+  }
+
+  function setSubLive(sub, key, values) {
+    sub.live.className = 'subagent-live';
+    retext(sub.liveText, key, values);
+  }
+
+  function subagentStep(event) {
+    let sub = subRuns.get(event.run);
+    if (event.step === 'start') {
+      const parent = event.within ? subRuns.get(event.within) : null;
+      if (parent) {  // 再往下一层：画在叫它的那张卡片的"它做了什么"里
+        sub = subagentCard(event, true).sub;
+        parent.stepsLabel.hidden = false;
+        parent.steps.appendChild(el('li')).appendChild(sub.card);
+      } else if (toolCard && toolCard.sub && !toolCard.sub.run) sub = toolCard.sub;
+      else sub = subagentCard(event, false).sub;  // 对应的那次调用没能画出来（不该发生）：也要让人看到
+      sub.run = event.run;
+      sub.card.dataset.color = sub.face.dataset.color = event.color || '';
+      sub.model = event.model || '';
+      subRuns.set(event.run, sub);
+      return;
+    }
+    if (!sub) return;
+    if (event.step === 'activity') {
+      setSubLive(sub, event.doing === 'thinking' ? k('正在思考') : event.doing === 'writing' ? k('正在写回答') : k('正在工作'));
+    } else if (event.step === 'tool_call') {
+      const item = sub.steps.appendChild(el('li', 'subagent-step'));
+      const status = item.appendChild(el('span', 'status pending'));
+      status.appendChild(tel('span', 'sr-only', k('正在执行')));
+      item.appendChild(el('code', null, String(event.summary || event.name || '')));
+      const note = item.appendChild(el('small'));
+      sub.last = { item, status, note };
+      sub.stepsLabel.hidden = false;
+      sub.tool = String(event.name || '');
+      setSubLive(sub, k('正在调用 {tool}'), { tool: sub.tool });
+      if (isLive()) play(item, [{ opacity: 0, transform: 'translateY(-3px)' }, { opacity: 1, transform: 'none' }], 200);
+    } else if (event.step === 'tool_result' && sub.last) {
+      const failed = Boolean(event.is_error);
+      const { item, status, note } = sub.last;
+      status.className = 'status ' + (failed ? 'failed' : 'ok') + (isLive() ? ' pop' : '');
+      status.replaceChildren(icon(failed ? 'x' : 'check'), tel('span', 'sr-only', failed ? k('失败') : k('成功')));
+      item.classList.toggle('failed', failed);
+      const text = typeof event.key === 'string' ? t(event.key, event.values) : String(event.text || '');
+      if (failed) note.textContent = firstLine(text);
+      item.title = firstLine(text);
+      sub.last = null;
+      setSubLive(sub, k('正在思考'));
+    } else if (event.step === 'auto' && sub.last) {
+      sub.last.item.insertBefore(tel('span', 'auto-tag', k('自动允许')), sub.last.note);
+    } else if (event.step === 'note') {
+      const item = sub.steps.appendChild(el('li', 'subagent-step note'));
+      item.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.text || '')));
+      sub.stepsLabel.hidden = false;
+    } else if (event.step === 'done') {
+      finishSub(sub, event);
+    }
+  }
+
+  function finishSub(sub, event) {
+    sub.done = true;
+    const status = event.status in SUB_DONE ? event.status : 'done';
+    const bad = ['failed', 'refused', 'empty', 'limit'].includes(status);
+    sub.live.className = 'subagent-live done' + (status === 'failed' ? ' failed' : '');
+    retext(sub.liveText, SUB_DONE[status]);
+    if (sub.last) {  // 停在一个工具调用中间
+      sub.last.status.className = 'status stopped';
+      sub.last.status.replaceChildren(icon('minus'), tel('span', 'sr-only', k('没有执行完')));
+      sub.last = null;
+    }
+    if (event.answer) {
+      sub.answerLabel.hidden = sub.answer.hidden = false;
+      const view = markdownView(sub.answer);
+      try { if (view) view.update(String(event.answer), true); else throw new Error('no view'); } catch (_) {
+        sub.answer.classList.add('md-plain');
+        sub.answer.textContent = String(event.answer);
+      }
+    }
+    if (event.error) {
+      sub.error.hidden = false;
+      const error = event.error;
+      if (error && typeof error === 'object' && error.key) retext(sub.error, error.key, error.values);
+      else sub.error.textContent = typeof error === 'object' ? String(error.text || '') : String(error);
+    }
+    // 用了哪个模型、调用了几次、用了几次工具、花了多少（没有价格的模型不写钱）
+    const facts = [];
+    if (sub.model) facts.push(sub.model);
+    if (event.steps) facts.push(event.steps === 1 ? t('调用了 1 次模型') : t('调用了 {n} 次模型', { n: event.steps }));
+    if (event.calls) facts.push(event.calls === 1 ? t('用了 1 次工具') : t('用了 {n} 次工具', { n: event.calls }));
+    if (typeof event.cost === 'number') facts.push('$' + (event.cost < 0.01 ? event.cost.toFixed(4) : event.cost.toFixed(2)));
+    sub.meta.hidden = !facts.length;
+    sub.meta.textContent = facts.join(' · ');
+    if (sub.nested) {  // 里面那一层没有自己的工具结果来收尾：在这里把状态画完
+      sub.status.className = 'status ' + (status === 'stopped' ? 'stopped' : bad ? 'failed' : 'ok');
+      sub.status.replaceChildren(icon(status === 'stopped' ? 'minus' : bad ? 'x' : 'check'));
+    }
+    if (isLive() && status === 'done') announce(t('「{agent}」做完了，回答交给了主助手。', { agent: sub.name }));
+  }
+
   // ---- 每种事件怎么画 ------------------------------------------------------
 
   function finishTool(kind, text) {
     const { card, status, outcome } = toolCard;
+    if (toolCard.sub) text = '';  // 交给子 Agent 的卡片：结果写在卡片里（它的回答、做了什么），这一行不再重复
     status.className = 'status ' + kind + (isLive() ? ' pop' : '');
     status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'),
                            tel('span', 'sr-only', kind === 'ok' ? k('成功') : kind === 'failed' ? k('失败') : k('没有执行完')));
@@ -2735,6 +3077,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       log.replaceChildren();
       block = null;
       toolCard = null;
+      subRuns.clear();
       confirms.clear();
       busy = stopping = false;
       replaying = unsettled = true;
@@ -2751,6 +3094,8 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     else $('model-label').textContent = t('设置 API 密钥');
       $('model').classList.toggle('no-key', !current.has_key);
       $('title').textContent = event.title || t('新对话');
+      renderAgents(event.agents);   // 先于会话列表：列表里的小标记要用 Agent 的颜色
+      renderPersona(event.persona);
       document.title = (event.title ? event.title + ' · ' : '') + t('智狐');
       $('setup').hidden = current.has_key;
       $('cards').hidden = !current.has_key;
@@ -2811,6 +3156,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     tool_call(event) {
       endBlock();
       if (toolCard) finishTool('stopped', '');
+      if (event.name === 'agent') { toolCard = subagentCard(event); return; }  // 交给子 Agent：画成一张专门的卡片（见下面"交给子 Agent 的卡片"）
       const card = el('details', 'call');
       const summary = card.appendChild(el('summary'));
       const status = summary.appendChild(el('span', 'status pending'));
@@ -2837,8 +3183,11 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     tool_result(event) {
       // 对应的那次调用没画出来（比如那条事件坏了）：结果也要让人看到，不能悄悄丢掉
       if (!toolCard) handlers.tool_call({ name: '', summary: t('工具结果（对应的调用没能显示）'), input: null });
-      toolCard.details.appendChild(tel('div', 'label', k('结果')));
-      toolCard.details.appendChild(el('pre', null, event.text));
+      // 交给子 Agent 的卡片：它交回的内容已经画在卡片里了；只有它没能说完（比如还没开始就出错了）时，才把结果原样摆出来
+      if (!toolCard.sub || !toolCard.sub.done) {
+        toolCard.details.appendChild(tel('div', 'label', k('结果')));
+        toolCard.details.appendChild(el('pre', null, event.text));
+      }
       finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
     },
 
@@ -2850,7 +3199,11 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       const heading = head.appendChild(tel('span', null, k('需要你确认')));
       // 说明分两截：前半句是页面的话，后半句是助手程序给的。程序给了原文（key）的话，换语言时它也能跟着换
       const what = card.appendChild(el('pre'));
-      what.appendChild(tel('span', null, k('助手想要')));
+      if (event.agent) {  // 是子 Agent 在问：写明是哪一个（带着它的颜色），它的卡片上也写着"等你确认"
+        const who = what.appendChild(tel('span', 'confirm-who', k('「{agent}」想要'), { agent: event.agent }));
+        who.dataset.color = (agentByName(event.agent) || {}).color || '';
+        if (toolCard && toolCard.sub && !toolCard.sub.done) setSubLive(toolCard.sub, k('等你确认'));
+      } else what.appendChild(tel('span', null, k('助手想要')));
       what.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.description).trimEnd()));
       const actions = card.appendChild(el('div', 'confirm-actions'));
       const allow = actions.appendChild(tel('button', 'button primary', k('允许')));
@@ -2886,9 +3239,13 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       refreshStatus();
     },
 
+    subagent(event) { subagentStep(event); },
+
     confirm_done(event) {
       const pending = confirms.get(event.confirm);
       if (!pending) return;
+      // 子 Agent 问的那一次答复了：它的卡片上换回"正在调用"
+      if (event.allowed && toolCard && toolCard.sub && !toolCard.sub.done && toolCard.sub.tool) setSubLive(toolCard.sub, k('正在调用 {tool}'), { tool: toolCard.sub.tool });
       const outcome = el('span', 'outcome' + (event.allowed ? ' allowed' : event.stopped ? '' : ' denied'));
       outcome.appendChild(icon(event.allowed ? 'check' : event.stopped ? 'minus' : 'x'));
       outcome.appendChild(tel('span', null, event.allowed ? k('已允许') : event.stopped ? k('已中断') : k('已拒绝')));
@@ -3928,14 +4285,15 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   });
   input.addEventListener('input', () => { resizeInput(); refreshStatus(); });
 
-  function startNew() {
+  // agent：用哪个自定义 Agent 当这段对话的角色（见"新对话旁边的 Agent 选择"）；不给就是普通的新对话
+  function startNew(agent) {
     if (busy) { toast(t(BUSY_HINT)); return; }
-    post('/api/new');
+    post('/api/new', typeof agent === 'string' ? { agent } : {});
     if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，点完就收起来
     input.focus();
   }
-  newButton.addEventListener('click', startNew);
-  $('new-compact').addEventListener('click', startNew);
+  newButton.addEventListener('click', () => startNew());
+  $('new-compact').addEventListener('click', () => startNew());
 
   for (const card of document.querySelectorAll('.starter')) {
     card.addEventListener('click', () => {  // 只是把例子填进输入框，发不发由用户决定
@@ -4365,8 +4723,10 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] ? t(KINDS[hit.kind]) : ''));
       paint(line, hit.text, hit.marks);
     } else {
-      // 定时任务跑出来的会话标一下，免得以为是自己聊的
-      open.appendChild(el('span', 'conv-meta', (item.task ? t('定时任务') + ' · ' : '') + item.model + ' · ' + timeLabel(item.updated_at)));
+      // 定时任务跑出来的会话标一下，免得以为是自己聊的；用 Agent 开始的，前面是那个 Agent 的名字（带着它的颜色）
+      const meta = open.appendChild(el('span', 'conv-meta'));
+      if (item.agent) meta.appendChild(el('span', 'persona-badge', item.agent)).dataset.color = (agentByName(item.agent) || {}).color || '';
+      meta.appendChild(document.createTextNode((item.task ? t('定时任务') + ' · ' : '') + item.model + ' · ' + timeLabel(item.updated_at)));
     }
     open.addEventListener('click', () => {
       const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
@@ -4619,6 +4979,9 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
       return chip;
     }));
     $('legend-remote').hidden = tools.every((tool) => tool.local);
+    // 用一个不用工具的 Agent（tools: []）开始的对话：一个工具都没有，说一句，图例也不用了
+    $('tools-legend').hidden = !tools.length;
+    if (!tools.length) $('tools').appendChild(tel('li', 'agents-hint', k('这段对话不用任何工具。')));
   }
 
   // ---- 花费：今天、本月、明细、预算和导出 ----------------------------------
@@ -4634,7 +4997,7 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
   // 超没超预算还一直写在费用卡片上，底部的费用按钮上也有一个红点。
 
   const spendDialog = $('spend-dialog'), spendBody = $('spend-body');
-  const SOURCES = { chat: k('对话'), task: k('定时任务') };
+  const SOURCES = { chat: k('对话'), task: k('定时任务'), subagent: k('子 Agent') };
   const PERIODS = { month: k('本月'), recent: k('最近 {n} 天'), all: k('全部') };
   let spendReport = null, spendProblem = '', spendLoading = false, spendAgain = false;
   let spendPick = -1;        // 柱状图上选中的是哪一天（下标）；-1 表示还没选，默认是今天
@@ -9087,6 +9450,1165 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
     mcpDrawn = '';
     delete mcpPanel.dataset.view;
     mcpPanel.replaceChildren();  // 表单里可能有刚填的密钥：关掉就清掉
+  });
+
+  // ---- 扩展 · Agent -----------------------------------------------------------
+  // 自定义 Agent：你定制的、擅长某一类事的助手（见 harness/agents/）。一个 Agent 是 data/agents/ 里的一个 Markdown 文件，
+  // 同一个文件有两种用法：主助手把任务交给它（子 Agent），或者你用它开始一段新对话（角色，见下一节"新对话旁边的选择"）。
+  // 这一页管这些文件：列出来、打开看、编辑（表单或者原文）、新建、删除、加内置的示例、从 Claude Code 导入。
+  //
+  // 列表跟着状态走（state.agents），打开一个、编辑时要的选项（能勾的工具、示例）另外请求。
+  // 一个文件合不合格、表单怎么写成文件，都由助手程序来算（/api/agent/parse、/api/agent/compose），页面不另写一份规矩：
+  // 页面上的检查只是"有没有填"这种马上能看出来的，真正的问题列表都是程序给的。
+  // 这一页有几种样子（view.kind）：list 列表、detail 打开的一个、edit 编辑、create 新建、examples 示例、review 从 Claude Code 导入。
+  // 版式和 Skill 一页一样，借用它的几个小工具（skillButton、skillSaid、skillWaiting）。
+  // 改 Agent 不用等这一轮对话结束（服务器也不拦）：正在进行的对话和子 Agent 用的是开始时读到的那一份。
+
+  const agentPanel = $('panel-agents');
+  // tools 一项里能勾的那几样（名字和 harness/agents/tools.py 的 BUILTIN 一样，哪几样能勾由程序在 options 里给）
+  const AGENT_TOOL_LABELS = {
+    Read: k('读文件'), Edit: k('读写文件'), Bash: k('执行命令'), WebSearch: k('联网搜索'), WebFetch: k('读网页'),
+    Memory: k('长期记忆'), TodoWrite: k('待办'), Schedule: k('定时任务'), Skill: k('读取你装的 Skill'), Agent: k('交给别的 Agent'),
+  };
+  const AGENT_COLOR_NAMES = {
+    red: k('红色'), orange: k('橙色'), yellow: k('黄色'), green: k('绿色'), cyan: k('青色'), blue: k('蓝色'), purple: k('紫色'), pink: k('粉色'),
+  };
+  const MAX_AGENT_DESCRIPTION = 1024;  // 只用来显示计数；超了由程序说
+  let agents = null;          // 最新的列表（来自状态）：[{name, description, model, color, tools: {all, count}, problems, warnings, modified}]
+  let knownAgents = null;     // 上一次画列表时有哪些：新出现的那几个浮现一下
+  let agentsDrawn = '';
+  let agentView = { kind: 'list' };
+  let agentDeleting = null;   // 列表里正在原地确认删除的那一个
+  let agentFocus = null;      // 下一次画完之后焦点放到哪儿（data-key）
+  let agentSeq = 0;           // 每发一次请求加一。回来得晚的旧结果靠它认出来、丢掉
+  let agentOptions = null;    // /api/agent/options 的回答：能勾的工具（内置的、MCP 的）、颜色、示例、导入时去哪里找
+  let agentOptionsAsked = null;
+
+  const agentByName = (name) => (agents || []).find((one) => one.name === name) || null;
+  const agentNames = () => new Set((agents || []).map((one) => one.name));
+  // 一个 Agent 的"脸"：带颜色的小方块，里面是名字的第一个字（拉丁字母大写）
+  function agentFace(agent, size) {
+    const first = Array.from(String((agent && agent.name) || '?').trim())[0] || '?';
+    const face = el('span', 'agents-face' + (size ? ' ' + size : ''), first.toLocaleUpperCase(LOCALES[language]));
+    face.dataset.color = (agent && agent.color) || '';
+    face.setAttribute('aria-hidden', 'true');
+    return face;
+  }
+  // 用哪个模型："提供方/模型" → "Claude (Anthropic) · claude-sonnet-5-5"；空的是"和叫它的一方一样"
+  function agentModelText(model, short) {
+    if (!model) return t('跟随叫它的一方');
+    const [provider, ...rest] = String(model).split('/');
+    const id = rest.join('/');
+    if (short) return id;
+    const found = state && state.providers.find((one) => one.id === provider);
+    return (found ? found.label : provider) + ' · ' + id;
+  }
+  function agentToolsText(tools) {
+    if (!tools || tools.all) return t('全部工具');
+    if (!tools.count) return t('不用工具');
+    return tools.count === 1 ? t('1 样工具') : t('{n} 样工具', { n: tools.count.toLocaleString(LOCALES[language]) });
+  }
+  const agentToolLabel = (name) => (AGENT_TOOL_LABELS[name] ? t(AGENT_TOOL_LABELS[name]) : name);
+
+  function ensureAgentOptions() {
+    if (agentOptions || agentOptionsAsked) return agentOptionsAsked;
+    agentOptionsAsked = call('/api/agent/options').then((reply) => {
+      agentOptionsAsked = null;
+      if (!reply.ok) return;
+      agentOptions = reply.data;
+      const view = agentView;
+      if (view.redrawTools) view.redrawTools();
+      else if (['list', 'examples'].includes(view.kind)) { agentsDrawn = ''; paintAgent(); }
+    });
+    return agentOptionsAsked;
+  }
+
+  // 焦点：重画之前记下它在哪个 data-key 上，画完放回去
+  const agentFocusedKey = () => (agentPanel.contains(document.activeElement) && document.activeElement.dataset.key) || null;
+  function focusAgent(key, fallback) {
+    if (!extensionsDialog.open || agentPanel.hidden) return;
+    const find = (name) => name && [...agentPanel.querySelectorAll('[data-key]')].find((node) => node.dataset.key === name);
+    const target = find(key) || find(fallback) || agentPanel.querySelector('.skill-open') || find('bar:new');
+    if (target) target.focus();
+  }
+
+  function showAgentView(view, focus) {
+    agentSeq += 1;  // 之前那种样子还没回来的请求，回来了也不要了
+    agentView = view;
+    agentDeleting = null;
+    if (view.kind === 'list') { agentsDrawn = ''; agentFocus = focus || null; drawAgentList(); }
+    else paintAgent(focus || (view.kind === 'create' ? 'name' : view.kind === 'edit' ? (view.mode === 'raw' ? 'raw' : 'name') : 'title'));
+    const node = agentPanel.firstElementChild;
+    if (node) play(node, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], 220);
+    agentPanel.scrollTop = 0;
+  }
+
+  // 照着 agentView 画一遍。有输入框的（编辑、新建），画过之后只更新提示（view.refresh），你打的字不动
+  function paintAgent(focus) {
+    const view = agentView;
+    if (view.kind === 'list') { drawAgentList(); return; }
+    if (view.refresh && view.node && view.node.isConnected && focus === undefined) { view.refresh(); return; }
+    const keep = focus || agentFocusedKey();
+    const build = { detail: buildAgentDetail, edit: buildAgentEditor, create: buildAgentEditor, examples: buildAgentExamples, review: buildAgentReview }[view.kind];
+    view.redrawTools = null;
+    view.node = build(view);
+    view.language = language;
+    agentPanel.replaceChildren(view.node);
+    if (view.refresh) view.refresh();
+    focusAgent(keep, 'back');
+  }
+
+  // 子页面的头：返回、（它的脸）、标题、一句说明。title 是 [原文] 时按原文翻译，否则是数据（Agent 的名字）原样显示
+  function agentHead(title, lead, agent) {
+    const head = el('div', 'skill-head agents-head');
+    const back = iconButton('back', k('返回 Agent 列表'));
+    back.classList.remove('small');
+    back.dataset.key = 'back';
+    back.addEventListener('click', () => leaveAgentView());
+    head.appendChild(back);
+    if (agent) head.appendChild(agentFace(agent, 'large'));
+    const words = head.appendChild(el('div', 'skill-head-text'));
+    const heading = words.appendChild(Array.isArray(title) ? tel('h3', 'skill-title plain', title[0], title[1]) : el('h3', 'skill-title plain', title));
+    heading.tabIndex = -1;
+    heading.dataset.key = 'title';
+    if (Array.isArray(lead)) words.appendChild(tel('p', 'skill-lead', lead[0], lead[1]));
+    else if (lead) words.appendChild(el('p', 'skill-lead', lead));
+    return { head, words };
+  }
+
+  // ---- 列表 ----
+
+  function renderAgents(list) {
+    agents = Array.isArray(list) ? list.filter((item) => item && typeof item.name === 'string') : [];
+    $('count-agents').textContent = agents.length ? agents.length.toLocaleString(LOCALES[language]) : '';
+    if (agentDeleting && !agentByName(agentDeleting)) agentDeleting = null;
+    if (!personaMenu.hidden) drawPersonaMenu();
+    const view = agentView;
+    if (view.kind === 'list') { drawAgentList(); return; }
+    const item = agentByName(view.name);
+    if (view.kind === 'detail' && view.data && !view.loading) {
+      if (!item) {
+        if (!view.gone) { view.gone = true; announce(t('这个 Agent 已经不在了。')); paintAgent(); }
+        return;
+      }
+      if (view.gone || item.modified !== view.data.modified) {
+        view.gone = false;
+        view.said = { key: k('这个 Agent 刚刚在别处改过了，下面是最新的内容。') };
+        loadAgent(view);  // 你在访达里改了它：重新读一遍
+        return;
+      }
+    }
+    if (view.kind === 'edit' && view.data && !view.saving && view.refresh) {
+      if (!item && !view.gone) {
+        view.gone = true;
+        view.said = { key: k('这个 Agent 已经不在了：可能在别处被删掉或改了名字。你的修改还在框里，可以复制出来。'), bad: true };
+        announce(problemText(view.said));
+        view.refresh();
+      } else if (item && item.modified !== view.data.modified && !view.stale) {
+        // 不重新读：重新读会让"打开时的修改时间"跟着变新，保存时就发现不了冲突，别处刚改的东西会被一声不响地冲掉
+        view.stale = true;
+        view.said = { key: k('这个 Agent 的文件刚刚在别处被改过了。你的修改还在；保存时会先问你要不要覆盖。') };
+        announce(problemText(view.said));
+        view.refresh();
+      }
+    }
+    if (['examples', 'review'].includes(view.kind) && view.node && !view.refresh) paintAgent('title');  // "已经有了"的标记跟着变
+    if (view.language !== language && view.node) {
+      view.language = language;
+      if (view.refresh) { view.refresh(); if (view.redrawTools) view.redrawTools(); } else paintAgent();
+    }
+  }
+
+  function drawAgentList() {
+    if (agentView.kind !== 'list') return;
+    const print = JSON.stringify([agents, agentDeleting, language, Boolean(agentOptions), busy]);
+    if (print === agentsDrawn && agentPanel.firstElementChild) {
+      if (agentFocus) { focusAgent(agentFocus); agentFocus = null; }
+      return;
+    }
+    agentsDrawn = print;
+    const keep = agentFocus || agentFocusedKey();
+    agentFocus = null;
+    const view = el('div', 'skill-view');
+    if (agents === null) view.appendChild(skillWaiting(k('正在读取……')));
+    else if (!agents.length) view.appendChild(agentEmpty());
+    else {
+      const fresh = knownAgents && isLive() ? agents.filter((agent) => !knownAgents.has(agent.name)).map((agent) => agent.name) : [];
+      view.appendChild(agentToolbar());
+      const list = view.appendChild(el('ul', 'skill-list'));
+      list.setAttribute('aria-label', t('你的 Agent'));
+      list.append(...agents.map((agent) => agentRow(agent, fresh.includes(agent.name))));
+    }
+    if (agents) knownAgents = agentNames();
+    agentPanel.replaceChildren(view);
+    if (keep) focusAgent(keep);
+  }
+
+  function agentToolbar() {
+    const bar = el('div', 'skill-bar');
+    const n = agents.length;
+    bar.appendChild(tel('p', 'skill-count', n === 1 ? k('1 个 Agent') : k('{n} 个 Agent'), { n: n.toLocaleString(LOCALES[language]) }));
+    bar.append(...agentAdders(true));
+    const folder = iconButton('folder', ON_MAC ? k('在访达中打开 Agent 文件夹') : k('打开 Agent 文件夹'));
+    folder.classList.remove('small');
+    folder.dataset.key = 'bar:folder';
+    folder.addEventListener('click', () => revealAgent(null));
+    bar.appendChild(folder);
+    return bar;
+  }
+
+  function agentAdders(withExamples) {
+    const buttons = [skillButton('plus', k('新建'), 'primary', 'bar:new', () => startAgentCreate())];
+    if (withExamples) buttons.push(skillButton('spark', k('示例'), '', 'bar:examples', () => showAgentView({ kind: 'examples' })));
+    buttons.push(skillButton('import', k('从 Claude Code 导入'), '', 'bar:import', startAgentImport));
+    return buttons;
+  }
+
+  // 一个都还没有：讲清楚两种用法，再摆上三个示例
+  function agentEmpty() {
+    const box = el('div', 'agents-empty');
+    const words = box.appendChild(el('div'));
+    words.appendChild(tel('h3', null, k('定制你自己的助手')));
+    words.appendChild(tel('p', null, k('一个 Agent 是一份设定：它擅长什么、能用哪些工具、用哪个模型。写好之后有两种用法：')));
+    const ways = box.appendChild(el('div', 'agents-ways'));
+    const way = (iconName, title, text) => {
+      const card = ways.appendChild(el('div', 'agents-way'));
+      const head = card.appendChild(el('b'));
+      head.append(icon(iconName), tel('span', null, title));
+      card.appendChild(tel('p', null, text));
+    };
+    way('bot', k('主助手交给它去做'), k('主助手遇到对得上的事，会把任务交给它：它在自己的一段对话里查资料、读文件，只把结论交回来，主助手的对话不会被几十页原文塞满。你也可以直接说“让资料研究员查一下……”。'));
+    way('chat', k('你直接和它对话'), k('点左边“新对话”旁边的箭头，选一个 Agent：这段对话从头到尾就是它——它的设定、它的工具、它的模型。'));
+    box.appendChild(tel('p', 'agents-section-title', k('从示例开始')));
+    box.appendChild(agentExampleCards());
+    const bar = box.appendChild(el('div', 'skill-bar'));
+    bar.append(...agentAdders(false));
+    box.appendChild(tel('p', 'agents-hint', k('格式和 Claude Code 的 subagent 一样：一个带 frontmatter 的 Markdown 文件。在那边写好的，可以直接导入。')));
+    return box;
+  }
+
+  // 三个示例：点一下就加进来（加过的标着"已添加"，点了直接打开它）
+  function agentExampleCards() {
+    const list = el('ul', 'agents-examples');
+    if (!agentOptions) { ensureAgentOptions(); list.appendChild(el('li')).appendChild(skillWaiting(k('正在读取……'))); return list; }
+    for (const example of agentOptions.examples || []) {
+      const card = list.appendChild(el('li')).appendChild(el('button', 'agents-example'));
+      card.type = 'button';
+      card.dataset.key = 'example:' + example.id;
+      card.dataset.color = example.color || '';
+      const have = agentNames().has(example.name);
+      card.append(agentFace(example), el('b', null, example.name), tel('span', null, example.blurb));
+      const add = card.appendChild(el('span', 'agents-add'));
+      add.append(icon(have ? 'check' : 'plus'), tel('span', null, have ? k('已添加，点开看看') : k('添加')));
+      card.addEventListener('click', () => (have ? openAgent(example.name) : addAgentExample(example, card)));
+    }
+    return list;
+  }
+
+  async function addAgentExample(example, card) {
+    card.disabled = true;
+    const reply = await call('/api/agent/example', { id: example.id });
+    card.disabled = false;
+    if (!reply.ok) { extensionSay(null, null, 'bad', reply.error); return; }
+    announce(t('已添加 Agent：{name}', { name: reply.data.name }));
+    openAgent(reply.data.name, false, k('已添加。主助手从下一条消息起就能把任务交给它；也可以先改成你自己的样子。'));
+  }
+
+  function buildAgentExamples() {
+    const node = el('div', 'skill-view');
+    node.appendChild(agentHead([k('从示例开始')], [k('几个写好的 Agent，加进来以后和你自己写的一样：能交给它、能用它开始对话，也能随便改。')]).head);
+    node.appendChild(agentExampleCards());
+    return node;
+  }
+
+  function agentRow(agent, fresh) {
+    const bad = agent.problems.length > 0, name = agent.name;
+    const row = el('li', 'skill-row agents-row' + (bad ? ' bad' : '') + (fresh ? ' enter' : ''));
+    row.dataset.name = name;
+    row.dataset.color = agent.color || '';
+
+    // 删除前先在原地确认一下，和删除会话、Skill 一样，不弹对话框
+    if (agentDeleting === name) {
+      const box = row.appendChild(el('div', 'skill-confirm'));
+      box.appendChild(el('span', null, t('删除 {name}？它的文件会删掉，不能撤销。用它开始过的会话还在。', { name })));
+      const yes = box.appendChild(el('button', 'mini danger', t('删除')));
+      const no = box.appendChild(el('button', 'mini cancel', t('取消')));
+      yes.type = no.type = 'button';
+      yes.dataset.key = 'yes:' + name;
+      no.dataset.key = 'cancel:' + name;
+      const cancel = () => { agentDeleting = null; agentFocus = 'trash:' + name; agentsDrawn = ''; drawAgentList(); };
+      yes.addEventListener('click', async () => {
+        yes.disabled = no.disabled = true;
+        const index = agents.findIndex((one) => one.name === name);
+        const rest = agents.filter((one) => one.name !== name);
+        const after = rest.length ? rest[Math.min(index, rest.length - 1)].name : null;
+        // 这一行先淡出去，同时请助手程序删掉。删不掉的话它再回来
+        const [reply] = await Promise.all([call('/api/agent/delete', { name }), leave(row)]);
+        agentDeleting = null;
+        if (!reply.ok) { extensionSay(null, null, 'bad', reply.error); agentsDrawn = ''; agentFocus = 'trash:' + name; drawAgentList(); return; }
+        agents = rest;
+        agentsDrawn = '';
+        agentFocus = after ? 'open:' + after : 'bar:new';
+        drawAgentList();
+        extensionSay(k('已删除 Agent：{name}'), { name }, 'good');
+        announce(t('已删除 Agent：{name}', { name }));
+      });
+      no.addEventListener('click', cancel);
+      box.addEventListener('keydown', (key) => {
+        if (key.key !== 'Escape') return;
+        key.preventDefault();  // 这一下 Esc 只用来取消删除，不关对话框
+        key.stopPropagation();
+        cancel();
+      });
+      return row;
+    }
+
+    const open = row.appendChild(el('button', 'skill-open'));
+    open.type = 'button';
+    open.dataset.key = 'open:' + name;
+    open.title = agent.description || '';
+    open.appendChild(agentFace(agent));
+    const words = open.appendChild(el('span', 'skill-words'));
+    const line = words.appendChild(el('span', 'skill-line'));
+    line.appendChild(el('span', 'skill-name', name));
+    if (bad) line.appendChild(el('span', 'skill-flag bad', t('需要修改')));
+    else if (agent.warnings && agent.warnings.length) line.appendChild(el('span', 'skill-flag manual', t('有提醒')));
+    const showProblem = bad && !agent.description;
+    words.appendChild(el('span', 'skill-desc' + (showProblem ? ' bad' : ''), showProblem ? problemText(agent.problems[0]) : agent.description));
+    words.appendChild(el('span', 'skill-meta', [agentModelText(agent.model, true), agentToolsText(agent.tools)].join(' · ')));
+    open.addEventListener('click', () => openAgent(name));
+
+    // "用它开始新对话"放在三个按钮前面；然后是和别处一样的三个：在访达中显示、编辑、删除。
+    // 改和删不用等这一轮对话结束（服务器也不拦）；开始新对话要等，所以它在助手工作时藏起来
+    const actions = row.appendChild(el('div', 'skill-actions'));
+    const action = (iconName, title, label, extra, key) => {
+      const node = actions.appendChild(el('button', 'icon-button small' + (extra ? ' ' + extra : '')));
+      node.type = 'button';
+      node.title = t(title);
+      node.setAttribute('aria-label', t(label, { name }));
+      node.dataset.key = key + ':' + name;
+      node.appendChild(icon(iconName));
+      return node;
+    };
+    const chat = action('chat', k('用它开始新对话'), k('用 {name} 开始新对话'), 'idle-only', 'chat');
+    chat.disabled = bad;
+    chat.addEventListener('click', () => startWithAgent(name));
+    action('folder', SHOW_FILE, ON_MAC ? k('在访达中显示：{name}') : k('在文件夹中显示：{name}'), '', 'folder').addEventListener('click', () => revealAgent(name));
+    action('edit', k('编辑'), k('编辑 Agent：{name}'), '', 'edit').addEventListener('click', () => openAgent(name, true));
+    action('trash', k('删除'), k('删除 Agent：{name}'), 'danger-hover', 'trash').addEventListener('click', () => {
+      agentDeleting = name;
+      agentFocus = 'cancel:' + name;  // 默认停在"取消"上，免得手快连按两下回车就删掉了
+      agentsDrawn = '';
+      drawAgentList();
+    });
+    return row;
+  }
+
+  // 用一个 Agent 开始新对话：先关上扩展（要是有没保存的修改，会先提醒一次）
+  function startWithAgent(name) {
+    if (busy) { extensionSay(BUSY_HINT, null, 'bad'); return; }
+    if (extensionsDialog.open && !requestCloseExtensions()) return;
+    startNew(name);
+  }
+
+  // 在文件管理器里显示一个 Agent 的文件（name 为 null 时打开整个 Agent 文件夹）。页面只给名字，路径由助手程序算
+  async function revealAgent(name, view) {
+    const reply = await call('/api/agent/reveal', name ? { name } : {});
+    const shown = shortPath(reply.data.path);
+    const said = !reply.ok ? { text: reply.error, bad: true }
+      : name ? { key: ON_MAC ? k('已在访达中显示：{path}') : k('已在文件夹中显示：{path}'), values: { path: shown }, good: true }
+        : { key: ON_MAC ? k('已在访达中打开：{path}') : k('已打开文件夹：{path}'), values: { path: shown }, good: true };
+    if (view && agentView === view) { view.said = said; paintAgent(); }
+    else extensionSay(said.key || null, said.values, said.bad ? 'bad' : 'good', said.text);
+  }
+
+  // 离开子页面，回到上一层。正在编辑、还没保存的，先提醒一次
+  function leaveAgentView() {
+    const view = agentView;
+    if (!agentMayLeave()) return;
+    if (view.kind === 'edit') { openAgent(view.name); return; }
+    const from = { detail: 'open:' + view.name, create: 'bar:new', examples: 'bar:examples', review: 'bar:import' }[view.kind];
+    showAgentView({ kind: 'list' }, from);
+  }
+
+  // 编辑、新建里有没保存的东西：第一次只提醒，紧接着再来一次才真的放弃
+  function agentMayLeave() {
+    const view = agentView;
+    if (!['edit', 'create'].includes(view.kind) || !view.dirty || !view.dirty() || view.armed) return true;
+    view.armed = true;
+    view.said = { key: k('还有没保存的修改，再按一次就放弃。'), bad: true };
+    paintAgent();
+    return false;
+  }
+
+  agentPanel.addEventListener('keydown', (key) => {
+    if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字时，Esc 和回车是给输入法的
+    if (key.key === 'Escape' && agentView.kind !== 'list' && !key.defaultPrevented) {
+      key.preventDefault();
+      key.stopPropagation();
+      leaveAgentView();
+    } else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && agentView.save) {
+      key.preventDefault();
+      agentView.save();
+    }
+  });
+
+  // ---- 打开一个 ----
+
+  function openAgent(name, edit, said) {
+    showAgentView({ kind: 'detail', name, data: null, loading: true, error: '', confirm: false, said: said ? { key: said, good: true } : null, edit: Boolean(edit) });
+    loadAgent(agentView);
+  }
+
+  async function loadAgent(view) {
+    const mine = ++agentSeq;
+    view.loading = true;
+    const reply = await call('/api/agent/read', { name: view.name });
+    if (mine !== agentSeq || agentView !== view) return;
+    view.loading = false;
+    if (!reply.ok) { view.error = reply.error; view.data = null; paintAgent(); return; }
+    view.error = '';
+    view.data = reply.data;
+    if (view.edit) { view.edit = false; startAgentEdit(view); return; }
+    paintAgent();
+  }
+
+  function buildAgentDetail(view) {
+    const node = el('div', 'skill-view skill-fill');
+    const data = view.data;
+    const item = data || agentByName(view.name) || { name: view.name };
+    const { head } = agentHead(view.name, data ? data.description : '', item);
+    node.appendChild(head);
+    if (!data) {
+      if (view.error) node.appendChild(el('p', 'skill-problems single', view.error));
+      else node.appendChild(skillWaiting(k('正在读取……')));
+      return node;
+    }
+    // 几项事实：用哪个模型、能用哪些工具
+    const facts = node.appendChild(el('dl', 'agents-facts'));
+    const fact = (label) => {
+      const box = facts.appendChild(el('div', 'agents-fact'));
+      box.appendChild(tel('dt', null, label));
+      return box.appendChild(el('dd'));
+    };
+    const model = fact(k('模型'));
+    model.textContent = agentModelText(data.model);
+    const tools = fact(k('能用的工具'));
+    const form = data.fields ? data.fields.tools : null;
+    tools.textContent = agentToolsText(data.tools);
+    if (form && !form.all && (form.picked.length || form.unknown.length)) {
+      const chips = tools.appendChild(el('div', 'agents-tools'));
+      for (const name of form.picked) chips.appendChild(el('span', null, agentToolLabel(name))).title = name;
+    }
+    const notes = [...(data.warnings || [])];
+    if (data.extra && data.extra.length) notes.push({ key: k('智狐不用的字段（原样留在文件里）：{fields}'), values: { fields: data.extra.join(', ') } });
+    if (notes.length) {
+      const box = node.appendChild(el('ul', 'agents-warn' + (notes.length === 1 ? ' single' : '')));
+      box.style.listStyle = notes.length === 1 ? 'none' : '';
+      for (const note of notes) box.appendChild(el('li', null, problemText(note)));
+    }
+    if (view.gone || data.problems.length) {
+      const problems = node.appendChild(el('ul', 'skill-problems' + (view.gone || data.problems.length === 1 ? ' single' : '')));
+      problems.setAttribute('role', 'alert');
+      if (view.gone) problems.appendChild(tel('li', null, k('这个 Agent 已经不在了：可能在别处被删掉或改了名字。')));
+      else for (const problem of data.problems) problems.appendChild(el('li', null, problemText(problem)));
+      if (!view.gone) problems.appendChild(tel('li', null, k('有问题的 Agent 不会告诉主助手，也不能用它开始对话。点“编辑”改好就行。')));
+    }
+    const body = node.appendChild(el('pre', 'agents-body'));
+    body.tabIndex = 0;  // 能用键盘滚动
+    tattr(body, 'aria-label', k('它的设定'));
+    if (data.fields) body.textContent = data.fields.body;
+    else if (data.text) body.textContent = data.text;
+    else retext(body, k('这个文件读不出来（太大，或者不是 UTF-8 编码的文字）。可以在文件夹里用别的软件打开。'));
+
+    const foot = node.appendChild(el('div', 'skill-foot'));
+    const said = foot.appendChild(skillSaid(el('p'), view.confirm ? { key: k('删除之后，这个 Agent 的文件就没了，不能撤销。用它开始过的会话还在。'), bad: true } : view.said));
+    said.setAttribute('role', 'status');
+    if (view.confirm) {
+      foot.appendChild(skillButton('', k('删除'), 'danger', 'confirm-delete', () => deleteViewedAgent(view)));
+      foot.appendChild(skillButton('', k('取消'), '', 'confirm-cancel', () => { view.confirm = false; paintAgent('delete'); }));
+      return node;
+    }
+    const start = foot.appendChild(skillButton('chat', k('用它开始新对话'), 'primary idle-only', 'start', () => startWithAgent(view.name)));
+    start.disabled = view.gone || data.problems.length > 0;
+    foot.appendChild(skillButton('edit', k('编辑'), '', 'edit', () => startAgentEdit(view))).disabled = view.gone || !data.editable;
+    foot.appendChild(skillButton('folder', SHOW_FILE, '', 'reveal', () => revealAgent(view.name, view))).disabled = view.gone;
+    foot.appendChild(skillButton('trash', k('删除'), '', 'delete', () => { view.confirm = true; paintAgent('confirm-cancel'); })).disabled = view.gone;
+    return node;
+  }
+
+  async function deleteViewedAgent(view) {
+    for (const button of view.node.querySelectorAll('.skill-foot button')) button.disabled = true;
+    const reply = await call('/api/agent/delete', { name: view.name });
+    if (agentView !== view) return;
+    if (!reply.ok) { view.confirm = false; view.said = { text: reply.error, bad: true }; paintAgent('delete'); return; }
+    const index = (agents || []).findIndex((one) => one.name === view.name);
+    agents = (agents || []).filter((one) => one.name !== view.name);
+    const after = agents.length ? agents[Math.min(Math.max(index, 0), agents.length - 1)].name : null;
+    showAgentView({ kind: 'list' }, after ? 'open:' + after : 'bar:new');
+    extensionSay(k('已删除 Agent：{name}'), { name: view.name }, 'good');
+    announce(t('已删除 Agent：{name}', { name: view.name }));
+  }
+
+  // ---- 编辑和新建 ----
+  // 两种写法，上面一排切换：表单（名字、说明、模型、颜色、工具、设定），或者原文（整个文件）。
+  // 切换时请助手程序换算（表单 → 原文用 compose，原文 → 原文用 parse），保存的永远是一份原文：按表单保存的，
+  // 也是先由 compose 写成原文（只改你改过的那几项，文件里别的东西原样留着），再交给 save。
+
+  // 表单的样子 ← 程序给的 fields（新建时是空的）
+  function agentForm(fields) {
+    const tools = fields ? fields.tools : { all: true, picked: [], unknown: [] };
+    return {
+      name: fields ? fields.name : '', description: fields ? fields.description : '', model: fields ? fields.model : '',
+      color: fields ? fields.color : '', body: fields ? fields.body : '',
+      all: tools.all, picked: [...tools.picked], unknown: [...tools.unknown],
+    };
+  }
+  // 交给 compose 的那一份：tools 为 null 表示"和叫它的一方一样"
+  function agentFields(form) {
+    return {
+      name: form.name.trim(), description: form.description.trim(), model: form.model, color: form.color, body: form.body,
+      tools: form.all ? null : [...form.picked, ...form.unknown],
+    };
+  }
+
+  function startAgentEdit(view) {
+    const data = view.data;
+    if (!data) return;
+    if (!data.editable) { view.said = { key: k('这个文件读不出来（太大，或者不是 UTF-8 编码的文字），在这里改会把它弄坏。请在文件夹里用别的软件编辑。'), bad: true }; paintAgent(); return; }
+    const form = agentForm(data.fields);
+    showAgentView({
+      kind: 'edit', name: view.name, data, base: data.text, mode: data.fields ? 'form' : 'raw', form, raw: data.text,
+      baseForm: JSON.stringify(agentFields(form)), baseRaw: data.text, touched: false,
+      saving: false, force: false, armed: false, stale: false, gone: false, problems: [],
+      said: data.fields ? null : { key: k('frontmatter 读不出来，只能在原文里改。改好以后可以切回表单。'), bad: true },
+    });
+    ensureAgentOptions();
+  }
+
+  function startAgentCreate() {
+    const form = agentForm(null);
+    showAgentView({
+      kind: 'create', name: '', data: null, base: null, mode: 'form', form, raw: '', baseForm: JSON.stringify(agentFields(form)), baseRaw: '',
+      touched: false, saving: false, force: false, armed: false, problems: [], said: null,
+    });
+    ensureAgentOptions();
+  }
+
+  async function switchAgentMode(view, mode) {
+    if (view.mode === mode || view.switching || agentView !== view) return;
+    view.switching = true;
+    view.said = null;
+    const reply = mode === 'raw'
+      ? await call('/api/agent/compose', { fields: agentFields(view.form), base: view.base })
+      : await call('/api/agent/parse', { text: view.raw });
+    view.switching = false;
+    if (agentView !== view) return;
+    if (!reply.ok) { view.said = { text: reply.error, bad: true }; view.refresh(); return; }
+    if (mode === 'raw') {
+      view.raw = reply.data.text;
+      if (!view.touched) view.baseRaw = view.raw;  // 没改过：换算出来的原文就是"没改过"的样子
+    } else if (!reply.data.fields) {
+      view.said = { key: k('frontmatter 读不出来（看看第一行是不是 ---），先在原文里改好再切回表单。'), bad: true };
+      view.refresh();
+      return;
+    } else {
+      view.form = agentForm(reply.data.fields);
+      if (!view.touched) view.baseForm = JSON.stringify(agentFields(view.form));
+    }
+    view.mode = mode;
+    view.problems = [];
+    paintAgent('mode:' + mode);
+  }
+
+  function buildAgentEditor(view) {
+    const creating = view.kind === 'create';
+    const node = el('div', 'skill-view skill-fill' + (creating ? ' skill-create' : ''));
+    const { head } = agentHead(creating ? [k('新建 Agent')] : view.name, creating
+      ? [k('写下它叫什么、擅长什么、能用哪些工具，和它的设定。保存后，Agent 文件夹里会多一个同名的 .md 文件。')]
+      : [k('改的是这个 Agent 的文件。按表单保存时只改你改过的那几项，文件里别的内容（注释、智狐不用的字段）原样留着。')], creating ? null : view.form);
+    node.appendChild(head);
+
+    // 表单 / 原文（单选的一组：读屏软件读得出"选中了哪个"）
+    const modes = node.appendChild(el('div', 'agents-modes'));
+    modes.setAttribute('role', 'radiogroup');
+    tattr(modes, 'aria-label', k('写法'));
+    for (const [mode, label] of [['form', k('表单')], ['raw', k('原文')]]) {
+      const button = modes.appendChild(tel('button', 'agents-mode', label));
+      button.type = 'button';
+      button.setAttribute('role', 'radio');
+      button.setAttribute('aria-checked', String(view.mode === mode));
+      button.tabIndex = view.mode === mode ? 0 : -1;
+      button.dataset.key = 'mode:' + mode;
+      button.addEventListener('click', () => switchAgentMode(view, mode));
+    }
+    modes.addEventListener('keydown', (key) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key.key)) return;
+      key.preventDefault();
+      switchAgentMode(view, view.mode === 'form' ? 'raw' : 'form');
+    });
+
+    const touch = () => {
+      view.touched = true;
+      // 提醒过"再按一次就放弃"之后又接着改了，就当没提醒过；上一次保存的结果也该收起来了
+      if (view.armed || (view.said && view.said.bad && !view.stale && !view.gone)) { view.armed = false; view.said = null; }
+      view.refresh();
+    };
+    let nameHelp = null, nameInput = null, count = null, description = null;
+    if (view.mode === 'raw') {
+      const field = node.appendChild(el('label', 'skill-field grow'));
+      const top = field.appendChild(el('span', 'skill-field-head'));
+      top.appendChild(tel('span', null, k('整个文件（Markdown）')));
+      top.appendChild(tel('span', 'skill-help', SAVE_HINT));
+      const area = field.appendChild(el('textarea', 'field skill-code'));
+      area.spellcheck = false;
+      area.value = view.raw;
+      area.dataset.key = 'raw';
+      area.addEventListener('input', () => { view.raw = area.value; touch(); });
+    } else {
+      const form = node.appendChild(el('div', 'skill-form'));
+      const field = (parent, label, help, counter) => {
+        const box = parent.appendChild(el('label', 'skill-field'));
+        const top = box.appendChild(el('span', 'skill-field-head'));
+        top.appendChild(tel('span', null, label));
+        const counted = counter ? top.appendChild(el('span', 'skill-counter')) : null;
+        return { box, count: counted, help: help ? tel('span', 'skill-help', help) : null };
+      };
+      const grid = form.appendChild(el('div', 'agents-grid'));
+      const nameField = field(grid, k('名字'), k('字母（中文也可以）、数字、连字符和下划线，不能有空格。它也是文件名。'));
+      nameInput = nameField.box.appendChild(el('input', 'field'));
+      nameInput.type = 'text';
+      nameInput.maxLength = 80;
+      nameInput.spellcheck = false;
+      nameInput.autocomplete = 'off';
+      tattr(nameInput, 'placeholder', k('资料研究员'));
+      nameInput.dataset.key = 'name';
+      nameInput.value = view.form.name;
+      nameField.box.appendChild(nameField.help);
+      nameHelp = nameField.help;
+      nameInput.addEventListener('input', () => { view.form.name = nameInput.value; touch(); });
+
+      const modelField = field(grid, k('模型'), k('跟随叫它的一方：主助手用哪个，它就用哪个。'));
+      const select = modelField.box.appendChild(el('select', 'field'));
+      select.dataset.key = 'model';
+      fillAgentModels(select, view.form.model);
+      modelField.box.appendChild(modelField.help);
+      select.addEventListener('change', () => { view.form.model = select.value; touch(); });
+
+      const descriptionField = field(form, k('说明'), k('它擅长什么、什么时候该把事情交给它。主助手就是靠这一句决定交不交给它的。'), true);
+      description = descriptionField.box.appendChild(el('textarea', 'field'));
+      description.rows = 2;
+      description.dataset.key = 'description';
+      tattr(description, 'placeholder', k('查资料、读网页，交回一份带出处的摘要。需要查很多资料、只要结论的时候交给它。'));
+      description.value = view.form.description;
+      descriptionField.box.appendChild(descriptionField.help);
+      count = descriptionField.count;
+      description.addEventListener('input', () => { view.form.description = description.value; touch(); });
+
+      // 颜色：九个小方块（不选 + 八种），方向键在它们之间移动
+      const colorField = form.appendChild(el('div', 'skill-field'));
+      colorField.appendChild(el('span', 'skill-field-head')).appendChild(tel('span', null, k('颜色')));
+      const colors = colorField.appendChild(el('div', 'agents-colors'));
+      colors.setAttribute('role', 'radiogroup');
+      tattr(colors, 'aria-label', k('颜色'));
+      const palette = ['', ...((agentOptions && agentOptions.colors) || Object.keys(AGENT_COLOR_NAMES))];
+      const pick = (value) => {
+        view.form.color = value;
+        for (const swatch of colors.children) {
+          const on = swatch.dataset.value === value;
+          swatch.setAttribute('aria-checked', String(on));
+          swatch.tabIndex = on ? 0 : -1;
+        }
+        touch();
+      };
+      for (const value of palette) {
+        const swatch = colors.appendChild(el('button', 'agents-color' + (value ? '' : ' none')));
+        swatch.type = 'button';
+        swatch.setAttribute('role', 'radio');
+        swatch.dataset.color = value;
+        swatch.dataset.value = value;
+        swatch.dataset.key = 'color:' + value;
+        const label = value ? AGENT_COLOR_NAMES[value] || value : k('不选');
+        tattr(swatch, 'title', label);
+        tattr(swatch, 'aria-label', label);
+        swatch.setAttribute('aria-checked', String(view.form.color === value));
+        swatch.tabIndex = view.form.color === value ? 0 : -1;
+        swatch.addEventListener('click', () => pick(value));
+      }
+      colors.addEventListener('keydown', (key) => {
+        const at = palette.indexOf(view.form.color);
+        const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: palette.length - 1 }[key.key];
+        if (next === undefined) return;
+        key.preventDefault();
+        const value = palette[(next + palette.length) % palette.length];
+        pick(value);
+        colors.children[palette.indexOf(value)].focus();
+      });
+
+      const toolsField = form.appendChild(el('div', 'skill-field'));
+      toolsField.appendChild(el('span', 'skill-field-head')).appendChild(tel('span', null, k('能用的工具')));
+      const toolsHolder = toolsField.appendChild(el('div'));
+      view.redrawTools = () => {
+        if (!toolsHolder.isConnected) return;
+        const keep = agentFocusedKey();
+        toolsHolder.replaceChildren(agentToolsBox(view, touch));
+        if (keep && keep.startsWith('tool')) focusAgent(keep);
+      };
+      toolsHolder.appendChild(agentToolsBox(view, touch));
+
+      const bodyField = field(form, k('设定'), k('写给它看的：它是谁、怎么做事、交回什么。可以用 {workspace} 这些占位符（和提示词的写法一样）。'));
+      bodyField.box.classList.add('grow');
+      const steps = bodyField.box.appendChild(el('textarea', 'field skill-code agents-instructions'));
+      steps.spellcheck = false;
+      steps.dataset.key = 'body';
+      tattr(steps, 'placeholder', k('你是一个细心的研究员。先把问题拆成几个小问题，每个至少找两个来源；交回时开头先给结论，每一条后面写上出处。'));
+      steps.value = view.form.body;
+      bodyField.box.appendChild(bodyField.help);
+      steps.addEventListener('input', () => { view.form.body = steps.value; touch(); });
+    }
+
+    const problems = node.appendChild(el('ul', 'skill-problems'));
+    problems.setAttribute('role', 'alert');
+    const foot = node.appendChild(el('div', 'skill-foot'));
+    const said = foot.appendChild(el('p'));
+    said.setAttribute('role', 'status');
+    foot.appendChild(skillButton('', k('取消'), '', 'cancel', () => leaveAgentView()));
+    const save = foot.appendChild(skillButton(creating ? 'plus' : '', creating ? k('创建') : k('保存'), 'primary', 'save', () => saveAgent(view)));
+
+    view.dirty = () => view.touched && (view.mode === 'raw' ? view.raw !== view.baseRaw : JSON.stringify(agentFields(view.form)) !== view.baseForm);
+    view.save = () => saveAgent(view);
+    view.refresh = () => {
+      problems.hidden = !view.problems.length;
+      problems.className = 'skill-problems' + (view.problems.length === 1 ? ' single' : '');
+      problems.replaceChildren(...view.problems.map((problem) => el('li', null, problemText(problem))));
+      if (nameInput) {
+        const typed = nameInput.value.trim();
+        const taken = typed && typed !== view.name && agentNames().has(typed);
+        nameInput.setAttribute('aria-invalid', String(Boolean(taken)));
+        nameHelp.classList.toggle('bad', Boolean(taken));
+        retext(nameHelp, taken ? k('已经有一个叫 {name} 的 Agent 了。') : k('字母（中文也可以）、数字、连字符和下划线，不能有空格。它也是文件名。'), taken ? { name: typed } : undefined);
+      }
+      if (count) {
+        const length = description.value.trim().length;
+        count.textContent = length.toLocaleString(LOCALES[language]) + ' / ' + MAX_AGENT_DESCRIPTION.toLocaleString(LOCALES[language]);
+        count.classList.toggle('over', length > MAX_AGENT_DESCRIPTION);
+      }
+      for (const button of modes.children) button.disabled = Boolean(view.switching || view.saving);
+      skillSaid(said, view.said || { key: SAVE_HINT });
+      retext(save.lastChild, view.saving ? (creating ? k('正在创建……') : k('正在保存……')) : view.force ? k('覆盖保存') : creating ? k('创建') : k('保存'));
+      save.disabled = Boolean(view.saving || view.gone);
+    };
+    return node;
+  }
+
+  // 模型的下拉框：跟随，然后按提供方分组（同步到的模型列表，见设置）。文件里写的不在列表里的，单独放在最前面，不丢
+  function fillAgentModels(select, current) {
+    const inherit = select.appendChild(el('option', null, t('跟随叫它的一方（inherit）')));
+    inherit.value = '';
+    const known = new Set();
+    for (const provider of (state && state.providers) || []) {
+      if (!provider.models.length) continue;
+      const group = select.appendChild(el('optgroup'));
+      group.label = provider.label + (provider.has_key ? '' : ' ' + t('（还没有密钥）'));
+      for (const model of provider.models) {
+        const value = provider.id + '/' + model;
+        known.add(value);
+        group.appendChild(el('option', null, model)).value = value;
+      }
+    }
+    if (current && !known.has(current) && current !== 'inherit') {
+      const written = el('option', null, t('文件里写的：{model}', { model: current }));
+      written.value = current;
+      select.insertBefore(written, inherit.nextSibling);
+    }
+    select.value = current === 'inherit' ? '' : current || '';
+  }
+
+  // 工具的清单。先选"和叫它的一方一样多"还是"只用勾选的"；勾选的按三组排：内置的、Skill、MCP（按服务器）。
+  // 勾了任何一项就自动换成"只用勾选的"。勾了"读写文件"，"读文件"跟着勾上（写文件的本来就能读）
+  function agentToolsBox(view, touch) {
+    const form = view.form;
+    const box = el('div', 'agents-tools-box');
+    box.dataset.all = String(form.all);
+    const choice = box.appendChild(el('div', 'agents-choice'));
+    choice.setAttribute('role', 'radiogroup');
+    tattr(choice, 'aria-label', k('能用的工具'));
+    const redraw = () => { touch(); if (view.redrawTools) view.redrawTools(); };
+    for (const [all, label] of [[true, k('和叫它的一方一样：主助手手里有的，它都能用')], [false, k('只用下面勾选的')]]) {
+      const wrap = choice.appendChild(el('label'));
+      const radio = wrap.appendChild(el('input'));
+      radio.type = 'radio';
+      radio.name = 'agent-tools-' + view.kind;
+      radio.checked = form.all === all;
+      radio.dataset.key = 'tools:' + all;
+      radio.addEventListener('change', () => { form.all = all; redraw(); });
+      wrap.appendChild(tel('span', null, label));
+    }
+    if (!agentOptions) { box.appendChild(skillWaiting(k('正在读取能用的工具……'))); return box; }
+    const picked = new Set(form.picked);
+    const toggle = (name, on) => {
+      form.all = false;
+      if (on) picked.add(name); else picked.delete(name);
+      if (name === 'Edit' && on) picked.delete('Read');  // "读写"已经包括"读"，不用两样都记
+      form.picked = [...picked];
+      redraw();
+    };
+    const check = (parent, name, label, code, extra) => {
+      const wrap = parent.appendChild(el('label', 'agents-check' + (extra || '')));
+      const input = wrap.appendChild(el('input'));
+      input.type = 'checkbox';
+      input.checked = picked.has(name);
+      input.dataset.key = 'tool:' + name;
+      input.addEventListener('change', () => toggle(name, input.checked));
+      const words = wrap.appendChild(el('span'));
+      words.appendChild(el('b', null, label));
+      if (code) words.appendChild(el('code', null, code));
+      return input;
+    };
+    const group = (title) => {
+      const holder = box.appendChild(el('div', 'agents-group'));
+      holder.appendChild(tel('h4', null, title));
+      return holder.appendChild(el('div', 'agents-checks'));
+    };
+    const builtin = group(k('内置的'));
+    for (const name of agentOptions.builtin.filter((one) => one !== 'Skill')) {
+      const input = check(builtin, name, agentToolLabel(name), name);
+      if (name === 'Read' && picked.has('Edit')) { input.checked = true; input.disabled = true; }
+    }
+    if (agentOptions.builtin.includes('Skill')) {
+      const skillsGroup = group(k('Skill'));
+      const names = (skills || []).filter((skill) => skill.enabled && !skill.problems.length).map((skill) => skill.name);
+      check(skillsGroup, 'Skill', agentToolLabel('Skill'), names.length ? names.join(' · ') : t('还没有能用的 Skill'));
+    }
+    // MCP：每个服务器一块，先是"整个服务器"，下面缩进一层是它的每个工具（勾了整个服务器，下面的就都算上了）
+    const mcpHolder = box.appendChild(el('div', 'agents-group'));
+    mcpHolder.appendChild(tel('h4', null, k('MCP')));
+    const mcp = mcpHolder.appendChild(el('div'));
+    const offered = new Set();
+    for (const server of agentOptions.mcp || []) {
+      offered.add(server.key);
+      const block = mcp.appendChild(el('div', 'agents-server'));
+      const whole = check(block, server.key, server.server, t('这个服务器的全部工具'));
+      const tools = block.appendChild(el('div', 'agents-checks'));
+      for (const tool of server.tools) {
+        offered.add(tool.name);
+        const input = check(tools, tool.name, tool.remote, tool.name);
+        if (whole.checked) { input.checked = true; input.disabled = true; }
+      }
+    }
+    // 文件里写着、但现在没有连上的 MCP 工具：照样列出来（勾着），取消勾选才会从文件里去掉
+    const away = form.picked.filter((one) => one.startsWith('mcp__') && !offered.has(one));
+    if (away.length) {
+      const block = mcp.appendChild(el('div', 'agents-server')).appendChild(el('div', 'agents-checks'));
+      for (const name of away) check(block, name, name, t('现在没有连上'));
+    }
+    if (!mcp.children.length) mcp.appendChild(tel('p', 'agents-hint', k('现在没有连上的 MCP 服务器。在“MCP”一页接好之后，这里就能勾它的工具。')));
+    if (form.unknown.length) {
+      const rest = box.appendChild(el('p', 'agents-unknown'));
+      rest.appendChild(tel('span', null, k('文件里还写着这些，智狐没有，会原样留着：')));
+      for (const name of form.unknown) rest.appendChild(el('span', null, name));
+    }
+    box.appendChild(tel('p', 'agents-hint', k('不管勾了什么，它都不会比叫它的那一方多：一个只许读文件的角色叫来的 Agent，勾了“读写文件”也改不了文件。改文件、执行命令照样会先问你。')));
+    return box;
+  }
+
+  async function saveAgent(view) {
+    if (agentView !== view || view.saving) return;
+    const creating = view.kind === 'create';
+    if (view.mode === 'form' && !view.form.name.trim()) { focusAgent('name'); return; }
+    view.saving = true;
+    view.armed = false;
+    view.problems = [];
+    view.refresh();
+    let text = view.raw;
+    if (view.mode === 'form') {
+      const composed = await call('/api/agent/compose', { fields: agentFields(view.form), base: view.base });
+      if (agentView !== view) return;
+      if (!composed.ok) { view.saving = false; view.said = { text: composed.error, bad: true }; view.refresh(); return; }
+      text = composed.data.text;
+    }
+    const reply = creating
+      ? await call('/api/agent/create', { text })
+      : await call('/api/agent/save', { name: view.name, text, modified: view.data.modified, force: view.force });
+    if (agentView !== view) return;
+    view.saving = false;
+    if (!reply.ok) {
+      if (reply.data && reply.data.conflict) view.force = true;  // 再点一次就覆盖
+      view.problems = reply.data && Array.isArray(reply.data.problems) ? reply.data.problems : [];
+      view.said = view.problems.length ? { key: k('还有问题，改好了再保存。'), bad: true } : { text: reply.error, bad: true };
+      view.refresh();
+      announce(view.problems.length ? t('还有问题，改好了再保存。') : reply.error);
+      return;
+    }
+    announce(creating ? t('已新建 Agent：{name}', { name: reply.data.name }) : t('已保存。'));
+    openAgent(reply.data.name, false, creating ? k('已新建。主助手从下一条消息起就能把任务交给它。') : k('已保存。'));
+  }
+
+  // ---- 从 Claude Code 导入 ----
+
+  async function startAgentImport() {
+    showAgentView({ kind: 'review', loading: true, candidates: [], picks: {}, results: {}, places: [], installing: false, said: null });
+    const view = agentView;
+    const mine = agentSeq;
+    const reply = await call('/api/agent/claude');
+    if (mine !== agentSeq || agentView !== view) return;
+    view.loading = false;
+    if (!reply.ok) { view.said = { text: reply.error, bad: true }; paintAgent('title'); return; }
+    view.candidates = Array.isArray(reply.data.candidates) ? reply.data.candidates : [];
+    view.places = reply.data.places || [];
+    for (const candidate of view.candidates) {
+      // 只找到一个、合格、又没有同名的，默认勾上。找到好几个的，一个都不先勾：装哪几个由你来挑
+      const only = view.candidates.length === 1 && !candidate.problems.length && !candidate.exists && !candidate.bad_name;
+      view.picks[candidate.key] = { on: only, mode: 'rename', name: candidate.exists ? freeAgentName(candidate.name) : candidate.name };
+    }
+    paintAgent('title');
+  }
+
+  function freeAgentName(name) {
+    const taken = agentNames();
+    for (let n = 2; n < 100; n += 1) if (!taken.has(name + '-' + n)) return name + '-' + n;
+    return name;
+  }
+
+  function buildAgentReview(view) {
+    const node = el('div', 'skill-view');
+    node.appendChild(agentHead([k('从 Claude Code 导入')], view.places.length ? [k('在这些地方找过：{places}'), { places: view.places.join('  ·  ') }] : null).head);
+    if (view.loading) { node.appendChild(skillWaiting(k('正在查找 Claude Code 的 Agent……'))); return node; }
+    const trust = node.appendChild(el('p', 'skill-trust calm'));
+    trust.append(icon('copy'), tel('span', null, k('导入的是一份复制：之后在 Claude Code 那边改了、删了，都不会影响智狐这边。')));
+    if (!view.candidates.length) {
+      node.appendChild(tel('p', 'hint', k('没有找到 Claude Code 的 Agent。它们一般放在 ~/.claude/agents/ 或者项目里的 .claude/agents/ 下面，每个是一个 .md 文件。')));
+    }
+    const cards = node.appendChild(el('ul', 'skill-cands'));
+    view.candidates.forEach((candidate, index) => cards.appendChild(agentCandidate(view, candidate, index)));
+    const foot = node.appendChild(el('div', 'skill-foot skill-stick'));
+    const said = foot.appendChild(skillSaid(el('p'), view.said));
+    said.setAttribute('role', 'status');
+    foot.appendChild(skillButton('', k('取消'), '', 'cancel', () => leaveAgentView()));
+    const chosen = view.candidates.filter((candidate) => view.picks[candidate.key].on && !(view.results[candidate.key] && view.results[candidate.key].ok)).length;
+    if (view.candidates.length) {
+      const install = foot.appendChild(skillButton('import', view.installing ? k('正在导入……') : chosen > 1 ? k('导入 {n} 个') : k('导入'), 'primary', 'install', () => importAgents(view)));
+      if (chosen > 1 && !view.installing) retext(install.lastChild, k('导入 {n} 个'), { n: chosen });
+      install.disabled = view.installing || !chosen;
+    }
+    return node;
+  }
+
+  function agentCandidate(view, candidate, index) {
+    const pick = view.picks[candidate.key], result = view.results[candidate.key];
+    const bad = candidate.problems.length > 0, done = Boolean(result && result.ok);
+    const card = el('li', 'skill-cand agents-cand' + (pick.on && !bad && !done ? ' on' : '') + (done ? ' done' : ''));
+    card.dataset.color = candidate.color || '';
+    const id = 'agent-pick-' + index;
+    const box = card.appendChild(el('input'));
+    box.type = 'checkbox';
+    box.id = id;
+    box.checked = pick.on && !bad;
+    box.disabled = bad || done || view.installing;
+    box.dataset.key = 'pick:' + candidate.key;
+    box.addEventListener('change', () => { pick.on = box.checked; paintAgent(); });
+    const body = card.appendChild(el('div', 'skill-cand-body'));
+    const label = body.appendChild(el('label', 'skill-line'));
+    label.htmlFor = id;
+    label.appendChild(agentFace(candidate, 'small'));
+    label.appendChild(el('span', 'skill-name', candidate.name));
+    if (bad) label.appendChild(el('span', 'skill-flag bad', t('导入不了')));
+    else if (candidate.exists && !done) label.appendChild(el('span', 'skill-flag manual', t('同名')));
+    if (candidate.description) body.appendChild(el('span', 'skill-desc', candidate.description)).title = candidate.description;
+    const facts = [candidate.place + '/' + candidate.file];
+    if (!bad) facts.push(agentModelText(candidate.model, true), agentToolsText(candidate.tools));
+    body.appendChild(el('span', 'skill-meta', facts.join(' · ')));
+    const notes = [...candidate.problems, ...(candidate.warnings || [])];
+    if (notes.length) {
+      const problems = body.appendChild(el('ul', (bad ? 'skill-problems' : 'agents-warn') + (notes.length === 1 ? ' single' : '')));
+      for (const problem of notes) problems.appendChild(el('li', null, problemText(problem)));
+    }
+    if (!done && !bad && pick.on && (candidate.exists || candidate.bad_name)) {
+      // 同名、或者名字在智狐里不合格：问你用什么名字（同名的也可以选替换）
+      const clash = body.appendChild(el('div', 'skill-clash'));
+      clash.appendChild(el('span', null, candidate.bad_name ? t('这个名字在智狐里不能用，导入时换一个：') : t('已经有一个叫 {name} 的 Agent 了。', { name: candidate.name })));
+      const options = clash.appendChild(el('div', 'skill-clash-options'));
+      const radio = (mode, text) => {
+        const wrap = options.appendChild(el('label'));
+        const input = wrap.appendChild(el('input'));
+        input.type = 'radio';
+        input.name = 'agent-mode-' + index;
+        input.checked = pick.mode === mode;
+        input.disabled = view.installing;
+        input.dataset.key = 'mode:' + mode + ':' + candidate.key;
+        input.addEventListener('change', () => { pick.mode = mode; paintAgent(); });
+        wrap.appendChild(tel('span', null, text));
+        return wrap;
+      };
+      const rename = radio('rename', k('改名为')).appendChild(el('input', 'field'));
+      rename.type = 'text';
+      rename.spellcheck = false;
+      rename.value = pick.name;
+      rename.disabled = pick.mode !== 'rename' || view.installing;
+      rename.dataset.key = 'rename:' + candidate.key;
+      rename.setAttribute('aria-label', t('{name} 的新名字', { name: candidate.name }));
+      rename.addEventListener('input', () => { pick.name = rename.value; });
+      if (candidate.exists && !candidate.bad_name) radio('replace', k('替换现有的（原来那个会被删掉）'));
+    }
+    if (result) body.appendChild(el('span', 'skill-cand-result ' + (result.ok ? 'ok' : 'bad'), result.ok ? t('已导入为 {name}', { name: result.name }) : result.error));
+    return card;
+  }
+
+  async function importAgents(view) {
+    if (agentView !== view || view.installing) return;
+    const picks = view.candidates
+      .filter((candidate) => view.picks[candidate.key].on && !candidate.problems.length && !(view.results[candidate.key] && view.results[candidate.key].ok))
+      .map((candidate) => {
+        const pick = view.picks[candidate.key];
+        const replace = Boolean(candidate.exists && !candidate.bad_name && pick.mode === 'replace');
+        return { key: candidate.key, name: replace || !(candidate.exists || candidate.bad_name) ? candidate.name : pick.name.trim(), replace };
+      });
+    if (!picks.length) return;
+    view.installing = true;
+    view.said = null;
+    paintAgent('install');
+    const reply = await call('/api/agent/import', { picks });
+    if (agentView !== view) return;
+    view.installing = false;
+    if (!reply.ok) { view.said = { text: reply.error, bad: true }; paintAgent('install'); announce(reply.error); return; }
+    const results = Array.isArray(reply.data.results) ? reply.data.results : [];
+    for (const result of results) {
+      view.results[result.key] = result;
+      if (result.ok) view.picks[result.key].on = false;
+    }
+    const done = results.filter((result) => result.ok), failed = results.length - done.length;
+    if (!failed) {
+      const said = done.length === 1 ? [k('已导入 {name}。'), { name: done[0].name }] : [k('已导入 {n} 个 Agent。'), { n: done.length }];
+      showAgentView({ kind: 'list' }, 'open:' + done[0].name);
+      extensionSay(said[0], said[1], 'good');
+      announce(t(said[0], said[1]));
+      return;
+    }
+    view.said = { key: k('有 {n} 个没导入，原因写在各自的卡片里。'), values: { n: failed }, bad: true };
+    paintAgent('install');
+    announce(t(view.said.key, view.said.values));
+  }
+
+  // ---- 挂到扩展对话框上 ----
+
+  extensionTabs.agents = {
+    open() {
+      // 你在访达里改了 Agent 文件夹，程序是不知道的。打开这一页时请它重新看一眼：变了会发来新的状态
+      if (token) call('/api/agent/refresh');
+      agentOptions = null;  // MCP 服务器可能刚连上：能勾的工具重新要一次
+      ensureAgentOptions();
+      if (agentView.kind === 'list') { agentsDrawn = ''; drawAgentList(); }
+    },
+    // 关窗之前问一声（见 closeBlocker）：正在编辑、新建，还有没保存的修改，就先提醒一次、不关
+    beforeClose() {
+      if (agentMayLeave()) return true;
+      requestAnimationFrame(() => focusAgent(agentView.mode === 'raw' ? 'raw' : 'name'));
+      return false;
+    },
+    close() {
+      agentSeq += 1;
+      agentView = { kind: 'list' };
+      agentDeleting = null;
+      agentsDrawn = '';
+      drawAgentList();
+    },
+  };
+  window.addEventListener('focus', () => { if (extensionsDialog.open && extensionTab === 'agents' && token && !document.hidden) call('/api/agent/refresh'); });
+  extensionsDialog.addEventListener('close', () => extensionTabs.agents.close());
+
+  // ---- 新对话旁边的 Agent 选择 ----------------------------------------------------
+  // "新对话"右边那个小箭头：点开是你的 Agent，选一个就用它开始一段新对话（这段对话的角色，见 harness/agents/）。
+  // 是一个菜单（role=menu）：方向键上下移动，Home / End 到头尾，回车选，Esc 关上并回到箭头上，点别处也关。
+  // 顶上标题前面的那个小标签显示这段对话的角色，点一下打开它的设定。
+
+  const personaOpen = $('persona-open'), personaMenu = $('persona-menu');
+
+  function drawPersonaMenu() {
+    const usable = (agents || []).filter((agent) => !agent.problems.length);
+    const nodes = [tel('div', 'persona-menu-title', k('用一个 Agent 开始新对话'))];
+    if (!usable.length) {
+      nodes.push(tel('p', 'persona-empty', agents && agents.length ? k('现在的 Agent 都需要修改，修好之后就能用它开始对话。') : k('还没有 Agent。新建一个，或者从示例里挑一个。')));
+    }
+    for (const agent of usable) {
+      const item = el('button', 'persona-item');
+      item.type = 'button';
+      item.setAttribute('role', 'menuitem');
+      item.tabIndex = -1;
+      item.dataset.color = agent.color || '';
+      const words = el('span');
+      words.append(el('b', null, agent.name), el('small', null, agent.description));
+      item.append(agentFace(agent, 'small'), words);
+      item.title = agent.description;
+      item.addEventListener('click', () => { closePersonaMenu(false); startNew(agent.name); });
+      nodes.push(item);
+    }
+    const manage = el('button', 'persona-item manage');
+    manage.type = 'button';
+    manage.setAttribute('role', 'menuitem');
+    manage.tabIndex = -1;
+    manage.append(icon(usable.length ? 'sliders' : 'plus'), tel('span', null, usable.length ? k('管理 Agent…') : k('添加 Agent…')));
+    manage.addEventListener('click', () => { closePersonaMenu(false); openExtensions('agents'); });
+    nodes.push(manage);
+    const focused = personaMenu.contains(document.activeElement) ? [...personaMenu.querySelectorAll('.persona-item')].indexOf(document.activeElement) : -1;
+    personaMenu.replaceChildren(...nodes);
+    if (focused >= 0) { const items = personaMenu.querySelectorAll('.persona-item'); (items[Math.min(focused, items.length - 1)] || personaOpen).focus(); }
+  }
+
+  function openPersonaMenu(last) {
+    if (busy) { toast(t(BUSY_HINT)); return; }
+    drawPersonaMenu();
+    personaMenu.hidden = false;
+    personaOpen.setAttribute('aria-expanded', 'true');
+    const items = personaMenu.querySelectorAll('.persona-item');
+    items[last ? items.length - 1 : 0].focus();
+  }
+
+  function closePersonaMenu(focusButton) {
+    if (personaMenu.hidden) return;
+    personaMenu.hidden = true;
+    personaOpen.setAttribute('aria-expanded', 'false');
+    if (focusButton) personaOpen.focus();
+  }
+
+  personaOpen.addEventListener('click', () => (personaMenu.hidden ? openPersonaMenu(false) : closePersonaMenu(true)));
+  personaOpen.addEventListener('keydown', (key) => {
+    if (key.key === 'ArrowDown' || key.key === 'ArrowUp') { key.preventDefault(); openPersonaMenu(key.key === 'ArrowUp'); }
+  });
+  personaMenu.addEventListener('keydown', (key) => {
+    const items = [...personaMenu.querySelectorAll('.persona-item')];
+    const at = items.indexOf(document.activeElement);
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[key.key];
+    if (next !== undefined) { key.preventDefault(); items[(next + items.length) % items.length].focus(); return; }
+    if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); closePersonaMenu(true); return; }
+    if (key.key === 'Tab') closePersonaMenu(false);  // 用 Tab 离开：菜单收起来，焦点照常往下走
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!personaMenu.hidden && !personaMenu.contains(event.target) && !personaOpen.contains(event.target)) closePersonaMenu(false);
+  });
+
+  // 顶上的角色名和空白页上的那一行。persona 来自状态：{name, color, missing}；普通的对话是 null
+  function renderPersona(persona) {
+    const chip = $('persona'), hero = $('hero-persona');
+    chip.hidden = hero.hidden = !persona;
+    $('hero-lead').hidden = Boolean(persona);
+    if (!persona) return;
+    const agent = agentByName(persona.name);
+    chip.dataset.color = hero.dataset.color = persona.color || '';
+    chip.classList.toggle('missing', Boolean(persona.missing));
+    $('persona-name').textContent = persona.name;
+    chip.title = persona.missing
+      ? t('这段对话是用「{name}」开始的，但它现在用不了。接着聊用的是内置的提示词和全部工具。', { name: persona.name })
+      : t('这段对话的角色是「{name}」。点一下看看它的设定。', { name: persona.name });
+    chip.setAttribute('aria-label', chip.title);
+    const words = el('span', null, agent && agent.description ? agent.description : '');
+    hero.replaceChildren(agentFace({ name: persona.name, color: persona.color }, 'small'), el('b', null, persona.name), words);
+  }
+
+  $('persona').addEventListener('click', () => {
+    const persona = state && state.persona;
+    if (!persona) return;
+    openExtensions('agents');
+    if (agentByName(persona.name)) openAgent(persona.name);
   });
 
   // ---- 语言 ----------------------------------------------------------------

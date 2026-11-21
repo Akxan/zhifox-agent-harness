@@ -46,6 +46,11 @@ class McpTool(Tool):
     remote: str = ""  # 服务器那边的原名（发给模型的名字是改过的）
 
 
+def server_prefix(server: str) -> str:
+    """一个服务器的工具名共同的开头（不含最后的 __）：mcp__服务器。Agent 文件的 tools 里写它，表示"这个服务器的全部工具"。"""
+    return f"{PREFIX}{_UNSAFE.sub('_', server)}"
+
+
 def exposed_name(server: str, tool: str, taken: set[str]) -> str:
     """给模型看的工具名：mcp__服务器__工具。保证合规、不超过 64 个字符、不和 taken 里的重名。"""
     base = f"{PREFIX}{_UNSAFE.sub('_', server)}__{_UNSAFE.sub('_', tool)}"

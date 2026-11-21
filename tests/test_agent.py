@@ -67,6 +67,7 @@ def test_plain_answer_sends_expected_request(start):
         "skill",
         "web_search",
         "web_fetch",
+        "agent",  # 把任务交给子 Agent（见 tools/agent.py）：一直都在，哪怕一个 Agent 都还没有
     ]
     assert request["messages"] == [
         {

@@ -39,7 +39,8 @@ class UI(StreamUI, Protocol):
 
     def tool_call(self, name: str, tool_input: object) -> None: ...
     def tool_result(self, text: str, is_error: bool) -> None: ...
-    def confirm(self, description: str) -> tuple[bool, str]: ...
+    # agent：是哪个子 Agent 在问（见 agents/runner.py）；主助手自己问的时候是空的
+    def confirm(self, description: str, agent: str = "") -> tuple[bool, str]: ...
     def auto_allowed(self) -> None: ...  # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许
 
 
@@ -71,6 +72,9 @@ class Agent:
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
+        # 上一轮是怎么结束的：done 答完了，refused 被拒绝，truncated 回复被截断，steps 用完了 max_steps 次。
+        # 主助手用不上它（这些情况都已经在界面上说了）；把任务交给子 Agent 的那一边要靠它告诉主助手"做完没有"
+        self.outcome = ""
 
     def use_tools(self, tools: ToolRegistry) -> None:
         """换一套工具（循环执行的、和发给模型的说明书一起换）。只在一段对话开始之前用。"""
@@ -96,6 +100,7 @@ class Agent:
         if self.on_start is not None and not self.backend.export():
             self.on_start()
         start = self.backend.mark()
+        self.outcome = ""
         # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。
         # 只发了附件、没写字的时候，没有"用户的话"这一段（API 不接受空的文字块）
         notes = [text for text in (note(self.messages) for note in self.notes) if text]
@@ -119,6 +124,7 @@ class Agent:
             if step.status == "refused":
                 # 被拒绝的内容留在历史里的话，后面多半还会被拒，所以整轮撤销
                 self.backend.rollback(start)
+                self.outcome = "refused"
                 if step.note:
                     self.ui.info(t("模型拒绝了这个请求（类别：{category}），这一轮对话已撤销。可以换个说法再试。", category=step.note))
                 else:
@@ -131,6 +137,7 @@ class Agent:
                 continue
 
             if not step.tool_calls:
+                self.outcome = "truncated" if step.truncated else "done"
                 if step.truncated:
                     self.ui.info(t("回复达到了长度上限，被截断了。"))
                 return  # 模型没有要调用的工具了：这一轮结束
@@ -138,6 +145,7 @@ class Agent:
             # 执行工具，结果追加进历史，然后回到循环开头，让模型看到结果后决定下一步
             self._run_tools(step)
 
+        self.outcome = "steps"
         self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
 
     def _record(self, usage: Usage) -> None:
@@ -188,6 +196,9 @@ class Agent:
         tool = self.tools.get(call.name)
         if tool is None or tool.run is None:
             return f"没有可以在本地执行的工具 {call.name}。", True, ()
+        refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
+        if refusal:
+            return refusal, True, ()  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
 
         # 先过权限这一关
         question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的

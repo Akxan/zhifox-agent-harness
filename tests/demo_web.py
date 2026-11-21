@@ -19,14 +19,19 @@
     一个 HTTP 的（在这个进程里跑）、一个启动不了的、一个停用的。"扩展 → MCP"里都能看到、能点。
     "从 Claude 导入"读的是临时目录里编造的 Claude Desktop / Claude Code 配置，不会读你电脑上真正的那些
     （这个脚本把 HOME 换成了临时目录）。
+  - 也预先放了几个编造的自定义 Agent（扩展 → Agent）：资料研究员（示例）、文件管家（能执行命令，用来看
+    "子 Agent 要你确认"的样子）、一个写坏了的。"从 Claude Code 导入"读的是临时目录里假的 ~/.claude/agents。
+    "新对话"旁边的箭头可以用它们开始一段对话（角色）。
   - 定时任务照常运行（调度线程和正式程序里一样）。全新的数据目录里预先放了几个编造的任务：
     一条已经弹出、还没关掉的提醒，一个跑过两次的"每日安排"，一个关掉了的每周任务，一个每 45 分钟的提醒。
     任务的回复不占下面那一串（几个任务和你的对话同时跑，按顺序就分不清谁是谁了）：每次运行先要执行一条命令
     （"每次确认"的任务会停下来等你批准），然后交代做完了。所以可以一边聊天，一边让好几个任务一起跑。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
-联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）；
-之后是几条凑数的回复。发什么消息都行，回复只看顺序。
+联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
+一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
+再交给文件管家（它要执行一条命令，会弹出写着"「文件管家」想要"的确认卡片）；之后是几条凑数的回复。
+发什么消息都行，回复只看顺序（主助手和子 Agent 共用这一串回复）。
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
 
 import harness.webui.server as server_module
+from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.config import Config
 from harness.tasks import new_run
@@ -213,6 +219,14 @@ WEB_SEARCH = [
         ],
     },
 ]
+# 子 Agent 交回的回答（Markdown）：卡片里照样按 Markdown 画
+SUB_ANSWER = """**结论：** agent harness 是包在模型外面的那层程序，负责循环、工具和权限。
+
+1. 模型只会"读入一段对话、写出下一段"，让它能做事的是 harness 的循环（出处：notes.txt）
+2. 工具的说明书由 harness 写，执行也在 harness 这边（出处：https://example.com/a）
+3. 会改动电脑的操作先问用户（出处：https://example.com/b）
+
+**不确定的地方：** 两个网页都没写日期，可能已经过时。"""
 claude = SlowClaude(
     [
         reply(thinking("用户在打招呼。简单介绍一下自己能做什么就行，不用调用工具。先列出四类能力，再给一个链接。"), text(GREETING)),
@@ -227,6 +241,15 @@ claude = SlowClaude(
         # 调用一个 MCP 服务器的工具（假服务器 files 的 echo）：会弹出确认卡片，除非在"扩展 → MCP"里把它设成了不用问
         reply(text("我用 MCP 服务器试一下。"), tool_use("toolu_4", "mcp__files__echo", {"text": "你好，MCP"}), stop_reason="tool_use"),
         reply(text("MCP 服务器原样回了这句话。")),
+        # 交给子 Agent（见 harness/agents/runner.py）：主助手调用 agent 工具 → 子 Agent 自己的两步 → 主助手转告
+        reply(text("这件事交给资料研究员去查。"), tool_use("toolu_5", "agent", {"name": "资料研究员", "task": "查一下什么是 agent harness，结合工作目录里的 notes.txt，交回三条要点和出处。"}), stop_reason="tool_use"),
+        reply(thinking("先看看工作目录里的笔记。"), tool_use("toolu_s1", "str_replace_based_edit_tool", {"command": "view", "path": "notes.txt"}), stop_reason="tool_use"),
+        reply(*WEB_SEARCH, text(SUB_ANSWER)),
+        reply(text("资料研究员查完了：harness 是包在模型外面、负责循环、工具和权限的那层程序。详细的要点在上面的卡片里。")),
+        reply(text("我让文件管家看一眼工作目录。"), tool_use("toolu_6", "agent", {"name": "文件管家", "task": "列出工作目录里的文件和大小，告诉我哪些可以清理。"}), stop_reason="tool_use"),
+        reply(tool_use("toolu_s2", "run_command", {"command": "ls -la"}), stop_reason="tool_use"),
+        reply(text("工作目录里只有 notes.txt（两行字）和一个刚建的空文件 made.txt，都很小，不用清理。")),
+        reply(text("文件管家说：目录里只有两个小文件，不用清理。")),
         *(reply(text("（这是一条预设的回复，用来凑数。）" * 3)) for _ in range(8)),
     ]
 ).start()
@@ -366,6 +389,22 @@ if not skills_dir.exists() and not (root / "data" / "skills.json").exists():  # 
             "pdf-tools": {"kind": "url", "url": "https://github.com/example-org/skills/tree/main/pdf-tools", "label": "github.com/example-org/skills/pdf-tools", "at": 1795200000},
         },
     }), encoding="utf-8")
+# 几个编造的自定义 Agent（扩展 → Agent）：内置的示例"资料研究员"、一个能执行命令的、一个写坏了的（列表里标"需要修改"）
+AGENTS = {
+    "资料研究员.md": agent_examples.find("researcher").text,
+    "文件管家.md": "---\nname: 文件管家\ndescription: 看看工作目录里有什么、占了多大，给出整理建议。只读和列目录，不删东西。\ntools: Read, Bash\ncolor: orange\n---\n\n你帮用户整理工作目录。先用 ls 看清楚有什么，再按类型和大小给建议；不要删除、移动任何文件。\n",
+    "broken-agent.md": "---\nname: broken-agent\ndescription: 这个文件故意写坏了：颜色不对，正文也是空的。\ncolor: rainbow\n---\n",
+}
+agents_dir = root / "data" / "agents"
+if not agents_dir.exists():  # 用 --data 接着用上次的目录时不再补
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    for name, body in AGENTS.items():
+        (agents_dir / name).write_text(body, encoding="utf-8")
+# 假的 Claude Code 的 Agent（HOME 已经换成了临时目录）：一个和上面同名的、一个用 Claude Code 自己的工具名写的
+claude_agents = fake_home / ".claude" / "agents"
+claude_agents.mkdir(parents=True, exist_ok=True)
+(claude_agents / "资料研究员.md").write_text("---\nname: 资料研究员\ndescription: Claude Code 里的研究员。\ntools: WebSearch, WebFetch\n---\n\n只联网查资料。\n", encoding="utf-8")
+(claude_agents / "test-runner.md").write_text("---\nname: test-runner\ndescription: Run the test suite and summarize failures. Use after code changes.\ntools: Bash, Read, Grep, Glob\nmodel: sonnet\ncolor: cyan\npermissionMode: default\n---\n\nRun the tests, then list each failure with its file and a one-line cause.\n", encoding="utf-8")
 # 假的 Claude Code 的 Skill（HOME 上面已经换成了临时目录，所以"从 Claude Code 导入"走的是真正的代码，读的是这里）：
 # 两个 Skill，其中一个和上面的重名，导入时能看到"改名还是替换"
 claude_home = fake_home / ".claude" / "skills"

@@ -21,6 +21,8 @@ def describe_call(name: str, tool_input: object) -> str:
         return f"{name} rename {tool_input['old_path']} → {tool_input['new_path']}"
     if name == "run_command":
         return f"{name} $ {short(str(tool_input.get('command')), 200)}"
+    if name == "agent":  # 交给一个子 Agent：agent 资料研究员 · 任务的开头
+        return short(f"{name} {tool_input.get('name')} · {' '.join(str(tool_input.get('task') or '').split())}", 200)
     if name == "skill":  # 读一个 Skill：skill pdf，或者 skill pdf references/FORMS.md
         return short(f"{name} {tool_input.get('name')} {tool_input.get('file') or ''}".rstrip(), 200)
     return f"{name} {short(json.dumps(tool_input, ensure_ascii=False), 200)}"

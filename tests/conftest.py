@@ -31,6 +31,11 @@ class RecordingUI:
         self.confirmations: list[str] = []
         self.auto_allowed_count = 0  # 有几次是没问用户、自动放行的
         self.infos: list[str] = []
+        self.askers: list[str] = []  # 每一次确认是谁在问（子 Agent 的名字；主助手自己问时是空的）
+        self.subagents: list[tuple[str, dict]] = []  # 子 Agent 的每一步进展：(step, data)
+        self.stop_after: str | None = None  # 测试想在子 Agent 的某一步之后"点停止"时，写那一步的名字
+        self._stop = False
+        self._stop_callbacks: list = []
 
     def thinking(self, text: str) -> None:
         self.streamed.append(("thinking", text))
@@ -50,8 +55,9 @@ class RecordingUI:
     def tool_result(self, text: str, is_error: bool) -> None:
         self.results.append((text, is_error))
 
-    def confirm(self, description: str) -> tuple[bool, str]:
+    def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
         self.confirmations.append(description)
+        self.askers.append(agent)
         return self.approve, self.feedback
 
     def auto_allowed(self) -> None:
@@ -59,6 +65,26 @@ class RecordingUI:
 
     def info(self, text: str) -> None:
         self.infos.append(text)
+
+    def subagent(self, step: str, **data) -> None:
+        if step != "done":
+            self.check_stop()
+        self.subagents.append((step, data))
+        if self.stop_after == step:
+            self.request_stop()
+
+    def check_stop(self) -> None:
+        if self._stop:
+            raise KeyboardInterrupt
+
+    def request_stop(self) -> None:
+        self._stop = True
+        for callback in list(self._stop_callbacks):
+            callback()
+
+    def on_stop(self, callback):
+        self._stop_callbacks.append(callback)
+        return lambda: self._stop_callbacks.remove(callback) if callback in self._stop_callbacks else None
 
 
 @pytest.fixture

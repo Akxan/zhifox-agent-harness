@@ -3,9 +3,12 @@
 这个助手有三类工具，区别在于"说明书谁写"和"谁来执行"：
 
   类别                      说明书        执行          例子
-  1. 自定义工具             我们写        我们的电脑    todo.py、tasks.py、shell.py、skill.py
+  1. 自定义工具             我们写        我们的电脑    todo.py、tasks.py、shell.py、skill.py、agent.py
   2. Anthropic 定义的工具   Anthropic     我们的电脑    files.py、memory.py
   3. 服务器工具             Anthropic     Anthropic     web.py
+
+agent.py（把任务交给子 Agent）不在下面的 build_registry 里：它要知道"是谁在叫"（哪一方的界面、权限、第几层），
+所以每一方各做一个，由 app.py 和 agents/runner.py 放进那一方的工具箱。
 """
 
 from __future__ import annotations

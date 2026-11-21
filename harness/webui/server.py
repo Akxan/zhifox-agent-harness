@@ -8,7 +8,7 @@
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
   POST /api/stop       用户点了"停止"
-  POST /api/new        用户点了"新对话"
+  POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
@@ -18,6 +18,7 @@
   POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
   POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / Claude Code 安装（见 skills_api.py）
+  POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从 Claude Code 导入（见 agents_api.py）
   POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/mcp/...    MCP 服务器：查看详情、添加或编辑、删除、启用停用、重启、改"问不问你"、
@@ -75,6 +76,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .. import export, i18n, media, memories
 from .. import prompt as prompts
+from ..agents import AgentError
 from ..app import App, build_app, run_turn
 from ..attachments import Attachment, AttachmentError
 from ..attachments import parse as parse_attachments
@@ -95,6 +97,7 @@ from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
+from .agents_api import AgentsAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -120,7 +123,7 @@ def reveal_in_file_manager(path: Path) -> None:
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
     路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory、reveal_media 和
-    skills_api.py 的 reveal：浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、
+    skills_api.py、agents_api.py 的 reveal：浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、
     附件的编号（查过格式，文件名由内容的 SHA-256 定）、一个 Skill 的名字（只能是 Skill 文件夹里的一个子文件夹），
     或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
@@ -163,6 +166,7 @@ class WebApp:
         self._live: tuple[object, tuple[Entry, ...]] = (None, ())  # 当前会话里的附件，和算它时的依据（见 _live_media）
         # Skill 一页的接口。"在文件管理器里显示"每次都按名字现找这个函数（测试会把它换掉）
         self.skills = SkillsAPI(self, lambda path: reveal_in_file_manager(path))
+        self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -227,6 +231,10 @@ class WebApp:
             media=self._media_state(),
             # 装好的 Skill（名字、说明、启用没有、有没有问题）。和记忆一样每次都重新看一遍文件夹
             skills=self.skills.summaries(),
+            # 自定义 Agent（名字、说明、模型、颜色、几样工具、有没有问题），和 Skill 一样每次都重新看一遍文件夹
+            agents=self.agents.summaries(),
+            # 当前这段对话是用哪个 Agent 开始的（顶上显示它的名字）；普通的对话是 null
+            persona=self.app.persona_info(),
             prompt_custom=prompts.load_template(config) != prompts.DEFAULT_TEMPLATE,  # 提示词改过没有（设置里显示）
             usage={
                 "requests": usage.requests,
@@ -366,15 +374,29 @@ class WebApp:
         self._turn.release()
         return True
 
-    def new_conversation(self) -> str:
-        """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。"""
+    def new_conversation(self, agent: str | None = None) -> str:
+        """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。
+
+        agent：用哪个自定义 Agent 当角色（见 App.new_conversation）。它选的模型是另一家、那一家又还没有密钥的话，先说清楚。
+        """
         if not self._turn.acquire(blocking=False):
             return self._busy()
         try:
-            blocked = self._before_leaving("new")
+            if agent:
+                try:
+                    persona = self.app.agents.usable(agent)
+                except AgentError as exc:
+                    return str(exc)
+                provider = PROVIDERS[persona.spec.provider] if persona.spec.model else self.app.provider
+                if not has_key(provider):
+                    return t("「{agent}」用的是 {provider} 的模型，还没有设置 {provider} 的 API 密钥。", agent=persona.name, provider=provider.label)
+            blocked = self._before_leaving("new:" + (agent or ""))
             if blocked:
                 return blocked
-            self.app.new_conversation()
+            try:
+                self.app.new_conversation(agent)
+            except AgentError as exc:
+                return str(exc)
             self._left()
             self.ui.reset()
             self.publish_state()
@@ -961,7 +983,11 @@ class Handler(BaseHTTPRequestHandler):
             web.stop()
             self._send_json(200, {"ok": True})
         elif path == "/api/new":
-            self._finish(web.new_conversation())
+            agent = body.get("agent")
+            if agent is not None and (not isinstance(agent, str) or not 0 < len(agent) <= 200):
+                self._send_json(400, {"error": t("参数不正确")})
+            else:
+                self._finish(web.new_conversation(agent))
         elif path.startswith("/api/conversation/"):
             conversation_id, title = body.get("id"), body.get("title")
             action = path.removeprefix("/api/conversation/")
@@ -1054,6 +1080,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "path": shown})
         elif path.startswith("/api/skill/"):
             status, payload = web.skills.route(path.removeprefix("/api/skill/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/agent/"):
+            status, payload = web.agents.route(path.removeprefix("/api/agent/"), body)
             self._send_json(status, payload)
         elif path.startswith("/api/mcp/"):
             self._route_mcp(path.removeprefix("/api/mcp/"), body)

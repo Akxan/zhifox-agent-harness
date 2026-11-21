@@ -11,6 +11,11 @@ from typing import Any
 
 from . import budget, i18n
 from .agent import Agent
+from .agents import AgentError, AgentStore, CustomAgent
+from .agents import tools as agent_tools
+from .agents.catalog import notifier as agent_notifier
+from .agents.prompt import persona_prompt
+from .agents.runner import Delegator
 from .attachments import Attachment, unsupported
 from .config import Config
 from .conversations import (
@@ -43,6 +48,7 @@ from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.files import FileEditor
 from .tools.shell import Shell, make_shell_tool
+from .tools.skill import TOOL_NAME as SKILL_TOOL
 from .tools.todo import TodoStore
 
 
@@ -72,10 +78,15 @@ class App:
     ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
     skills: SkillStore  # 装好的 Skill（data/skills/）
     mcp: McpManager  # 接入的 MCP 服务器（见 mcp/）
+    agents: AgentStore  # 自定义 Agent（data/agents/，见 agents/）
+    delegator: Delegator  # 给每个会叫子 Agent 的一方做 agent 工具，并把子 Agent 跑起来（见 agents/runner.py）
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
     prompt_in_use: str = ""
+    # 当前这段对话是用哪个 Agent 当角色开始的（见 agents/ 开头的说明）；普通的对话是 None。
+    # 它在这段对话开始时读好，之后不再变：你中途改了那个 Agent 的文件，从下一段用它开始的对话起才算数
+    persona: CustomAgent | None = None
 
     @property
     def provider(self) -> Provider:
@@ -98,10 +109,10 @@ class App:
             self.agent.backend.model = model
             self.conversation.model = model
         else:
-            backend = self._backend_for(provider_id, model)  # 会失败的先做
+            backend = self._backend_for(provider_id, model, self.persona)  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
             self.agent.backend = backend
             self.prompt_in_use = self.system_prompt
-            self.conversation = self.store.new(provider_id, model)
+            self.conversation = self._new(provider_id, model, self.persona)
             self.agent.usage.context_tokens = 0
         self._remember_choice(provider_id, model)
         return same_provider
@@ -120,15 +131,26 @@ class App:
         if self.agent.backend.export():
             return False
         backend = self.agent.backend
-        self.agent.backend = self._backend_for(backend.provider, backend.model)
+        self.agent.backend = self._backend_for(backend.provider, backend.model, self.persona)
         self.prompt_in_use = self.system_prompt
         return True
 
-    def _backend_for(self, provider_id: str, model: str) -> Any:
-        """建一个连着指定模型的新适配层（历史是空的）。"""
+    def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None) -> Any:
+        """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。"""
         provider = PROVIDERS[provider_id]
-        prompt = build_system_prompt(self.config, web=self.config.web and provider.web)  # 能不能联网，要看是哪一家
-        return make_backend(provider, model, self.config, self.tools, prompt, self.client_factory(provider))
+        tools = self.conversation_tools(persona)
+        web = self.config.web and provider.web  # 能不能联网，要看是哪一家
+        if persona is None:
+            prompt = build_system_prompt(self.config, web=web)
+        else:
+            # 角色的提示词是它自己的设定加上程序附上的环境说明（见 agents/prompt.py）；它的 tools 没放开联网，就不写"能联网"
+            prompt = persona_prompt(self.config, persona, web=web and agent_tools.has_web(tools))
+        return make_backend(provider, model, self.config, tools, prompt, self.client_factory(provider))
+
+    def _new(self, provider_id: str, model: str, persona: CustomAgent | None) -> Conversation:
+        conversation = self.store.new(provider_id, model)
+        conversation.agent = persona.name if persona is not None else ""
+        return conversation
 
     def _remember_choice(self, provider_id: str, model: str) -> None:
         """把"现在用的是哪个模型"写进设置文件，下次启动还用它。
@@ -160,13 +182,16 @@ class App:
         backend = self._backend_for(self.settings.provider, self.settings.model)
         permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
+        # 任务也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这个任务的那一档，停止只停这次运行，见 agents/runner.py）
+        delegate = self.delegator.tool_for(agent)
         # 任务的这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
         # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
-        agent.use_tools(ToolRegistry([*tools, *self.mcp.snapshot(owner).tools]))
+        agent.use_tools(ToolRegistry([*tools, *([delegate] if delegate else []), *self.mcp.snapshot(owner).tools]))
         # 定时任务花的钱也记进账本，来源写成 task，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source="task")
         # 任务也能用 Skill：它的历史是空的，所以第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
         agent.notes.append(notifier(self.skills))
+        agent.notes.append(agent_notifier(self.agents, lambda: agent.tools))  # 有哪些 Agent 可以交给，也一样
 
         def stop() -> None:
             shell.kill_running()
@@ -181,17 +206,32 @@ class App:
 
     # ---- 会话 -------------------------------------------------------------
 
-    def new_conversation(self) -> None:
-        """开始一段新会话。之前的会话已经在磁盘上，随时可以再打开。"""
-        if self.prompt_in_use != self.system_prompt:
-            # 提示词改过了：新的一段用新的。提示词存在适配层里，所以换一个新建的（历史本来就要清空）
-            backend = self.agent.backend
-            self.agent.backend = self._backend_for(backend.provider, backend.model)
+    def new_conversation(self, agent: str | None = None) -> None:
+        """开始一段新会话。之前的会话已经在磁盘上，随时可以再打开。
+
+        agent：用哪个自定义 Agent 当角色（见 agents/ 开头的说明）。这段对话的系统提示词换成它的设定，工具只有它放开的，
+        模型用它选的那个（它写了的话；这个选择也会记成"现在用的模型"，和打开一段旧会话一样）。
+        这个 Agent 不存在或者不合格时抛出 AgentError，什么都不换。
+        """
+        persona = self.agents.usable(agent) if agent else None  # 会失败的先做
+        if persona is not None and persona.spec.model:
+            provider_id, model = persona.spec.provider, persona.spec.model_id
+        else:
+            provider_id, model = self.settings.provider, self.settings.model
+        backend = self.agent.backend
+        if persona is not None or self.persona is not None or self.prompt_in_use != self.system_prompt or provider_id != backend.provider:
+            # 提示词不一样了（换了角色、用户改过提示词、换了一家）：新的一段用新的。提示词存在适配层里，
+            # 所以换一个新建的（历史本来就要清空）
+            self.agent.backend = self._backend_for(provider_id, model, persona)
             self.prompt_in_use = self.system_prompt
         else:
             self.agent.reset()
-        self.conversation = self.store.new(self.settings.provider, self.settings.model)
+            backend.model = model
+        self.persona = persona
+        self.conversation = self._new(provider_id, model, persona)
         self.agent.usage.context_tokens = 0
+        if persona is not None and persona.spec.model:
+            self._remember_choice(provider_id, model)
 
     def open_conversation(self, conversation_id: str) -> Conversation:
         """打开一段保存过的会话，接着聊。
@@ -202,15 +242,24 @@ class App:
         conversation = self.store.load(conversation_id)
         if conversation.provider not in PROVIDERS:
             raise ConversationError(t("这段会话用的模型提供方，这个版本的程序已经不支持了。"))
+        # 用 Agent 开始的会话：照着这个 Agent 现在的文件接着聊（和内置的提示词一样，用的是现在的那一版）。
+        # 它被删掉了、或者现在不合格的话，退回到普通的对话，并且说一声
+        persona = None
+        if conversation.agent:
+            try:
+                persona = self.agents.usable(conversation.agent)
+            except AgentError as exc:
+                self.warnings.append(t("这段会话是用 Agent「{name}」开始的，但它现在用不了（{reason}）。接着聊会用内置的提示词和全部工具。", name=conversation.agent, reason=exc))
         # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
         same_provider = conversation.provider == self.agent.backend.provider
-        # 同一家、提示词也没改过，就接着用现在的适配层；否则新建一个（带着现在的提示词）
-        reuse = same_provider and self.prompt_in_use == self.system_prompt
-        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model)
+        # 同一家、提示词也没改过、前后都不是角色，就接着用现在的适配层；否则新建一个（带着现在的提示词）
+        reuse = same_provider and self.prompt_in_use == self.system_prompt and persona is None and self.persona is None
+        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona)
         backend.model = conversation.model
         backend.restore(conversation.messages)
         self.agent.backend = backend
         self.prompt_in_use = self.system_prompt
+        self.persona = persona
         self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
@@ -227,7 +276,22 @@ class App:
         """
         shot = self.mcp.snapshot()
         self.mcp.active = shot
-        self.agent.use_tools(ToolRegistry([*self.tools, *shot.tools]))
+        self.agent.use_tools(self.conversation_tools(self.persona, shot.tools))
+
+    def conversation_tools(self, persona: CustomAgent | None, mcp_tools: Sequence[Any] = ()) -> ToolRegistry:
+        """一段对话用的工具：自己的工具、agent 工具（把任务交给子 Agent，一直都在，见 tools/agent.py）、MCP 的快照。
+        用一个 Agent 当角色的对话，只留它的 tools 放开的那些（见 agents/tools.py）。"""
+        delegate = self.delegator.tool_for(self.agent)
+        tools = [*self.tools, *([delegate] if delegate else []), *mcp_tools]
+        return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)
+
+    def persona_info(self) -> dict | None:
+        """当前这段对话的角色（页面顶上显示它的名字）：名字、颜色；它现在用不了的话 missing 为真。普通的对话是 None。"""
+        name = self.conversation.agent
+        if not name:
+            return None
+        persona = self.persona if self.persona is not None and self.persona.name == name else None
+        return {"name": name, "color": persona.spec.color if persona else "", "missing": persona is None}
 
     def tool_names(self) -> list[tuple[str, bool]]:
         """界面上"模型可以使用的工具"：（名字，是否在本地执行）。
@@ -239,7 +303,10 @@ class App:
         if self.agent.backend.export():
             return names
         own = [(name, local) for name, local in names if not name.startswith(MCP_PREFIX)]
-        return own + [(tool.name, True) for tool in self.mcp.snapshot().tools]
+        fresh = self.mcp.snapshot().tools
+        if self.persona is not None:
+            fresh = agent_tools.allowed(self.persona.spec.tools, fresh)
+        return own + [(tool.name, True) for tool in fresh]
 
     def close(self) -> None:
         """程序退出前的收尾：关掉启动过的 MCP 服务器进程。"""
@@ -364,11 +431,17 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     mcp = McpManager(McpConfig(config.mcp_file))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
-    # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）
-    agent.notes.append(notifier(skills))
+    # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）。
+    # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）
+    skill_note = notifier(skills)
+    agent.notes.append(lambda history: skill_note(history) if agent.tools.get(SKILL_TOOL) is not None else "")
     # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
     ledger = Ledger(config.ledger_file)
     agent.on_call = ledger.recorder(lambda: settings.prices)
+    # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）
+    agents = AgentStore(config.agents_dir)
+    agent.notes.append(agent_notifier(agents, lambda: agent.tools))
+    delegator = Delegator(config, agents, skills, mcp, ledger, lambda: settings.prices, client_factory)
     store = ConversationStore(config.conversations_dir)
     app = App(
         config=config,
@@ -387,7 +460,12 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         ledger=ledger,
         skills=skills,
         mcp=mcp,
+        agents=agents,
+        delegator=delegator,
     )
+    # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
+    # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
+    agent.use_tools(app.conversation_tools(None))
     agent.on_start = app.fresh_tools
     mcp.start()  # 每个启用的服务器在自己的后台线程里连接，这里不等
     return app

@@ -426,8 +426,14 @@ class Scheduler:
                 if pending.log and pending.log[-1]["ok"] is None:
                     pending.log[-1]["ok"] = not data["is_error"]
                 pending.activity = {"kind": "thinking", "tool": "", "summary": ""}  # 结果交回给模型了，等它想下一步
+            elif kind == "subagent" and data.get("step") == "tool_call":
+                # 任务把一件事交给了子 Agent（见 agents/runner.py），它正在调用工具：进度里写明是它在做
+                summary = t("「{agent}」：{summary}", agent=data.get("agent", ""), summary=data.get("summary", ""))
+                pending.activity = {"kind": "tool", "tool": data.get("name", ""), "summary": summary}
             elif kind == "confirm":
                 question = Message(data["description"], data["key"], data["values"]) if "key" in data else data["description"]
+                if data.get("agent"):  # 是子 Agent 在问：确认上写明是它
+                    question = t("「{agent}」：{summary}", agent=data["agent"], summary=retell(question))
                 pending.confirm = {"id": event_id, "tool": pending.tool, "summary": question}
                 pending.activity = {"kind": "waiting", "tool": pending.tool, "summary": t(WAIT_CONFIRM)}
                 status = "waiting"

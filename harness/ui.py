@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
@@ -84,10 +85,11 @@ class TerminalUI:
         except EOFError:
             return None
 
-    def confirm(self, description: str) -> tuple[bool, str]:
-        """请用户确认一个操作。返回（是否允许，用户附带的话）。"""
+    def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
+        """请用户确认一个操作。返回（是否允许，用户附带的话）。agent 是哪个子 Agent 在问（主助手自己问时是空的）。"""
         self.end_stream()
-        self._write(self._paint(YELLOW, "\n⚠️  " + t("助手想要") + description) + "\n")
+        asking = t("「{agent}」想要", agent=agent) if agent else t("助手想要")
+        self._write(self._paint(YELLOW, "\n⚠️  " + asking + description) + "\n")
         if not self._interactive:
             self._write("\n")
             return False, "当前不是交互式终端，没有人可以确认。"  # 这句是给模型看的，不用翻译
@@ -144,3 +146,34 @@ class TerminalUI:
 
     def auto_allowed(self) -> None:
         self.info("   " + t("（自动允许）"))
+
+    # ---- 子 Agent（见 agents/runner.py）------------------------------------
+
+    def subagent(self, step: str, **data: object) -> None:
+        """子 Agent 的一步进展：缩进一层显示，看得出是它在做，不是主助手。"""
+        name = str(data.get("agent", ""))
+        if step == "start":
+            self._line(CYAN, "🤖 " + t("交给「{agent}」：{task}", agent=name, task=short(str(data.get("task", "")), 120)))
+        elif step == "tool_call":
+            self._line(CYAN, f"   🔧 {data.get('summary', '')}")
+        elif step == "tool_result":
+            self._line(RED if data.get("is_error") else DIM, f"      ↳ {short(str(data.get('text', '')), 100)}")
+        elif step == "auto":
+            self.info("      " + t("（自动允许）"))
+        elif step == "note":
+            self.info(f"   （{data.get('text', '')}）")
+        elif step == "done":
+            status = data.get("status")
+            if status == "failed":
+                self.error("   " + t("「{agent}」出错了：{error}", agent=name, error=data.get("error", "")))
+            elif status == "stopped":
+                self.info("   " + t("「{agent}」被中断了。", agent=name))
+            else:
+                self.info("   " + t("「{agent}」做完了，回答交给了主助手。", agent=name))
+
+    def check_stop(self) -> None:
+        pass  # 终端里的"停止"是 Ctrl-C：它直接打断正在运行的代码，不用这里去看
+
+    def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]:
+        # 同样的原因：Ctrl-C 会让子 Agent 正在运行的命令一起收到信号（它们在同一个进程组里），不用另外登记
+        return lambda: None

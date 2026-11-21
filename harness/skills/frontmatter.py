@@ -32,6 +32,9 @@
 
 规范之外的字段（比如 Claude Code 自己用的 argument-hint、hooks）我们用不上，写法再复杂也不报错，
 原样留在文件里，只是读不出它的值（见 UNREADABLE）。
+
+自定义 Agent 的文件（agents/spec.py，也是"frontmatter 加正文"的 Markdown）用的是同一个解析器，
+所以两边的写法、报错的说法完全一样。
 """
 
 from __future__ import annotations
@@ -83,11 +86,12 @@ def split_lines(text: str) -> list[str]:
     return text.removeprefix("﻿").replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 
-def parse(text: str, known: frozenset[str] = frozenset()) -> Frontmatter:
-    """读出 SKILL.md 的 frontmatter。known 是"我们要用的字段"：它们写错了要报错；别的字段宽松处理。"""
+def parse(text: str, known: frozenset[str] = frozenset(), file: str = "SKILL.md") -> Frontmatter:
+    """读出 frontmatter。known 是"我们要用的字段"：它们写错了要报错；别的字段宽松处理。
+    file 是报错时怎么称呼这个文件（SKILL.md，或者一个 Agent 的文件名）。"""
     lines = split_lines(text)
     if lines[0].rstrip() != "---":
-        raise FrontmatterError(t("SKILL.md 的第一行必须是 ---，下面写 name 和 description，再用一行 --- 结束。"), 1)
+        raise FrontmatterError(t("{file} 的第一行必须是 ---，下面写 name 和 description，再用一行 --- 结束。", file=file), 1)
     end = next((index for index in range(1, len(lines)) if lines[index].rstrip() == "---"), None)
     if end is None:
         raise FrontmatterError(t("frontmatter 没有结束：缺少第二行 ---。"), 1)
@@ -407,3 +411,28 @@ def scalar(value: str) -> str:
         and all(char.isprintable() for char in value)
     )
     return value if plain else json.dumps(value, ensure_ascii=False)
+
+
+def replace_fields(text: str, values: dict[str, str | None]) -> str:
+    """把 frontmatter 里的几个字段换成新的写法，别的内容一个字都不动。
+
+    values 是 {字段名: 这个字段新的写法（"name: x" 这样的一行或几行）}；None 表示删掉这个字段。
+    原来没有的字段加在 frontmatter 的末尾（第二行 --- 之前）。调用的人要先确认 text 读得出来。
+    改名（spec.with_name）、在表单里改一个 Agent（agents/spec.py）都用它：只改你改了的那几项，
+    你在文件里写的注释、别的字段、正文都原样留着。
+    """
+    lines = split_lines(text)
+    front = parse(text)
+    end = next(index for index in range(1, len(lines)) if lines[index].rstrip() == "---")
+    # 从后往前换：换掉后面的不会让前面的行号变
+    present = sorted(((front.spans[key], key) for key in values if key in front.spans), reverse=True)
+    for (start, stop), key in present:
+        written = values[key]
+        lines[start:stop] = [] if written is None else written.split("\n")
+        if start < end:
+            end += (0 if written is None else len(written.split("\n"))) - (stop - start)
+    added = [values[key] for key in values if key not in front.spans and values[key] is not None]
+    for written in reversed(added):
+        lines[end:end] = written.split("\n")
+    # 原来是 Windows 的换行（\r\n）就还用它：只改这几项，别的一个字节都不动
+    return ("\r\n" if "\r\n" in text else "\n").join(lines)

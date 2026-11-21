@@ -52,6 +52,10 @@ class Tool:
     # 发给其他厂商模型的说明书：{"name", "description", "parameters"}，各家通用的函数格式。
     # None 表示这个工具只有 Claude 能用（比如 Anthropic 服务器上的联网搜索）。
     portable: dict | None = None
+    # 执行之前、问用户之前先看一眼参数：返回一段话，表示这次调用这个工具不做（这段话作为出错的结果交回给模型，
+    # 不问用户）；返回 None 表示照常。比如只许读文件的 Agent 拿到的文件工具，遇到"改文件"就直接退回
+    # （见 agents/tools.py）：明知不会做的事，不该先弹一张确认卡片让你点
+    check: Callable[[dict], str | None] | None = None
 
     @property
     def name(self) -> str:

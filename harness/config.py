@@ -74,6 +74,20 @@ LEDGER_DETAIL_DAYS = 90
 # 网页上"花费明细"的柱状图显示最近这么多天
 LEDGER_CHART_DAYS = 30
 
+# 自定义 Agent（见 agents/）。主助手可以用 agent 工具把一项任务交给一个 Agent（"子 Agent"）去做：
+# 子 Agent 能不能再往下交，最多交几层。1 表示只有主助手能交，子 Agent 自己不能再叫别的 Agent。
+# 调大之前想一想：每多一层，花的钱、要你点的确认都会翻倍，出了问题也更难看清是谁做的
+AGENT_MAX_DEPTH = 1
+# 一个子 Agent 做一项任务，最多调用这么多次模型。主助手一轮最多 max_steps 次（见 Config）；
+# 子 Agent 做的是一件具体的事，用不了那么多，到了上限就停下，把做到哪儿交回给主助手
+AGENT_MAX_STEPS = 25
+# 子 Agent 交回给主助手的回答最多这么多字。它会留在主助手的历史里，之后每次请求都要重发
+AGENT_MAX_RESULT_CHARS = 40_000
+# 一个 Agent 文件最多这么大（frontmatter 加正文）。正文每次都要整份放进它的系统提示词里
+MAX_AGENT_BYTES = 200_000
+# Agent 一页最多列这么多个
+MAX_AGENTS = 200
+
 
 @dataclass(frozen=True)
 class Config:
@@ -121,6 +135,10 @@ class Config:
     def media_dir(self) -> Path:
         """多媒体库：发过的附件的原件，一个文件一份（见 media.py）。"""
         return self.data_dir / "media"
+
+    @property
+    def agents_dir(self) -> Path:
+        return self.data_dir / "agents"  # 自定义 Agent：一个 Agent 一个 Markdown 文件（见 agents/store.py）
 
     @property
     def mcp_file(self) -> Path:

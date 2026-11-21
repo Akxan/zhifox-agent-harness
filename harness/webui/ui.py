@@ -27,6 +27,7 @@ from ..display import describe_call
 from ..i18n import Message, t
 
 MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符（发给模型的不受影响）
+MAX_ANSWER_CHARS = 40_000  # 子 Agent 的回答最多显示这么多（它也会作为工具结果交给主助手，见 agents/runner.py）
 
 # 会话文件里可以重放给页面的事件类型。别的类型（尤其是"状态"和"清空页面"）只能由程序自己发出：
 # 文件万一被改坏、或者被人动过手脚，也不能借着重放去冒充它们。
@@ -43,6 +44,7 @@ REPLAYABLE = frozenset(
         "tool_result",
         "confirm",
         "auto_allowed",
+        "subagent",
     }
 )
 
@@ -210,9 +212,18 @@ class WebUI:
 
     # ---- 停止 --------------------------------------------------------------
 
-    def on_stop(self, callback: Callable[[], None]) -> None:
-        """登记一个函数，用户点"停止"时调用它（比如结束正在运行的命令）。"""
-        self._stop_callbacks.append(callback)
+    def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """登记一个函数，用户点"停止"时调用它（比如结束正在运行的命令）。返回的函数用来取消登记：
+        子 Agent 只在它运行的那一会儿登记（见 agents/runner.py），做完就取消。"""
+        with self._changed:
+            self._stop_callbacks.append(callback)
+
+        def forget() -> None:
+            with self._changed:
+                if callback in self._stop_callbacks:
+                    self._stop_callbacks.remove(callback)
+
+        return forget
 
     def request_stop(self) -> None:
         """用户点了"停止"。
@@ -224,12 +235,17 @@ class WebUI:
         with self._changed:
             self._stop_requested = True
             self._changed.notify_all()  # 如果循环正卡在等用户确认，把它叫醒
-        for callback in self._stop_callbacks:
+            callbacks = list(self._stop_callbacks)  # 抄一份再调用：子 Agent 可能正好在这时取消登记
+        for callback in callbacks:
             callback()
 
     def _check_stop(self) -> None:
         if self._stop_requested:
             raise KeyboardInterrupt
+
+    def check_stop(self) -> None:
+        """用户点了"停止"的话抛出 KeyboardInterrupt。子 Agent 逐字输出时用它看一眼（见 agents/runner.py 的 SubUI）。"""
+        self._check_stop()
 
     # ---- agent 循环调用的方法（和 TerminalUI 是同一套）---------------------
 
@@ -269,11 +285,14 @@ class WebUI:
         self.publish("tool_result", text=text, is_error=is_error)
         self._check_stop()
 
-    def confirm(self, description: str) -> tuple[bool, str]:
-        """请用户确认一个操作：发一个事件让浏览器显示确认卡片，然后等用户点按钮。"""
+    def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
+        """请用户确认一个操作：发一个事件让浏览器显示确认卡片，然后等用户点按钮。
+        agent 是哪个子 Agent 在问（卡片上写"某某想要"而不是"助手想要"）；主助手自己问时是空的。"""
         self.end_stream()
         with self._changed:
             fields = said(description)
+            if agent:
+                fields["agent"] = agent
             confirm_id = self.publish("confirm", description=fields.pop("text"), **fields)
             self._waiting_confirm = confirm_id
             self._confirm_answer = None
@@ -300,6 +319,29 @@ class WebUI:
     def info(self, text: str) -> None:
         self.end_stream()
         self.publish("notice", level="info", **said(text))
+
+    def subagent(self, step: str, **data: Any) -> None:
+        """子 Agent 的一步进展（见 agents/runner.py）。页面把同一个 run 的进展画进同一张"交给 某某"的卡片。
+
+        step：start 开始了（agent、color、model、task）、activity 在想 / 在写（只是此刻的样子，不存进会话）、
+        tool_call / tool_result / auto 它的一次工具调用、note 一句提示、done 结束了（status、answer、cost、steps、calls、error）。
+        除了 done，每一步都先看一眼要不要停：done 是停下之后才发的，要让页面知道它停了。
+        """
+        if step != "done":
+            self._check_stop()
+        self.end_stream()
+        fields = dict(data)
+        if "text" in fields:
+            if step == "tool_result" and len(fields["text"]) > MAX_RESULT_CHARS:
+                fields["text"] = fields["text"][:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(fields["text"]))
+            fields.update(said(fields.pop("text")))
+        if fields.get("error"):
+            fields["error"] = said(fields["error"])  # 出错的原因：换语言时页面照着原文重译
+        if step == "done" and len(fields.get("answer", "")) > MAX_ANSWER_CHARS:
+            fields["answer"] = fields["answer"][:MAX_ANSWER_CHARS] + "\n\n" + t("……（回答太长，这里只显示开头）")
+        if step == "activity":
+            fields["transient"] = True
+        self.publish("subagent", step=step, **fields)
 
     def error(self, text: str) -> None:
         self.end_stream()

@@ -30,6 +30,7 @@ from .frontmatter import (
     Frontmatter,
     FrontmatterError,
     parse,
+    replace_fields,
     scalar,
     split_lines,
 )
@@ -158,13 +159,11 @@ def with_name(text: str, name: str) -> str:
 
     装进来的 Skill 改名时用：规范要求 name 和文件夹同名，文件夹改了，name 也要跟着改。
     """
-    lines = split_lines(text)
     front = parse(text)  # 调用的人已经检查过，这里读得出来
     line = f"name: {scalar(name)}"
     if "name" in front.spans:
-        start, end = front.spans["name"]
-        lines[start:end] = [line]
-    else:
-        lines.insert(1, line)
-    # 原来是 Windows 的换行（\r\n）就还用它：只改 name 这一行，别的一个字节都不动
+        return replace_fields(text, {"name": line})
+    # 原来没写 name：加在最前面（第一行 --- 的下面），和规范里的例子一样排在 description 之前
+    lines = split_lines(text)
+    lines.insert(1, line)
     return ("\r\n" if "\r\n" in text else "\n").join(lines)
