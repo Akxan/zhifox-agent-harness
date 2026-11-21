@@ -287,6 +287,8 @@ def test_an_agent_task_runs_in_a_conversation_of_its_own(serve):
     assert [event["type"] for event in conversation.events] == [
         "user", "turn_start", "thinking", "block_end", "text", "block_end", "turn_end",
     ]
+    # 记录写完和页面收到列出这段会话的那张状态之间有先后：慢的机器上要等一下那张状态
+    until(lambda: any(item["id"] == run["conversation"] for item in latest_state(s)["conversations"]), what="会话列表里的这次运行")
     listed = next(item for item in latest_state(s)["conversations"] if item["id"] == run["conversation"])
     assert listed["task"] == task_id and listed["title"] == conversation.title
     (found,) = s.app.store.search("交报告")
