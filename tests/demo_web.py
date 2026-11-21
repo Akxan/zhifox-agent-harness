@@ -41,6 +41,12 @@
     默认不显示浏览器窗口；加 --browser-window 可以看着它操作。这台电脑上没有 Chrome 的话，助手会说找不到。
     这一段的回复不占下面那一串（看每次请求的历史走到了哪一步，见 browser_reply）。
 
+  - "操作整台电脑"（设置 → 操作整台电脑）也是开着的，但背后是一台假的电脑（tests/fake_desktop.py）：截图交回的是一张编造的
+    "桌面"，点击、打字只是记下来，绝不碰你真的屏幕、鼠标和键盘。发一句含有"演示电脑"的话（比如"演示电脑：在备忘录里记一笔"）
+    开始一段新对话：助手先截图（确认卡片上有"这段对话里截图不再问"），再点输入框、打字，按 ⌘S 保存，最后按 ⌘Q
+    （卡片上带着危险按键的警告，可以拒绝看看一串操作怎么停下）。顶栏上会出现"智狐正在控制这台电脑"和"停止"。
+    这一段的回复也不占下面那一串（见 computer_reply）。
+
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
 一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
@@ -89,6 +95,7 @@ import fake_slack
 import openai
 from demo_phone import Phone
 from fake_api import _events, reply, text, thinking, tool_use
+from fake_desktop import FakeDesktop, install, window_or_desktop
 from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
@@ -98,6 +105,7 @@ from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.channels import platforms
 from harness.config import Config
+from harness.desktop import backend as desktop_backend
 from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.ui import WebUI
@@ -204,6 +212,44 @@ def browser_reply(body: dict, shop: str) -> dict:
     return reply(text("看完了。演示商店里有 **3 把雨伞**：\n\n| 商品 | 价格 |\n|:--|--:|\n| 折叠雨伞 | ¥ 89 |\n| 长柄雨伞 | ¥ 129 |\n| 儿童雨伞 | ¥ 59 |\n\n要不要我把其中一把加入购物车？（点“加入购物车”不用问你，真要下单时我会先问。）"))
 
 
+def computer_reply(body: dict) -> dict:
+    """操作整台电脑的演示（假的电脑）：截图 → 点输入框、打字 → ⌘S 保存、截图 → ⌘Q → 交代做了什么。按历史走到了哪一步来回答。"""
+    messages = body.get("messages") or []
+    last = messages[-1] if messages else {}
+    results = [block for block in (last.get("content") or []) if isinstance(block, dict) and block.get("type") == "tool_result"]
+    if any(block.get("is_error") for block in results):
+        return reply(text("好的，这一步不做了，后面的也都没做。需要的时候再叫我。"))
+    step = sum(1 for message in messages if message.get("role") == "assistant")
+    if step == 0:
+        return reply(
+            thinking("用户想让我在备忘录里记一笔。先截一张屏幕的图，看看现在是什么样子。"),
+            text("我先截一张屏幕的图看看。"),
+            tool_use("toolu_computer_1", "screenshot", {}, toolset="computer"),
+            stop_reason="tool_use",
+        )
+    if step == 1:
+        return reply(
+            text("屏幕上有一个“备忘录”的窗口，中间是一个输入框。我点一下它，然后输入。"),
+            tool_use("toolu_computer_2", "left_click", {"coordinate": [535, 382]}, toolset="computer"),
+            tool_use("toolu_computer_3", "type", {"text": "明天上午十点：和设计组过一遍首页"}, toolset="computer"),
+            stop_reason="tool_use",
+        )
+    if step == 2:
+        return reply(
+            text("输好了。按 ⌘S 保存，再截一张图确认。"),
+            tool_use("toolu_computer_4", "key", {"text": "cmd+s"}, toolset="computer"),
+            tool_use("toolu_computer_5", "screenshot", {}, toolset="computer"),
+            stop_reason="tool_use",
+        )
+    if step == 3:
+        return reply(
+            text("保存好了。最后退出备忘录（⌘Q）。"),
+            tool_use("toolu_computer_6", "key", {"text": "cmd+q"}, toolset="computer"),
+            stop_reason="tool_use",
+        )
+    return reply(text("记好了：在“备忘录”里写下了 **明天上午十点：和设计组过一遍首页**，保存以后退出了备忘录。\n\n（这是演示：背后是一台假的电脑，你真的屏幕、鼠标和键盘一样都没碰。）"))
+
+
 class SlowClaude:
     """假的 Anthropic API：按顺序回放写好的回复，但是慢慢地发。定时任务的请求另外回答（见 task_reply）。"""
 
@@ -225,6 +271,8 @@ class SlowClaude:
                         scripted = channel_reply(body)
                     elif "演示商店" in first:
                         scripted = browser_reply(body, shop.url)
+                    elif "演示电脑" in first:
+                        scripted = computer_reply(body)
                     else:
                         scripted = api.replies.pop(0) if api.replies else None
                 if scripted is None:
@@ -598,9 +646,15 @@ server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里�
 
 ui = WebUI()
 fresh = not (root / "data" / "tasks.json").exists()
+# 演示里"这台电脑上用哪个后端"永远回答这台假的电脑：真的那个（截你的屏幕、动你的鼠标）连找都不会去找
+desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop)
+desktop_backend.detect = lambda: (desktop, "")
 app = build_app(config, ui, client_factory=client_factory)
 # 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
+# 操作整台电脑也打开，但背后一定是假的电脑：编造的截图，点击、打字只记下来，绝不碰这台电脑真的屏幕和键盘鼠标
+install(app.desktop, desktop)
+app.settings.set_computer({"enabled": True})
 app.refresh_tools()
 if fresh:
     # 编造几个任务，"任务"那一栏才有东西可看：有运行记录的、关掉了的、还没关掉的提醒

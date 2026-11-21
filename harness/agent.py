@@ -31,11 +31,15 @@ from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
 from .tools.base import ToolOutput
+from .tools.computer import HALTED as COMPUTER_HALTED
+from .tools.computer import TOOLSET as COMPUTER
 
 WEEKDAYS = "一二三四五六日"
 # 同一轮里一串工具包的调用（"点这里、输入、按回车"），前面一个失败了，后面的都不执行，结果写这句话。
-# 原文是 Anthropic 的文档规定的（https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool 的 Batch actions），一字不改
+# 原文是 Anthropic 的文档规定的（https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool 的 Batch actions），一字不改。
+# 电脑工具包有它自己的一句（多了一个 computer，见 tools/computer.py 的 HALTED）：后面那个调用是电脑工具包的，就用那一句
 HALTED = "Not executed: an earlier action in this turn failed."
+HALT_TEXTS = {"computer": COMPUTER_HALTED}
 
 
 class UI(StreamUI, Protocol):
@@ -190,8 +194,10 @@ class Agent:
     def _run_tools(self, step: Step) -> None:
         """依次执行模型要求的工具，并把所有结果追加进历史。
 
-        工具包的调用（Claude 的浏览器工具包）常常是一串连着的动作："点搜索框、输入、按回车"，后一个依赖前一个。
+        工具包的调用（Claude 的浏览器、电脑工具包）常常是一串连着的动作："点搜索框、输入、按回车"，后一个依赖前一个。
         所以按顺序做，其中一个失败了（包括你拒绝了），这一轮后面的调用都不做，结果写 HALTED 那句话（文档的规定）。
+        操作电脑的替身工具（GPT、Gemini 用的 computer_*）也一样：你拒绝了"点这个输入框"，后面的"打字"就不能照样打下去，
+        字会进到不知道什么地方。
         """
         results: list[ToolResult] = []
         halted = False
@@ -202,14 +208,14 @@ class Agent:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
                     output = ToolOutput("这次调用的参数在生成中途被截断，没有执行。请重新调用。", is_error=True)
                 elif halted:
-                    output = ToolOutput(HALTED, is_error=True)
+                    output = ToolOutput(HALT_TEXTS.get(call.toolset, HALTED), is_error=True)
                 else:
                     output = self._run_one(call)
-                    halted = output.is_error and bool(call.toolset)
+                    halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
                 text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
                 results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
                 # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言
-                shown = t("没有执行：这一轮里前面的一步失败了。") if text == HALTED else text
+                shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else text
                 self.ui.tool_result(shown, output.is_error, output.preview)
         finally:
             # 每个工具调用都必须有对应的结果，否则下一次请求会被 API 拒绝。
@@ -220,6 +226,11 @@ class Agent:
                 if call.id not in answered:
                     results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
             self.backend.add_tool_results(results)
+
+    def _operates_computer(self, call: ToolCall) -> bool:
+        """是不是操作电脑的替身工具（computer_*）。"""
+        tool = self.tools.get(call.name, call.toolset)
+        return tool is not None and tool.stands_in_for == COMPUTER
 
     def _run_one(self, call: ToolCall) -> ToolOutput:
         """执行一次工具调用，返回结果（给模型看的文字、是否出错、结果里的图片……）。"""

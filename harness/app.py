@@ -27,6 +27,9 @@ from .conversations import (
     ConversationStore,
     make_title,
 )
+from .desktop import manager as desktop_labels
+from .desktop.manager import DesktopManager
+from .desktop.session import DesktopSession
 from .i18n import t
 from .ledger import Ledger
 from .mcp import McpConfig, McpManager
@@ -51,6 +54,8 @@ from .tasks import TaskStore
 from .tools import ToolRegistry, build_registry
 from .tools.browser import make_browser_tools
 from .tools.browser import used_in as browser_used_in
+from .tools.computer import make_computer_tools
+from .tools.computer import used_in as computer_used_in
 from .tools.files import FileEditor
 from .tools.shell import Shell, make_shell_tool
 from .tools.skill import TOOL_NAME as SKILL_TOOL
@@ -63,8 +68,8 @@ class UnattendedRun:
 
     agent: Agent
     shell: Shell  # 这次运行自己的 shell
-    stop: Callable[[], None]  # 停下这次运行正在做的事：结束它正在运行的命令、取消它正在等的 MCP 调用、停下浏览器的动作。别人的不碰
-    close: Callable[[], None] = lambda: None  # 这次运行结束了：关掉它自己开的浏览器标签页
+    stop: Callable[[], None]  # 停下这次运行正在做的事：结束它正在运行的命令、取消它正在等的 MCP 调用、停下浏览器和电脑的动作。别人的不碰
+    close: Callable[[], None] = lambda: None  # 这次运行结束了：关掉它自己开的浏览器标签页，把屏幕让出来
 
 
 @dataclass
@@ -88,6 +93,8 @@ class App:
     delegator: Delegator  # 给每个会叫子 Agent 的一方做 agent 工具，并把子 Agent 跑起来（见 agents/runner.py）
     browser: BrowserManager  # 智狐自己的那个 Chrome（见 browser/）
     chat_browser: BrowserSession  # 你正在看的这段对话用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
+    desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
+    chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问"记在它上面。换一段对话就换一个
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -209,7 +216,11 @@ class App:
         # 工具还是同一套（一段对话里工具说明书不变）。定时任务只跑一轮，换上的那个新的没人用，随着这次运行一起丢掉
         browser = [self.browser.session(source)]
         own_browser = make_browser_tools(lambda: browser[0], lambda: self.browser.enabled) if self.browser.enabled else []
-        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser])
+        # 操作整台电脑：只有你在设置里另外打开了"允许定时任务和聊天通道使用"才有（默认没有）。有的话每一步照样要你批准
+        # （权限是这次运行的那一份，"全部自动允许"也不放开，见 permissions.py）。和浏览器一样放在格子里，每一轮结束换一个新的
+        desktop = [self.desktop.session(desktop_labels.TASK if source == "task" else desktop_labels.CHANNEL)]
+        own_desktop = make_computer_tools(lambda: desktop[0], lambda: self.desktop.unattended) if self.desktop.unattended else []
+        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop])
         backend = self._backend_for(provider_id, model, persona)
         permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
@@ -230,10 +241,13 @@ class App:
             shell.kill_running()
             self.mcp.cancel_running(owner)
             browser[0].stop()
+            desktop[0].stop()
 
         def close() -> None:
             browser[0].close()
             browser[0] = self.browser.session(source)
+            desktop[0].close()  # 屏幕让出来，还按着的鼠标键松开
+            desktop[0] = self.desktop.session(desktop[0].label)
 
         return UnattendedRun(agent=agent, shell=shell, stop=stop, close=close)
 
@@ -269,6 +283,7 @@ class App:
         self.conversation = self._new(provider_id, model, persona)
         self.agent.usage.context_tokens = 0
         self._fresh_browser()
+        self._fresh_desktop()
         if persona is not None and persona.spec.model:
             self._remember_choice(provider_id, model)
 
@@ -300,6 +315,7 @@ class App:
         self.prompt_in_use = self.system_prompt
         self.persona = persona
         self._fresh_browser()
+        self._fresh_desktop()
         self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
@@ -327,7 +343,9 @@ class App:
         打开一段用过浏览器的旧会话，也照样带上，历史里的那些调用才对得上。"""
         delegate = self.delegator.tool_for(self.agent)
         browser = make_browser_tools(lambda: self.chat_browser, lambda: self.browser.enabled) if self._wants_browser() else []
-        tools = [*self.tools, *browser, *([delegate] if delegate else []), *mcp_tools]
+        # 操作整台电脑也一样：设置里开着才带上（工具包的说明书每次请求约 4500 个 token），用过它的旧会话也带上
+        desktop = make_computer_tools(lambda: self.chat_desktop, lambda: self.desktop.enabled) if self._wants_computer() else []
+        tools = [*self.tools, *browser, *desktop, *([delegate] if delegate else []), *mcp_tools]
         return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)
 
     def _wants_browser(self) -> bool:
@@ -336,13 +354,24 @@ class App:
         backend = self.agent.backend
         return browser_used_in(backend.export()) if backend is not None else False
 
+    def _wants_computer(self) -> bool:
+        if self.desktop.enabled:
+            return True
+        backend = self.agent.backend
+        return computer_used_in(backend.export()) if backend is not None else False
+
+    def _fresh_desktop(self) -> None:
+        """换了一段对话："这段对话里截图不再问"不再算数，还按着的鼠标键松开，屏幕让出来。新的这一段用一个新的。"""
+        old, self.chat_desktop = self.chat_desktop, self.desktop.session(desktop_labels.CHAT)
+        old.close()
+
     def _fresh_browser(self) -> None:
         """换了一段对话：上一段的浏览器标签页关掉，"允许过的网站"也不再算数。新的这一段用一个新的。"""
         old, self.chat_browser = self.chat_browser, self.browser.session("chat")
         threading.Thread(target=old.close, daemon=True).start()  # 关标签页要和 Chrome 来回几次：不让换会话等它
 
     def refresh_tools(self) -> None:
-        """设置里开、关了浏览器：这段对话还没开始的话，马上换上（信息栏里的工具清单跟着变）；开始了的不动（见 conversation_tools）。"""
+        """设置里开、关了浏览器（或者"操作整台电脑"）：这段对话还没开始的话，马上换上（信息栏里的工具清单跟着变）；开始了的不动（见 conversation_tools）。"""
         if not self.agent.backend.export():
             self.agent.use_tools(self.conversation_tools(self.persona))
 
@@ -370,9 +399,10 @@ class App:
         return own + [(tool.name, True) for tool in fresh]
 
     def close(self) -> None:
-        """程序退出前的收尾：关掉启动过的 MCP 服务器进程和浏览器。"""
+        """程序退出前的收尾：关掉启动过的 MCP 服务器进程和浏览器，还按着的鼠标键松开。"""
         self.mcp.shutdown()
         self.browser.close()
+        self.chat_desktop.close()
 
     def save_conversation(self, events: list) -> bool:
         """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。
@@ -534,6 +564,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     delegator = Delegator(config, agents, skills, mcp, ledger, lambda: settings.prices, client_factory)
     store = ConversationStore(config.conversations_dir)
     browser = BrowserManager(config.browser_dir, settings)
+    desktop = DesktopManager(config.desktop_dir, settings)
     app = App(
         config=config,
         settings=settings,
@@ -555,6 +586,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         delegator=delegator,
         browser=browser,
         chat_browser=browser.session("chat"),
+        desktop=desktop,
+        chat_desktop=desktop.session(desktop_labels.CHAT),
     )
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
     # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）

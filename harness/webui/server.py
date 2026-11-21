@@ -47,6 +47,8 @@
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
+  POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
+  POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -91,6 +93,7 @@ from ..claims import Claims
 from ..config import (
     APP_NAME,
     BROWSER_SHOT_DAYS,
+    DESKTOP_SHOT_DAYS,
     LEDGER_CHART_DAYS,
     MAX_PROMPT_CHARS,
     Config,
@@ -113,6 +116,7 @@ from ..tools.shell import SECRET_ENV_VARS
 from . import lifecycle
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
+from .computer_api import ComputerAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -193,6 +197,7 @@ class WebApp:
         self.skills = SkillsAPI(self, lambda path: reveal_in_file_manager(path))
         self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
+        self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -204,7 +209,9 @@ class WebApp:
         ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用：只是对话自己的，任务的各自管各自的（见 McpManager.call）
         # 还有正在做的浏览器动作：只是这段对话自己的（换一段对话就换一个，所以每次现找）
         ui.on_stop(lambda: app.chat_browser.stop())
+        ui.on_stop(lambda: app.chat_desktop.stop())  # 正在操作电脑的那一步也停下（同样只是这段对话自己的）
         app.browser.on_change = self.publish_state  # 浏览器开了、关了、忙起来了：页面顶上的提示跟着变
+        app.desktop.on_change = self.publish_state  # 有运行开始、停止操作电脑：页面顶上"智狐正在控制这台电脑"跟着变
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         app.mcp.on_change = self.publish_state  # MCP 服务器连上了、断开了、工具变了，页面上跟着变
         if app.tasks.problem:
@@ -296,6 +303,8 @@ class WebApp:
             file_manager=has_file_manager(),
             # 浏览器：开没开、在不在运行、正在操作没有、找到的 Chrome、配置文件夹（见 browser_api.py）
             browser=self.browser.state(),
+            # 操作整台电脑：开没开、这台电脑上能不能用、权限、谁正在操作、截图留几天（见 computer_api.py）
+            computer=self.computer.state(),
             # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
             rewind=self._rewind_state(),
         )
@@ -410,6 +419,7 @@ class WebApp:
                 # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
                 # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
                 self.ui.end_turn()
+                self.app.chat_desktop.release()  # 这一轮结束：屏幕让出来，还按着的鼠标键松开（见 desktop/session.py）
                 self.claims.release(self.app.conversation.id, "web")
                 self._turn.release()
 
@@ -424,6 +434,7 @@ class WebApp:
           reason   不能的原因（换语言时页面照着原文重译）
           effects  这一轮做过的、可能改动了东西的事（每件一行）。不是空的，倒回去之前在原地问你一次
           more     太多了没列出来的还有几项（"……还有几项"那一句由页面自己写）
+          operated 这些事里有没有操作过整台电脑（"computer"）、在浏览器里点过输入过（"browser"）：页面为它们单独写一句"撤不回来"
         """
         start, events = self.ui.last_turn_events()
         turn = rewind.last_turn(events, start)
@@ -438,6 +449,7 @@ class WebApp:
             "reason": said(problem) if problem else None,
             "effects": effects,
             "more": more,
+            "operated": rewind.operated(turn.events),
         }
 
     def _rewind_problem(self, turn: rewind.Turn) -> str:
@@ -494,7 +506,8 @@ class WebApp:
             found = rewind.effects(turn.events)
             if found and not confirmed:
                 effects, more = rewind.listed(found)
-                return t("这一轮做过可能改动了电脑的事，倒回去之前要先确认。"), {"effects": effects, "more": more}
+                extra = {"effects": effects, "more": more, "operated": rewind.operated(turn.events)}
+                return t("这一轮做过可能改动了电脑的事，倒回去之前要先确认。"), extra
             backend = self.app.agent.backend
             kept = action == "retry" and backend.turn_at(mark)  # 重新生成、用户消息还在历史里：原样留着它
             attachments: list[Attachment] = []
@@ -1462,6 +1475,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "image/jpeg", content, headers)
         elif path.startswith("/api/browser/"):
             status, payload = web.browser.route(path.removeprefix("/api/browser/"), body)
+            self._send_json(status, payload)
+        elif path == "/api/computer/shot":
+            content = web.computer.shot(body.get("id"))
+            if content is None:
+                self._send_json(409, {"error": t("这张截图的大图已经过期删掉了（只留 {days} 天），对话里还看得到小图。", days=DESKTOP_SHOT_DAYS)})
+                return
+            # 和浏览器的截图、/api/media/file 一样：当成下载的文件、不按内容猜类型、万一被直接打开也什么都不运行
+            headers = {"Content-Disposition": 'attachment; filename="screenshot.jpg"', "Content-Security-Policy": "default-src 'none'; sandbox"}
+            self._send(200, "image/jpeg", content, headers)
+        elif path.startswith("/api/computer/"):
+            status, payload = web.computer.route(path.removeprefix("/api/computer/"), body)
             self._send_json(status, payload)
         else:
             self._send_json(404, {"error": "not found"})

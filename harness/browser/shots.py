@@ -6,6 +6,8 @@
 
 大图只留 BROWSER_SHOT_DAYS 天（config.py），旧的删掉。删了以后会话里还看得到小图，点开时说一声"大图已经过期"。
 按内容起名的好处：同一张截图（页面没变，连截两次）只存一份；页面给的编号也只能是 64 个十六进制字符，拼不出别的路径。
+
+"操作整台电脑"的截图也用这个类，只是存在另一个文件夹（data/desktop/shots/）、留的天数不同（DESKTOP_SHOT_DAYS，见 desktop/manager.py）。
 """
 
 from __future__ import annotations
@@ -24,9 +26,10 @@ PRUNE_EVERY = 3600  # 最多一小时清一次旧的
 
 
 class ShotStore:
-    def __init__(self, folder: Path, clock=time.time):
+    def __init__(self, folder: Path, clock=time.time, days: int = BROWSER_SHOT_DAYS):
         self.folder = folder
         self.clock = clock
+        self.days = days  # 留几天
         self._lock = threading.Lock()
         self._pruned = 0.0
 
@@ -53,13 +56,13 @@ class ShotStore:
             return None
 
     def prune(self, force: bool = False) -> int:
-        """删掉超过 BROWSER_SHOT_DAYS 天的大图。返回删了几张。"""
+        """删掉超过 self.days 天的大图。返回删了几张。"""
         now = self.clock()
         with self._lock:
             if not force and now - self._pruned < PRUNE_EVERY:
                 return 0
             self._pruned = now
-        cutoff = now - BROWSER_SHOT_DAYS * 86400
+        cutoff = now - self.days * 86400
         removed = 0
         if not self.folder.is_dir():
             return 0

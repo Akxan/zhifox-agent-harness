@@ -24,11 +24,11 @@ from __future__ import annotations
 import base64
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..browser.session import BrowserSession, Facts, Outcome, Target
-from .base import Tool, ToolError, ToolImage, ToolOutput, check_input
+from .base import FactsTool, Tool, ToolError, ToolImage, ToolOutput, check_input
 
 TOOLSET = "browser"
 TOOLSET_SPEC = {"type": "browser_toolset_20260801"}  # 默认的 27 个成员都开着；javascript_exec、file_upload 这些可选的保持关着
@@ -38,19 +38,12 @@ TAB = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 @dataclass(frozen=True)
-class BrowserTool(Tool):
+class BrowserTool(FactsTool):
     """浏览器的一个工具。比普通的工具多一样：facts——动手之前先看一眼要碰的是什么，permissions.py 靠它决定问不问你。"""
-
-    facts: Callable[[dict], Facts] | None = None
-    _seen: dict = field(default_factory=dict, compare=False, repr=False)  # 上一次看的结果（见 look）
 
     def look(self, tool_input: dict) -> Facts:
         """要做的这次调用碰的是什么。同一次调用会被问两次（要不要问、能不能不问就做），第二次用上一次的结果。"""
-        if self._seen.get("input") is tool_input:
-            return self._seen["facts"]
-        found = self.facts(tool_input) if self.facts is not None else Facts("other")
-        self._seen.update(input=tool_input, facts=found)
-        return found
+        return super().look(tool_input) or Facts("other")
 
 
 # ---- 参数 -------------------------------------------------------------------

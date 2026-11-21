@@ -23,18 +23,17 @@
 
 能调的数（页面大小、截图质量、闲置多久关掉……）都在 config.py 的 BROWSER_* 里。
 
-## 以后：整个桌面（"computer use"）
+## 整个桌面（"computer use"）在 desktop/ 里
 
-现在只做了浏览器。以后要让助手操作整个桌面（任何程序，不只是网页），按同样的分层加一个"桌面"的后端就行，
-不用动循环和权限的框架：
+操作整台电脑（任何程序，不只是网页）是按这里的分层另加的一个后端，循环和权限的框架没有动（详细的说明见 desktop/__init__.py）：
 
-  - 动作的执行：换成一个 DesktopSession，提供和 BrowserSession 同样的接口（run(action, **args) → Outcome、
+  - 动作的执行：DesktopSession（desktop/session.py）提供和 BrowserSession 同样的接口（run(action, **args) → Outcome、
     facts()、stop()、close()），动作只有截图、鼠标、键盘这些（没有 navigate、read_page、ref）。
-    macOS 上用系统的辅助功能接口发鼠标键盘事件、用屏幕录制接口截图——这两样都要你在系统设置里授权，
+    macOS 上用 CoreGraphics 的 CGEvent 发鼠标键盘事件、screencapture 截图——要你在系统设置里给"辅助功能"和"屏幕录制"的权限，
     这也是先做浏览器的原因：浏览器是智狐自己的窗口，什么权限都不用。
   - 给模型的工具：Claude 用 Anthropic 的 computer_toolset_20260801（和浏览器工具包是同一套"工具包"机制：
-    Tool.toolset="computer"，结果上写回 toolset_name，见 providers/claude.py），别家用我们自己写的函数工具当替身。
-  - 问不问你：照样在 permissions.py 里加一节。整个桌面比一个浏览器危险得多（能碰到你所有的程序和文件），
-    默认应该每一步都问，"全部自动允许"也不该放开它。
-  - 截图、停止、每次运行各管各的，都可以照搬这里的做法（shots.py、Connection.cancel 的"主人"、manager 的闲置关闭）。
+    Tool.toolset="computer"，结果上写回 toolset_name，见 providers/claude.py），别家用我们自己写的函数工具当替身（tools/computer.py）。
+  - 问不问你：permissions.py 里另有一节。整个桌面比一个浏览器危险得多，每一步都问，"全部自动允许"也不放开它。
+  - 截图（shots.py 的 ShotStore，另一个文件夹）、停止、每次运行各管各的，照搬了这里的做法。和浏览器不一样的是：
+    屏幕只有一个，同一时间只让一个运行操作（desktop/manager.py 的 claim）。
 """

@@ -332,6 +332,11 @@ class WebUI:
             fields = said(description)
             if agent:
                 fields["agent"] = agent
+            if getattr(description, "offer", "") in OFFERS:
+                # 卡片上多给的一个选择（见 permissions.offering）。只给你正在看的这段对话：子 Agent 问的也是这段对话的电脑
+                fields["offer"] = description.offer
+            if getattr(description, "always", False) is True:
+                fields["always"] = True  # 在任何模式下都要问（见 permissions.always）：页面不放"不想每次都问？"
             confirm_id = self.publish("confirm", description=fields.pop("text"), **fields)
             self._waiting_confirm = confirm_id
             self._confirm_answer = None
@@ -387,6 +392,8 @@ class WebUI:
         self.publish("notice", level="error", **said(text))
 
 
+# 确认卡片上可以多给的选择：screenshots 是"允许，这段对话里截图不再问"（操作整台电脑，见 permissions.py）
+OFFERS = frozenset({"screenshots"})
 THUMB_PREFIX = "data:image/jpeg;base64,"
 MAX_THUMB_CHARS = 60_000  # 小图最多这么大（正常的只有几 KB）。再大的不放进事件：每次刷新页面都要重发
 
@@ -411,5 +418,14 @@ def said(text: str) -> dict:
     页面照着它们在原地把这句话换成新的语言；保存下来的会话以后换了语言再打开，也一样。
     """
     if isinstance(text, Message):
-        return {"text": str(text), "key": text.key, "values": text.values}
+        return {"text": str(text), "key": text.key, "values": page_values(text)}
     return {"text": text}
+
+
+def page_values(message: Message) -> dict:
+    """一句话填进去的值，给页面的样子：本身也是一句 t() 译好的话的，换成 {"key": 原文, "values": …}（一层层往里），
+    页面换语言时照着它把里面那一句也重译（见 i18n.Message 和页面上的 t）。"""
+    return {
+        name: {"key": message.nested[name].key, "values": page_values(message.nested[name])} if name in message.nested else value
+        for name, value in message.values.items()
+    }

@@ -151,6 +151,50 @@ BROWSER_TOOLSET_MODELS = {
     "claude-opus-4-8",
 }
 
+# 操作整台电脑（"computer use"，见 desktop/）：进阶选项，默认关着。助手看到的是整个屏幕，能点、能打字的是你电脑上的任何程序。
+# 截图缩到多大再交给模型。屏幕的长边、总像素数都不超过这两个数（文档的例子用的就是它们，四家模型都收得下）：
+# 1512×982 的 MacBook 屏幕交出去是 1330×864。模型说的坐标按这张图算，智狐再换算回屏幕上真正的位置（见 desktop/frame.py）。
+# 支持工具包的 Claude 模型其实收得下长边 2576、约 375 万像素的图，但图越大 token 越多，点得也不见得更准
+DESKTOP_MAX_EDGE = 1568
+DESKTOP_MAX_PIXELS = 1_150_000
+# 交给模型的截图的 JPEG 质量（1~100）。桌面上的字比网页小，比浏览器的截图（60）高一点
+DESKTOP_SHOT_QUALITY = 70
+# 对话里那张小预览图的宽度（像素）。只给你看，不发给模型
+DESKTOP_THUMB_WIDTH = 320
+# 截图的大图存在 data/desktop/shots/ 里。整个屏幕比一个网页敏感得多（可能拍到别的程序、通知里的消息），所以只留这么多天
+DESKTOP_SHOT_DAYS = 7
+# 点击、按键之后等这么久（秒）再截小预览图：程序要一点时间才画出点击的结果
+DESKTOP_SETTLE_SECONDS = 0.4
+# 滚轮转一格，在 macOS 上滚几行（Linux 上一格就是一下滚轮，由系统决定滚多少）
+DESKTOP_SCROLL_LINES = 3
+# 一次 wait、hold_key 最多等多久（秒）。文档允许到 300 秒；等得太久的话，停下之前你什么都做不了
+DESKTOP_MAX_WAIT = 30
+# 一个外部命令（截图、xdotool……）最多等这么久（秒）
+DESKTOP_COMMAND_TIMEOUT = 15
+# 一次 type 最多打这么多个字。更长的让模型分几次打：每一段你都要批准，看得清它要打什么
+DESKTOP_MAX_TYPE_CHARS = 2000
+# 支持 Anthropic 的"电脑工具包"（computer_toolset_20260801）的 Claude 模型。名单来自
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool 的"API support"（Claude API 那一行）。
+# 智狐能选的三个 Claude 模型（Opus 5.5、Sonnet 5.5、Fable 5.2）都在里面，而且它们只认这个工具包（旧的 computer_20251124 会被拒绝）。
+# 不在名单里的模型用智狐自己写的替身工具（见 tools/computer.py）
+COMPUTER_TOOLSET_MODELS = {
+    "claude-fable-5-2",
+    "claude-mythos-5-2",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-mythos-preview",
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-sonnet-5",
+    "claude-haiku-5-5",
+    "claude-opus-4-8",
+}
+# 工具包的说明书每次请求大约要多发这么多个 token（文档的 Pricing 一节：默认的 17 个成员约 4500）。只用来在设置里告诉你
+COMPUTER_TOOLSET_TOKENS = 4500
+
 
 @dataclass(frozen=True)
 class Config:
@@ -224,6 +268,11 @@ class Config:
     def browser_dir(self) -> Path:
         """浏览器：profile/ 是智狐那个 Chrome 的配置文件夹（登录状态、缓存），shots/ 是截图的大图（见 browser/）。"""
         return self.data_dir / "browser"
+
+    @property
+    def desktop_dir(self) -> Path:
+        """操作整台电脑：shots/ 是截图的大图（见 desktop/）。"""
+        return self.data_dir / "desktop"
 
     @property
     def channels_file(self) -> Path:

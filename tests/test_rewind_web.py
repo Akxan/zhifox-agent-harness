@@ -102,13 +102,13 @@ def seen(s) -> dict:
     return target(latest_state(s.browser))
 
 
-def assert_ready(s, state: dict, mark: int, effects: tuple[str, ...] = (), more: int = 0) -> None:
+def assert_ready(s, state: dict, mark: int, effects: tuple[str, ...] = (), more: int = 0, operated: tuple[str, ...] = ()) -> None:
     """状态里的 rewind：最后一轮能倒回去，在历史里的位置是 mark，做过的事是 effects（另有 more 项没列出来）；
-    turn 是它的 user 事件的编号。"""
+    turn 是它的 user 事件的编号；operated 是其中操作过整台电脑、浏览器的那几类。"""
     shown = state["rewind"]
-    assert list(shown) == ["turn", "mark", "ok", "reason", "effects", "more"] and shown["turn"] == last_user_id(s)
+    assert list(shown) == ["turn", "mark", "ok", "reason", "effects", "more", "operated"] and shown["turn"] == last_user_id(s)
     assert {key: value for key, value in shown.items() if key != "turn"} == {
-        "mark": mark, "ok": True, "reason": None, "effects": list(effects), "more": more,
+        "mark": mark, "ok": True, "reason": None, "effects": list(effects), "more": more, "operated": list(operated),
     }  # fmt: skip
 
 
@@ -333,6 +333,19 @@ def test_editing_a_later_message_that_repeats_the_first_keeps_the_title(rig):
 
 
 # ---- 先确认：这一轮做过可能改动东西的事 ---------------------------------------------
+
+
+def test_the_confirmation_says_the_browser_steps_cannot_be_undone(rig):
+    # 这一轮在浏览器里点过：状态和 409 的回答里都带着 operated，页面据此单独写一句"撤不回来"。
+    # 这里浏览器是关着的（调用会出错），但点击这种动作出了错也不算没做过：可能已经点下去了
+    click = tool_use("toolu_1", "left_click", {"target": {"type": "ref", "ref": "ref_1"}}, toolset="browser")
+    s = rig(reply(click, stop_reason="tool_use"), reply(text("点过了。")), reply(text("又点了一次。")))
+    state = say(s, "点一下购买")
+    assert state["rewind"]["operated"] == ["browser"] and state["rewind"]["effects"] == ["browser.left_click ref_1"]
+    status, answer = s.browser.post("/api/turn/retry", seen(s))
+    assert status == 409 and answer["operated"] == ["browser"] and answer["effects"] == ["browser.left_click ref_1"]
+    _, live = turn(s, "retry", mark=0, confirmed=True)
+    assert texts(live) == ["又点了一次。"]
 
 
 def test_a_turn_that_ran_a_command_asks_before_rewinding(rig):

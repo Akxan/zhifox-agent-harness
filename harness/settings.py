@@ -2,7 +2,7 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器的开关。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -47,6 +47,8 @@ class Settings:
         self.budget_alert: dict | None = alert if valid_alert else None
         # 浏览器（见 browser/）：开没开、要不要窗口、Chrome 在哪儿。默认关着：要你自己打开
         self.browser: dict = browser_settings(saved.get("browser"))
+        # 操作整台电脑（见 desktop/）：开没开、定时任务和聊天通道能不能用、哪些程序不许碰。默认关着，打开要你在设置里确认一次
+        self.computer: dict = computer_settings(saved.get("computer"))
 
     def save(self) -> None:
         with self._lock:
@@ -100,6 +102,12 @@ class Settings:
             self.browser = browser_settings({**self.browser, **changes})
             self._write()
 
+    def set_computer(self, changes: dict) -> None:
+        """改"操作整台电脑"的设置（只改给了的那几项，见 computer_settings）。"""
+        with self._lock:
+            self.computer = computer_settings({**self.computer, **changes})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -117,6 +125,8 @@ class Settings:
             data["budget_alert"] = self.budget_alert
         if self.browser != BROWSER_DEFAULTS:  # 和预算一样：没动过的人，设置文件和以前一模一样
             data["browser"] = self.browser
+        if self.computer != COMPUTER_DEFAULTS:
+            data["computer"] = self.computer
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 
@@ -132,6 +142,26 @@ def browser_settings(saved: object) -> dict:
         "headless": saved.get("headless") is True,
         "path": path.strip()[:1000] if isinstance(path, str) else "",
     }
+
+
+COMPUTER_DEFAULTS = {"enabled": False, "unattended": False, "blocked": []}
+MAX_BLOCKED_APPS = 50  # "不许碰的程序"最多记这么多个
+MAX_APP_NAME_CHARS = 100
+
+
+def computer_settings(saved: object) -> dict:
+    """"操作整台电脑"的设置，只认这三项、这几种类型；不认识的、类型不对的按默认的来。
+
+    enabled     开没开（默认关着）
+    unattended  定时任务、聊天通道能不能用（默认不能；能用的时候每一步照样要你批准）
+    blocked     不许碰的程序的名字（前台是它们的时候，智狐不截图也不操作，见 desktop/session.py）
+    """
+    saved = saved if isinstance(saved, dict) else {}
+    blocked: list[str] = []
+    for name in saved.get("blocked") if isinstance(saved.get("blocked"), list) else []:
+        if isinstance(name, str) and name.strip() and name.strip() not in blocked and len(blocked) < MAX_BLOCKED_APPS:
+            blocked.append(" ".join(name.split())[:MAX_APP_NAME_CHARS])
+    return {"enabled": saved.get("enabled") is True, "unattended": saved.get("unattended") is True, "blocked": blocked}
 
 
 # ---- API key -------------------------------------------------------------------

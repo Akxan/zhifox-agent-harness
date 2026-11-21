@@ -56,6 +56,7 @@ from .tools import agent as agent_tool
 from .tools import files, skill
 from .tools import tasks as task_tools
 from .tools.browser import TOOLSET as BROWSER
+from .tools.computer import TOOLSET as COMPUTER
 
 # ---- 哪一轮 -------------------------------------------------------------------
 
@@ -101,6 +102,12 @@ _BROWSER_LOOKS = {
 }  # fmt: skip
 # 别家的模型用的浏览器"替身"工具（见 tools/browser.py 的 PORTABLE）里只是看的那些
 _BROWSER_STANDINS = {"browser_navigate", "browser_read", "browser_find", "browser_text", "browser_scroll", "browser_wait", "browser_screenshot", "browser_tabs"}
+# 操作整台电脑（tools/computer.py）里只是"看"的：截图、放大看一块、问鼠标在哪儿、等一会儿。别的（点、拖、移动鼠标、滚动、打字、按键）
+# 都可能在别的程序里做了什么，算"改动了什么"：桌面上的程序比浏览器里的网页难猜得多，所以比浏览器那边严，移动鼠标和滚动也算
+_COMPUTER_LOOKS = {"screenshot", "zoom", "cursor_position", "wait"}
+_COMPUTER_STANDINS = {"computer_screenshot", "computer_zoom", "computer_wait"}  # 别家的模型用的替身工具里只是看的
+# 页面在确认里单独写一句"这些撤不回来"的两类：操作过整台电脑、在浏览器里点过输入过（见 operated）
+_OPERATED = ((COMPUTER, (COMPUTER + ".", COMPUTER + "_")), (BROWSER, (BROWSER + ".", BROWSER + "_")))
 # 只是读的工具：读 Skill、列出待办（tools/todo.py）、列出定时任务。交给子 Agent（agent 工具）本身也不算：它自己调用的工具另外看
 _READ_ONLY = {skill.TOOL_NAME, "todo_list", task_tools.LIST, agent_tool.TOOL_NAME}
 # 智狐自己的这几样工具"要么全做、要么不做"：先把参数查好、找到要改的那一处，才一口气写进去（写文件都是先写临时文件
@@ -113,12 +120,14 @@ def changes(name: str, tool_input: object) -> bool:
 
     认不出来的一律算会：新加的工具没有登记在这里，宁可多问一次。
     """
-    if name in _READ_ONLY or name in _BROWSER_STANDINS:
+    if name in _READ_ONLY or name in _BROWSER_STANDINS or name in _COMPUTER_STANDINS:
         return False
     if name.startswith(MCP_PREFIX):
         return True  # 别人写的程序，它做了什么我们看不到（和 permissions.py 一样，不信它说的"只读"）
     if name.startswith(BROWSER + "."):
         return name.removeprefix(BROWSER + ".") not in _BROWSER_LOOKS
+    if name.startswith(COMPUTER + "."):
+        return name.removeprefix(COMPUTER + ".") not in _COMPUTER_LOOKS
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if name in (files.TOOL_NAME, "memory"):  # 文件工具和记忆工具：只有 view 是读
         return command != "view"
@@ -126,14 +135,26 @@ def changes(name: str, tool_input: object) -> bool:
 
 
 def effects(events: Sequence[dict]) -> list[str]:
-    """一轮里做过的、可能改动了什么的事，每件一行（就是页面上工具卡片的那一行摘要）。没有就是空的。
+    """一轮里做过的、可能改动了什么的事，每件一行（就是页面上工具卡片的那一行摘要）。没有就是空的。"""
+    return [summary for _, summary in _executed(events)]
+
+
+def operated(events: Sequence[dict]) -> list[str]:
+    """这些事里有没有操作过整台电脑（"computer"）、在浏览器里点过输入过（"browser"）。确认里要为它们单独说一句：
+    在别的程序里、在网页上已经做了的（提交了表单、发出了消息），倒回对话也撤不回来。"""
+    names = [name for name, _ in _executed(events)]
+    return [kind for kind, prefixes in _OPERATED if any(name.startswith(prefixes) for name in names)]
+
+
+def _executed(events: Sequence[dict]) -> list[tuple[str, str]]:
+    """一轮里真的执行了、可能改动了什么的那些调用：（工具的名字，摘要）。
 
     你拒绝了的、停下时还没做的不算：它们没有执行。确认请求的结果有两种写法：刚发生的是紧跟着的一个
     confirm_done 事件，存进会话文件以后合进了 confirm 事件的 outcome（见 WebUI.export_events），两种都认。
     "要么全做、要么不做"的那几样（_ALL_OR_NOTHING）出错了的也不算。
     子 Agent 的工具调用（subagent 事件里的 tool_call、tool_result）也算：它是替主助手做的。
     """
-    done: list[str] = []
+    done: list[tuple[str, str]] = []
     pending: tuple[str, bool] | None = None  # 正在等结果的那一次调用：（名字，会不会改动东西）
     asked: dict[int, int] = {}  # 确认请求的编号 → 它在 done 里对应的那一项（还没有答复的）
     for event in events:
@@ -145,7 +166,7 @@ def effects(events: Sequence[dict]) -> list[str]:
             name = event.get("name") if isinstance(event.get("name"), str) else ""
             summary = event.get("summary") if isinstance(event.get("summary"), str) else name
             if changes(name, event.get("input")):
-                done.append(summary or "?")
+                done.append((name, summary or "?"))
                 pending = (name, True)
             else:
                 pending = (name, False)

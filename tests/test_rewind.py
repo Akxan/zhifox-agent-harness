@@ -616,6 +616,38 @@ def test_effects_count_only_what_actually_ran():
     assert rewind.effects(["坏的", {"type": "tool_call"}, {"type": "confirm_done"}]) == ["?"]
 
 
+def test_operating_the_whole_computer_counts_except_looking():
+    # 操作整台电脑：只有截图、放大、问鼠标在哪儿、等一会儿是"看"；移动鼠标、滚动也算（桌面上的程序比网页难猜）
+    from harness.tools.computer import MEMBERS
+
+    looks = {"screenshot", "zoom", "cursor_position", "wait"}
+    assert looks <= set(MEMBERS)  # 名字和工具包的成员对得上（成员改了名，这里会先失败）
+    for member in MEMBERS:
+        assert rewind.changes(f"computer.{member}", {}) is (member not in looks), member
+    assert not rewind.changes("computer_screenshot", {}) and not rewind.changes("computer_zoom", {}) and not rewind.changes("computer_wait", {})
+    for standin in ("computer_click", "computer_move", "computer_drag", "computer_scroll", "computer_type", "computer_key"):
+        assert rewind.changes(standin, {}), standin
+
+
+def test_turns_that_operated_the_computer_or_the_browser_say_so():
+    # 确认里为"操作过整台电脑""在浏览器里点过、输入过"单独写一句撤不回来（rewind.operated）
+    ran = {"type": "tool_result", "text": "好了", "is_error": False}
+    click = call_event("computer.left_click", "computer.left_click (10, 20)", {"coordinate": [10, 20]})
+    look = call_event("computer.screenshot", "computer.screenshot", {})
+    typed = call_event("browser_type", "browser_type “你好”", {"text": "你好"})
+    read = call_event("browser.read_page", "browser.read_page", {})
+    command = call_event("run_command", "run_command $ ls", {"command": "ls"})
+    assert rewind.operated([click, ran, typed, ran]) == ["computer", "browser"]
+    assert rewind.operated([typed, ran]) == ["browser"] and rewind.operated([click, ran]) == ["computer"]
+    # 只是看了看、或者别的工具：不说
+    assert rewind.operated([look, ran, read, ran, command, ran]) == [] and rewind.effects([look, ran, read, ran]) == []
+    # 你拒绝了的没有执行，也不说
+    assert rewind.operated([click, {"type": "confirm", "outcome": "denied"}, ran]) == []
+    # 子 Agent 替主助手点的也算
+    delegated = {"type": "subagent", "step": "tool_call", "name": "computer.type", "summary": "computer.type “x”", "input": {"text": "x"}}
+    assert rewind.operated([delegated, {"type": "subagent", "step": "tool_result", "text": "ok"}]) == ["computer"]
+
+
 def test_a_failed_call_to_an_all_or_nothing_tool_changed_nothing():
     # 智狐自己的待办、文件、记忆、定时任务工具先查好参数才写：出错了就是什么都没改（见 rewind._ALL_OR_NOTHING）
     failed = {"type": "tool_result", "text": "没有编号为 99 的待办。", "is_error": True}

@@ -166,6 +166,24 @@ def test_t_translates_fills_in_values_and_falls_back_to_chinese(monkeypatch):
     assert i18n.t("找到 {n} 段会话", n="{evil}") == "找到 {evil} 段会话"
 
 
+def test_a_message_inside_a_message_keeps_its_own_original(monkeypatch):
+    """"在电脑上点击鼠标（{what}）"里的 what 本身是 t("左键单击")。发给页面时它要带着自己的原文，
+    页面换语言时才能连里面那一句一起换掉；只带着译好的文字的话，换成英文以后卡片上还留着"左键单击"。"""
+    import copy
+
+    from harness.webui.ui import said
+
+    monkeypatch.setattr(i18n, "current", "en")
+    inner = i18n.t("左键单击")
+    outer = i18n.t("在电脑上点击鼠标（{what}）：{where}{on}{held}", what=inner, where="(1, 2)", on="", held="")
+    assert outer.values["what"] == str(inner) and outer.nested == {"what": inner}  # 程序里照着 values 重填，还是这一句
+    fields = said(outer)
+    assert fields["values"]["what"] == {"key": "左键单击", "values": {}}  # 页面拿到的是原文，按当前语言重译
+    assert fields["values"]["where"] == "(1, 2)"
+    again = copy.deepcopy(outer)  # 存进文件、复制的时候 nested 也不丢
+    assert again.nested["what"].key == "左键单击"
+
+
 def test_a_space_beside_a_chinese_platform_name_is_dropped():
     """中文的句子给 {platform} 两边留了空格，是为 Telegram 这样的英文名字留的；填进去的是"飞书"时不要那个空格。
     只管 {platform}：别的值（文件名、机器人的名字）两边的空格留着；句子本身的空格、英文句子里的空格都不动。

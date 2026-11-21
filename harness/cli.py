@@ -83,6 +83,13 @@ def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
             ui.error(t(AUTO_RISK))
 
 
+# 倒回去之前，这一轮操作过整台电脑、在浏览器里点过输入过的话，再单独说一句（网页上是同样的两句，见 index.html 的 TURN_OPERATED）
+OPERATED = {
+    "computer": k("这一轮操作过整台电脑（点击、拖动、打字、按键）：在别的程序里已经做了的事，撤不回来。"),
+    "browser": k("这一轮在浏览器里点击、输入过：网页上已经提交、发出去的东西，撤不回来。"),
+}
+
+
 @dataclass(frozen=True)
 class LastTurn:
     """终端里的最后一轮：从历史的哪个位置开始（Backend.mark），你说的话。/retry、/edit 从这里倒回去（见 rewind.py）。"""
@@ -125,7 +132,10 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
     found = rewind.effects(ui.turn_events)
     if found:
         lines = "\n".join(f"    {line}" for line in rewind.shown_effects(found))
-        if not ui.agree(t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)):
+        warning = t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)
+        for kind in rewind.operated(ui.turn_events):  # 操作过整台电脑、在浏览器里点过输入过：再单独说一句
+            warning = f"{warning}\n{t(OPERATED[kind])}"
+        if not ui.agree(warning):
             ui.info(t("已取消。"))
             return last
     if command == "/retry" and present:
@@ -225,7 +235,10 @@ def run_terminal(config: Config) -> int:
                 continue
             name, _, argument = text.partition(" ")
             if text == "/retry" or name == "/edit":  # /edit 可以带上新的文字
-                last = rewind_last(name, argument.strip(), app, ui, last)
+                try:
+                    last = rewind_last(name, argument.strip(), app, ui, last)
+                finally:
+                    app.chat_desktop.release()  # 重新跑的那一轮也一样：结束时松开还按着的鼠标键，屏幕让出来
                 continue
             if text in COMMANDS or text.startswith("/auto "):  # /auto 可以带参数
                 if not handle_command(text, app, ui):
@@ -233,7 +246,10 @@ def run_terminal(config: Config) -> int:
                 if text == "/new":
                     last = None
                 continue
-            last = ask_turn(app, ui, text)
+            try:
+                last = ask_turn(app, ui, text)
+            finally:
+                app.chat_desktop.release()  # 这一轮结束：还按着的鼠标键松开，屏幕让出来（和网页界面一样）
     finally:
         app.close()  # 关掉启动过的 MCP 服务器
 
