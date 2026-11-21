@@ -32,7 +32,23 @@ def _surfaces(page):
         ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], "extensions"),
         ("记忆", lambda: (steps.open_nav(page), steps.open_dialog(page, "#memory-open", "memory-dialog")), ["#memory-dialog"], "memory-dialog"),
         ("新建任务", lambda: (steps.nav_tab(page, "tasks"), steps.open_dialog(page, "#task-new", "task-editor")), ["#task-editor"], "task-editor"),
+        # 这一轮加过待办（会改动东西）：重新生成之前先在原地确认；编辑框里按回车，确认放在编辑框里
+        ("重新生成之前的确认", lambda: (steps.close_nav(page), _retry_confirm(page)), ["#log"], None),
+        ("编辑最后一条消息", lambda: _edit_confirm(page), ["#log"], None),
     ]
+
+
+def _retry_confirm(page) -> None:
+    page.click("#log .turn-retry")
+    page.wait("document.querySelector('#log .turn-confirm')", what="重新生成之前的确认")
+
+
+def _edit_confirm(page) -> None:
+    page.click("#input")
+    page.key("ArrowUp")
+    page.wait("document.activeElement.classList.contains('turn-editor-input')", what="编辑框打开")
+    page.key("Enter")
+    page.wait("document.querySelector('.turn-editor .turn-confirm')", what="编辑框里的确认")
 
 
 @pytest.mark.parametrize("code", ["zh", "en", "es"])

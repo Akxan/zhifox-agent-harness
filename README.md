@@ -2180,7 +2180,10 @@ overflow at 390 px wide in all three languages; the Show in Finder / Edit / Dele
 (conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
 in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
 the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
-switching to another provider in Settings; and the browser tool's thumbnails. The demo answers these tests from scripts
+switching to another provider in Settings; the browser tool's thumbnails; and editing and regenerating the last turn
+(where the buttons sit, ↑ in the empty input box, Esc warning before throwing away an edit, the confirmation when the
+turn ran a command, a turn that failed getting its own Regenerate, a second tab following along and keeping its
+unsent edit). The demo answers these tests from scripts
 in [tests/demo_scripts.py](tests/demo_scripts.py), chosen by a `[ui:name]` tag in a conversation's first message, so the
 tests don't depend on each other's order. When a test fails, a screenshot, the console log and the page's HTML are saved
 (the path is printed; CI uploads them as an artifact). The checks in [tests/ui/checks.py](tests/ui/checks.py) are
@@ -2206,7 +2209,7 @@ computer, the assistant says it can't find one. Computer use is switched on in t
 approval cards, the screenshot allowance and the header indicator. A conversation whose first message contains a tag
 such as `[ui:approve]` follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]`
 asks to run a command, `[ui:long]` writes a long reply, `[ui:todo]` adds a to-do with a very long title, `[ui:hello]`
-greets you.
+greets you, and `[ui:flaky]` fails the first attempt at every message (so you can try Regenerate on a failed turn).
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes

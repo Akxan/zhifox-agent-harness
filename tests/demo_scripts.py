@@ -11,16 +11,18 @@
   [ui:long]     回一段很长的话，对话区能滚动（看换语言时滚动位置留不留得住）
   [ui:approve]  先执行一条要你批准的命令；批准了说"执行完了"，拒绝了说"不执行了"
   [ui:todo]     加一条标题很长的待办，然后交代一句
+  [ui:flaky]    每一条消息第一次请求都失败（400，不会自动重试），再请求一次就回答（看"重新生成"怎么再试一次）
 
 要加新的剧本：写一个 body → 回复 的函数，放进下面的 SCRIPTS。body 是这次请求的内容（里面有整段历史）。
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 
-from fake_api import reply, text, thinking, tool_use
+from fake_api import failure, reply, text, thinking, tool_use
 
 MARKER = re.compile(r"\[ui:([a-z][a-z0-9-]*)\]")
 
@@ -81,7 +83,31 @@ def todo(body: dict) -> dict:
     return reply(tool_use(f"toolu_ui_todo_{_asked(body)}", "todo_add", {"title": LONG_TODO, "due": "2026-11-27"}), stop_reason="tool_use")
 
 
-SCRIPTS: dict[str, Callable[[dict], dict]] = {"hello": hello, "long": long, "approve": approve, "todo": todo}
+# flaky 记着哪些消息已经失败过一次（按这段对话里用户说过的话算）。演示服务器一直开着，换一句话就又会失败一次
+_FAILED: set[str] = set()
+
+
+def _last_said(body: dict) -> str:
+    """最后一条用户消息里用户自己写的那句话（最后一块文字；前面的时间说明每分钟都不一样，不算）。"""
+    for message in reversed(body.get("messages") or []):
+        content = message.get("content") or []
+        if message.get("role") != "user" or any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content):
+            continue
+        texts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+        return texts[-1] if texts else ""
+    return ""
+
+
+def flaky(body: dict) -> dict:
+    key = json.dumps([_asked(body), _last_said(body)], ensure_ascii=False)  # 第几条消息、说的是什么
+    if key not in _FAILED:
+        _FAILED.add(key)
+        # 400：SDK 不会自动重试，这一轮在模型答出第一步之前就失败了（消息从历史里撤回，页面上留着它和出错的提示）
+        return failure(400, "invalid_request_error", "这是演示里故意失败的一次")
+    return reply(text(f"这次成功了（第 {_asked(body)} 条消息）。"))
+
+
+SCRIPTS: dict[str, Callable[[dict], dict]] = {"hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky}
 
 
 def scripted(first_message: str, body: dict) -> dict | None:

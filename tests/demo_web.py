@@ -284,6 +284,14 @@ class SlowClaude:
                 if scripted is None:
                     self.send_error(500, "no scripted reply left")  # 回复用完了：页面上会看到一条出错提示
                     return
+                if "status" in scripted:  # 剧本要这一次失败（fake_api.failure 的格式，见 demo_scripts.flaky）
+                    payload = json.dumps(scripted["error"]).encode()
+                    self.send_response(scripted["status"])
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
                 self.end_headers()

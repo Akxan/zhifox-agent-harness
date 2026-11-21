@@ -58,6 +58,25 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.reply(page, "命令执行完了")
     look("对话（答复以后）")
 
+    # 编辑、重新生成（这一轮执行过命令，所以都要先确认）：重新生成之前的确认、编辑框、编辑框里的确认
+    page.click("#log .turn-retry")
+    page.wait("document.querySelector('#log .turn-confirm')")
+    steps.idle(page)
+    look("重新生成之前的确认")
+    page.key("Escape")
+    page.click("#input")
+    page.key("ArrowUp")
+    page.wait("document.activeElement.classList.contains('turn-editor-input')")
+    steps.idle(page)
+    look("编辑最后一条消息")
+    page.key("Enter")
+    page.wait("document.querySelector('.turn-editor .turn-confirm')")
+    steps.idle(page)
+    look("编辑框里的确认")
+    page.key("Escape")  # 回到修改
+    page.key("Escape")  # 没改过：直接关上
+    page.wait("!document.querySelector('.turn-editor')", what="编辑框关上")
+
     steps.open_side(page)
     look("信息栏", ["#side"])
     page.wait("!document.getElementById('spend').hidden", what="花费那一块出现（刚才那一轮记了账）")
