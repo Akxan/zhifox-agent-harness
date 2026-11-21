@@ -1,5 +1,6 @@
 # 每次推送到 main、每个 pull request 都把测试和代码检查跑一遍。
 # 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 README 的 Testing 一节）。
+# 页面测试（tests/ui/）用 runner 上预装的 Chrome（Ubuntu 是 google-chrome，macOS 在 /Applications 里），无界面运行。
 name: tests
 
 on:
@@ -14,6 +15,7 @@ jobs:
   test:
     name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30  # 平时 8 分钟左右；万一哪里卡住了，不让它一直占着机器
     strategy:
       fail-fast: false
       matrix:
@@ -26,10 +28,27 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install
         run: uv sync --locked
+      - name: Chrome
+        # 只是打印出来，方便看是哪个版本。找不到的话下面的页面测试会失败（HARNESS_UI_REQUIRED），不会悄悄跳过
+        run: |
+          if command -v google-chrome >/dev/null; then google-chrome --version
+          elif [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+          else echo "没有找到 Chrome"; fi
       - name: Tests
         run: uv run pytest -q
+        env:
+          HARNESS_UI_REQUIRED: "1"  # 页面测试找不到 Chrome 时算失败，而不是跳过
+          HARNESS_UI_ARTIFACTS: ${{ runner.temp }}/ui-artifacts  # 页面测试失败时的截图、控制台输出、页面 HTML
       - name: Lint
         run: uvx ruff@0.17.6 check harness tests
+      - name: Upload page test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-artifacts-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ runner.temp }}/ui-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
 
   # 操作整台电脑：真的 Linux 后端（xdotool、ImageMagick）在一块虚拟的屏幕（Xvfb）上跑一遍（tests/test_desktop_x11.py）。
   # 别的地方这个测试会跳过；这里设了 ZHIFOX_REQUIRE_XVFB，缺了什么就算失败，不会悄悄地被跳过。只在 ubuntu 上跑：macOS 没有 Xvfb
