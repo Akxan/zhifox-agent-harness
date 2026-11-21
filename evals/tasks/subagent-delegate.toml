@@ -1,0 +1,62 @@
+# 用户点名交给一个自定义 Agent：看主助手会不会用 agent 工具交出去（task 里写清楚要什么），
+# 再把子 Agent 交回的结论转告用户。三家竞品的价格是编的，只能从文件里读到。
+title = "把资料整理交给子 Agent"
+tags = ["subagents", "files"]
+messages = ["把 research 文件夹里三份竞品资料交给「资料员」看一下，告诉我三家的月费各是多少。"]
+
+[[agents]]
+name = "资料员"
+text = """---
+name: 资料员
+description: 读文件、整理资料，交回简短的结论。要读很多文件、只需要结论的时候用。
+tools: Read
+---
+你是一个细心的资料员。读完交给你的文件，只交回要的结论，每个结论写明出自哪个文件。
+"""
+
+[[files]]
+path = "research/云笺.md"
+text = "# 云笺\n\n团队协作笔记。个人版免费，团队版每人每月 38 元。\n"
+
+[[files]]
+path = "research/墨格.md"
+text = "# 墨格\n\n在线表格。专业版每月 59 元，按账号收费。\n"
+
+[[files]]
+path = "research/知页.md"
+text = "# 知页\n\n知识库。标准版每月 129 元，含 10 个成员。\n"
+
+[budget]
+requests = 7
+
+[[graders]]
+type = "tool_called"
+name = "agent"
+input = '资料员'
+
+[[graders]]
+type = "reply_contains"
+text = ["38", "59", "129"]
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "agent"
+input = { name = "资料员", task = "读工作目录里 research 文件夹的三份竞品资料（云笺.md、墨格.md、知页.md），交回每一家的月费，写明出自哪个文件。" }
+
+# 下面三项是子 Agent 的请求（它和主助手共用一个假服务器，按发生的先后排）
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "research/云笺.md" }
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "research/墨格.md" }
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "research/知页.md" }
+
+[[dry_run]]
+say = "云笺：团队版每人每月 38 元（云笺.md）；墨格：专业版每月 59 元（墨格.md）；知页：标准版每月 129 元，含 10 个成员（知页.md）。"
+
+[[dry_run]]
+say = "资料员看完了：云笺团队版每人每月 38 元，墨格专业版每月 59 元，知页标准版每月 129 元（含 10 个成员）。"

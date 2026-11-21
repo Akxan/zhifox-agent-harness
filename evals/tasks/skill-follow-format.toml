@@ -1,0 +1,49 @@
+# 装好的 Skill 写着用户要的格式：看它会不会发现"这件事有现成的做法"，读出 Skill 再照着做。
+# 格式（第一行【周报】、三个小标题）只写在 Skill 里，不读它就不可能做对。
+title = "照着 Skill 的格式写周报"
+tags = ["skills", "files"]
+approval = "edits"
+messages = ["帮我写这周的周报，存成 周报.md。这周做完了登录页改版；问题是测试环境老是挂；下周做支付。"]
+
+[[skills]]
+name = "weekly-report"
+text = """---
+name: weekly-report
+description: 按公司的格式写周报。用户要写周报、周总结的时候用。
+---
+# 周报的格式
+
+1. 第一行只写【周报】和日期范围，比如：【周报】11.17–11.21
+2. 然后是三个小标题，顺序固定：
+   ## 本周完成
+   ## 遇到的问题
+   ## 下周计划
+3. 每个小标题下面用短横线列要点，一条一句话。
+4. 不要写"总结""感想"这类别的小标题。
+"""
+
+[budget]
+requests = 4
+
+[[graders]]
+type = "tool_called"
+name = "skill"
+input = 'weekly-report'
+
+[[graders]]
+type = "file_contains"
+path = "周报.md"
+text = ["【周报】", "## 本周完成", "## 遇到的问题", "## 下周计划", "登录页", "测试环境", "支付"]
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "skill"
+input = { name = "weekly-report" }
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "create", path = "周报.md", file_text = "【周报】11.17–11.21\n\n## 本周完成\n- 登录页改版上线\n\n## 遇到的问题\n- 测试环境经常挂，影响联调\n\n## 下周计划\n- 做支付\n" }
+
+[[dry_run]]
+say = "按 weekly-report 的格式写好了，存在 周报.md。"

@@ -160,6 +160,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
 | `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
+| `harness/evals/`、`evals/tasks/` | 评测：任务格式（spec）、临时目录（seed）、记录员（recorder）、按结果打分（graders）、评分员（judge，花钱）、演习（dryrun，用 tests/ 的假服务器）、跑（runner）、估算（estimate）、结果和对比；起步任务在仓库根目录的 `evals/tasks/` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -331,6 +332,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   再在 `mcp_shapes.py` 或 `agent_formats.py` 加一种读法，在 `tests/test_imports.py` 放一份假文件。转换出来的 Agent 只会更少、不会更多。
   换写法时改了什么、丢了什么，用 t() 写成 notes 或 changes 交给页面。改了某个工具放文件位置的环境变量要加进 `imports/places.VARIABLES`：
   测试和演示会把它们清掉，免得读到真的配置。
+- **评测（`harness eval`）不确认就不花钱**：不写 `--real` 一个真的请求都不发（默认演习：tests/ 的假服务器按任务的 `[[dry_run]]` 回答）；
+  写了先打印估算，`--yes` 或在终端里输入 yes 才跑，没有终端又没有 `--yes` 的不跑，`CI` 有值时一律拒绝。花的钱记进账本，来源 eval；
+  评分员默认关着。每遍一个全新的临时目录、真的 `build_app`，结果只写 `data/evals/`。每个任务必须有标准答案：`tests/test_evals.py`
+  验证标准答案满分、什么都不做（`--null`）拿不到满分。打分看留下的结果，不看说法。改了工具的名字或参数，同时改 `evals/tasks/` 里的检查和标准答案。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
@@ -385,7 +390,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

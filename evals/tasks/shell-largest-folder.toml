@@ -1,0 +1,40 @@
+# 只读的命令：在"只读的命令不用问"这一档里，看它会不会用只看不改的命令（du、ls）找到答案，一次都不用问你。
+title = "找出最占地方的文件夹"
+tags = ["shell"]
+approval = "readonly"
+messages = ["工作目录里哪个文件夹占的空间最大？"]
+
+[[files]]
+path = "videos/发布会.mov"
+size = 3000000
+
+[[files]]
+path = "photos/a.jpg"
+size = 400000
+
+[[files]]
+path = "photos/b.jpg"
+size = 400000
+
+[[files]]
+path = "docs/方案.md"
+text = "方案初稿\n"
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "reply_contains"
+text = "videos"
+
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "run_command"
+input = { command = "du -sk videos photos docs" }
+
+[[dry_run]]
+say = "最大的是 videos 文件夹（约 3 MB），其次是 photos（约 800 KB），docs 很小。"
