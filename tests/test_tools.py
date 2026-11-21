@@ -167,7 +167,7 @@ def test_file_protects_the_key_file(editor):
     assert (editor.workspace / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=secret"
 
 
-def test_paths_are_resolved_before_checking(editor, tmp_path):
+def test_paths_are_resolved_before_checking(symlinks, editor, tmp_path):
     assert editor.in_workspace(editor.resolve("a/b.txt"))
     assert not editor.in_workspace(editor.resolve("../outside.txt"))
     assert not editor.in_workspace(editor.resolve(str(tmp_path / "other" / "x.txt")))
@@ -253,7 +253,7 @@ def test_permission_rules(editor, tmp_path):
     )
 
 
-def test_the_assistants_own_data_is_not_read_without_asking(tmp_path):
+def test_the_assistants_own_data_is_not_read_without_asking(symlinks, tmp_path):
     # 在项目目录里运行时，数据目录（保存的会话、设置、待办）就在工作目录里面。把它当成普通的工作目录文件的话，
     # 模型不用问就能把以前所有会话的内容读走，发给现在用的这一家厂商
     workspace = tmp_path / "work"

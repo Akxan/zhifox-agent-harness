@@ -129,7 +129,7 @@ def make_send_tool(editor: FileEditor, outlet: Outlet | None) -> SendTool:
 
 def _unreadable(editor: FileEditor, path: Path) -> str:
     """这个路径为什么不能发（写给模型看的）；能发的话是空字符串。"""
-    if path in editor.protected:
+    if editor.is_protected(path):
         return "这个文件保存着密钥，不能发出去。"
     if not path.exists():
         return f"{path} 不存在。"
@@ -149,7 +149,7 @@ def _read_again(editor: FileEditor, tool_input: dict, found: SendFacts) -> bytes
         path = editor.resolve(tool_input.get("path"))
     except ToolError as exc:
         raise ToolError(str(exc)) from None
-    if path != found.path or path in editor.protected:
+    if path != found.path or editor.is_protected(path):
         raise ToolError("这个路径指向的文件在确认之后换了，没有发。请重新调用一次。")
     try:
         with path.open("rb") as file:

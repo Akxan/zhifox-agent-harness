@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from conftest import symlinks_work
 from fake_api import failure, reply, text, tool_use
 from fake_openai import chat
 
@@ -482,7 +483,7 @@ def test_save_fixes_a_folder_without_a_valid_skill_md(store):
     assert store.list()[0].usable
 
 
-def test_save_refuses_a_linked_skill_md(store, tmp_path):
+def test_save_refuses_a_linked_skill_md(symlinks, store, tmp_path):
     folder = make_skill(store)
     outside = tmp_path / "outside.md"
     outside.write_text(skill_md(), encoding="utf-8")
@@ -504,7 +505,7 @@ def test_delete_removes_the_folder_and_its_state(store):
         store.delete("pdf-tools")
 
 
-def test_delete_does_not_follow_links_inside(store, tmp_path):
+def test_delete_does_not_follow_links_inside(symlinks, store, tmp_path):
     outside = tmp_path / "keep"
     outside.mkdir()
     (outside / "precious.txt").write_text("别删我", encoding="utf-8")
@@ -538,7 +539,7 @@ def test_a_broken_skills_json_is_treated_as_empty(store):
     assert json.loads(store.state_file.read_text(encoding="utf-8"))["disabled"] == ["a"]
 
 
-def test_what_is_listed_and_what_is_usable(store, tmp_path):
+def test_what_is_listed_and_what_is_usable(symlinks, store, tmp_path):
     make_skill(store, "good")
     make_skill(store, "manual", skill_md("manual", DESCRIPTION, "", "disable-model-invocation: true"))
     make_skill(store, "broken", doc("name: broken", "description: Use when: x"))
@@ -592,7 +593,7 @@ def test_locate_stays_inside_the_skill(store, relative):
         locate(folder, relative)
 
 
-def test_locate_refuses_links_at_any_level_and_special_files(store, tmp_path):
+def test_locate_refuses_links_at_any_level_and_special_files(symlinks, store, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text("外面的秘密", encoding="utf-8")
@@ -1116,9 +1117,12 @@ def claude_dirs(tmp_path):
     home.mkdir(parents=True)
     shutil.move(str(alpha), home / "alpha")
     (home / "alpha" / "scripts" / "run.sh").chmod(0o755)
-    os.symlink(outside / "secret.txt", home / "alpha" / "leak.txt")  # 文件夹里的链接：不跟
-    real_gamma = make_skill(SkillStore(tmp_path / "real"), "gamma")
-    os.symlink(real_gamma, home / "gamma")  # Claude Code 允许整个 Skill 文件夹是一个链接：这一层跟着走
+    # 下面两个链接只在建得了链接的电脑上有（见 conftest 的 symlinks_work）。用到它们的测试带着 symlinks，
+    # 只看 alpha 的测试（改名、替换）在建不了链接的 Windows 上照常跑
+    if symlinks_work():
+        os.symlink(outside / "secret.txt", home / "alpha" / "leak.txt")  # 文件夹里的链接：不跟
+        real_gamma = make_skill(SkillStore(tmp_path / "real"), "gamma")
+        os.symlink(real_gamma, home / "gamma")  # Claude Code 允许整个 Skill 文件夹是一个链接：这一层跟着走
     (home / "empty").mkdir()  # 没有 SKILL.md
     (home / "loose-file.md").write_text("不是文件夹", encoding="utf-8")
     beta = make_skill(SkillStore(tmp_path / "y"), "beta", doc(f"description: {DESCRIPTION}"))  # 没写 name
@@ -1127,7 +1131,7 @@ def claude_dirs(tmp_path):
     return workspace
 
 
-def test_claude_code_skills_are_found_in_both_places(claude_dirs):
+def test_claude_code_skills_are_found_in_both_places(symlinks, claude_dirs):
     found = claude_code.discover(claude_dirs)
     by_key = {candidate.key: (group, candidate) for group, candidate in found}
     assert sorted(by_key) == [".claude/skills/beta", "~/.claude/skills/alpha", "~/.claude/skills/empty", "~/.claude/skills/gamma"]
@@ -1148,7 +1152,7 @@ def test_nothing_to_import(tmp_path):
     assert claude_code.discover(tmp_path / "work") == []
 
 
-def test_importing_copies_and_skips_inner_links(store, claude_dirs):
+def test_importing_copies_and_skips_inner_links(symlinks, store, claude_dirs):
     installer = Installer(store)
     preview = installer.stage(claude_code.discover(claude_dirs), {"kind": "claude-code", "label": ""})
     keys = {candidate["key"] for candidate in preview["candidates"]}

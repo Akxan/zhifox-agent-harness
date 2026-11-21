@@ -1712,7 +1712,7 @@ def write(path, text: str = "记着", data: bytes | None = None):
     return path
 
 
-def test_memories_are_listed_in_the_state(serve):
+def test_memories_are_listed_in_the_state(symlinks, serve):
     s = serve()
     root = s.config.memory_dir
     assert root.is_dir()  # 记忆工具在组装的时候就把文件夹建好了
@@ -1928,7 +1928,7 @@ def test_showing_one_memory_file(serve, monkeypatch):
     assert len(s.revealed) == 1
 
 
-def test_memory_paths_cannot_escape_the_memory_folder(serve):
+def test_memory_paths_cannot_escape_the_memory_folder(symlinks, serve):
     s = serve()
     root, data = s.config.memory_dir, s.config.data_dir
     write(root / "user.md", "我的记忆")

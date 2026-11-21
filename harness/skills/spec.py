@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .. import pathnames
 from ..i18n import Message, t
 from .frontmatter import (
     Frontmatter,
@@ -77,6 +78,8 @@ def name_problem(name: object) -> Message | None:
         return t("name 最多 {n} 个字符，现在是 {count} 个。", n=MAX_NAME, count=len(name))
     if not NAME.fullmatch(name):
         return t("name 只能有小写字母、数字和连字符（-），不能以连字符开头或结尾，也不能连着写两个连字符。")
+    if pathnames.reserved(name):  # 名字就是文件夹名：Windows 上 con、nul、com1 在哪儿都是设备，建不出这个文件夹
+        return t("{name} 在 Windows 上是设备的名字（CON、NUL、COM1……），不能用作名字。", name=name)
     return None
 
 

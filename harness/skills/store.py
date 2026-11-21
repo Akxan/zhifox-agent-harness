@@ -13,7 +13,8 @@
 
 页面送来的 Skill 名字和文件路径不能全信：可能被改成 "../../.env" 或者一个绝对路径，文件夹里也可能藏着
 指向别处的符号链接。所以每次都从 Skill 文件夹出发，一层一层地走到目标，每一层都确认它真的在里面、
-不是链接（和 memories.py 的 _locate 是同一套检查）。
+不是链接（和 memories.py 的 _locate 是同一套检查）。Windows 上的花招（a.md.、a.md:x、CON、短名字）不认，
+目录联接（junction）和符号链接一样算链接（见 pathnames.py）。
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from .. import pathnames
 from ..i18n import Message, t
 from ..safe import clean, clean_text, private_dir, to_json, write_file
 from .frontmatter import FrontmatterError, parse
@@ -122,7 +124,7 @@ class SkillStore:
                 continue
             name = clean_text(entry.name)
             skill = Skill(name=name, folder=Path(entry.path), enabled=name not in state["disabled"], source=state["sources"].get(name))
-            if entry.is_symlink():
+            if pathnames.entry_linked(entry):
                 # 链接可以指到任何地方，跟着它走就出了这个文件夹。要用别处的 Skill，请用"导入"复制一份进来
                 skill.problems.append(t("这是一个指向别处的链接。为了安全，智狐不读链接；请用“导入”把它复制进来。"))
             elif entry.is_dir(follow_symlinks=False):
@@ -238,7 +240,7 @@ class SkillStore:
             current = None  # 原来没有 SKILL.md（不合格的 Skill）：现在补上
         if not force and current is not None and (modified is None or abs(current - modified) > 0.001):
             raise SkillConflict(t("SKILL.md 在你编辑的时候被改过了。你的修改还在框里：再点一次“保存”，就用你的版本覆盖。"))
-        if current is not None and stat.S_ISLNK(os.lstat(skill_file).st_mode):
+        if current is not None and pathnames.is_link(skill_file):
             raise SkillError(t("SKILL.md 是一个指向别处的链接，为了安全，不在这里修改。"))
         try:
             write_file(skill_file, text)
@@ -309,7 +311,7 @@ class SkillStore:
                 path = staging.joinpath(*PurePosixPath(relative).parts)
                 path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 # O_EXCL：只写新文件，万一路径里混进了链接也不会写到别处去
-                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700 if executable else 0o600)
+                descriptor = pathnames.open_nofollow(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700 if executable else 0o600)
                 with os.fdopen(descriptor, "wb") as handle:
                     handle.write(data)
             old = None
@@ -339,12 +341,14 @@ class SkillStore:
         gone = SkillError(t("这个 Skill 不存在，可能已经被删除了。"))
         if not isinstance(name, str) or not 0 < len(name) <= 255 or name.startswith(".") or any(char in name for char in "/\\\0"):
             raise gone
+        if pathnames.trick(name):  # Windows 上同一个文件夹的别的写法（pdf.、pdf::$INDEX_ALLOCATION）、设备名
+            raise gone
         folder = self.root / name
         try:
             info = os.lstat(folder)
         except OSError:
             raise gone from None
-        if stat.S_ISLNK(info.st_mode):
+        if pathnames.linked(info):
             raise SkillError(t("这是一个指向别处的链接。为了安全，智狐不读链接；请用“导入”把它复制进来。"))
         if not stat.S_ISDIR(info.st_mode):
             raise gone
@@ -411,7 +415,7 @@ def walk(folder: Path) -> list[tuple[str, int]]:
         for entry in entries:
             if len(found) >= MAX_FILES:
                 return
-            if entry.name.startswith(".") or entry.is_symlink():
+            if entry.name.startswith(".") or pathnames.entry_linked(entry):
                 continue
             relative = prefix + clean_text(entry.name)
             try:
@@ -464,6 +468,8 @@ def locate(folder: Path, relative: object) -> Path:
     # 只认"几段名字用 / 连起来"的写法。绝对路径、..、.、多余的斜杠、隐藏的名字都不认
     if path.is_absolute() or str(path) != relative or not path.parts or any(part.startswith(".") for part in path.parts):
         raise gone
+    if pathnames.trick(relative):  # Windows 上同一个文件的别的写法（SKILL.md.、a.md:x、短名字）、设备名（CON）
+        raise gone
     base = folder.resolve()
     target = base
     info = None
@@ -473,7 +479,7 @@ def locate(folder: Path, relative: object) -> Path:
             info = os.lstat(target)
         except OSError:
             raise gone from None
-        if stat.S_ISLNK(info.st_mode):  # 每一层都不许是链接：链接可以指到文件夹外面的任何地方
+        if pathnames.linked(info):  # 每一层都不许是链接（包括 Windows 的目录联接）：链接可以指到文件夹外面的任何地方
             raise SkillError(t("这一项是指向别处的链接，为了安全，不在这里打开。"))
     if info is None or not stat.S_ISREG(info.st_mode):
         raise SkillError(t("这不是一个文件。"))
@@ -485,8 +491,8 @@ def locate(folder: Path, relative: object) -> Path:
 def read_bytes(path: Path, limit: int) -> tuple[bytes, int]:
     """读一个文件的前 limit+1 个字节。返回（读到的，文件的实际大小）。"""
     try:
-        # O_NOFOLLOW：检查过之后、打开之前，万一它被换成了链接，打开会失败，而不是跟着链接读到别处去
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        # 不跟着链接走：检查过之后、打开之前，万一它被换成了链接，打开会失败，而不是跟着链接读到别处去
+        descriptor = pathnames.open_nofollow(path, os.O_RDONLY)
         with os.fdopen(descriptor, "rb") as handle:
             data = handle.read(limit + 1)
             size = os.fstat(handle.fileno()).st_size

@@ -98,6 +98,7 @@ from .display import file_size, short
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool
+from .pathnames import within
 from .tasks import TaskError, TaskStore, check_task, describe
 from .tools import files, shell
 from .tools import tasks as task_tools
@@ -218,7 +219,9 @@ class Permissions:
         return self.editor.in_workspace(path) and not self._is_private(path)
 
     def _is_private(self, path: Path) -> bool:
-        return any(path == folder or path.is_relative_to(folder) for folder in self.private)
+        # 不分大小写地比（见 pathnames.key）：macOS 上 DATA/tasks.json 就是 data/tasks.json，
+        # 按字面比的话，它在"改工作目录里的文件不用问"那一档里就不用问了
+        return any(within(path, folder) for folder in self.private)
 
     def _mcp_of(self, tool_name: str, tool: object) -> tuple[str | None, str] | None:
         """这次调用的是不是 MCP 的工具：是的话返回（服务器，服务器那边的工具名），不是返回 None。

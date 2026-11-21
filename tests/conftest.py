@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import functools
+import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +23,44 @@ from harness.config import Config
 from harness.desktop import backend as desktop_backend
 from harness.service import base as service_base
 from harness.service import cli as service_cli
+
+# ---- 符号链接 -------------------------------------------------------------------
+# Windows 上建符号链接要管理员权限，或者打开了"开发者模式"；普通用户建的时候报 OSError（WinError 1314）。
+# 这样的电脑上，建链接的测试跳过并写明原因，别的测试照常跑。macOS 和 Linux 上一直建得了，什么都不跳过。
+# 不按"是不是 Windows"判断，而是真的建一次：开了开发者模式的 Windows 也能建，那就照常测。
+# 硬链接（os.link）在 Windows 的 NTFS 上不要特别的权限，不受这里影响。
+NO_SYMLINKS = "这台 Windows 电脑上不能建符号链接（要管理员权限或者开发者模式）"
+
+
+@functools.cache
+def symlinks_work() -> bool:
+    """在一个新的临时文件夹里真的建一次链接，看这台电脑行不行。只试一次，之后用记下的结果。
+
+    文件的链接和文件夹的链接各建一个：Windows 上这是两种不同的链接（文件夹的要 target_is_directory），
+    测试里两种都用到了。
+    """
+    folder = Path(tempfile.mkdtemp(prefix="harness-symlink-probe-"))
+    try:
+        (folder / "file").write_text("x", encoding="utf-8")
+        (folder / "dir").mkdir()
+        (folder / "file-link").symlink_to(folder / "file")
+        (folder / "dir-link").symlink_to(folder / "dir", target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        return False
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.fixture
+def symlinks():
+    """要建符号链接的测试带上它：建不了链接的电脑上，整个测试跳过。
+
+    好几个测试共用的准备工作（比如 test_skills 的 claude_dirs）不带它，而是只在 symlinks_work() 时建链接，
+    再让真正用到这些链接的那几个测试带上它，免得不相干的测试也跟着跳过。
+    """
+    if not symlinks_work():
+        pytest.skip(NO_SYMLINKS)
 
 
 class RecordingUI:

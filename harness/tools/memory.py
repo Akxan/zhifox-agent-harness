@@ -15,7 +15,10 @@ from pathlib import Path
 from anthropic.tools import BetaLocalFilesystemMemoryTool
 from anthropic.tools import ToolError as SdkToolError
 
+from .. import pathnames
 from .base import Tool, ToolError
+
+MEMORY_ROOT = "/memories"  # 模型看到的记忆目录（SDK 规定的），路径都以它开头
 
 # 给其他厂商模型用的说明书。Claude 学过这个工具，知道每次对话开始时要先看一眼记忆目录；
 # 别家的模型没学过，所以这条规矩要在说明里写出来。
@@ -53,10 +56,26 @@ PORTABLE = {
 _LOCK = threading.Lock()
 
 
+def _windows_trick(tool_input: dict) -> str | None:
+    r"""Windows 上，模型给的记忆路径用没用花招（见 pathnames.py）。SDK 会把路径展开、确认它还在 /memories 里面，
+    可是展开这一步本身就会去碰那个位置：/memories/\\某台主机\共享 光是展开一下就会去连那台主机（还会把登录凭据发过去），
+    CON、COM1 是设备。所以交给 SDK 之前先看一眼，用了就不认。/memories 后面的部分按相对路径看。"""
+    for key in ("path", "old_path", "new_path"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.startswith(MEMORY_ROOT):
+            reason = pathnames.trick(value[len(MEMORY_ROOT) :].lstrip("/"))
+            if reason:
+                return f"{reason}。为了安全，这种写法不认，请换成普通的路径（比如 /memories/notes.md）。"
+    return None
+
+
 def make_memory_tool(data_dir: Path) -> Tool:
     backend = BetaLocalFilesystemMemoryTool(base_path=str(data_dir))  # 实际位置：data_dir/memories/
 
     def run(tool_input: dict) -> str:
+        reason = _windows_trick(tool_input) if isinstance(tool_input, dict) else None
+        if reason:
+            raise ToolError(reason)
         try:
             with _LOCK:
                 return str(backend.call(tool_input))

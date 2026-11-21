@@ -27,7 +27,7 @@ def test_the_service_token_survives_a_restart(tmp_path):
     forget_token(tmp_path)  # 已经没有了，再删一次也没事
 
 
-def test_a_damaged_or_linked_token_file_is_replaced_not_followed(tmp_path):
+def test_a_damaged_or_linked_token_file_is_replaced_not_followed(symlinks, tmp_path):
     path = tmp_path / WEB_TOKEN
     path.write_text("太短\n", encoding="utf-8")
     token = stable_token(tmp_path)
