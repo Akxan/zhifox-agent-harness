@@ -1,16 +1,18 @@
-// ---- 扩展 · Skill · 从 Claude Code 导入、装之前的确认 -----------------------
-// 网址、上传、从 Claude Code 导入找到的 Skill 都先到这一页：一个一张卡片，写着是什么、合不合格；
-// 勾上要装的，同名的选改名还是替换，然后一起装上（/api/skill/install）。
+// ---- 扩展 · Skill · 从其他工具导入、装之前的确认 -----------------------------
+// 网址、上传、从其他工具（Claude Code、Codex、Cursor、Gemini CLI、.agents/skills……）导入找到的 Skill 都先到这一页：
+// 一个一张卡片，写着是什么、合不合格；勾上要装的，同名的选改名还是替换，然后一起装上（/api/skill/install）。
+// 从其他工具导入时，顶上的总览、每一组的标题和最下面的"没找到的"是三页共用的（imports.js）。
 // 文件最后把 Skill 这一页挂到扩展对话框上（打开时、关窗之前、关上时各做什么）。
 
 async function startSkillImport() {
-  showSkillView({ kind: 'review', origin: 'claude', loading: true, candidates: [], picks: {}, results: {}, places: [], source: {} });
+  showSkillView({ kind: 'review', origin: 'tools', loading: true, candidates: [], picks: {}, results: {}, places: [], tools: [], source: {} });
   const view = skillView;
   const mine = skillSeq;
-  const reply = await call('/api/skill/claude');
+  const reply = await call('/api/skill/scan');
   if (mine !== skillSeq || skillView !== view) return;
   if (!reply.ok) { view.loading = false; view.said = { text: reply.error, bad: true }; paintSkill(); return; }
-  showSkillReview(reply.data, 'claude', null, view);
+  showSkillReview(reply.data, 'tools', null, view);
+  importArrive('skills');
 }
 
 // ---- 装之前的确认 ----
@@ -29,12 +31,12 @@ function showSkillReview(data, origin, back, reuse) {
   const candidates = Array.isArray(data.candidates) ? data.candidates : [];
   const picks = {};
   for (const candidate of candidates) {
-    // 只认出一个、合格、又没有同名的，默认勾上。认出好几个的（一整个仓库、Claude Code 里的一堆）一个都不先勾：
+    // 只认出一个、合格、又没有同名的，默认勾上。认出好几个的（一整个仓库、别的工具里的一堆）一个都不先勾：
     // 装哪几个由你来挑。同名的勾上之后，再问你改名还是替换
     const only = candidates.length === 1 && !candidate.problems.length && !candidate.exists;
     picks[candidate.key] = { on: only, mode: 'rename', name: candidate.exists ? freeSkillName(candidate.name) : candidate.name };
   }
-  const view = { kind: 'review', origin, back, stage: data.stage, source: data.source || {}, places: data.places || [], candidates, picks, results: {}, installing: false, loading: false, said: null };
+  const view = { kind: 'review', origin, back, stage: data.stage, source: data.source || {}, places: data.places || [], tools: data.tools || [], candidates, picks, results: {}, installing: false, loading: false, said: null };
   if (reuse && skillView === reuse) { skillView = view; paintSkill('title'); }
   else showSkillView(view);
 }
@@ -43,17 +45,20 @@ function buildSkillReview(view) {
   const node = el('div', 'skill-view');
   const source = view.source || {};
   const commit = source.commit ? ' @ ' + source.commit.slice(0, 7) : '';
-  const lead = view.origin === 'claude' ? (view.places.length ? [k('在这些地方找过：{places}'), { places: view.places.join('  ·  ') }] : null)
+  const tools = view.origin === 'tools';
+  const lead = tools ? [k('只在你打开这一页时去看这些工具的 Skill 文件夹，只读不写、什么都不运行。')]
     : view.origin === 'upload' ? [k('上传的 {place}'), { place: source.label || '' }]
       : [k('来自 {place}'), { place: (source.label || source.url || '') + commit }];
-  node.appendChild(skillHead(view.origin === 'claude' ? [k('从 Claude Code 导入')] : [k('确认安装')], lead).head);
-  if (view.loading) { node.appendChild(skillWaiting(k('正在查找 Claude Code 的 Skill……'))); return node; }
-  node.appendChild(skillTrust(view.origin === 'claude'));
+  node.appendChild(skillHead(tools ? [k('从其他工具导入')] : [k('确认安装')], lead).head);
+  if (view.loading) { node.appendChild(skillWaiting(k('正在查找别的工具里的 Skill……'))); return node; }
+  const overview = tools && importOverview(view.tools, 'skills');
+  if (overview) node.appendChild(overview);
+  node.appendChild(skillTrust(tools));
 
   const list = view.candidates;
   if (!list.length) {
-    node.appendChild(tel('p', 'hint', view.origin === 'claude'
-      ? k('没有找到 Claude Code 的 Skill。它们一般放在 ~/.claude/skills/ 或者项目里的 .claude/skills/ 下面，每个是一个带 SKILL.md 的文件夹。')
+    node.appendChild(tel('p', 'hint', tools
+      ? k('在别的工具里没有找到 Skill。放在别处的话，可以用“上传”。')
       : k('里面没有找到 SKILL.md：一个 Skill 至少要有这个文件。')));
   }
   const usable = list.filter((candidate) => !candidate.problems.length && !(view.results[candidate.key] && view.results[candidate.key].ok));
@@ -73,11 +78,15 @@ function buildSkillReview(view) {
   list.forEach((candidate, index) => {
     if (!cards || (candidate.group || '') !== group) {
       group = candidate.group || '';
-      if (group) node.appendChild(el('h4', 'skill-group', group));
+      // 从其他工具导入的：标题是"哪个工具、哪个文件夹"（和 MCP、Agent 两页一样）；压缩包里的：标题是它所在的文件夹
+      if (tools && candidate.tool) node.appendChild(importGroupHead(candidate.tool, candidate.tool_id, '', candidate.key.slice(0, candidate.key.lastIndexOf('/'))));
+      else if (group) node.appendChild(el('h4', 'skill-group', group));
       cards = node.appendChild(el('ul', 'skill-cands'));
     }
     cards.appendChild(skillCandidate(view, candidate, index));
   });
+  const missing = tools && importMissing(view.tools, 'skills', !list.length);
+  if (missing) node.appendChild(missing);
 
   // 底下这一排贴着页面的下边：候选很多、要往下翻的时候，"安装"也一直看得见
   const foot = node.appendChild(el('div', 'skill-foot skill-stick'));

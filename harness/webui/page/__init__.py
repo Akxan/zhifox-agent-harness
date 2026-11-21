@@ -64,6 +64,7 @@ STYLES = (
     "styles/channels.css",  # 扩展 · 通道
     "styles/memory-editor.css",  # 记忆窗口里的编辑
     "styles/agents.css",  # 自定义 Agent
+    "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/commands.css",  # 不用问的命令
     "styles/spending.css",  # 花费
@@ -112,6 +113,7 @@ SCRIPTS = (
     "scripts/media.js",  # 多媒体
     "scripts/prompt.js",  # 提示词
     "scripts/extensions.js",  # 扩展对话框的壳
+    "scripts/imports.js",  # 扩展 · 从其他工具导入：Skill、MCP、Agent 三页共用的总览、分组的标题、"没找到的"
     "scripts/skills.js",  # 扩展 · Skill：共用的状态和小工具
     "scripts/skills-list.js",  # 扩展 · Skill · 列表
     "scripts/skills-detail.js",  # 扩展 · Skill · 打开一个、编辑 SKILL.md

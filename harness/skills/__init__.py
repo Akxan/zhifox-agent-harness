@@ -16,7 +16,7 @@
   catalog.py       告诉模型现在有哪些 Skill：放在哪里、变了怎么办
   bundle.py        从外面拿来的文件（压缩包、上传的文件夹）：装之前的安全检查
   download.py      从网址下载（GitHub 的文件夹、SKILL.md、zip）
-  claude_code.py   从 Claude Code 导入（复制一份过来）
+  from_tools.py    从别的工具导入（Claude Code、Codex、Cursor……，复制一份过来）
   installer.py     先给你看、你确认了才装
 
 模型读 Skill 用的是 tools/skill.py 里的 skill 工具，它只能读、不能改，也只能读启用着的 Skill。

@@ -156,10 +156,13 @@ def test_importing_from_claude_code(serve):
     (folder / "code-reviewer.md").write_text(agent_file("code-reviewer", "审查代码。", tools="Read, Grep"), encoding="utf-8")
     (s.config.workspace / ".claude" / "agents").mkdir(parents=True)
     (s.config.workspace / ".claude" / "agents" / "tester.md").write_text(agent_file("tester", "写测试。"), encoding="utf-8")
-    status, body = s.browser.post("/api/agent/claude")
-    assert status == 200 and body["places"] == ["~/.claude/agents", ".claude/agents"]
+    status, body = s.browser.post("/api/agent/scan")
+    assert status == 200 and body["places"][:2] == ["~/.claude/agents", ".claude/agents"]
     keys = [candidate["key"] for candidate in body["candidates"]]
     assert keys == ["~/.claude/agents/code-reviewer.md", ".claude/agents/tester.md"]
+    assert {candidate["tool_id"] for candidate in body["candidates"]} == {"claude-code"}
+    overview = {tool["id"]: tool for tool in body["tools"]}
+    assert overview["claude-code"]["counts"]["agents"] == 2 and overview["claude-code"]["found"] is True
     picks = [{"key": keys[0], "name": "code-reviewer"}, {"key": keys[1], "name": "写测试的"}]
     status, body = s.browser.post("/api/agent/import", {"picks": picks})
     assert status == 200 and [(result["ok"], result["name"]) for result in body["results"]] == [(True, "code-reviewer"), (True, "写测试的")]
@@ -314,7 +317,7 @@ def test_api_keys_never_reach_the_agent_answers(serve, monkeypatch):
     answers = [
         s.browser.post("/api/agent/options")[1],
         s.browser.post("/api/agent/read", {"name": "资料研究员"})[1],
-        s.browser.post("/api/agent/claude")[1],
+        s.browser.post("/api/agent/scan")[1],
     ]
     assert s.browser.post("/api/message", {"text": "交给研究员"})[0] == 200
     s.browser.wait_for("turn_end")

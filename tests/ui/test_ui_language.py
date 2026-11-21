@@ -120,6 +120,11 @@ def _sweep(page) -> dict[str, list[str]]:
         steps.extensions_tab(page, tab)
         look(f"扩展 · {tab}", ["#extensions"])
     steps.escape_closes(page, "extensions")
+    # 从其他工具导入：三页各一个（顶上的总览、每一组、换写法的提醒、点开的"没找到的"）
+    for tab in ("mcp", "skills", "agents"):
+        steps.import_view(page, tab)
+        look(f"扩展 · {tab} · 从其他工具导入", ["#extensions"])
+    steps.close_extensions(page)
 
     steps.open_nav(page)
     steps.open_dialog(page, "#memory-open", "memory-dialog")

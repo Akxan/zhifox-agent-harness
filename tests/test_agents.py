@@ -25,8 +25,8 @@ from harness.agents import (
     AgentError,
     AgentInvalid,
     AgentStore,
-    claude_code,
     examples,
+    from_tools,
 )
 from harness.agents import catalog as agent_catalog
 from harness.agents import prompt as agent_prompt
@@ -493,7 +493,7 @@ def test_two_creates_with_the_same_name_cannot_both_win(agents, monkeypatch):
     assert sorted(outcomes) == ["ok", "refused"]
 
 
-# ---- 从 Claude Code 导入 --------------------------------------------------------
+# ---- 从别的工具导入（这里是 Claude Code，别的工具在 test_imports.py） -----------------
 
 
 def claude_agents(home: Path, workspace: Path) -> None:
@@ -513,24 +513,26 @@ def test_claude_code_agents_are_found_only_when_asked(make_config, agents, monke
     home = Path.home()
     claude_agents(home, config.workspace)
     reads: list[Path] = []
-    real = claude_code._read
-    monkeypatch.setattr(claude_code, "_read", lambda path: reads.append(path) or real(path))
+    real = from_tools._read
+    monkeypatch.setattr(from_tools, "_read", lambda path: reads.append(path) or real(path))
     agents.create(agent_file("tester", "已经有一个了"))
     assert reads == []  # 什么都还没做：不读
-    found = {item["key"]: item for item in claude_code.discover(config.workspace, agents)}
+    found = {item["key"]: item for item in from_tools.discover(config.workspace, agents)}
     assert set(found) == {"~/.claude/agents/Bad Name.md", "~/.claude/agents/broken.md", "~/.claude/agents/code-reviewer.md", ".claude/agents/tester.md"}
     assert found["~/.claude/agents/code-reviewer.md"]["problems"] == [] and found["~/.claude/agents/code-reviewer.md"]["tools"] == {"all": False, "count": 1}
     assert found["~/.claude/agents/Bad Name.md"]["bad_name"] is True and found["~/.claude/agents/Bad Name.md"]["problems"] == []
     assert found["~/.claude/agents/broken.md"]["problems"]
     assert found[".claude/agents/tester.md"]["exists"] is True and found[".claude/agents/tester.md"]["model"] == "anthropic/claude-sonnet-5-5"
-    assert [label for label, _ in claude_code.places(config.workspace)] == ["~/.claude/agents", ".claude/agents"]
+    assert found["~/.claude/agents/code-reviewer.md"]["tool"] == "Claude Code" and found["~/.claude/agents/code-reviewer.md"]["group"] == "Claude Code · ~/.claude/agents"
+    # 去过的地方：Claude Code 的两处排在最前面，后面是别的工具的（登记在 imports/registry.py）
+    assert from_tools.places_looked(config.workspace)[:2] == ["~/.claude/agents", ".claude/agents"]
 
 
 def test_importing_copies_renames_and_replaces(make_config, agents):
     config = make_config()
     claude_agents(Path.home(), config.workspace)
     agents.create(agent_file("tester", "已经有一个了"))
-    results = claude_code.import_picked(config.workspace, agents, [
+    results = from_tools.import_picked(config.workspace, agents, [
         {"key": "~/.claude/agents/code-reviewer.md", "name": "code-reviewer"},
         {"key": "~/.claude/agents/Bad Name.md", "name": "bad-name"},  # 名字不合格：导入时改一个
         {"key": ".claude/agents/tester.md", "name": "tester"},  # 同名、没说替换
@@ -551,15 +553,15 @@ def test_importing_copies_renames_and_replaces(make_config, agents):
     assert copied.read_text(encoding="utf-8") == (Path.home() / ".claude" / "agents" / "code-reviewer.md").read_text(encoding="utf-8")
     assert agents.get("bad-name").spec.name == "bad-name" and agents.get("bad-name").usable
     # 说了替换：换成 Claude Code 那边的
-    (result,) = claude_code.import_picked(config.workspace, agents, [{"key": ".claude/agents/tester.md", "name": "tester", "replace": True}])
+    (result,) = from_tools.import_picked(config.workspace, agents, [{"key": ".claude/agents/tester.md", "name": "tester", "replace": True}])
     assert result["ok"] and agents.get("tester").spec.description == "写测试。"
     # 两边各改各的
     (Path.home() / ".claude" / "agents" / "code-reviewer.md").write_text(agent_file("code-reviewer", "那边改了"), encoding="utf-8")
     assert agents.get("code-reviewer").spec.description == "审查代码。"
     with pytest.raises(AgentError):
-        claude_code.import_picked(config.workspace, agents, "nope")
+        from_tools.import_picked(config.workspace, agents, "nope")
     with pytest.raises(AgentError):
-        claude_code.import_picked(config.workspace, agents, [{"key": 5}])
+        from_tools.import_picked(config.workspace, agents, [{"key": 5}])
 
 
 # ---- 示例 ----------------------------------------------------------------------

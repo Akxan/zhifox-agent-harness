@@ -85,7 +85,7 @@ function agentToolbar() {
 function agentAdders(withExamples) {
   const buttons = [skillButton('plus', k('新建'), 'primary', 'bar:new', () => startAgentCreate())];
   if (withExamples) buttons.push(skillButton('spark', k('示例'), '', 'bar:examples', () => showAgentView({ kind: 'examples' })));
-  buttons.push(skillButton('import', k('从 Claude Code 导入'), '', 'bar:import', startAgentImport));
+  buttons.push(skillButton('import', k('从其他工具导入'), '', 'bar:import', startAgentImport));
   return buttons;
 }
 
@@ -108,7 +108,7 @@ function agentEmpty() {
   box.appendChild(agentExampleCards());
   const bar = box.appendChild(el('div', 'skill-bar'));
   bar.append(...agentAdders(false));
-  box.appendChild(tel('p', 'agents-hint', k('格式和 Claude Code 的 subagent 一样：一个带 frontmatter 的 Markdown 文件。在那边写好的，可以直接导入。')));
+  box.appendChild(tel('p', 'agents-hint', k('格式和 Claude Code 的 subagent 一样：一个带 frontmatter 的 Markdown 文件。在 Claude Code、GitHub Copilot、Gemini CLI、OpenCode、Codex 这些工具里写好的，可以直接导入。')));
   return box;
 }
 

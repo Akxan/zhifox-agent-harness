@@ -1,17 +1,17 @@
 // ---- 扩展 · Agent -----------------------------------------------------------
 // 自定义 Agent：你定制的、擅长某一类事的助手（见 harness/agents/）。一个 Agent 是 data/agents/ 里的一个 Markdown 文件，
 // 同一个文件有两种用法：主助手把任务交给它（子 Agent），或者你用它开始一段新对话（角色，见 agent-picker.js）。
-// 这一页管这些文件：列出来、打开看、编辑（表单或者原文）、新建、删除、加内置的示例、从 Claude Code 导入。
+// 这一页管这些文件：列出来、打开看、编辑（表单或者原文）、新建、删除、加内置的示例、从其他工具导入。
 //
 // 列表跟着状态走（state.agents），打开一个、编辑时要的选项（能勾的工具、示例）另外请求。
 // 一个文件合不合格、表单怎么写成文件，都由助手程序来算（/api/agent/parse、/api/agent/compose），页面不另写一份规矩：
 // 页面上的检查只是"有没有填"这种马上能看出来的，真正的问题列表都是程序给的。
-// 这一页有几种样子（view.kind）：list 列表、detail 打开的一个、edit 编辑、create 新建、examples 示例、review 从 Claude Code 导入。
+// 这一页有几种样子（view.kind）：list 列表、detail 打开的一个、edit 编辑、create 新建、examples 示例、review 从其他工具导入。
 // 版式和 Skill 一页一样，借用它的几个小工具（skillButton、skillSaid、skillWaiting、problemText、shortPath，都在 skills.js）。
 // 改 Agent 不用等这一轮对话结束（服务器也不拦）：正在进行的对话和子 Agent 用的是开始时读到的那一份。
 //
 // 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具。后面依次是 agents-list.js 列表和示例、
-// agents-detail.js 打开一个、agents-editor.js 编辑和新建、agents-import.js 从 Claude Code 导入
+// agents-detail.js 打开一个、agents-editor.js 编辑和新建、agents-import.js 从其他工具导入
 // （最后在那里挂到扩展对话框上）。
 
 const agentPanel = $('panel-agents');

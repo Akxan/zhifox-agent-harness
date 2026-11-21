@@ -31,7 +31,11 @@ def _surfaces(page):
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
         ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
         ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
-        ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], "extensions"),
+        ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], None),
+        # 从其他工具导入：很长的路径（~/Library/Application Support/Code/User/……）、换写法的提醒、"没找到的"都要折行
+        ("扩展 · MCP · 从其他工具导入", lambda: steps.import_view(page, "mcp"), ["#extensions"], None),
+        ("扩展 · Skill · 从其他工具导入", lambda: steps.import_view(page, "skills"), ["#extensions"], None),
+        ("扩展 · Agent · 从其他工具导入", lambda: steps.import_view(page, "agents"), ["#extensions"], lambda: steps.close_extensions(page)),
         ("记忆", lambda: (steps.open_nav(page), steps.open_dialog(page, "#memory-open", "memory-dialog")), ["#memory-dialog"], "memory-dialog"),
         ("新建任务", lambda: (steps.nav_tab(page, "tasks"), steps.open_dialog(page, "#task-new", "task-editor")), ["#task-editor"], "task-editor"),
         # 这一轮加过待办（会改动东西）：重新生成之前先在原地确认；编辑框里按回车，确认放在编辑框里
@@ -82,7 +86,9 @@ def test_no_text_overflow_at_phone_width(page, code):
             problems = checks.overflow(page, roots)
             if problems:
                 found[name] = problems
-            if close:
+            if callable(close):
+                close()
+            elif close:
                 steps.escape_closes(page, close)
         assert found == {}, f"{code}：这些地方的文字冲出了容器：\n" + "\n".join(f"{where}:\n  " + "\n  ".join(items) for where, items in found.items())
     finally:

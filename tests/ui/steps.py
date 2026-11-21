@@ -129,6 +129,26 @@ def extensions_tab(page: Page, tab: str) -> None:
     idle(page)
 
 
+# 三页各自的"从其他工具导入"按钮
+IMPORT_BUTTONS = {"mcp": "#panel-mcp [data-focus='import']", "skills": "#panel-skills [data-key='bar:import']", "agents": "#panel-agents [data-key='bar:import']"}
+
+
+def import_view(page: Page, tab: str) -> None:
+    """打开"扩展"里一页的"从其他工具导入"（mcp、skills、agents），等清单画好，把最下面的"没找到的"也点开。"""
+    extensions_tab(page, tab)
+    page.click(IMPORT_BUTTONS[tab])
+    page.wait(f"document.querySelector('#panel-{tab} .import-overview')", what=f"{tab} 的导入页画好")
+    page.js(f"document.querySelectorAll('#panel-{tab} details.import-missing').forEach((details) => {{ details.open = true; }})")
+    idle(page)
+
+
+def close_extensions(page: Page) -> None:
+    """点右上角的 × 关掉"扩展"窗口（导入页里按 Esc 是先回到上一层，不是关窗口）。"""
+    page.click("#close-extensions")
+    page.wait(f"!{is_open('extensions')}", what="扩展窗口关上")
+    idle(page)
+
+
 def expand_capabilities(page: Page) -> None:
     """信息栏"智狐能做的事"：每一行都点开、每个"技术细节"都展开、"这段对话用不了的"也展开（查翻译、查文字有没有冲出去时用）。"""
     open_side(page)

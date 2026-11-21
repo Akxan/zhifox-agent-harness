@@ -35,8 +35,8 @@ from harness.skills import (
     SkillStore,
     bundle,
     catalog,
-    claude_code,
     download,
+    from_tools,
 )
 from harness.skills import installer as installer_module
 from harness.skills import store as store_module
@@ -1099,7 +1099,7 @@ def test_fetch_reports_unreachable_hosts():
         download.fetch("https://127.0.0.1:1/nothing-listens-here")
 
 
-# ---- 从 Claude Code 导入 -----------------------------------------------------
+# ---- 从别的工具导入（这里是 Claude Code，别的工具在 test_imports.py） ----------
 
 
 @pytest.fixture
@@ -1128,10 +1128,12 @@ def claude_dirs(tmp_path):
 
 
 def test_claude_code_skills_are_found_in_both_places(claude_dirs):
-    found = claude_code.discover(claude_dirs)
+    found = from_tools.discover(claude_dirs)
     by_key = {candidate.key: (group, candidate) for group, candidate in found}
     assert sorted(by_key) == [".claude/skills/beta", "~/.claude/skills/alpha", "~/.claude/skills/empty", "~/.claude/skills/gamma"]
-    assert by_key["~/.claude/skills/alpha"][0] == "~/.claude/skills" and by_key[".claude/skills/beta"][0] == ".claude/skills"
+    # 分组的标题是"工具 · 位置"，每个候选记着它来自哪个工具
+    assert by_key["~/.claude/skills/alpha"][0] == "Claude Code · ~/.claude/skills" and by_key[".claude/skills/beta"][0] == "Claude Code · .claude/skills"
+    assert {(candidate.tool, candidate.tool_id) for _, candidate in found} == {("Claude Code", "claude-code")}
     alpha = by_key["~/.claude/skills/alpha"][1]
     assert alpha.problems == [] and [path for path, _ in alpha.listing] == ["SKILL.md", "scripts/run.sh"]
     assert by_key["~/.claude/skills/gamma"][1].problems == []
@@ -1141,16 +1143,19 @@ def test_claude_code_skills_are_found_in_both_places(claude_dirs):
 
 
 def test_one_place_when_running_in_the_home_folder():
-    assert len(claude_code.places(Path.home())) == 1
+    # 在家目录里运行：项目级和用户级是同一个文件夹，只看一次（按用户级写）
+    looked = from_tools.places_looked(Path.home())
+    assert looked.count("~/.claude/skills") == 1 and ".claude/skills" not in looked
+    assert len(looked) == len(set(looked))
 
 
 def test_nothing_to_import(tmp_path):
-    assert claude_code.discover(tmp_path / "work") == []
+    assert from_tools.discover(tmp_path / "work") == []
 
 
 def test_importing_copies_and_skips_inner_links(store, claude_dirs):
     installer = Installer(store)
-    preview = installer.stage(claude_code.discover(claude_dirs), {"kind": "claude-code", "label": ""})
+    preview = installer.stage(from_tools.discover(claude_dirs), {"kind": "import", "label": ""})
     keys = {candidate["key"] for candidate in preview["candidates"]}
     assert "~/.claude/skills/alpha" in keys and all("group" in candidate for candidate in preview["candidates"])
     results = installer.install(preview["stage"], [
@@ -1166,7 +1171,7 @@ def test_importing_copies_and_skips_inner_links(store, claude_dirs):
     assert not (store.root / "gamma").is_symlink()  # 复制的是内容，不是链接
     assert "name: beta" in (store.root / "beta" / "SKILL.md").read_text(encoding="utf-8")  # 补上了 name
     sources = {skill.name: skill.source for skill in store.list()}
-    assert sources["alpha"]["kind"] == "claude-code" and sources["alpha"]["label"] == "~/.claude/skills/alpha"
+    assert {key: sources["alpha"][key] for key in ("kind", "tool", "label")} == {"kind": "import", "tool": "Claude Code", "label": "~/.claude/skills/alpha"}
     # 原来的文件一个都没动
     assert (Path.home() / ".claude" / "skills" / "alpha" / "leak.txt").is_symlink()
 
@@ -1174,7 +1179,7 @@ def test_importing_copies_and_skips_inner_links(store, claude_dirs):
 def test_name_collisions_rename_or_replace(store, claude_dirs):
     installer = Installer(store)
     store.create("alpha", "已经有的那个", "")
-    preview = installer.stage(claude_code.discover(claude_dirs), {"kind": "claude-code", "label": ""})
+    preview = installer.stage(from_tools.discover(claude_dirs), {"kind": "import", "label": ""})
     (alpha,) = [candidate for candidate in preview["candidates"] if candidate["key"] == "~/.claude/skills/alpha"]
     assert alpha["exists"] is True
     key = "~/.claude/skills/alpha"
@@ -1186,7 +1191,7 @@ def test_name_collisions_rename_or_replace(store, claude_dirs):
     text_ = (store.root / "alpha-2" / "SKILL.md").read_text(encoding="utf-8")
     assert "name: alpha-2" in text_ and "name: alpha\n" not in text_
     assert store.list()[1].name == "alpha-2" and store.list()[1].usable
-    preview = installer.stage(claude_code.discover(claude_dirs), {"kind": "claude-code", "label": ""})
+    preview = installer.stage(from_tools.discover(claude_dirs), {"kind": "import", "label": ""})
     (result,) = installer.install(preview["stage"], [{"key": key, "name": "alpha", "replace": True}])
     assert result["ok"] is True and store.read("alpha")["description"] == DESCRIPTION
 

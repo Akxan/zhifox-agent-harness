@@ -1,24 +1,28 @@
-// ---- 扩展 · Agent · 从 Claude Code 导入 -------------------------------------
-// 只有你点了"从 Claude Code 导入"才去读那边的 Agent（/api/agent/claude）。一个一张卡片：勾上要的，
-// 同名的选改名还是替换，然后复制过来（/api/agent/import）；之后那边改了、删了，都不影响这边。
+// ---- 扩展 · Agent · 从其他工具导入 -------------------------------------------
+// 只有你点了"从其他工具导入"才去读别的工具（Claude Code、GitHub Copilot、Gemini CLI、OpenCode、Codex……）的
+// Agent（/api/agent/scan）。一个一张卡片：勾上要的，同名的选改名还是替换，然后复制过来（/api/agent/import）；
+// 之后那边改了、删了，都不影响这边。写法和智狐不一样的，程序先换成智狐的写法，换了什么、丢了什么写在卡片上（changes）。
+// 顶上的总览、每一组的标题和最下面的"没找到的"是三页共用的（imports.js）。
 // 文件最后把 Agent 这一页挂到扩展对话框上（打开时、关窗之前、关上时各做什么）。
 
 async function startAgentImport() {
-  showAgentView({ kind: 'review', loading: true, candidates: [], picks: {}, results: {}, places: [], installing: false, said: null });
+  showAgentView({ kind: 'review', loading: true, candidates: [], picks: {}, results: {}, places: [], tools: [], installing: false, said: null });
   const view = agentView;
   const mine = agentSeq;
-  const reply = await call('/api/agent/claude');
+  const reply = await call('/api/agent/scan');
   if (mine !== agentSeq || agentView !== view) return;
   view.loading = false;
   if (!reply.ok) { view.said = { text: reply.error, bad: true }; paintAgent('title'); return; }
   view.candidates = Array.isArray(reply.data.candidates) ? reply.data.candidates : [];
   view.places = reply.data.places || [];
+  view.tools = reply.data.tools || [];
   for (const candidate of view.candidates) {
     // 只找到一个、合格、又没有同名的，默认勾上。找到好几个的，一个都不先勾：装哪几个由你来挑
     const only = view.candidates.length === 1 && !candidate.problems.length && !candidate.exists && !candidate.bad_name;
     view.picks[candidate.key] = { on: only, mode: 'rename', name: candidate.exists ? freeAgentName(candidate.name) : candidate.name };
   }
   paintAgent('title');
+  importArrive('agents');
 }
 
 function freeAgentName(name) {
@@ -29,15 +33,24 @@ function freeAgentName(name) {
 
 function buildAgentReview(view) {
   const node = el('div', 'skill-view');
-  node.appendChild(agentHead([k('从 Claude Code 导入')], view.places.length ? [k('在这些地方找过：{places}'), { places: view.places.join('  ·  ') }] : null).head);
-  if (view.loading) { node.appendChild(skillWaiting(k('正在查找 Claude Code 的 Agent……'))); return node; }
+  node.appendChild(agentHead([k('从其他工具导入')], [k('只在你打开这一页时去看这些工具的 Agent 文件，只读不写、什么都不运行。')]).head);
+  if (view.loading) { node.appendChild(skillWaiting(k('正在查找别的工具里的 Agent……'))); return node; }
+  const overview = importOverview(view.tools, 'agents');
+  if (overview) node.appendChild(overview);
   const trust = node.appendChild(el('p', 'skill-trust calm'));
-  trust.append(icon('copy'), tel('span', null, k('导入的是一份复制：之后在 Claude Code 那边改了、删了，都不会影响智狐这边。')));
-  if (!view.candidates.length) {
-    node.appendChild(tel('p', 'hint', k('没有找到 Claude Code 的 Agent。它们一般放在 ~/.claude/agents/ 或者项目里的 .claude/agents/ 下面，每个是一个 .md 文件。')));
-  }
-  const cards = node.appendChild(el('ul', 'skill-cands'));
-  view.candidates.forEach((candidate, index) => cards.appendChild(agentCandidate(view, candidate, index)));
+  trust.append(icon('copy'), tel('span', null, k('导入的是一份复制：之后在原来的工具里改了、删了，都不会影响智狐这边。写法不一样的会换成智狐的写法，换了什么写在每一张卡片上。')));
+  if (!view.candidates.length) node.appendChild(tel('p', 'hint', k('在别的工具里没有找到 Agent。')));
+  let group = null, cards = null;
+  view.candidates.forEach((candidate, index) => {
+    if (!cards || candidate.group !== group) {
+      group = candidate.group;
+      node.appendChild(importGroupHead(candidate.tool, candidate.tool_id, '', candidate.place));
+      cards = node.appendChild(el('ul', 'skill-cands'));
+    }
+    cards.appendChild(agentCandidate(view, candidate, index));
+  });
+  const missing = importMissing(view.tools, 'agents', !view.candidates.length);
+  if (missing) node.appendChild(missing);
   const foot = node.appendChild(el('div', 'skill-foot skill-stick'));
   const said = foot.appendChild(skillSaid(el('p'), view.said));
   said.setAttribute('role', 'status');
@@ -72,14 +85,16 @@ function agentCandidate(view, candidate, index) {
   if (bad) label.appendChild(el('span', 'skill-flag bad', t('导入不了')));
   else if (candidate.exists && !done) label.appendChild(el('span', 'skill-flag manual', t('同名')));
   if (candidate.description) body.appendChild(el('span', 'skill-desc', candidate.description)).title = candidate.description;
-  const facts = [candidate.place + '/' + candidate.file];
+  const facts = [candidate.file];
   if (!bad) facts.push(agentModelText(candidate.model, true), agentToolsText(candidate.tools));
   body.appendChild(el('span', 'skill-meta', facts.join(' · ')));
   const notes = [...candidate.problems, ...(candidate.warnings || [])];
   if (notes.length) {
     const problems = body.appendChild(el('ul', (bad ? 'skill-problems' : 'agents-warn') + (notes.length === 1 ? ' single' : '')));
-    for (const problem of notes) problems.appendChild(el('li', null, problemText(problem)));
+    for (const problem of notes) problems.appendChild(problem && typeof problem === 'object' ? tel('li', null, problem.key, problem.values) : el('li', null, problemText(problem)));
   }
+  const changes = !bad && importNotes(candidate.changes);  // 从别家的写法换过来时改了什么、丢了什么
+  if (changes) body.appendChild(changes);
   if (!done && !bad && pick.on && (candidate.exists || candidate.bad_name)) {
     // 同名、或者名字在智狐里不合格：问你用什么名字（同名的也可以选替换）
     const clash = body.appendChild(el('div', 'skill-clash'));

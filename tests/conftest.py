@@ -18,6 +18,7 @@ from harness import i18n
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.imports import places as import_places
 from harness.service import base as service_base
 from harness.service import cli as service_cli
 
@@ -134,6 +135,9 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("HARNESS_ENV_FILE", str(tmp_path / "no-such.env"))
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    # "从其他工具导入"会看这几个环境变量（CODEX_HOME 这些）找别的工具的配置：清掉，只看假的家目录
+    for name in import_places.VARIABLES:
+        monkeypatch.delenv(name, raising=False)
     # 界面语言是整个程序共用的一个值（见 harness/i18n.py）。每个测试都从中文开始，测试里换了语言也会被换回来
     monkeypatch.setattr(i18n, "current", i18n.DEFAULT)
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，

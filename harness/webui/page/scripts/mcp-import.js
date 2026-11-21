@@ -1,6 +1,8 @@
-// ---- 扩展 · MCP · 粘贴 JSON、从 Claude 导入 ---------------------------------
-// 一次加好几个服务器的两种办法：粘贴一段 Claude Desktop 格式的 JSON，或者从 Claude Desktop / Claude Code 的配置里挑。
-// 都是先请助手程序读出里面有哪些（/api/mcp/paste、/api/mcp/scan），列成一张勾选的清单（命令里的密钥遮住），再把勾上的加进来。
+// ---- 扩展 · MCP · 粘贴 JSON、从其他工具导入 ---------------------------------
+// 一次加好几个服务器的两种办法：粘贴一段 Claude Desktop 格式的 JSON，或者从别的工具（Claude Desktop、Claude Code、
+// Cursor、VS Code、Codex、Gemini CLI、Goose……）的配置里挑。都是先请助手程序读出里面有哪些（/api/mcp/paste、
+// /api/mcp/scan），列成一张勾选的清单（命令里的密钥遮住；从别家的写法换过来时改了什么、丢了什么也写在上面），
+// 再把勾上的加进来。从其他工具导入那一页顶上的总览和最下面的"没找到的"是三页共用的（imports.js）。
 // 文件最后把 MCP 这一页挂到扩展对话框上（打开时、Esc 先回到上一层、关上时清掉表单里刚填的密钥）。
 
 function openMcpPaste() {
@@ -104,7 +106,8 @@ function mcpFinishImport(added, skipped) {
   announce(said);
 }
 
-// 导入清单里的一项：一个勾选框，加上它的名字、命令（密钥遮住）、要的环境变量，和导入时要注意的地方
+// 导入清单里的一项：一个勾选框，加上它的名字、命令（密钥遮住）、要的环境变量，导入时要注意的地方，
+// 以及从别家的写法换过来时改了什么、丢了什么（notes，原文和值，换语言时就地重译）
 function mcpPick(item, picked, changed) {
   const row = el('li');
   const label = row.appendChild(el('label', 'mcp-pick'));
@@ -118,20 +121,22 @@ function mcpPick(item, picked, changed) {
   if (item.summary) words.appendChild(el('span', 'mcp-command', mcpCommand(item.summary)));
   const secrets = item.summary ? (item.summary.transport === 'http' ? item.summary.headers : item.summary.env) : [];
   if (secrets.length) {
-    const names = secrets.map((one) => one.name).join(t('、'));
-    words.appendChild(el('span', null, item.summary.transport === 'http' ? t('请求头：{names}', { names }) : t('环境变量：{names}', { names })));
+    const names = secrets.map((one) => one.name).join(', ');
+    words.appendChild(tel('span', null, item.summary.transport === 'http' ? k('请求头：{names}') : k('环境变量：{names}'), { names }));
   }
   if (item.problem) words.appendChild(el('span', 'bad', item.problem));
-  if (item.duplicate) words.appendChild(el('span', 'warn', t('和已经有的一个服务器一模一样，默认不勾。')));
-  if (item.target && item.target !== item.name) words.appendChild(el('span', 'warn', t('这个名字已经有了，会以“{name}”导入。', { name: item.target })));
+  if (item.duplicate) words.appendChild(tel('span', 'warn', k('和已经有的一个服务器一模一样，默认不勾。')));
+  if (item.target && item.target !== item.name) words.appendChild(tel('span', 'warn', k('这个名字已经有了，会以“{name}”导入。'), { name: item.target }));
+  const notes = importNotes(item.notes);
+  if (notes) words.appendChild(notes);
   return row;
 }
 
-// ---- 从 Claude 导入 ----
+// ---- 从其他工具导入 ----
 
 async function openMcpImport() {
   mcpSay('');
-  mcpView = { kind: 'import', sources: null, picked: new Set(), loading: true };
+  mcpView = { kind: 'import', sources: null, tools: [], picked: new Set(), loading: true };
   const view = mcpView;
   const head = el('div', 'mcp-head');
   const back = head.appendChild(el('button', 'mcp-back'));
@@ -139,8 +144,8 @@ async function openMcpImport() {
   back.dataset.focus = 'back';
   back.append(icon('chevron'), tel('span', null, k('全部服务器')));
   back.addEventListener('click', mcpBack);
-  head.appendChild(tel('h3', 'mcp-title', k('从 Claude Desktop / Claude Code 导入')));
-  const lead = tel('p', 'mcp-lead', k('只在你打开这一页时读取它们的配置文件。勾选的服务器会复制一份到智狐自己的配置里，之后两边互不影响。'));
+  head.appendChild(tel('h3', 'mcp-title', k('从其他工具导入')));
+  const lead = tel('p', 'mcp-lead', k('只在你打开这一页时读取这些工具的配置文件，只读不写、什么都不运行。勾选的服务器会复制一份到智狐自己的配置里，之后两边互不影响；在别的工具里设成“不用问”的，到了智狐照样先问你。'));
   const result = el('div');
   result.id = 'mcp-import-result';
   result.append(el('div', 'mcp-skeleton'), el('div', 'mcp-skeleton'), el('div', 'mcp-skeleton'));
@@ -161,16 +166,16 @@ async function openMcpImport() {
   if (mcpView !== view) return;
   view.loading = false;
   if (!reply.ok) { result.replaceChildren(mcpNote('bad', reply.error)); message.textContent = ''; return; }
-  view.sources = reply.data.sources;
-  const nodes = [], missing = [];
+  view.sources = reply.data.sources || [];
+  view.tools = reply.data.tools || [];
+  const nodes = [], groups = [];
   let total = 0;
   for (const source of view.sources) {
-    if (!source.found) { missing.push(source.label); continue; }
+    // 没有这个文件的、文件里一个服务器都没配的，不占地方（去过哪些地方写在最下面的"没找到的"里）
+    if (!source.found || (!source.problem && !source.servers.length)) continue;
     const group = el('div', 'mcp-pick-group');
-    const title = group.appendChild(el('h4', null, source.label));
-    title.appendChild(el('span', 'path', source.path));
+    group.appendChild(importGroupHead(source.tool, source.tool_id, source.level, source.path));
     if (source.problem) group.appendChild(mcpNote('bad', source.problem));
-    else if (!source.servers.length) group.appendChild(el('p', 'mcp-help', t('这里没有配置 MCP 服务器。')));
     const list = group.appendChild(el('ul', 'mcp-picks'));
     for (const item of source.servers) {
       const key = source.id + '\n' + item.name;
@@ -180,15 +185,26 @@ async function openMcpImport() {
       const proxy = { has: (name) => view.picked.has(source.id + '\n' + name), add: (name) => view.picked.add(source.id + '\n' + name), delete: (name) => view.picked.delete(source.id + '\n' + name) };
       list.appendChild(mcpPick(item, proxy, updateMcpImport));
     }
-    nodes.push(group);
+    groups.push(group);
   }
-  if (!nodes.length) nodes.push(mcpNote('calm', t('没有找到 Claude Desktop 或 Claude Code 的 MCP 配置。也可以用“粘贴 JSON”。')));
-  if (missing.length && nodes.length) nodes.push(el('p', 'mcp-help', t('没有找到：{list}', { list: missing.join(t('、')) })));
+  const overview = importOverview(view.tools, 'mcp');
+  if (overview) nodes.push(overview);
+  if (groups.length) nodes.push(...groups);
+  else {
+    const empty = el('div', 'mcp-note calm');
+    empty.setAttribute('role', 'note');
+    empty.append(icon('spark'), tel('span', null, k('在别的工具里没有找到 MCP 服务器。配置放在别处的话，可以用“粘贴 JSON”。')));
+    nodes.push(empty);
+  }
+  const missing = importMissing(view.tools, 'mcp', !groups.length);
+  if (missing) nodes.push(missing);
   result.replaceChildren(...nodes);
-  message.textContent = total ? (total === 1 ? t('找到 1 个服务器。') : t('找到 {n} 个服务器。', { n: total })) : '';
+  if (total) retext(message, total === 1 ? k('找到 1 个服务器。') : k('找到 {n} 个服务器。'), total === 1 ? undefined : { n: total });
+  else { delete message.dataset.i18n; message.textContent = ''; }
   updateMcpImport();
-  const first = result.querySelector('input:not(:disabled)');
+  const first = result.querySelector('.mcp-picks input:not(:disabled)');
   if (first) first.focus();
+  importArrive('mcp');
 }
 
 function updateMcpImport() {

@@ -13,7 +13,7 @@
   POST /api/skill/refresh   页面回到前台：Skill 文件夹变了的话，发一次新的状态
   POST /api/skill/fetch     从网址下载，先认出里面的 Skill 给你确认（还没有装）
   POST /api/skill/upload    上传的压缩包、SKILL.md 或文件夹，同样先给你确认
-  POST /api/skill/claude    找出 Claude Code 里的 Skill，给你勾选
+  POST /api/skill/scan      找出别的工具（Claude Code、Codex、Cursor……）里的 Skill，给你勾选
   POST /api/skill/install   装你确认过的那几个
 
 规矩和别的接口一样：参数不对回答 400；做不成（不存在、不合规范、对话进行中）回答 409，说明写在 error 里。
@@ -28,14 +28,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..i18n import t
+from ..imports.overview import overview
+from ..imports.places import Env
+from ..imports.registry import SKILLS
 from ..skills import (
     BadRequest,
     SkillConflict,
     SkillError,
     SkillInvalid,
     bundle,
-    claude_code,
     download,
+    from_tools,
 )
 from ..skills.installer import Installer
 from ..skills.store import described
@@ -79,8 +82,8 @@ class SkillsAPI:
             return self._look(lambda: self._fetch(url.strip()))
         if action == "upload":
             return self._look(lambda: self._upload(body))
-        if action == "claude":
-            return self._look(self._claude)
+        if action == "scan":
+            return self._look(self._scan)
         if action == "save":
             text, modified, force = body.get("text"), body.get("modified"), body.get("force", False)
             number = modified is None or (isinstance(modified, (int, float)) and not isinstance(modified, bool))
@@ -138,12 +141,18 @@ class SkillsAPI:
             raise BadRequest(t("参数不正确"))
         return self.installer.stage([("", candidate) for candidate in bundle.candidates(files)], {"kind": "upload", "label": label})
 
-    def _claude(self) -> dict:
-        found = claude_code.discover(self.web.app.config.workspace)
-        places = [label for label, _ in claude_code.places(self.web.app.config.workspace)]
+    def _scan(self) -> dict:
+        """别的工具里的 Skill。顶上的总览（tools）里，Skill 的数目就是这里找到的，不再另外数一遍。"""
+        env = Env.here(self.web.app.config.workspace)
+        found = from_tools.discover(env.workspace, env)
+        counts: dict[str, tuple[int, int]] = {}
+        for _, candidate in found:
+            before = counts.get(candidate.tool_id, (0, 0))
+            counts[candidate.tool_id] = (before[0] + 1, before[1])
+        extra = {"places": from_tools.places_looked(env.workspace, env), "tools": overview(env, {SKILLS: counts})}
         if not found:
-            return {"stage": "", "candidates": [], "places": places}
-        return {**self.installer.stage(found, {"kind": "claude-code", "label": ""}), "places": places}
+            return {"stage": "", "candidates": [], **extra}
+        return {**self.installer.stage(found, {"kind": "import", "label": ""}), **extra}
 
     # ---- 内部 --------------------------------------------------------------
 

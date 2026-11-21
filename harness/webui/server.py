@@ -18,12 +18,12 @@
   POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词），页面只说是哪一个
   POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
-  POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / Claude Code 安装（见 skills_api.py）
-  POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从 Claude Code 导入（见 agents_api.py）
+  POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / 别的工具安装（见 skills_api.py）
+  POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从别的工具导入（见 agents_api.py）
   POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/mcp/...    MCP 服务器：查看详情、添加或编辑、删除、启用停用、重启、改"问不问你"、
-                       从 Claude Desktop / Claude Code 导入、粘贴 JSON（见 WebApp 的"MCP"一节）
+                       从别的工具导入、粘贴 JSON（见 WebApp 的"MCP"一节）
   POST /api/search     在所有保存过的会话里搜索（标题和内容）
   POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
@@ -101,6 +101,9 @@ from ..config import (
 )
 from ..conversations import ConversationError
 from ..i18n import k, t
+from ..imports.overview import overview
+from ..imports.places import Env
+from ..imports.registry import MCP
 from ..mcp import ConfigError
 from ..mcp import importers as mcp_imports
 from ..media import Entry, MediaError
@@ -989,13 +992,12 @@ class WebApp:
             return t("保存配置文件失败：{error}", error=exc)
         return ""
 
-    def mcp_scan(self) -> list[dict]:
-        """去读 Claude Desktop 和 Claude Code 的配置，列出可以导入的服务器（密钥遮住）。只在你点了"导入"时才读。"""
-        found = mcp_imports.sources(self.app.config.workspace)
-        listed = mcp_imports.preview(found, self.app.mcp.config)
-        for source in listed:
-            source["label"] = t(source["label"])
-        return listed
+    def mcp_scan(self) -> dict:
+        """去读别的工具（Claude Desktop、Claude Code、Cursor、VS Code、Codex……）的配置，列出可以导入的服务器（密钥遮住）。
+        只在你点了"从其他工具导入"时才读。tools 是顶上的总览：每个工具里三样各有几个（见 imports/overview.py）。"""
+        env = Env.here(self.app.config.workspace)
+        found = mcp_imports.sources(env.workspace, env)
+        return {"sources": mcp_imports.preview(found, self.app.mcp.config), "tools": overview(env, {MCP: mcp_imports.counted(found)})}
 
     def mcp_import(self, picks: list[tuple[str, str]]) -> tuple[str, list[str], list[str]]:
         """导入勾选的那些。配置的内容在这里重新从文件里读，页面只给了"哪个来源的哪个名字"。"""
@@ -1020,7 +1022,7 @@ class WebApp:
         try:
             servers = mcp_imports.parse_pasted(text)
             if names is None:
-                listed = mcp_imports.preview([mcp_imports.Source("paste", "", Path(), servers, True)], self.app.mcp.config)
+                listed = mcp_imports.preview([mcp_imports.pasted(servers)], self.app.mcp.config)
                 return "", {"servers": listed[0]["servers"]}
             added, skipped = mcp_imports.apply(self.app.mcp.config, servers, names)
         except (ConfigError, OSError) as exc:
@@ -1518,7 +1520,7 @@ class Handler(BaseHTTPRequestHandler):
             mcp.refresh()
             self._send_json(200, {"ok": True})
         elif action == "scan":
-            self._send_json(200, {"ok": True, "sources": web.mcp_scan()})
+            self._send_json(200, {"ok": True, **web.mcp_scan()})
         elif action == "reveal":
             error, shown = web.mcp_reveal()
             self._answer(error, path=shown)

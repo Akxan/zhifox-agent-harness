@@ -171,6 +171,8 @@ class Candidate:
     problems: list[Message] = field(default_factory=list)  # 按 name 装进来之后还剩的问题：有的话装不了
     listing: list[tuple[str, int]] = field(default_factory=list)  # [(相对路径, 字节数)]
     load: Callable[[], Files] = dict  # 取出全部文件。压缩包的已经在内存里；本机文件夹的到安装时才读
+    tool: str = ""  # 从别的工具导入的：那个工具的名字（产品名）和编号（见 imports/registry.py）
+    tool_id: str = ""
 
     def preview(self, store: SkillStore) -> dict:
         """给页面确认用的那一份。"""
@@ -186,6 +188,8 @@ class Candidate:
             "count": len(self.listing),
             "size": sum(size for _, size in self.listing),
             "exists": store.exists(self.name),
+            "tool": self.tool,
+            "tool_id": self.tool_id,
         }
 
 
