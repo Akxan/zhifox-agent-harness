@@ -2238,6 +2238,8 @@ approval cards, the screenshot allowance and the header indicator. A conversatio
 such as `[ui:approve]` follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]`
 asks to run a command, `[ui:long]` writes a long reply, `[ui:todo]` adds a to-do with a very long title, `[ui:hello]`
 greets you, and `[ui:flaky]` fails the first attempt at every message (so you can try Regenerate on a failed turn).
+`--script NAME` makes every conversation follow that script even without a tag; the README screenshots were taken with
+`--script readme`, which answers in English or Chinese depending on the question.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes

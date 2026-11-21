@@ -1814,6 +1814,7 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 第一条消息里写着 `[ui:approve]` 这类暗号的对话，按 `tests/demo_scripts.py` 里同名的剧本回答（页面测试用的就是它们）：
 `[ui:approve]` 要执行一条命令（弹出确认卡片），`[ui:long]` 回一段很长的话，`[ui:todo]` 加一条标题很长的待办，`[ui:hello]` 打个招呼，
 `[ui:flaky]` 每条消息第一次都会失败（可以试试在失败的那一轮上"重新生成"）。
+`--script 名字` 让没写暗号的对话也按那段剧本回答；README 里的截图用的是 `--script readme`，问的是中文就答中文，否则答英文。
 
 每次推送到 GitHub、每个 pull request，都会在 Ubuntu 和 macOS 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
 （[.github/workflows/tests.yml](.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome；
