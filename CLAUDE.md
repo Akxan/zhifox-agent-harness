@@ -129,7 +129,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
 | `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
 | `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、session、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
-| `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）和 JSON-over-HTTPS 帮手 |
+| `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
+| `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
@@ -244,6 +245,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   token 不对、intents 不许这类关闭代码直接停下，不再重连。
 - **聊天通道每一轮结束调用 `run.close`**，关掉这个聊天自己的浏览器标签页；`_side_run` 的 close 换一个新的 BrowserSession，
   同一个助手接着用，工具说明书不变。
+- **send_file 只属于在聊天通道里开始的会话（`Conversation.channel`）。** `App._side_run(source="channel")` 带着这个聊天的 `Outlet`；
+  网页上打开这类会话时 `conversation_tools` 也放一份（`outlet=None`，回答"不在聊天软件里"），两边都放在电脑工具之后、agent 工具之前，
+  清单一字不差；网页的普通对话和定时任务没有它。说明书里不写平台和上限。问不问写在 `Permissions._review_send`：每次都问
+  （只有"全部自动允许"不问，"自动允许改文件"照样问：放开的是改文件，不是往外发），`data/` 里的带提醒，`FileEditor.protected` 里的
+  永远不发；平台不收的在 `check` 里拒绝、不弹卡片；发之前 `_read_again` 和卡片上的对一对。发送走 `router.send_file`
+  （排在发送队列里、等结果；`/stop` 不再等，排着的不再发）。新平台实现 `Channel.send_file` 和 `Capabilities.uploads`，上传走
+  `net/multipart.py`，上限照文档写在平台模块的 `UPLOADS` 里，总上限是 `config.CHANNEL_SEND_BYTES`。
 - **有意的破例**：`i18n.fill` 和页面的 `t()` 填 `{platform}` 时，汉字和中文平台名之间的那个空格去掉（"连接飞书"）；别的值不动。
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
@@ -309,5 +317,5 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
