@@ -52,6 +52,10 @@
        会被藏起来的元素（切换标签、换选项）正拿着焦点时，先把焦点挪到看得见的地方，否则 Esc 会绕过 keydown
        直接关掉窗口；同时监听 `<dialog>` 的 `cancel` 事件做保险。
      - **窗口里的提示写在窗口里**：浮在页面上的提示（toast）会被窗口的暗底挡住。
+     - **顶栏上的小面板（外观、换模型、语言）是同一种东西**：开、关、位置、点外面收起、Esc、Tab 都在 `scripts/flyouts.js` 和
+       `styles/flyouts.css`，新的同类面板用 `flyout(panel, button, {sheet, trap, focus, escape})`。窄屏（≤560px）上从底下升起来，
+       点暗底只收起、不点到下面。页面测试用 `steps.open_flyout` / `flyout_open` / `escape_closes_flyout`，新面板加进 `_sweep` 和 `_surfaces`。
+     - **设置和换模型分开**：齿轮（⌘, / Ctrl+,）开设置，模型按钮（⌘. / Ctrl+.，⌘⇧M 被浏览器占了）开换模型的面板。
 
 7. **界面有中文、英文、西班牙语三种语言。**（用户原话："要求有中文，英文，和西班牙语"；"在工作中切换语言的时候
    不要直接刷新并回退到主页，而是直接在原来的位置上直接翻译"。）
@@ -140,6 +144,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
 | `harness/capabilities.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开 |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
+| `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -298,6 +303,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `block_end` 只是让回复停一下（`pauseBlock`）：紧接着还是文字就算同一段，别的内容事件到来才收尾（新的内容事件的处理要先调用 `endBlock`），
   这是为了以前存下的、被切成好几块的联网回答。markdown.js 认 `\uE000编号\uE001` 这个记号，交给 `hooks.cite` 建元素；只能由页面插入
   （模型写的这两个字符先换成 �），代码和链接文字里不放；原文 `block.text` 不插记号，搜索跳转和复制都靠它。
+- **换模型的规矩只在 `model_catalog.py`（会怎样）和 `App.select_model`（真的换）**，页面不判断；同一家之内换模型时，
+  这段会话正被聊天通道占着就拒绝。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
