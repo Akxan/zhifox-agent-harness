@@ -82,7 +82,7 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
-parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--service", choices=("terminal", "launchd", "systemd", "taskscheduler"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 

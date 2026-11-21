@@ -1,6 +1,7 @@
 """命令行里的 `harness service …`：装上、卸下、开、停、看状态、看日志、打开网页。
 
-每条命令都先问一下这台电脑的服务管家（launchd / systemd，见 launchd.py、systemd.py）现在是什么样子，再决定做什么，
+每条命令都先问一下这台电脑的服务管家（launchd / systemd / 任务计划程序，见 launchd.py、systemd.py、windows.py）
+现在是什么样子，再决定做什么，
 所以重复运行是安全的：装过的再装一次，设置没变就什么都不动，变了就停下旧的、换上新的；没在运行的 stop 一下只说一声。
 
 和数据目录的锁（instance.py）配合：同一个数据目录只能有一个智狐。装、开、重启之前先看一眼有没有别人占着
@@ -36,13 +37,14 @@ from ..config import (
 )
 from ..i18n import k, t
 from ..webui.token import forget_token
-from . import base
+from . import base, windows
 from .base import State
 from .launchd import Launchd
 from .plan import Plan, make_plan, problem, protected_folders, shell_only
 from .systemd import Systemd
+from .windows import TaskScheduler
 
-Manager = Launchd | Systemd
+Manager = Launchd | Systemd | TaskScheduler
 ADDRESS = re.compile(r"http://127\.0\.0\.1:(\d{1,5})/\?token=[A-Za-z0-9_-]+")  # serve.py 写的地址就是这个样子，别的一概不开
 
 # 占着数据目录的是哪一种（instance.py 的 kind），给人看的说法
@@ -52,12 +54,14 @@ WHO = {
     "service": k("另一个后台服务"),
     "channels": k("harness channels pair（正在等配对码）"),
 }
-# 几个常见的退出码是什么意思（1、2 见 serve.py；78 是 launchd 自己没能开起它）
+# 几个常见的退出码是什么意思（1、2 见 serve.py；78 是 launchd 自己没能开起它）。
+# Windows 上任务计划程序记下的是 supervise.py 的退出码和它自己的几个结果码，另有一张（windows.EXITS），见 _why
 EXITS = {
     1: k("数据目录被别人占着，或者端口被占用"),
     2: k("设置有问题（比如 channels.json 坏了），重启也没用，先看日志"),
     78: k("launchd 没能开起它：工作目录或者日志文件夹不在了？再运行一次 uv run harness service install"),
 }
+TASK_SCHEDULER_TITLE = k("任务计划程序")  # 给人看的名字（--service 里写的是 taskscheduler）
 MAC_FOLDERS = k(
     "{folders} 在 macOS 保护的文件夹里（文稿、桌面、下载、iCloud 云盘）。后台服务要读这些文件夹时，macOS 可能会弹窗问你"
     "（点“好”），也可能直接拦下（日志里会有 Operation not permitted）。最省事的办法是把项目和工作目录移到这些文件夹外面"
@@ -111,12 +115,14 @@ def detect() -> System:
         if systemctl:
             return System(Systemd(home, base.run_command, base.run_attached, systemctl, shutil.which("journalctl") or "journalctl"))
         return System(None, t("这台机器上没有 systemd（找不到 systemctl），装不了后台服务。可以用别的进程管理工具（supervisord、tmux……）运行 uv run harness serve --web。"))
-    return System(None, t("这个系统还不支持后台服务（支持 macOS 和 Linux）。"))
+    if sys.platform == "win32":
+        return System(TaskScheduler(home, base.run_command))
+    return System(None, t("这个系统还不支持后台服务（支持 macOS、Linux 和 Windows）。"))
 
 
 def add_parser(commands: argparse._SubParsersAction) -> None:
     """在 harness 的命令行里加上 service 这一组命令。"""
-    parser = commands.add_parser("service", help=t("后台服务：登录时自动启动、出错退出后自己重启（macOS 用 launchd，Linux 用 systemd）"))
+    parser = commands.add_parser("service", help=t("后台服务：登录时自动启动、出错退出后自己重启（macOS 用 launchd，Linux 用 systemd，Windows 用任务计划程序）"))
     actions = parser.add_subparsers(dest="service_action", required=True, metavar="ACTION")
     install = actions.add_parser("install", help=t("装上并启动后台服务（装过的话，换成这次的设置）"))
     install.add_argument("--web", dest="service_web", action=argparse.BooleanOptionalAction, default=True, help=t("开着网页界面（默认开着；--no-web 只运行定时任务和聊天通道）"))
@@ -155,7 +161,8 @@ def run(args: argparse.Namespace, config: Config, system: System | None = None) 
 
 def _headline(manager: Manager, text: str) -> str:
     """"智狐的后台服务（launchd）：正在运行……"这样的第一行。"""
-    return t("{title}：{state}", title=t("{name}的后台服务（{manager}）", name=APP_NAME, manager=manager.name), state=text)
+    title = t(TASK_SCHEDULER_TITLE) if isinstance(manager, TaskScheduler) else manager.name
+    return t("{title}：{state}", title=t("{name}的后台服务（{manager}）", name=APP_NAME, manager=title), state=text)
 
 
 def _blocker(data_dir: Path, state: State) -> tuple[bool, instance.Holder | None]:
@@ -172,7 +179,11 @@ def _refuse(system: System, data_dir: Path, found: instance.Holder | None, again
     system.warn(t("数据目录正被另一个{name}用着：{path}", name=APP_NAME, path=data_dir))
     if found is not None:
         system.warn("  " + t("是{who}，进程 {pid}。", who=t(WHO[found.kind]), pid=found.pid))
-    system.warn(t("两个一起运行会互相覆盖对方保存的会话，所以先把它关掉：在开它的终端里按 Ctrl-C（在 Claude Code 里开的，结束那个会话，或者运行 kill -INT 加上它的进程编号，和按 Ctrl-C 一样），再运行一次 {command}。", command=again))
+    if isinstance(system.manager, TaskScheduler):
+        # Windows 上没有 kill -INT：别的程序没法替你在那个终端里按 Ctrl-C（任务管理器里"结束任务"是直接结束，来不及存盘）
+        system.warn(t("两个一起运行会互相覆盖对方保存的会话，所以先把它关掉：在开它的终端里按 Ctrl-C（在 Claude Code 里开的，结束那个会话），再运行一次 {command}。", command=again))
+    else:
+        system.warn(t("两个一起运行会互相覆盖对方保存的会话，所以先把它关掉：在开它的终端里按 Ctrl-C（在 Claude Code 里开的，结束那个会话，或者运行 kill -INT 加上它的进程编号，和按 Ctrl-C 一样），再运行一次 {command}。", command=again))
     return 1
 
 
@@ -196,14 +207,15 @@ def _wait_free(system: System, data_dir: Path) -> bool:
     return True
 
 
-def _why(state: State) -> str:
+def _why(state: State, manager: Manager) -> str:
     """上一次为什么退出，给人看的一句。"""
     if state.signal is not None:
         return t("被信号 {signal} 结束", signal=state.signal)
     if state.exit_code is None:
         return t("没有记录")
-    if state.exit_code in EXITS:
-        return t("退出码 {code}：{meaning}", code=state.exit_code, meaning=t(EXITS[state.exit_code]))
+    meanings = {**EXITS, **windows.EXITS} if isinstance(manager, TaskScheduler) else EXITS
+    if state.exit_code in meanings:
+        return t("退出码 {code}：{meaning}", code=state.exit_code, meaning=t(meanings[state.exit_code]))
     return t("退出码 {code}", code=state.exit_code)
 
 
@@ -247,20 +259,25 @@ def _print_problems(plan: Plan, state: State, system: System, to_err: bool = Fal
 
 def _describe(state: State, manager: Manager) -> str:
     """服务现在的样子，一句话。"""
+    if state.running and state.pid is None:
+        # 只有 Windows 上会这样：任务在运行（supervise.py 开着），智狐还没占住数据目录——刚开起来，或者出错退出了、正等着被重新开
+        return t("正在运行，{name}还没开好（刚开起来，或者出错退出了、过几秒会重新开；最近的错误见下面）", name=APP_NAME)
     if state.running:
         return t("正在运行（进程 {pid}）", pid=state.pid)
     if state.restarting:
-        return t("出错退出了，等着被重新开起来（上次：{why}）", why=_why(state))
+        return t("出错退出了，等着被重新开起来（上次：{why}）", why=_why(state, manager))
     if not state.installed:
         return t("还没有装上")
     if isinstance(manager, Launchd):
         if not state.loaded:
             return t("已停下。下次登录时会自动启动")
         if state.exit_code not in (None, 0) or state.signal is not None:
-            return t("没在运行（上次：{why}）。launchd 每隔 {seconds} 秒会再试一次", why=_why(state), seconds=SERVICE_RESTART_SECONDS)
+            return t("没在运行（上次：{why}）。launchd 每隔 {seconds} 秒会再试一次", why=_why(state, manager), seconds=SERVICE_RESTART_SECONDS)
         return t("已停下（上次是正常退出的）")
+    if isinstance(manager, TaskScheduler) and not state.loaded:
+        return t("任务计划程序里没有这个任务了（被删掉了？）。再运行一次 uv run harness service install 装回来")
     if state.exit_code not in (None, 0) or state.signal is not None:
-        return t("出错停下了（{why}）", why=_why(state))
+        return t("出错停下了（{why}）", why=_why(state, manager))
     return t("已停下。下次登录时会自动启动") if state.enabled else t("已停下，也不会自动启动")
 
 
@@ -270,8 +287,14 @@ def _summary(plan: Plan, manager: Manager, system: System) -> None:
     system.say("  " + t("工作目录：{path}", path=plan.workspace))
     system.say("  " + t("数据目录：{path}", path=plan.data_dir))
     system.say("  " + t("服务的设置：{path}", path=manager.file))
+    if isinstance(manager, TaskScheduler):
+        system.say("  " + _task_line(manager))
     system.say("  " + t("日志：{place}", place=manager.log_place(plan)))
     system.say("  " + t("管它：uv run harness service status | logs -f | stop | restart | uninstall"))
+
+
+def _task_line(manager: TaskScheduler) -> str:
+    return t("在“任务计划程序”里叫 {task}（是隐藏的任务：在“查看”菜单里勾上“显示隐藏的任务”才看得见）", task=manager.task)
 
 
 def _warnings(plan: Plan, config: Config, system: System) -> None:
@@ -302,15 +325,16 @@ def install(args: argparse.Namespace, config: Config, system: System) -> int:
     assert manager is not None
     if args.service_workspace is not None:
         config = dataclasses.replace(config, workspace=args.service_workspace.expanduser().resolve())
-    plan = make_plan(config, web=args.service_web, port=args.service_port, environ=system.environ)
-    reason = problem(plan)
+    plan = make_plan(config, web=args.service_web, port=args.service_port, environ=system.environ, manager=manager.name)
+    reason = problem(plan, manager.name)
     if reason:
         system.warn(reason)
         return 2
     content = manager.render(plan)
     state = manager.state()
     same = manager.read() == content
-    if same and state.running:
+    # pid 是 None：Windows 上任务在运行、智狐还没开好（可能正因为数据目录被别人占着一直起不来），那就照常往下走
+    if same and state.running and state.pid is not None:
         system.say(_headline(manager, t("已经装好了，设置没有变，正在运行（进程 {pid}）。", pid=state.pid)))
         if plan.web:
             system.say("  " + t("打开网页：uv run harness service open"))
@@ -353,8 +377,13 @@ def uninstall(config: Config, system: System) -> int:
     # systemd 读不出状态的时候也照样 disable 一次：不然删了文件，"登录时启动"的那个链接还留着
     if state.loaded or (state.installed and isinstance(manager, Systemd)):
         removed = manager.remove()
-        if not removed.ok and manager.stoppable(manager.state()):
+        after = manager.state() if not removed.ok else None
+        if after is not None and manager.stoppable(after):
             system.warn(t("没能停下它：{error}", error=removed.message()))
+            return 1
+        if after is not None and isinstance(manager, TaskScheduler) and after.loaded:
+            # 任务还在任务计划程序里：要是照样删掉我们那一份 XML、说"卸载了"，下次登录它又会开起来
+            system.warn(t("没能从任务计划程序里删掉 {task}：{error}", task=manager.task, error=removed.message()))
             return 1
     manager.delete()
     manager.after_delete()
@@ -388,7 +417,10 @@ def start(config: Config, system: System) -> int:
     state, plan = found
     plan = plan or make_plan(config, environ=system.environ)
     if state.running:
-        system.say(t("已经在运行了（进程 {pid}）。", pid=state.pid))
+        if state.pid is None:  # Windows：任务在运行，智狐还没开好
+            system.say(_headline(system.manager, _describe(state, system.manager)))  # type: ignore[arg-type]
+        else:
+            system.say(t("已经在运行了（进程 {pid}）。", pid=state.pid))
         return 0
     blocked, holder = _blocker(plan.data_dir, state)
     if blocked:
@@ -469,9 +501,13 @@ def status(config: Config, system: System) -> int:
     system.say("  " + t("工作目录：{path}", path=plan.workspace))
     system.say("  " + t("数据目录：{path}", path=plan.data_dir))
     system.say("  " + t("服务的设置：{path}", path=manager.file))
+    if isinstance(manager, TaskScheduler):
+        system.say("  " + _task_line(manager))
     system.say("  " + t("日志：{place}（跟着看：uv run harness service logs -f）", place=manager.log_place(plan)))
     if isinstance(manager, Systemd):
         system.say("  " + (t("没人登录时也开着（已经开了 linger）。") if manager.lingering() else t("退出登录以后会跟着停下。要一直开着：sudo loginctl enable-linger {user}", user=manager.user)))
+    if isinstance(manager, TaskScheduler):
+        system.say("  " + t("你登录时开起来，退出登录时跟着停下（这样任务计划程序不用存你的密码，也不用管理员权限）。"))
     blocked, found = _blocker(plan.data_dir, state)
     if blocked:
         who = t("{who}，进程 {pid}", who=t(WHO[found.kind]), pid=found.pid) if found is not None else APP_NAME

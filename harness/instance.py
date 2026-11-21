@@ -16,7 +16,7 @@ LockFile，见 filelock.py）。锁由操作系统管着，程序退出时（哪
 kind 有这几种：
   web       harness --web（在终端里开的网页界面）
   serve     harness serve（在终端里、或者 systemd 的系统服务里开的）
-  service   harness service install 装的后台服务（launchd 或 systemd 的用户服务）
+  service   harness service install 装的后台服务（launchd、systemd 的用户服务，或者 Windows 任务计划程序里的任务）
   channels  harness channels pair（智狐没开着的时候，命令行自己临时连上平台收配对码）
 """
 

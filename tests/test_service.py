@@ -43,6 +43,7 @@ from harness.service.base import Result
 from harness.service.launchd import LABEL, Launchd
 from harness.service.plan import Plan, make_plan, problem, protected_folders, shell_only
 from harness.service.systemd import UNIT, Systemd
+from harness.service.windows import TaskScheduler
 from harness.webui import server
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1153,7 +1154,9 @@ def test_detect_picks_the_manager_for_this_platform(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     assert service_cli.detect().manager is None and "systemd" in service_cli.detect().unsupported
     monkeypatch.setattr(sys, "platform", "win32")
-    assert service_cli.detect().manager is None
+    assert isinstance(service_cli.detect().manager, TaskScheduler)  # Windows：任务计划程序（见 test_service_windows.py）
+    monkeypatch.setattr(sys, "platform", "freebsd14")
+    assert service_cli.detect().manager is None and "Windows" in service_cli.detect().unsupported
 
 
 def test_serve_accepts_the_service_option(monkeypatch, tmp_path):

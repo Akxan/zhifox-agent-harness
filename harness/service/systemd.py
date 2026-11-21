@@ -36,6 +36,7 @@ from typing import IO
 from ..config import (
     APP_NAME,
     APP_NAME_LATIN,
+    EXIT_CONFIG,
     SERVICE_RESTART_SECONDS,
     SERVICE_STOP_SECONDS,
 )
@@ -61,8 +62,6 @@ def _quote(value: str, command: bool = False) -> str:
 
 def render(plan: Plan) -> str:
     """这个服务的 unit 文件。同样的设置写出来一字不差，重装时才能看出"没有变"。"""
-    from ..serve import EXIT_CONFIG  # 用到时才导入（serve 会带进整个网页服务器）
-
     lines = [
         "[Unit]",
         f"Description={_escape(f'{APP_NAME_LATIN} ({APP_NAME})')}",

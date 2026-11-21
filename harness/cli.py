@@ -294,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     serve = commands.add_parser("serve", help=t("在服务器上一直运行：定时任务和聊天通道，不开浏览器"))
     serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))
     serve.add_argument("--port", dest="serve_port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
-    serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
+    serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd", "taskscheduler"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
     service_cli.add_parser(commands)
