@@ -123,7 +123,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
 | `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
 | `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
-| `harness/channels/` | 聊天通道（先做了 Telegram）：通道的接口、配对、设置（channels.json）、收发、每个聊天的会话、确认、命令行 `harness channels …` |
+| `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、session、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
+| `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）和 JSON-over-HTTPS 帮手 |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图；整个桌面（computer use）以后接在这里 |
@@ -210,8 +211,21 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   只有配对过的主人能用：不是主人的消息不处理（不在配对的时候一个字都不回），群聊一律不理，按钮也只认主人点的。
   确认请求在聊天里写明是谁在问（主助手还是哪个子 Agent）、完整的命令和工作目录；网页上也能答，先到的算数。
 - **`channels.json` 里是密钥。** 机器人的 token 和配对码：文件权限 600、在文件工具的 protected 名单里、在
-  `export.MASKED_FILES` 里，从不进状态、日志和错误信息（页面只看到最后 4 位）；命令看不到 `TELEGRAM_BOT_TOKEN`。
-  Telegram 的地址只能用环境变量 `TELEGRAM_API_BASE` 改（token 会发到那里去），页面上改不了。
+  `export.MASKED_FILES` 里，从不进状态、日志和错误信息（页面只看到最后 4 位，`store.summary` 的 hints；日志经过 `log.hide`）；命令看不到各平台的密钥
+  （`tools/shell.SECRET_ENV_VARS`）。各平台的接口地址只能用环境变量改（`TELEGRAM_API_BASE`、`DISCORD_API_BASE`……，密钥会发到那里去），页面上改不了。
+- **加聊天平台**：写一个 Channel 子类（推送式的继承 PushChannel），在 hub 的三张表和 `platforms.py` 里登记，步骤写在 `guides.py`。
+  新的密钥字段标 `secret: True`，它的环境变量加进 `SECRET_ENV_VARS`（`tests/test_channels_platforms.py` 会对一遍）。
+  HTTP 一律走 `net/http.py`（有超时、换了域名的重定向不带 token、回答有大小上限），WebSocket 走 `net/websocket.py`
+  （明文 ws:// 只许连本机）。`ask` 必须返回非空的编号，没有按钮的平台给一个合成的，否则打字的"允许"不算数。
+  新平台的测试照 `tests/channel_rig.py` 的 FakePlatform 写一个假服务器，组装和演示的"手机"页面（`tests/demo_phone.py`）就都能对着它跑。
+- **官方 SDK 只用来收消息，而且是可选的**：`lark-oapi`（飞书）和 `dingtalk-stream`（钉钉）只在各自模块的 Listener 里、用到时才导入；
+  发消息、改卡片、下载文件手写 HTTP。没装时 connect 拒绝，并给出 `uv sync --extra …`。我们用到了 SDK 内部的名字，
+  所以 pyproject 里有版本上限，升级前先重新看源码。SDK 的事件处理函数里不做慢事，交给 `PushChannel._hand_off`。
+- **Discord 和 QQ 的网关**：重连间隔最多 `GATEWAY_RETRY_SECONDS`（Discord 一天登录超过 1000 次会作废 token）；
+  token 不对、intents 不许这类关闭代码直接停下，不再重连。
+- **聊天通道每一轮结束调用 `run.close`**，关掉这个聊天自己的浏览器标签页；`_side_run` 的 close 换一个新的 BrowserSession，
+  同一个助手接着用，工具说明书不变。
+- **有意的破例**：`i18n.fill` 和页面的 `t()` 填 `{platform}` 时，汉字和中文平台名之间的那个空格去掉（"连接飞书"）；别的值不动。
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
 - **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
@@ -247,5 +261,5 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   没有密钥、刷新重放、输出到一半往上翻这几种情况每次都要过一遍。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道只对着 `tests/fake_telegram.py` 测过，没有接过真的 Telegram 机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
