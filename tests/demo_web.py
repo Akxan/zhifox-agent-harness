@@ -300,7 +300,7 @@ class SlowClaude:
                     self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
                     self.wfile.flush()
                     if event["type"] == "content_block_delta":
-                        time.sleep(options.delay)
+                        time.sleep(scripted.get("pace", options.delay))  # 剧本可以自己定快慢（见 demo_scripts.hello）
 
             def do_GET(self) -> None:  # 模型列表（"同步模型"用）
                 names = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"]

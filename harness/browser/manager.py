@@ -24,7 +24,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..config import BROWSER_IDLE_MINUTES, BROWSER_SHOT_DAYS, BROWSER_VIEWPORT
+from ..config import (
+    BROWSER_IDLE_MINUTES,
+    BROWSER_SHOT_DAYS,
+    BROWSER_START_TIMEOUT,
+    BROWSER_VIEWPORT,
+)
 from ..i18n import t
 from ..tools.base import ToolError
 from . import chrome
@@ -130,7 +135,7 @@ class BrowserManager:
         try:
             running = self.launcher(executable, self.profile, self.headless, on_close=self._closed)
             connection = running.connection
-            connection.call("Browser.getVersion", timeout=15)
+            connection.call("Browser.getVersion", timeout=BROWSER_START_TIMEOUT)
         except (OSError, CDPError) as exc:
             self.error = t("Chrome 启动失败：{error}", error=str(exc))
             if running is not None:

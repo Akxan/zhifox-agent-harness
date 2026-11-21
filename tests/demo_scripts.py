@@ -50,13 +50,17 @@ def _asked(body: dict) -> int:
 
 def hello(body: dict) -> dict:
     n = _asked(body)
-    return reply(
+    answer = reply(
         thinking(f"这是第 {n} 条消息。简单回答，列两点，再给一个链接。"),
         # 写得长一点（一百多个字，分成几十小段发）：慢的机器上也能看出它是一点点出现的
         text(f"收到第 {n} 条消息。下面这几句话会一小段一小段地出现，就像真的模型在一边想一边写。\n\n"
              "1. 第一点：回复是一小段一小段输出的，每一小段只有三个字。\n2. 第二点：刷新以后整段直接出现，不再一条条播放入场动画。\n\n"
              "详细的说明在 https://example.com/zhifox-ui 这里。"),
     )
+    # 每一小段隔 30 毫秒（页面测试给演示的是 4 毫秒）：太快的话，慢的机器上浏览器会把好几段攒在一起画，
+    # 测试就看不出它是一点点出现的（GitHub 上的 macOS 机器就这样失败过）
+    answer["pace"] = 0.03
+    return answer
 
 
 def long(body: dict) -> dict:

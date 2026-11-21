@@ -131,6 +131,9 @@ BROWSER_SHOT_DAYS = 30
 # 这么多分钟没有用过浏览器，就把它关掉（省内存；下次要用时再自动打开，登录状态在配置文件夹里，不会丢）
 BROWSER_IDLE_MINUTES = 10
 # 发给 Chrome 的一个命令最多等这么久（秒）
+# Chrome 启动以后，最多等这么久等它答应第一声（Browser.getVersion）。新的配置文件夹第一次启动要建好一堆文件，
+# 慢的电脑（和 GitHub 上的测试机器）上十几秒是常有的事；平时一两秒就好了，不会真的等这么久
+BROWSER_START_TIMEOUT = 45
 BROWSER_CALL_TIMEOUT = 20
 # 打开一个网页最多等它加载这么久（秒）。到了还没加载完，先把现在的样子交给模型
 BROWSER_NAV_TIMEOUT = 30

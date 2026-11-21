@@ -145,17 +145,20 @@ class X11Backend:
             if keys:
                 self._xdotool("keyup", *reversed(keys))
 
+    # mousemove 都带 --sync：不带的话 xdotool 发出"移过去"就返回了，X 服务器还没处理完，紧接着的点击、
+    # 查位置（getmouselocation）可能还在原来的地方（GitHub 上的 Xvfb 测试就是这样失败的）。
+    # 带了它，xdotool 等指针真的到了才返回；已经在那儿的话不用等（xdotool 的说明里写着）
     def mouse(self, kind: str, x: int, y: int, button: str = "left", modifiers: tuple[str, ...] = ()) -> None:
         if kind in ("move", "drag"):
-            self._with_modifiers(modifiers, "mousemove", str(x), str(y))
+            self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y))
         else:
-            self._with_modifiers(modifiers, "mousemove", str(x), str(y), "mousedown" if kind == "down" else "mouseup", BUTTONS[button])
+            self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "mousedown" if kind == "down" else "mouseup", BUTTONS[button])
 
     def click(self, x: int, y: int, button: str, count: int, modifiers: tuple[str, ...] = ()) -> None:
-        self._with_modifiers(modifiers, "mousemove", str(x), str(y), "click", "--repeat", str(count), "--delay", "80", BUTTONS[button])
+        self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "click", "--repeat", str(count), "--delay", "80", BUTTONS[button])
 
     def scroll(self, x: int, y: int, direction: str, amount: int, modifiers: tuple[str, ...] = ()) -> None:
-        self._with_modifiers(modifiers, "mousemove", str(x), str(y), "click", "--repeat", str(amount), "--delay", "30", WHEEL[direction])
+        self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "click", "--repeat", str(amount), "--delay", "30", WHEEL[direction])
 
     def cursor(self) -> tuple[float, float]:
         found = dict(re.findall(r"(\w+)=(\d+)", self._xdotool("getmouselocation", "--shell")))
