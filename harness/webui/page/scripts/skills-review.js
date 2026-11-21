@@ -1,4 +1,7 @@
-// ---- 从 Claude Code 导入 ----
+// ---- 扩展 · Skill · 从 Claude Code 导入、装之前的确认 -----------------------
+// 网址、上传、从 Claude Code 导入找到的 Skill 都先到这一页：一个一张卡片，写着是什么、合不合格；
+// 勾上要装的，同名的选改名还是替换，然后一起装上（/api/skill/install）。
+// 文件最后把 Skill 这一页挂到扩展对话框上（打开时、关窗之前、关上时各做什么）。
 
 async function startSkillImport() {
   showSkillView({ kind: 'review', origin: 'claude', loading: true, candidates: [], picks: {}, results: {}, places: [], source: {} });

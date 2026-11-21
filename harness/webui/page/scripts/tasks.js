@@ -3,6 +3,9 @@
 // 任务在助手程序里排着、到点由它去跑（见 tasks.py），页面只负责看和改：列表、正在运行的那一个的进度、
 // 等你确认的操作、到点的提醒、运行记录。和记忆一样，这些都跟着状态走（state.tasks、state.reminders），页面不轮询。
 // 页面自己每秒走一下的只有"已经用了多久"这一个数字（改的是文字，不是动画），和每半分钟一次的"还有多久"。
+//
+// 这一节分成五个文件，这个是第一个：总说明、共用的状态、时间和花费的写法，以及左边栏的标签（会话、任务、多媒体）。
+// 后面依次是 tasks-list.js 列表、tasks-alerts.js 提醒和通知、tasks-detail.js 详情、tasks-editor.js 新建和编辑。
 
 const taskList = $('task-list'), taskEditor = $('task-editor'), taskDetail = $('task-detail');
 let tasks = [], reminders = [];

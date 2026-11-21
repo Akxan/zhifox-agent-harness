@@ -1,4 +1,7 @@
-// ---- 从 Claude Code 导入 ----
+// ---- 扩展 · Agent · 从 Claude Code 导入 -------------------------------------
+// 只有你点了"从 Claude Code 导入"才去读那边的 Agent（/api/agent/claude）。一个一张卡片：勾上要的，
+// 同名的选改名还是替换，然后复制过来（/api/agent/import）；之后那边改了、删了，都不影响这边。
+// 文件最后把 Agent 这一页挂到扩展对话框上（打开时、关窗之前、关上时各做什么）。
 
 async function startAgentImport() {
   showAgentView({ kind: 'review', loading: true, candidates: [], picks: {}, results: {}, places: [], installing: false, said: null });

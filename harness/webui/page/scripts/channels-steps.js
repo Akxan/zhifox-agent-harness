@@ -1,3 +1,8 @@
+// ---- 扩展 · 通道 · 设置向导的四步 -------------------------------------------
+// 1 建一个机器人（照着平台给的步骤）→ 2 填 token，请助手程序去问平台认不认 → 3 配对（配对码和它的倒计时）
+// → 4 选确认方式。向导的框架（换步、离开之前问一声、步骤条）在 channels-wizard.js。
+// 文件最后把通道这一页挂到扩展对话框上（打开时、Esc 先回到列表、关上时清掉向导里刚填的 token）。
+
 // 第 1 步：照着平台给的步骤（channels/guides.py）建一个机器人。和命令行里 harness channels setup 印的是同一份
 function chanStepOne(item, pane, foot, help) {
   pane.appendChild(el('h4', null, t('先在 {platform} 里建一个机器人', { platform: item.label })));

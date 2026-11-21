@@ -7,6 +7,10 @@
 // 都是助手程序给的（channels/platforms.py、guides.py），页面不另抄一份。
 // 密钥只在你点"验证并连接"时发给助手程序一次，之后页面上只有最后 4 位；关掉对话框时输入框连同内容一起清掉。
 // 聊天里等你批准的操作，除了这一页，主区域顶上也有一条提示（chan-alert），不用打开对话框就能答复。
+//
+// 这一页分成四个文件，这个是第一个：总说明、共用的状态和小工具。后面依次是 channels-list.js 列表
+// （和主区域顶上那条等你批准的提示）、channels-wizard.js 设置向导的框架、channels-steps.js 向导的四步
+// （最后在那里挂到扩展对话框上）。
 
 const chanPanel = $('panel-channels');
 const CHAN_STATUS = { online: k('在线'), connecting: k('连接中'), error: k('有问题'), off: k('已关闭') };

@@ -9,6 +9,10 @@
 // 这一页有几种样子（view.kind）：list 列表、detail 打开的一个、edit 编辑、create 新建、examples 示例、review 从 Claude Code 导入。
 // 版式和 Skill 一页一样，借用它的几个小工具（skillButton、skillSaid、skillWaiting）。
 // 改 Agent 不用等这一轮对话结束（服务器也不拦）：正在进行的对话和子 Agent 用的是开始时读到的那一份。
+//
+// 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具。后面依次是 agents-list.js 列表和示例、
+// agents-detail.js 打开一个、agents-editor.js 编辑和新建、agents-import.js 从 Claude Code 导入
+// （最后在那里挂到扩展对话框上）。
 
 const agentPanel = $('panel-agents');
 // tools 一项里能勾的那几样（名字和 harness/agents/tools.py 的 BUILTIN 一样，哪几样能勾由程序在 options 里给）

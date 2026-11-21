@@ -1,4 +1,7 @@
-// ---- 打开一个 ----
+// ---- 扩展 · Skill · 打开一个、编辑 SKILL.md ---------------------------------
+// 点开列表里的一个：向助手程序要它的文件清单（/api/skill/read），一个文件一个文件地看（/api/skill/file），
+// 也能在这里删掉整个 Skill。后面一小节是编辑它的 SKILL.md：原地换成编辑框，有没有问题由助手程序检查，
+// 别处同时改过的话先说一声，再点一次才覆盖。
 
 function openSkill(name, edit, said) {
   showSkillView({ kind: 'detail', name, data: null, loading: true, error: '', file: 'SKILL.md', fileData: null, confirm: false, said: said ? { key: said, good: true } : null, edit: Boolean(edit) });

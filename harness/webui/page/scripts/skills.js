@@ -8,6 +8,10 @@
 //   list 列表   detail 打开的一个   edit 编辑 SKILL.md   create 新建   url 从网址添加   upload 上传   review 装之前的确认
 // 换样子不另外弹对话框（对话框里再叠一层，焦点和 Esc 都容易乱），而是在这一页里原地换内容，左上角有"返回"。
 // 列表和打开的一个照着数据整个重画；编辑、新建、网址这几种有你正在打的字，画好之后只更新提示，不重画输入框。
+//
+// 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具（Agent 一页也借用其中几个）。后面依次是
+// skills-list.js 列表、skills-detail.js 打开一个和编辑、skills-add.js 新建 / 网址 / 上传、
+// skills-review.js 从 Claude Code 导入和装之前的确认（最后在那里挂到扩展对话框上）。
 
 const skillPanel = $('panel-skills');
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;  // 和 harness/skills/spec.py 的 NAME 一样

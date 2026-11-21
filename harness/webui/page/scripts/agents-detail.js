@@ -1,4 +1,6 @@
-// ---- 打开一个 ----
+// ---- 扩展 · Agent · 打开一个 ------------------------------------------------
+// 点开列表里的一个：向助手程序要这个文件读出来的样子（/api/agent/read），画出它的模型、能用的工具、
+// 有什么问题和它的设定；底下是"用它开始新对话"、编辑、删除（删除先在原地确认）。
 
 function openAgent(name, edit, said) {
   showAgentView({ kind: 'detail', name, data: null, loading: true, error: '', confirm: false, said: said ? { key: said, good: true } : null, edit: Boolean(edit) });

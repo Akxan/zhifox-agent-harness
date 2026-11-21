@@ -10,6 +10,9 @@
 //
 // 这一页有几种视图：list 列表、detail 一个服务器的详情、form 添加或编辑、paste 粘贴 JSON、import 从 Claude 导入。
 // 列表和详情跟着状态重画（内容没变就不动）；表单、粘贴、导入是你正在填的东西，搭好之后只在原地更新，不整个重画。
+//
+// 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具。后面依次是 mcp-list.js 列表、
+// mcp-detail.js 详情、mcp-form.js 添加和编辑、mcp-import.js 粘贴 JSON 和从 Claude 导入（最后在那里挂到扩展对话框上）。
 
 const mcpPanel = $('panel-mcp');
 const MCP_STATUS = { connecting: k('连接中'), ready: k('已连接'), failed: k('连接失败'), disabled: k('已停用') };

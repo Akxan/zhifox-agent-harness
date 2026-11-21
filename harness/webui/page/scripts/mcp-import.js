@@ -1,4 +1,7 @@
-// ---- 粘贴 JSON ----
+// ---- 扩展 · MCP · 粘贴 JSON、从 Claude 导入 ---------------------------------
+// 一次加好几个服务器的两种办法：粘贴一段 Claude Desktop 格式的 JSON，或者从 Claude Desktop / Claude Code 的配置里挑。
+// 都是先请助手程序读出里面有哪些（/api/mcp/paste、/api/mcp/scan），列成一张勾选的清单（命令里的密钥遮住），再把勾上的加进来。
+// 文件最后把 MCP 这一页挂到扩展对话框上（打开时、Esc 先回到上一层、关上时清掉表单里刚填的密钥）。
 
 function openMcpPaste() {
   mcpSay('');

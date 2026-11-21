@@ -1,4 +1,7 @@
-// ---- 新建 ----
+// ---- 扩展 · Skill · 新建、从网址添加、上传 ----------------------------------
+// 列表上面那一排"添加"里的三种（第四种，从 Claude Code 导入，在 skills-review.js）。
+// 新建是填一张表，直接写进 Skill 文件夹；网址和上传先请助手程序读出里面有哪些 Skill，
+// 再交给"装之前的确认"（showSkillReview，在 skills-review.js）让你挑。
 
 function buildSkillCreate(view) {
   const node = el('div', 'skill-view skill-fill skill-create');
