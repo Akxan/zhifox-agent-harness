@@ -133,6 +133,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
+| `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -174,7 +175,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
-  `/api/mcp/reveal`、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
+  `/api/mcp/reveal`、`/api/commands/reveal`（什么都不给，只显示 `data/commands.json`）、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
   **只有 `/api/media/file`、`/api/browser/shot` 和 `/api/computer/shot` 会把文件的字节发给浏览器**。两个 shot 只收 64 位十六进制编号，固定 `image/jpeg`，
@@ -198,6 +199,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **"问不问用户"只能放宽，不能绕开。** `Permissions.review` 决定哪些操作需要确认，`auto_allows` 只决定
   当前模式下这一次可不可以不问；没有问就执行的，要调用界面的 `auto_allowed()` 留下记录。
   `.env` 在任何模式下都碰不了；读 `data/` 在任何模式下都要问（"全部自动允许"除外）。
+  `readonly`（只读的命令不用问）排在 ask 和 edits 之间：只放开 `commands.classify` 判为只读的命令、你在 `data/commands.json`
+  里加的命令（只在这一档、只在单独一条时算）、读工作目录之外的文件。它不包括改文件，edits 也不包括只读命令。判断必须保守：
+  看不懂的一律不算；改 `commands/rules.py` 之前先看 `tests/test_commands.py`，新发现的绕过先加一行会失败的测试。
+  `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
+  对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。
 - **定时任务和对话同时进行，不拿 `WebApp._turn`。** 这把锁只属于你的对话，以及会改动对话状态的操作（换模型、开新对话、
   改提示词、改记忆、改 Skill……），拿不到时用 `self._busy()` 回答；任务运行时这些照常可以做。凡是"会被停下"的东西，
   每次运行各有一份（`App.unattended_agent` 返回的 `UnattendedRun`）：自己的 `Shell`、自己名下的 MCP 调用
