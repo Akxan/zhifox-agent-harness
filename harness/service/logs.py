@@ -12,6 +12,7 @@ status 要的"最近的错误"就是这两种行。
 from __future__ import annotations
 
 import codecs
+import io
 import os
 import re
 import time
@@ -87,8 +88,12 @@ def follow(path: Path, out: IO[str], keep_going: Callable[[], bool] = lambda: Tr
 
     日志写满了会换一个新文件（旧的改名成 .1），服务重装时文件也可能换掉：发现换了（文件编号变了，或者比读到的位置还短），
     就从新文件的开头接着读。按字节读、增量地解码，一个汉字被拆在两次读之间也不会变成乱码。
+
+    行尾一律换成 \\n：Windows 上日志是以文字方式写的（logging、supervise.py、Python 自己的 Traceback），行尾是 \\r\\n；
+    原样交给 out 的话，out 在 Windows 上还会把 \\n 再换成 \\r\\n，变成 \\r\\r\\n。\\r 和 \\n 正好被拆在两次读之间也没关系
+    （IncrementalNewlineDecoder 会先留着那个 \\r，看下一个字是什么）。
     """
-    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    decoder = io.IncrementalNewlineDecoder(codecs.getincrementaldecoder("utf-8")("replace"), translate=True)
     identity, position = None, 0
     try:
         found = os.stat(path)
