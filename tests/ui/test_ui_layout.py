@@ -1,0 +1,65 @@
+"""窄屏（390 像素宽，常见的手机）上，三种语言下，长长的标题、待办、任务名都不能冲出容器。
+
+CLAUDE.md 的规矩："文字永远不能冲出容器……三种语言都要看（英文、西班牙语通常更长），窄屏也要看。"
+检查本身在 checks.overflow 里：每一段看得见的文字，要么在它的框里，要么被省略号收住，要么在一个能横着滚动的框里。
+新加的面板、窗口，在下面的 SURFACES 里加一项就会被查到。
+"""
+
+from __future__ import annotations
+
+import checks
+import pytest
+import steps
+from pilot import PHONE_WIDTH
+
+LONG_MESSAGE = "[ui:todo] 这是一条故意写得特别长的消息，好让会话的标题和对话里的文字都长到放不下：" + "很长的标题" * 8
+LONG_TASK = "每周五下午把这一周所有项目的进展、遇到的问题和下周的计划整理成一份周报并发给团队里的每一个人"
+
+
+def _surfaces(page):
+    """(名字, 打开它, 要查的范围, 查完要关上的窗口)。"""
+    return [
+        ("对话", lambda: None, [".stage"], None),
+        ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
+        ("定时任务", lambda: steps.nav_tab(page, "tasks"), ["#nav"], None),
+        ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
+        ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
+        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#model", "settings")), ["#settings"], "settings"),
+        ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
+        ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
+        ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
+        ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
+        ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], "extensions"),
+        ("记忆", lambda: (steps.open_nav(page), steps.open_dialog(page, "#memory-open", "memory-dialog")), ["#memory-dialog"], "memory-dialog"),
+        ("新建任务", lambda: (steps.nav_tab(page, "tasks"), steps.open_dialog(page, "#task-new", "task-editor")), ["#task-editor"], "task-editor"),
+    ]
+
+
+@pytest.mark.parametrize("code", ["zh", "en", "es"])
+def test_no_text_overflow_at_phone_width(page, code):
+    page.size(PHONE_WIDTH, 844)
+    steps.calm(page)
+    status, saved = page.demo.api("/api/task/save", {
+        "title": LONG_TASK, "kind": "reminder", "prompt": "提醒的内容也写得很长很长" * 6,
+        "schedule": {"type": "daily", "time": "09:00"}, "enabled": False, "approval": "ask",
+    })
+    assert status == 200, saved
+    try:
+        if code != "zh":
+            steps.language(page, code)
+        steps.send(page, LONG_MESSAGE)
+        steps.reply(page, "记下了")
+        found: dict[str, list[str]] = {}
+        for name, show, roots, close in _surfaces(page):
+            show()
+            steps.idle(page)
+            problems = checks.overflow(page, roots)
+            if problems:
+                found[name] = problems
+            if close:
+                steps.escape_closes(page, close)
+        assert found == {}, f"{code}：这些地方的文字冲出了容器：\n" + "\n".join(f"{where}:\n  " + "\n  ".join(items) for where, items in found.items())
+    finally:
+        page.demo.api("/api/task/delete", {"id": saved["id"]})
+        for todo in page.js("[...document.querySelectorAll('#todos > li.todo')].map((row) => Number(row.dataset.id))"):
+            page.demo.api("/api/todo/delete", {"id": todo})

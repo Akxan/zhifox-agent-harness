@@ -46,6 +46,8 @@
 一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
 再交给文件管家（它要执行一条命令，会弹出写着"「文件管家」想要"的确认卡片）；之后是几条凑数的回复。
 发什么消息都行，回复只看顺序（主助手和子 Agent 共用这一串回复）。
+例外是第一条消息里写着 [ui:名字] 的对话：整段按 tests/demo_scripts.py 里同名的剧本回答（页面的自动化测试用它，
+手动试也行，比如发 "[ui:approve] 试试" 就会弹出一张确认卡片）。
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ parser = argparse.ArgumentParser(description="不花钱地试用网页界面（�
 parser.add_argument("--port", type=int, default=8766)
 parser.add_argument("--data", type=Path, help="数据放在哪个目录（默认新建一个临时目录）。想保留会话、下次接着看时用")
 parser.add_argument("--delay", type=float, default=0.035, help="逐字输出时每一小段之间隔多少秒")
+parser.add_argument("--think", type=float, default=0.5, help="每次回复开口之前先停多少秒（像模型在想）。页面的自动化测试调小它")
 parser.add_argument("--no-key", action="store_true", help="不设置任何密钥，看第一次使用时的样子")
 parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram（\"手机\"页面）用的端口，默认随便挑一个空闲的")
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
@@ -81,6 +84,7 @@ if not options.no_key:
     os.environ["ANTHROPIC_API_KEY"] = "fake-claude-key-0001"
 
 import anthropic
+import demo_scripts
 import fake_dingtalk
 import fake_discord
 import fake_feishu
@@ -223,6 +227,8 @@ class SlowClaude:
                         scripted = task_reply(body)
                     elif "<channel>" in first:
                         scripted = channel_reply(body)
+                    elif (script := demo_scripts.scripted(first, body)) is not None:
+                        scripted = script  # 第一条消息里写着 [ui:名字]：按那段剧本回答
                     elif "演示商店" in first:
                         scripted = browser_reply(body, shop.url)
                     else:
@@ -233,7 +239,7 @@ class SlowClaude:
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
                 self.end_headers()
-                time.sleep(0.5)  # 模型开口之前先"想"一会儿
+                time.sleep(options.think)  # 模型开口之前先"想"一会儿
                 for event in in_small_pieces(_events(scripted)):
                     self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
                     self.wfile.flush()

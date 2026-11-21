@@ -1843,8 +1843,28 @@ available. They use a tiny fake document whose `innerHTML` and similar HTML-pars
 a fixed list of tags and attributes. They cover every supported syntax, nesting, escaping, malicious input, streaming
 in random-sized pieces (the result must equal rendering all at once), and 10,000-line inputs.
 
-The rest of the page (the styles and scripts in `index.html`) has no automated tests. After every change it is checked
-by hand in a real browser against the fake servers.
+The page itself (the styles and scripts in `index.html`) is tested in a real headless Chrome by the suite in
+[tests/ui/](tests/ui/). `uv run pytest` includes it; `uv run pytest -m ui` runs only it and `-m "not ui"` skips it. It is
+skipped when no Chrome is installed, and CI requires it. It takes about a minute and adds no dependencies: it drives
+Chrome with ZhiFox's own hand-written CDP client (no Playwright, Selenium or npm), starts `tests/demo_web.py` once as a
+subprocess with a temporary data directory, and opens every test in a fresh, incognito-like browser context. Clicks,
+hovers and key presses are real input events that wait until the target has stopped moving and isn't covered, and every
+wait is on a condition in the page, never a fixed sleep. Any script exception, `console.error` or blocked resource (CSP)
+fails the test. It covers: loading with no errors and no outside requests; replies streaming in, then replaying after a
+reload without entry animations; approval cards (allow, deny with a reason, Esc never answering) and the two-step
+"Allow everything"; light by default, dark, following the system, and text contrast; reduced motion from the system and
+from the Appearance panel; switching between Chinese, English and Spanish in place (the conversation, scroll position,
+half-written message and open panel all stay) and a sweep of every panel and dialog for untranslated Chinese; text
+overflow at 390 px wide in all three languages; the Show in Finder / Edit / Delete buttons on every kind of stored item
+(conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
+in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
+the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
+switching to another provider in Settings; and the browser tool's thumbnails. The demo answers these tests from scripts
+in [tests/demo_scripts.py](tests/demo_scripts.py), chosen by a `[ui:name]` tag in a conversation's first message, so the
+tests don't depend on each other's order. When a test fails, a screenshot, the console log and the page's HTML are saved
+(the path is printed; CI uploads them as an artifact). The checks in [tests/ui/checks.py](tests/ui/checks.py) are
+heuristics with lists of selectors to extend when a new panel arrives. What they can't judge (visual polish, how an
+animation feels, real touch screens) is still checked by hand in a real browser against the demo.
 
 To click around and look at the interface without spending anything, run `uv run python tests/demo_web.py`. It starts
 the real server and page backed by a local fake model with prepared replies, keeps its data in a temporary directory, and
@@ -1860,11 +1880,13 @@ weren't installed. The browser is switched on in the demo: start a new conversat
 with a message containing 演示商店 ("demo shop"), for example 用浏览器看看演示商店里有什么, and the assistant opens a small
 shop page the demo serves on your machine in a real Chrome, asks before visiting it, reads it, clicks the search box,
 types (asking again) and takes a screenshot. Add `--browser-window` to watch the Chrome window; without Chrome on the
-computer, the assistant says it can't find one.
+computer, the assistant says it can't find one. A conversation whose first message contains a tag such as `[ui:approve]`
+follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]` asks to run a command,
+`[ui:long]` writes a long reply, `[ui:todo]` adds a to-do with a very long title, `[ui:hello]` greets you.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
-and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
-page.
+and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes
+with GitHub's runners. The result is the Tests badge at the top of this page.
 
 ## Limitations
 
