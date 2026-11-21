@@ -383,7 +383,8 @@ def test_strangers_channels_bots_and_edits_get_no_reply(bot):
     assert s.api.requests == [] and s.fake.ephemeral == []
     assert [item.chat for item in s.hub.router.sessions("slack")] == [OWNER_CHAT]
     until(lambda: s.platform()["ignored"] == 3, what="页面上的计数")
-    assert not s.fake.unacked()  # 不理的也都回执了，Slack 不会再推一遍
+    # 不理的也都回执了，Slack 不会再推一遍。回执走 WebSocket，回答走 Web API，两条路谁先到不一定：等回执都到齐
+    until(lambda: not s.fake.unacked(), what="全部回执")
 
 
 def test_a_retried_event_is_handled_once(bot):
