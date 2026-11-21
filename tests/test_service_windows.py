@@ -239,7 +239,9 @@ def held():
 
 
 def windows_plan(**changes) -> Plan:
-    """一份 Windows 上的样子：路径里有反斜杠、空格、中文、&，结尾还有一个反斜杠（命令行里最容易出错的地方）。"""
+    """一份 Windows 上的样子：路径里有反斜杠、空格、中文、&，工作目录结尾还写了一个反斜杠（命令行里最容易出错的地方）。
+    真的 Windows 上 Path 会把结尾的反斜杠去掉（别的系统上它只是文件名里的一个字，留着），所以期望的值都照 str(路径) 算：
+    两种样子都要拼对、读得回来。"""
     return Plan(**{
         "python": "C:\\Users\\张三\\My Projects\\zhifox\\.venv\\Scripts\\python.exe",
         "workspace": Path("C:\\Users\\张三\\工作 & 目录\\"),
@@ -300,9 +302,9 @@ def test_the_task_xml_has_exactly_what_task_scheduler_needs(tmp_path):
         "--set", "HARNESS_ENV_FILE=C:\\Users\\张三\\My Projects\\zhifox\\.env",
         "--set", "PYTHONUTF8=1",
         "--", "C:\\Users\\张三\\My Projects\\zhifox\\.venv\\Scripts\\python.exe", "-P", "-m", "harness",
-        "--workspace", "C:\\Users\\张三\\工作 & 目录\\", "serve", "--web", "--service", "taskscheduler",
+        "--workspace", str(plan.workspace), "serve", "--web", "--service", "taskscheduler",
     ]
-    assert value("t:Actions/t:Exec/t:WorkingDirectory") == "C:\\Users\\张三\\工作 & 目录\\"
+    assert value("t:Actions/t:Exec/t:WorkingDirectory") == str(plan.workspace)
     assert "&amp;" in text  # & 在 XML 里要写成 &amp;
     assert manager.render(plan) == data  # 同样的设置写出来一字不差：重装时才看得出"没有变"
 
@@ -384,8 +386,7 @@ def test_windows_paths_are_checked_by_windows_rules(tmp_path):
     assert "换行" in problem(dataclasses.replace(good, data_dir=Path("C:\\a\nb")), "taskscheduler")
     (python.parent / "pythonw.exe").unlink()
     assert "pythonw.exe" in problem(good, "taskscheduler")  # 没有不弹窗口的那个 Python：先 uv sync
-    posix = dataclasses.replace(good, data_dir=tmp_path / "data", env_file=tmp_path / ".env")
-    assert problem(posix, "launchd") is None  # 只有 Windows 上才要 pythonw.exe
+    assert "pythonw" not in problem(good, "launchd")  # 只有 Windows 的任务才要 pythonw.exe（launchd 不行是因为反斜杠）
 
 
 def test_windowless_finds_pythonw_next_to_python():

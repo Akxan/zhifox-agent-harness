@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 from modes import has_mode
-from processes import ask_to_exit, own_group
+from processes import alive, ask_to_exit, own_group
 from test_channels import until
 
 from harness import cli, filelock, instance, log
@@ -246,9 +246,28 @@ def args_for(*argv: str) -> argparse.Namespace:
     return parser.parse_args(["service", *argv])
 
 
+WINDOWS = os.name == "nt"
+# Windows 上没有 launchd 和 systemd，测试用的临时路径也都是 C:\… 这样带反斜杠的：plist 和 unit 根本写不进去
+# （plan.problem 照规矩拒绝），"装上以后怎样"在那里没有意义。同样的流程（装、停、开、重启、状态、卸载）
+# 在 test_service_windows.py 里对着假的 schtasks 测，三种系统上都跑。
+POSIX_ONLY = pytest.mark.skipif(WINDOWS, reason="launchd 只在 macOS 上有、systemd 只在 Linux 上有；Windows 上的同一套流程见 test_service_windows.py")
+
+
+def _no_install_on_windows(*_args, **_kwargs):
+    pytest.skip("Windows 上装不了 launchd、systemd 的服务（见 POSIX_ONLY）；同样的流程见 test_service_windows.py")
+
+
+def posix_install_only(monkeypatch) -> None:
+    """Windows 上，用到假的 Mac、假的 Linux 的测试一走到 install 就跳过（理由见 POSIX_ONLY）。
+    不装服务的那些（打开网页、看日志、还没装时的状态、卸载没装过的……）和平台无关，照常在 Windows 上跑。"""
+    if WINDOWS:
+        monkeypatch.setattr(service_cli, "install", _no_install_on_windows)
+
+
 @pytest.fixture
-def mac(tmp_path, make_config):
+def mac(tmp_path, make_config, monkeypatch):
     """一台假的 Mac：临时的家目录、假的 launchctl（装上就"开起来"）、智狐的设置。"""
+    posix_install_only(monkeypatch)
     config = make_config()
     home = tmp_path / "home"
     home.mkdir()
@@ -262,6 +281,7 @@ def mac(tmp_path, make_config):
 @pytest.fixture
 def linux(tmp_path, make_config, monkeypatch):
     """一台假的 Linux：临时的家目录、假的 systemctl 和 journalctl、一个空的 linger 文件夹。"""
+    posix_install_only(monkeypatch)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     config = make_config()
     home = tmp_path / "home"
@@ -371,6 +391,7 @@ def test_the_plist_reads_back_to_the_same_plan(tmp_path, make_config):
 # ---- unit（Linux）----------------------------------------------------------------
 
 
+@POSIX_ONLY
 def test_the_unit_file_is_exactly_this():
     assert systemd.render(simple_plan()) == (
         "[Unit]\n"
@@ -397,6 +418,7 @@ def test_the_unit_file_is_exactly_this():
     )
 
 
+@POSIX_ONLY
 def test_the_unit_quotes_spaces_percent_dollar_and_quotes():
     """% 是 systemd 的占位符（%h……），ExecStart 里的 $ 是变量（$HOME），" 会结束引号：都要转义，读回来要一字不差。"""
     plan = simple_plan(workspace=Path('/home/me/50% off $HOME "my" dir'), path="/a%b:$c", port=9000, web=False)
@@ -411,6 +433,7 @@ def test_the_unit_quotes_spaces_percent_dollar_and_quotes():
     assert systemd.parse("[Service]\nType=simple\n") is None
 
 
+@POSIX_ONLY  # Windows 上的规矩（反斜杠可以、% 不行）见 test_service_windows.py
 def test_paths_that_cannot_be_written_into_a_service_are_refused(tmp_path):
     workspace = tmp_path / "w"
     workspace.mkdir()
@@ -930,6 +953,26 @@ def test_follow_prints_new_lines_and_survives_a_rotation(tmp_path):
     assert out.getvalue() == "新的一行\n狐狸\n换了新文件\n"  # 开始之前的那一行不重复打印
 
 
+def test_follow_turns_windows_line_endings_into_newlines(tmp_path):
+    """Windows 上日志的行尾是 \\r\\n（以文字方式写的）。接着看的时候一律换成 \\n，\\r 和 \\n 被拆在两次读之间也一样。"""
+    path = tmp_path / "service.log"
+    path.write_bytes(b"")
+    out = io.StringIO()
+    steps = [
+        lambda: path.open("ab").write("第一行\r\n第二行\r".encode()),
+        lambda: path.open("ab").write(b"\n"),
+        lambda: None,
+    ]
+
+    def sleep(_seconds):
+        if steps:
+            steps.pop(0)()
+
+    rounds = iter(range(6))
+    logs.follow(path, out, keep_going=lambda: next(rounds, None) is not None, sleep=sleep)
+    assert out.getvalue() == "第一行\n第二行\n"
+
+
 def test_logs_command_on_mac(mac):
     system = make_system(mac.manager, mac.home)
     assert service_cli.run(args_for("logs"), mac.config, system) == 0
@@ -1145,6 +1188,8 @@ def test_unsupported_systems_say_so(make_config):
 
 
 def test_detect_picks_the_manager_for_this_platform(monkeypatch):
+    # Launchd 要你账号的编号（gui/<uid>），Windows 上没有 os.getuid：假装成 Mac 时给一个
+    monkeypatch.setattr(os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
     assert isinstance(service_cli.detect().manager, Launchd)
     monkeypatch.setattr(sys, "platform", "linux")
@@ -1217,7 +1262,13 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
         url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=30, what="网页的地址")
         assert re.fullmatch(r"http://127\.0\.0\.1:\d+/\?token=[\w-]+", url)
         assert has_mode(address, 0o600)
-        assert instance.holder(data) == instance.Holder(process.pid, "service")  # 数据目录的锁上记着：它是后台服务
+        # 数据目录的锁上记着：它是后台服务。Windows 上 .venv\Scripts\python.exe 只是一个启动器，它再开真正的 Python，
+        # 占着锁的是那个子进程，编号不一样（见 service/supervise.py 开头）；那里只看它是不是还活着、不是测试自己
+        found = instance.holder(data)
+        if WINDOWS:
+            assert found is not None and found.kind == "service" and found.pid != os.getpid() and alive(found.pid)
+        else:
+            assert found == instance.Holder(process.pid, "service")
         ask_to_exit(process)  # launchctl bootout / 退出登录（Windows 上是 Ctrl+Break，见 tests/processes.py）
         assert process.wait(15) == 0
     finally:
