@@ -175,15 +175,19 @@ class AnthropicBackend:
             content.append(block)
         self._messages.append({"role": "user", "content": content})
 
+    def sends(self, tool: Any) -> bool:
+        """这个工具发不发给模型：工具包的成员看这个模型用不用得了这个包（见 use_tools），用得了的话它的替身就不发。"""
+        if tool.toolset:
+            return tool.toolset in self.toolsets
+        return not (tool.stands_in_for and tool.stands_in_for in self.toolsets)
+
     def tool_names(self) -> list[tuple[str, bool]]:
         """真正发给模型的那些：工具包只算一个（用包名），用得了工具包时它的替身不算。"""
         names: list[tuple[str, bool]] = []
         for tool in self._tools:
-            if tool.toolset:
-                if tool.toolset in self.toolsets and (tool.toolset, True) not in names:
-                    names.append((tool.toolset, True))
-            elif not (tool.stands_in_for and tool.stands_in_for in self.toolsets):
-                names.append((tool.name, tool.run is not None))
+            entry = (tool.toolset, True) if tool.toolset else (tool.name, tool.run is not None)
+            if self.sends(tool) and entry not in names:
+                names.append(entry)
         return names
 
     # ---- 调用模型 ---------------------------------------------------------

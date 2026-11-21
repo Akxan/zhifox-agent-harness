@@ -260,6 +260,7 @@ Each part of the harness has its own file or directory:
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
+| Capability list | [harness/capabilities.py](harness/capabilities.py), [harness/webui/capabilities_api.py](harness/webui/capabilities_api.py) | Tool names mean nothing to you. One catalog turns the conversation's tools into capabilities: in use or off and why, whether each asks you first (worked out by asking `permissions.py`), where it runs, how to turn it on (see [What ZhiFox can do](#what-zhifox-can-do-the-capability-list)) |
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
@@ -1615,8 +1616,8 @@ This starts a small server on your computer and opens the chat page in your brow
   - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
     afterwards. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
-  kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and the tools the model can use. It
-  updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
+  kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and **What 智狐 can do** (see
+  [What ZhiFox can do](#what-zhifox-can-do-the-capability-list) below). It updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
   **this month** (from the spending record, so restarts don't reset it), how much of your monthly budget is left, and a
   red note once you're over it (the cost next to the input box gets a red dot too). **Spending** opens a window with
   the last 30 days as a bar chart (hover a bar, click it, or use the arrow keys and Home / End to read a day), a total
@@ -1732,6 +1733,38 @@ A bookmark or a shortcut remembers the whole address, token and port included, s
 (see [Run it in the background](#run-it-in-the-background)), whose token stays the same across restarts. A
 `harness --web` started in a terminal gets a new token every time, and an old shortcut then opens to "This link is
 invalid or has expired"; make a new one, or switch to the service.
+
+### What ZhiFox can do: the capability list
+
+The info panel doesn't list the model's tools by their internal names (`todo_add`, `str_replace_based_edit_tool`,
+`mcp__files__echo`…). It lists **capabilities**: To-dos, Scheduled tasks, Memory, Read and edit files, Run commands,
+Web search & reading, Skills, Delegate to agents, Browser, Computer use, one row per MCP server, and Send files to the
+chat. Each row says:
+
+- **whether this conversation can use it**: *in use*, *next chat* (turned on in Settings after the conversation
+  started: a conversation's tools are fixed when it starts, so it takes effect in the next one), *off* (with the reason
+  and a button that opens the right place: the Browser or Computer use section of Settings, the Skills / MCP / Agents
+  tab of Extensions, or **Start a new conversation**), or *unavailable here* (only Claude can search the web; a model
+  that can't see images, like DeepSeek, can't use computer use; this computer has no desktop to control; the persona of
+  this conversation doesn't allow it; sending files only exists in chat channels). Unavailable rows are folded away at
+  the bottom.
+- **whether it asks you first, in the current approval mode**: a small label (*Direct*, *Asks some*, *Asks first*,
+  *Asks always*) and, when you open the row, a sentence such as "Reads files in the working folder without asking;
+  asks you before editing files" with a line per kind of action. Change the mode from the bar at the top of the list
+  and the labels change with it.
+- **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server.
+- **Technical details**, folded: the tool names the model actually receives (for Claude, a toolset counts as one,
+  such as `browser_toolset_20260801`).
+
+Status is never shown by color alone: every label has an icon and words, and the icon tile changes shape (filled, dashed,
+faded). The terminal's `/tools` prints the same list.
+
+Why it is built this way ([harness/capabilities.py](harness/capabilities.py)): it is the only place that maps tools to
+capabilities, and the page only draws what it is sent. "Does it ask first?" is not a second copy of the rules: the
+catalog takes a few representative actions ("edit a file in the working folder", "`ls`", "type into a password field")
+and asks [permissions.py](harness/permissions.py) about each one, the same way the loop does before running a tool, so
+when a rule changes the list follows by itself. A tool it doesn't recognise still gets a row under its own name rather
+than disappearing.
 
 ### Scheduled and recurring tasks
 
@@ -1953,7 +1986,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/help` | Show the list of commands |
 | `/new` | Start a new conversation (memory and to-dos are kept) |
 | `/todos` | Show open to-dos |
-| `/tools` | Show the tools the model can use |
+| `/tools` | Show what 智狐 can do: what's in use, whether it asks first, how to turn on what's off (the same list as the web UI's info panel) |
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
@@ -2656,7 +2689,7 @@ integration test runs there against a virtual display. The result is the Tests b
   later one fails if the text it expected has changed, so the model reads the file again. Reminders appear only in the
   page; there are no system notifications.
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
-  #9") and the tool descriptions in the terminal's `/tools` stay in Chinese, because they are written for the model.
+  #9") stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
 - Skills: `allowed-tools` doesn't pre-approve anything (see [Skills](#skills)). Claude Code's argument placeholders
   (`$ARGUMENTS`, `$0`), `!` command blocks, `context: fork`, `hooks` and other Claude Code-only fields are kept in the

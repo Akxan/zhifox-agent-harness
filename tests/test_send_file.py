@@ -594,8 +594,9 @@ def test_the_request_prefix_stays_the_same_across_turns_restarts_and_the_web(bot
     assert (fourth["system"], fourth["tools"]) == (first["system"], first["tools"])
     assert again.app.agent.tools.get(TOOL_NAME).check({"path": "a.png"}) == NOT_IN_CHAT
 
-    # 网页上新开一段：不在聊天软件里，没有它
-    assert again.browser.post("/api/new", {})[0] == 200
+    # 网页上新开一段：不在聊天软件里，没有它。上面只等到了请求发出去，这一轮可能还在收尾（存盘、发状态），
+    # 这时"新对话"会回答"上一轮还没有结束"（409）：等它结束
+    until(lambda: again.browser.post("/api/new", {})[0] == 200, what="网页的这一轮结束、开始新对话")
     assert again.app.agent.tools.get(TOOL_NAME) is None
     assert TOOL_NAME not in [name for name, _ in again.app.tool_names()]
 

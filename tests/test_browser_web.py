@@ -28,6 +28,11 @@ JPEG = b"\xff\xd8\xff\xe0" + b"0" * 64
 THUMB = "data:image/jpeg;base64,/9j/4AAQ"
 
 
+def capability(state: dict, name: str) -> dict:
+    """信息栏"智狐能做的事"里的一项（见 harness/capabilities.py）。"""
+    return next(item for item in state["capabilities"]["items"] if item["id"] == name)
+
+
 def settings(s, **changes) -> tuple[int, dict]:
     return s.browser.post("/api/browser/settings", changes)
 
@@ -51,7 +56,7 @@ def test_turning_it_on_saves_the_setting_and_gives_a_new_conversation_the_tools(
         time.sleep(0.02)
     state = latest_state(s.browser)
     assert state["browser"]["enabled"] is True
-    assert {"name": "browser", "local": True} in state["tools"]  # 还没开始的对话：马上换上了
+    assert capability(state, "browser")["status"] == "on"  # 还没开始的对话：马上换上了
 
 
 def test_turning_it_on_mid_conversation_says_it_starts_next_time(serve):
@@ -60,7 +65,11 @@ def test_turning_it_on_mid_conversation_says_it_starts_next_time(serve):
     s.browser.wait_for("turn_end")
     status, answer = settings(s, enabled=True)
     assert status == 200 and "下一段新对话" in answer["warning"]
-    assert not [tool for tool in latest_state(s.browser)["tools"] if tool["name"] == "browser"]
+    deadline = time.monotonic() + 5  # 新的状态是在回答之前发的，"浏览器"收到它可能还要一小会儿
+    while not latest_state(s.browser)["browser"]["enabled"]:
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    assert capability(latest_state(s.browser), "browser")["status"] == "pending"  # 工具没换上，信息栏里写着"下一段对话开始生效"
 
 
 def test_bad_settings_are_rejected(serve):

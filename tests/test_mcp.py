@@ -1061,7 +1061,10 @@ def test_terminal_commands_show_mcp_servers_and_tools(start, make_config, capsys
     assert "fake  [已连接]  8 个工具" in out and "typo  [连接失败]" in out and "definitely-not-a-command-xyz" in out
     assert handle_command("/tools", h.app, ui) is True
     out = capsys.readouterr().out
-    assert "mcp__fake__echo" in out and "（第三方工具，来自 MCP 服务器“fake”" in out
+    # 和网页信息栏是同一份清单（capabilities.py）：一个服务器一行，写着几个工具；工具的名字只在"技术细节"那一行
+    assert "● fake · 8  [在用]" in out and "第三方 MCP 服务器提供的工具。" in out
+    assert "技术细节：mcp__fake__echo" in out
+    assert "○ typo  [关着]" in out and "连接失败" in out
 
 
 def test_terminal_mcp_command_without_servers(start, capsys):

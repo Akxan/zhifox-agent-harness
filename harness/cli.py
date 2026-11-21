@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import i18n, rewind
+from . import capabilities, i18n, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -46,7 +46,7 @@ HELP = k("""\
 /help    显示这段说明
 /new     开始一段新对话（记忆和待办不受影响）
 /todos   查看未完成的待办
-/tools   查看模型可以使用的工具
+/tools   查看智狐能做的事：哪些在用、会不会先问你、关着的怎么打开
 /usage   查看本次运行的 token 用量和估算费用
 /model   查看当前使用的模型
 /mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
@@ -155,6 +155,30 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
     return ask_turn(app, ui, text)
 
 
+# "智狐能做的事"里每一项的状态，在终端里的说法（网页上的样子见 page/scripts/capabilities.js）
+CAPABILITY_STATUS = {"on": k("在用"), "pending": k("下一段对话开始生效"), "off": k("关着"), "unavailable": k("用不了")}
+CAPABILITY_MARKS = {"on": "●", "pending": "◐", "off": "○", "unavailable": "–"}
+
+
+def show_capabilities(app: App, ui: TerminalUI) -> None:
+    """/tools：智狐能做的事，和网页信息栏里的同一份清单（见 capabilities.py）。在用的写会不会先问你，别的写为什么。"""
+    found = capabilities.overview(app)
+    ui.plain(t("智狐能做的事（现在的确认方式：{mode}）", mode=t(MODES[found.mode])))
+    for note in found.notes:
+        ui.info(note)
+    for item in found.items:
+        count = f" · {item.count}" if item.count else ""
+        ui.plain(f"{CAPABILITY_MARKS[item.status]} {item.label}{count}  [{t(CAPABILITY_STATUS[item.status])}]")
+        ui.info(f"    {item.description}")
+        if item.status == "on" and item.approval is not None:
+            ui.info(f"    {item.approval.summary}")
+        if item.reason:
+            ui.info(f"    {item.reason}")
+        if item.tools:
+            ui.info("    " + t("技术细节：{names}", names=", ".join(item.tools)))
+    ui.info(t("浏览器、操作整台电脑、Skill、MCP、Agent 在网页界面（uv run harness --web）的“设置”和“扩展”里打开、管理。"))
+
+
 def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     """处理斜杠命令。返回 False 表示要退出程序。"""
     name, _, argument = command.partition(" ")
@@ -171,15 +195,7 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
     elif command == "/todos":
         ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
-        # MCP 的工具不在 app.tools 里（那里只有自己的工具），而对话还没开始时，它们也还不在 agent.tools 里
-        known = {tool.name: tool for tool in [*app.tools, *app.agent.tools, *app.mcp.snapshot().tools]}
-        for name, local in app.tool_names():
-            tool = known.get(name)
-            description = tool.spec.get("description") if tool else None
-            # 自定义工具显示说明的第一句；Anthropic 定义的工具没有我们写的说明，显示它的类型
-            summary = description.split("。")[0] + "。" if description else t("Anthropic 定义（{type}）", type=tool.spec["type"])
-            ui.plain(f"{name}  [{t('本地执行') if local else t('服务器执行')}]")
-            ui.info(f"    {summary}")
+        show_capabilities(app, ui)
     elif command == "/usage":
         usage = app.agent.usage
         cost, unpriced = estimate(app.agent.usage_by_model, app.settings.prices)

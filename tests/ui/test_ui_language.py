@@ -79,6 +79,8 @@ def _sweep(page) -> dict[str, list[str]]:
 
     steps.open_side(page)
     look("信息栏", ["#side"])
+    steps.expand_capabilities(page)
+    look("信息栏 · 智狐能做的事（全部点开）", ["#caps"])
     page.wait("!document.getElementById('spend').hidden", what="花费那一块出现（刚才那一轮记了账）")
     steps.open_dialog(page, "#spend-open", "spend-dialog")
     page.wait("document.getElementById('spend-body').children.length > 0")

@@ -56,7 +56,7 @@ const handlers = {
     retext($('prompt-state'), event.prompt_custom ? k('（已改过）') : k('（内置的）'));
     renderUsage(event);
     renderSpend(event.spend);
-    renderTools(event.tools);
+    renderCapabilities(event.capabilities);
     renderMcpState(event.mcp);
     renderBrowser(event.browser);
     renderComputer(event.computer);

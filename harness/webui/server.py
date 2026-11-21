@@ -121,6 +121,7 @@ from . import lifecycle
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
+from .capabilities_api import page_state as capabilities_state
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .page import assemble as assemble_page
@@ -250,6 +251,7 @@ class WebApp:
         price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
         tasks, reminders = self.tasks.snapshot()
+        skills, agents = self.skills.summaries(), self.agents.summaries()
         self.ui.publish(
             "state",
             provider=settings.provider,
@@ -284,9 +286,9 @@ class WebApp:
             # 多媒体库里一共有多少个附件，和一个"版本"。版本变了，开着的多媒体一栏就重新取一次列表；页面不用轮询
             media=self._media_state(),
             # 装好的 Skill（名字、说明、启用没有、有没有问题）。和记忆一样每次都重新看一遍文件夹
-            skills=self.skills.summaries(),
+            skills=skills,
             # 自定义 Agent（名字、说明、模型、颜色、几样工具、有没有问题），和 Skill 一样每次都重新看一遍文件夹
-            agents=self.agents.summaries(),
+            agents=agents,
             # 当前这段对话是用哪个 Agent 开始的（顶上显示它的名字）；普通的对话是 null
             persona=self.app.persona_info(),
             prompt_custom=prompts.load_template(config) != prompts.DEFAULT_TEMPLATE,  # 提示词改过没有（设置里显示）
@@ -302,7 +304,9 @@ class WebApp:
             cost=round(cost, 4),
             unpriced=unpriced,
             spend=self.app.spending(),  # 今天、本月花了多少，预算超了没有（这些记在账本里，重启也不会清零）
-            tools=[{"name": name, "local": local} for name, local in self.app.tool_names()],
+            # 信息栏里"智狐能做的事"：每个功能在这段对话里用不用得了、为什么、问不问你、在哪儿执行、关着的怎么打开
+            # （由 capabilities.py 算，格式见那里的开头）。页面只照着画
+            capabilities=capabilities_state(self.app, skills, agents),
             mcp=self._mcp_state(),
             approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）

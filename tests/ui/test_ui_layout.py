@@ -24,6 +24,7 @@ def _surfaces(page):
         ("定时任务", lambda: steps.nav_tab(page, "tasks"), ["#nav"], None),
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
+        ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
         ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#model", "settings")), ["#settings"], "settings"),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),

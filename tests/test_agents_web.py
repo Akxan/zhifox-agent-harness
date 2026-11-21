@@ -198,7 +198,9 @@ def test_starting_a_conversation_with_an_agent(serve):
     assert (status, body) == (200, {"ok": True, "warning": ""})
     state = wait_state(s, lambda state: state["persona"] is not None)
     assert state["persona"] == {"name": "写作助手", "color": "green", "missing": False}
-    assert state["tools"] == []  # tools: []
+    items = state["capabilities"]["items"]
+    assert [item["id"] for item in items if item["status"] == "on"] == []  # tools: []，信息栏里一项都用不了
+    assert all(item["tools"] == [] for item in items) and state["capabilities"]["notes"]
 
     assert s.browser.post("/api/message", {"text": "帮我润色"})[0] == 200
     s.browser.wait_for("turn_end")

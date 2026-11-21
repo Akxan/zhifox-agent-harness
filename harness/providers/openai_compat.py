@@ -67,9 +67,7 @@ class OpenAICompatBackend:
 
         全靠截图的工具（Tool.vision，比如操作整台电脑）只给看得懂图片的这几家：看不了图的模型拿到了也只能闭着眼睛乱点。
         """
-        self._local_tools = [
-            tool for tool in tools if tool.portable is not None and tool.run is not None and (self.vision or not tool.vision)
-        ]
+        self._local_tools = [tool for tool in tools if self.sends(tool)]
         # 各家通用的"函数"格式的工具说明书
         self.tool_specs = [{"type": "function", "function": tool.portable} for tool in self._local_tools]
 
@@ -167,6 +165,10 @@ class OpenAICompatBackend:
             content: list[dict] = [{"type": "text", "text": compaction.TOOL_IMAGES_NOTE}]
             content += [{"type": "image_url", "image_url": {"url": f"data:{image.media_type};base64,{image.data}"}} for image in pictures]
             self._messages.append({"role": "user", "content": content})
+
+    def sends(self, tool: Any) -> bool:
+        """这个工具发不发给模型：要有各家通用的说明书、在本地执行；全靠截图的只给看得懂图片的（见 use_tools）。"""
+        return tool.portable is not None and tool.run is not None and (self.vision or not tool.vision)
 
     def tool_names(self) -> list[tuple[str, bool]]:
         return [(tool.name, True) for tool in self._local_tools]

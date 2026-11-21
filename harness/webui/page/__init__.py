@@ -53,6 +53,7 @@ STYLES = (
     "styles/viewer.css",  # 查看器
     "styles/composer-controls.css",  # 发送键、输入框下面那一行、"要不要先问你"的开关、回到底部
     "styles/info.css",  # 右边的信息栏
+    "styles/capabilities.css",  # 信息栏 · 智狐能做的事
     "styles/memory.css",  # 记忆的入口和窗口
     "styles/nav-tabs.css",  # 左边栏的"会话 / 任务 / 多媒体"
     "styles/media.css",  # 多媒体
@@ -101,6 +102,7 @@ SCRIPTS = (
     "scripts/appearance.js",  # 外观：颜色和动效
     "scripts/conversations.js",  # 会话列表
     "scripts/info.js",  # 信息栏
+    "scripts/capabilities.js",  # 信息栏 · 智狐能做的事（清单由 harness/capabilities.py 算）
     "scripts/spending.js",  # 花费
     "scripts/memory.js",  # 记忆
     "scripts/tasks.js",  # 定时任务：共用的状态、时间的写法、左边栏的标签

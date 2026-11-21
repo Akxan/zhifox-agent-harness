@@ -17,7 +17,7 @@ import time
 import test_webui
 from fake_api import reply, text, tool_use
 from fake_desktop import FULL, FakeDesktop, install
-from test_webui import latest_state
+from test_webui import capability, latest_state
 
 from harness.desktop import session as session_module
 from harness.webui import computer_api
@@ -54,6 +54,7 @@ def test_the_state_says_where_computer_use_stands(serve):
 
 def test_turning_it_on_needs_an_explicit_acknowledgement(serve):
     s = serve()
+    install(s.app.desktop, FakeDesktop())  # 信息栏里要看到"在用"：这台（假的）电脑上做得了
     status, answer = settings(s, enabled=True)
     assert status == 400 and "风险" in answer["error"]
     assert s.app.settings.computer["enabled"] is False
@@ -61,18 +62,24 @@ def test_turning_it_on_needs_an_explicit_acknowledgement(serve):
     assert status == 200 and answer["ok"]
     assert json.loads(s.config.settings_file.read_text(encoding="utf-8"))["computer"]["enabled"] is True
     wait_until(lambda: latest_state(s.browser)["computer"]["enabled"])
-    assert {"name": "computer", "local": True} in latest_state(s.browser)["tools"]  # 还没开始的对话：马上换上了
+    computer = capability(latest_state(s.browser), "computer")
+    assert computer["status"] == "on" and computer["tools"] == ["computer_toolset_20260801"]  # 还没开始的对话：马上换上了
+    assert computer["approval"]["level"] == "always"  # 每一步都问，哪一档都一样
     # 已经开着的时候改别的，不用再确认
     assert settings(s, unattended=True)[0] == 200 and s.app.settings.computer["unattended"] is True
 
 
 def test_turning_it_on_mid_conversation_says_it_starts_next_time(serve):
     s = serve(reply(text("你好")))
+    install(s.app.desktop, FakeDesktop())
     s.browser.post("/api/message", {"text": "嗨"})
     s.browser.wait_for("turn_end")
     status, answer = settings(s, enabled=True, acknowledge=True)
     assert status == 200 and "下一段新对话" in answer["warning"]
-    assert not [tool for tool in latest_state(s.browser)["tools"] if tool["name"] == "computer"]
+    wait_until(lambda: latest_state(s.browser)["computer"]["enabled"])
+    computer = capability(latest_state(s.browser), "computer")
+    assert computer["status"] == "pending" and computer["tools"] == []  # 信息栏里写着"下一段对话开始生效"
+    assert computer["actions"][0]["kind"] == "new"
 
 
 def test_turning_it_off_stops_whatever_is_running(serve, monkeypatch):
