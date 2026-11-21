@@ -185,6 +185,28 @@ def group_of(tool: Tool) -> str:
     return _GROUP_OF.get(tool.name, "other")
 
 
+@dataclass(frozen=True)
+class Label:
+    """一次工具调用给人看的名字（运行记录用，见 trace/）：属于哪种功能、图标、名字（原文，页面和终端各自交给 t()）。
+    MCP 的工具另外带上服务器的名字（你起的，原样显示）。认不出来的工具 label 是空的，显示它自己的名字。"""
+
+    group: str
+    icon: str
+    label: str
+    server: str = ""
+
+
+def label_of(tool: Tool | None) -> Label:
+    """一个工具给人看的名字。和信息栏"智狐能做的事"是同一张表（KINDS），所以两边的叫法一样。"""
+    if tool is None:
+        return Label("other", "puzzle", "")
+    group = group_of(tool)
+    if group == "mcp":
+        return Label("mcp", MCP_KIND.icon, MCP_KIND.label, tool.server if isinstance(tool, McpTool) else "")
+    kind = _KIND.get(group)
+    return Label(group, kind.icon, kind.label) if kind is not None else Label("other", "puzzle", "")
+
+
 def technical_names(tools: Iterable[Tool]) -> list[str]:
     """发给模型的名字。Claude 的工具包在请求里只占一项，写它的类型（browser_toolset_20260801），不一个个列成员。"""
     names: list[str] = []

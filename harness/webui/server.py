@@ -430,7 +430,7 @@ class WebApp:
             if again is not None and backend.turn_at(again):
                 retry_turn(self.app.agent, self.ui, again)
             else:
-                run_turn(self.app.agent, self.ui, text, attachments)
+                run_turn(self.app.agent, self.ui, text, attachments, again=again is not None)
         finally:
             try:
                 self.ui.end_stream()
