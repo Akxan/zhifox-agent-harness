@@ -96,7 +96,7 @@ class App:
     browser: BrowserManager  # 智狐自己的那个 Chrome（见 browser/）
     chat_browser: BrowserSession  # 你正在看的这段对话用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
     desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
-    chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问"记在它上面。换一段对话就换一个
+    chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -222,8 +222,9 @@ class App:
         # 工具还是同一套（一段对话里工具说明书不变）。定时任务只跑一轮，换上的那个新的没人用，随着这次运行一起丢掉
         browser = [self.browser.session(source)]
         own_browser = make_browser_tools(lambda: browser[0], lambda: self.browser.enabled) if self.browser.enabled else []
-        # 操作整台电脑：只有你在设置里另外打开了"允许定时任务和聊天通道使用"才有（默认没有）。有的话每一步照样要你批准
-        # （权限是这次运行的那一份，"全部自动允许"也不放开，见 permissions.py）。和浏览器一样放在格子里，每一轮结束换一个新的
+        # 操作整台电脑：只有你在设置里另外打开了"允许定时任务和聊天通道使用"才有（默认没有）。有的话按这次运行自己的那一档问
+        # （任务、通道选了"全部自动允许"才不问；危险的组合键怎么都要问，见 permissions.py）。session 不是 attended 的：
+        # 没有"这段对话里不再问"。和浏览器一样放在格子里，每一轮结束换一个新的
         desktop = [self.desktop.session(desktop_labels.TASK if source == "task" else desktop_labels.CHANNEL)]
         own_desktop = make_computer_tools(lambda: desktop[0], lambda: self.desktop.unattended) if self.desktop.unattended else []
         # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 conversation_tools）：
@@ -380,7 +381,7 @@ class App:
 
     def _fresh_desktop(self) -> None:
         """换了一段对话："这段对话里截图不再问"不再算数，还按着的鼠标键松开，屏幕让出来。新的这一段用一个新的。"""
-        old, self.chat_desktop = self.chat_desktop, self.desktop.session(desktop_labels.CHAT)
+        old, self.chat_desktop = self.chat_desktop, self.desktop.session(desktop_labels.CHAT, attended=True)
         old.close()
 
     def _fresh_browser(self) -> None:
@@ -619,7 +620,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         browser=browser,
         chat_browser=browser.session("chat"),
         desktop=desktop,
-        chat_desktop=desktop.session(desktop_labels.CHAT),
+        chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
     )
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
     # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）

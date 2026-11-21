@@ -27,9 +27,11 @@
   浏览器：点击提交表单的按钮        先问用户（也包括名字像"购买""支付""发送""删除"的按钮）。点普通的链接、按钮不问
   浏览器：输入文字、填表单          先问用户，把要输入的内容给你看
   浏览器：往密码框、银行卡输入      每次都问，在任何模式下，卡片上带着警告
-  操作整台电脑：截图、放大          每次都问，在任何模式下。确认卡片上可以选"这段对话里截图不再问"
-  操作整台电脑：点击、拖动、移动鼠标、滚动、打字、按键   每次都问，在任何模式下（"全部自动允许"也不放开）。
-                                    卡片上写着落在哪个程序上；危险的组合键（⌘Q、Ctrl+Alt+Del……）带着警告
+  操作整台电脑：截图、放大          先问用户（"全部自动允许"除外）。你正看着的对话里，卡片上可以选"这段对话里截图不再问"
+  操作整台电脑：点击、拖动、移动鼠标、滚动、打字、按键   先问用户（"全部自动允许"除外）。卡片上写着落在哪个程序上；
+                                    你正看着的对话里，卡片上可以选"这段对话里的点击、打字不再问"
+  操作整台电脑：危险的组合键        每次都问，在任何模式下，放开了也照样问，卡片上带着警告
+                                    （Mac 上的 ⌘Q、⌘⌥Esc，Windows、Linux 上的 Alt+F4、Ctrl+Alt+Del……，见 desktop/keys.py）
   操作整台电脑：等一等、看鼠标在哪儿   直接执行（什么都不看、什么都不碰）
   把文件发到聊天里（send_file）     先问用户（"全部自动允许"除外）。卡片上写着文件名、大小、发到哪个聊天。
                                     保存密钥的文件（.env、mcp.json、channels.json）在任何模式下都不发；
@@ -63,11 +65,18 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 密码和银行卡永远要你亲眼看一下，哪怕你选了"全部自动允许"：被网页带偏的模型最想要的就是这两样。
 "这段对话里允许过的网站"记在这段对话自己的浏览器上（BrowserSession.allowed_sites），换一段对话就从头再问。
 
-操作整台电脑的规矩为什么最严（见 desktop/__init__.py）：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，
-而智狐只看得到像素，没法像浏览器那样替你判断"点下去会不会提交什么"。所以除了"等一等"，每一步都要你亲眼看一下，
-哪一种模式都不放开（auto_allows 一律说"要问"）。唯一能放宽的是截图：只是看、不动，而且模型几乎每一步都要截一张，
-每张都问会把人问烦，问烦了就会不看就点"允许"。这一项记在这段对话自己的 DesktopSession 上，只有你在对话里的确认卡片上点了才打开，
-换一段对话就从头再问；定时任务、聊天通道里没有这个选项。
+操作整台电脑的规矩为什么是这样（见 desktop/__init__.py）：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，
+而智狐只看得到像素，没法像浏览器那样替你判断"点下去会不会提交什么"。所以默认除了"等一等"，每一步都要你亲眼看一下，
+"只读的命令""改工作目录里的文件"这两档都不放开它。可是一件事要点几十下，每一下都问会把人问烦，问烦了就会不看就点"允许"，
+那比明明白白地放开更糟。所以你可以自己放开，有两种办法（用户定的）：
+  - 这段对话里不再问：确认卡片上的"这段对话里截图不再问"（截图、放大）和"这段对话里的点击、打字不再问"（别的动作），
+    两样分开选。记在这段对话自己的 DesktopSession 上，只有你正看着的那段对话（网页上的对话）能选，只有你点了卡片才打开，
+    换一段对话就从头再问。定时任务、聊天通道没有这个选项：它们多半没人看着（session 不是 attended 的，打不开）。
+  - "全部自动允许"：在哪儿选的就在哪儿算数——对话里的那一档、任务自己的那一档、聊天通道的那一档。
+    任务和通道还要你在设置里另外允许它们用电脑，才有这些工具。
+放开了也有几样不变：危险的组合键（keys.DANGEROUS：退出程序、退出登录、清倒废纸篓……）每次都问，卡片上带着警告，也不给
+"不再问"的按钮；不许碰的程序照样拒绝；打字前把问你时的程序换回最前面、点的位置换了窗口就不点（session.py 的 _focus、_guard）；
+页面顶上"智狐正在控制这台电脑"和"停止"一直在；没问就做的每一步都调用 auto_allowed()，对话里标着"自动允许"。
 
 发文件的规矩为什么是这样：发出去的文件离开了这台电脑，到了聊天平台的服务器上，收不回来。哪怕是发给你自己的聊天，
 也可能是被网页、文件里的一句话带偏的模型想把你的东西送出去，所以和"读工作目录之外的文件"一样要你看一眼。
@@ -94,6 +103,7 @@ from .browser.session import Facts
 from .commands import Places, Unclear, classify
 from .commands.allowlist import CommandList
 from .desktop.session import Facts as DesktopFacts
+from .desktop.session import trust_of
 from .display import file_size, short
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
@@ -116,9 +126,10 @@ MODES = {
     "all": k("全部自动允许"),
 }
 
-# 没问就放行时，为什么（见 Permissions.allowance）。界面上 readonly、listed 两种写得更具体（"自动允许（只读）"）
+# 没问就放行时，为什么（见 Permissions.allowance）。界面上这几种写得更具体（"自动允许（只读）"）
 WHY_READONLY = "readonly"  # 内置的只读命令、读工作目录之外的文件
 WHY_LISTED = "listed"  # 你自己加的"不用问的命令"
+WHY_TRUSTED = "trusted"  # 操作整台电脑：你在这段对话的确认卡片上选了"这段对话里不再问"
 
 
 class Permissions:
@@ -159,11 +170,10 @@ class Permissions:
 
     def allowance(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
         """和 auto_allows 一样，只是说出为什么可以不问：返回 None 表示要问；
-        WHY_READONLY、WHY_LISTED 是 readonly 那一档放行的（界面上写得更具体），别的情况返回 "mode"。"""
+        WHY_READONLY、WHY_LISTED 是 readonly 那一档放行的，WHY_TRUSTED 是这段对话里说过不再问的（界面上写得更具体），
+        别的情况返回 "mode"。"""
         if isinstance(tool, DesktopTool):
-            # 操作整台电脑：在任何模式下都要问（见文件开头）。只有截图在你选了"这段对话里截图不再问"之后不问
-            facts = tool.look(tool_input) if isinstance(tool_input, dict) else None
-            return "mode" if facts is not None and facts.action in LOOKS and facts.trusted else None
+            return self._computer_allowance(tool.look(tool_input) if isinstance(tool_input, dict) else None)
         if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
             return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
         if self.mode == "all":
@@ -178,6 +188,15 @@ class Permissions:
         if self.mode == "readonly":
             return self._reads_only(tool_name, tool_input)
         return None
+
+    def _computer_allowance(self, facts: DesktopFacts | None) -> str | None:
+        """操作整台电脑的一步能不能不问就做（规矩见文件开头）。只有两种情况不问：这段对话里说过这一类不再问，
+        或者这一档是"全部自动允许"。危险的组合键怎么都要问；"只读的命令""改文件"那两档、MCP 的"不用问"都不算数。"""
+        if facts is None or facts.danger:
+            return None
+        if facts.trusted and facts.attended:
+            return WHY_TRUSTED
+        return "mode" if self.mode == "all" else None
 
     def places(self) -> Places:
         """命令在哪儿运行、哪些地方不能不问就读（给 commands.classify 用）。"""
@@ -467,7 +486,6 @@ def review_browser(facts: Facts) -> str | None:
 
 # ---- 操作整台电脑 --------------------------------------------------------------
 
-LOOKS = ("screenshot", "zoom")  # 只是看的动作：可以选"这段对话里不再问"
 _CLICKS = {("left", 1): k("左键单击"), ("left", 2): k("左键双击"), ("left", 3): k("左键连点三下"), ("right", 1): k("右键单击"), ("middle", 1): k("中键单击")}
 _DIRECTIONS = {"up": k("向上"), "down": k("向下"), "left": k("向左"), "right": k("向右")}
 
@@ -480,7 +498,7 @@ def offering(question: str, offer: str) -> str:
 
 
 def always(question: str) -> str:
-    """一个在任何模式下都要问的问题：页面上就不放"不想每次都问？"的入口（换哪一档都不会少问这一次）。"""
+    """一个在任何模式下都要问的问题：页面上就不放"不想每次都问？"的入口（换哪一档都不会少问这一次），也不放"不再问"的选择。"""
     question.always = True  # type: ignore[attr-defined]
     return question
 
@@ -501,9 +519,17 @@ def _app(facts: DesktopFacts) -> str:
 
 def review_computer(facts: DesktopFacts) -> str | None:
     """操作整台电脑的一次动作怎么问你（规矩见文件开头）。返回要显示的说明；不用问（根本不会做、或者什么都不碰）返回 None。
-    问题都标着 always：换哪一档模式都照样要问。"""
+
+    危险的组合键标着 always：换哪一档、放开了什么都照样要问，卡片上也不给"不再问"。别的动作在你正看着的对话里
+    （facts.attended）多给一个选择：截图、放大是 screenshots，点击、打字这些是 actions（desktop/session.py 的 trust_of）；
+    定时任务、聊天通道的运行不给。真正放不放开由 allowance 定，这里只管卡片上画什么。"""
     question = _review_computer(facts)
-    return always(question) if question is not None else None
+    if question is None:
+        return None
+    if facts.danger:
+        return always(question)
+    offer = trust_of(facts.action)
+    return offering(question, offer) if facts.attended and offer else question
 
 
 def _review_computer(facts: DesktopFacts) -> str | None:
@@ -512,11 +538,10 @@ def _review_computer(facts: DesktopFacts) -> str | None:
         return None  # 关着、用不了、参数不对、碰到不许碰的程序：工具会直接回答，什么都不会做。等一等、看鼠标在哪儿：什么都不碰
     front = t("\n  最前面的程序：{app}", app=_app(facts))
     if action == "screenshot":
-        question = t("截一张整个屏幕的图交给模型。屏幕上的一切它都看得到：别的程序、通知里的消息、打开着的文件。{front}", front=front)
-        return offering(question, "screenshots")
+        return t("截一张整个屏幕的图交给模型。屏幕上的一切它都看得到：别的程序、通知里的消息、打开着的文件。{front}", front=front)
     if action == "zoom":
         region = ", ".join(str(value) for value in facts.region)
-        return offering(t("把屏幕上的一块（[{region}]）放大了交给模型看。{front}", region=region, front=front), "screenshots")
+        return t("把屏幕上的一块（[{region}]）放大了交给模型看。{front}", region=region, front=front)
     held = t("\n  同时按着：{keys}", keys="+".join(facts.modifiers)) if facts.modifiers else ""
     on = t("\n  落在：{app} 的窗口上", app=_app(facts))
     if action == "click":

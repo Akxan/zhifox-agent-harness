@@ -8,11 +8,12 @@ const APPROVAL_TEXT = {
   ask: k('改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。'),
   readonly: k('只是看的命令（ls、cat、grep、df、git status、看日志……）和读文件不再问。会改动东西的命令、改文件，以及密钥和助手自己的数据，仍然每次问。'),
   edits: k('创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。'),
-  all: k('执行命令、改文件、读工作目录之外的文件，都不再问。'),
+  all: k('执行命令、改文件、读工作目录之外的文件，都不再问。打开了“操作整台电脑”的话，点击、打字也不再问（危险的组合键照样问）。'),
 };
 const APPROVAL_ORDER = Object.keys(APPROVAL);
-// 没问你就放行的那一步上标的小字。只读的命令、你自己加的命令写得更具体（为什么不问，见 harness/permissions.py 的 allowance）
-const AUTO_TAGS = { readonly: k('自动允许（只读）'), listed: k('自动允许（你加的命令）') };
+// 没问你就放行的那一步上标的小字。只读的命令、你自己加的命令、这段对话里说过不再问的电脑操作写得更具体
+// （为什么不问，见 harness/permissions.py 的 allowance）
+const AUTO_TAGS = { readonly: k('自动允许（只读）'), listed: k('自动允许（你加的命令）'), trusted: k('自动允许（这段对话里不再问）') };
 const autoTag = (why) => AUTO_TAGS[why] || k('自动允许');
 
 // Windows 上"只读的命令"一条都不认（命令是 PowerShell，见 harness/commands/__init__.py），这一档只剩"读文件不问"，说明照实写

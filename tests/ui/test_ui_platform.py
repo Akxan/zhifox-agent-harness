@@ -168,7 +168,7 @@ def _sweep(page, system: str) -> dict[str, list[str]]:
         # 快捷键写 Ctrl
         assert page.text("#search-key") == "Ctrl F"
         assert "Ctrl+," in page.js("document.getElementById('settings-open').title")
-        assert "Alt+F4" in page.text("#computer-risk-keys")
+        assert "Alt+F4" in page.text("#computer-rule-keys")
     return found
 
 
@@ -247,7 +247,9 @@ def test_mac_wording_is_unchanged_on_a_mac(visit):
         assert checks.containing(page, NOT_ON["mac"]) == []
         assert page.text("#search-key") == "⌘F"
         assert "⌘," in page.js("document.getElementById('settings-open').title")
-        assert "⌘Q" in page.text("#computer-risk-keys")
+        steps.open_dialog(page, "#settings-open", "settings")  # 组合键的例子在设置里"操作整台电脑"一节，打开设置时才画
+        assert "⌘Q" in page.text("#computer-rule-keys")
+        steps.escape_closes(page, "settings")
 
 
 def test_a_mac_browser_on_a_linux_server_keeps_the_command_key(visit):
@@ -258,4 +260,5 @@ def test_a_mac_browser_on_a_linux_server_keeps_the_command_key(visit):
     assert labels and [item for item in labels if "在文件管理器中" not in item["label"]] == []
     assert page.text("#search-key") == "⌘F"
     assert "⌘," in page.js("document.getElementById('settings-open').title")
-    assert "Alt+F4" in page.text("#computer-risk-keys")
+    steps.open_dialog(page, "#settings-open", "settings")  # 组合键的例子在设置里，打开时才画
+    assert "Alt+F4" in page.text("#computer-rule-keys")

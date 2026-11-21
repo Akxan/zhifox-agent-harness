@@ -98,8 +98,9 @@ class DesktopManager:
 
     # ---- session ----------------------------------------------------------------
 
-    def session(self, label: str) -> DesktopSession:
-        session = DesktopSession(self, label)
+    def session(self, label: str, attended: bool = False) -> DesktopSession:
+        """一次运行用的 session。attended：你正看着的那段对话（只有它能选"这段对话里不再问"，见 DesktopSession.trust）。"""
+        session = DesktopSession(self, label, attended)
         with self._lock:
             self._sessions.append(session)
         return session

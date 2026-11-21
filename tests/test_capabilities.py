@@ -36,7 +36,6 @@ from harness.agents import examples
 from harness.app import build_app
 from harness.cli import handle_command
 from harness.desktop import backend as desktop_backend
-from harness.permissions import MODES
 from harness.safe import to_json
 from harness.ui import TerminalUI
 from harness.webui.capabilities_api import page_state
@@ -65,6 +64,7 @@ AGENT_TASKS = "添加、删除让助手自己去做的任务"
 SECRETS = "往密码框、银行卡里输入"
 SCREENSHOTS = "截图"
 INPUT = "点鼠标、打字、按键"
+DANGER = "危险的组合键（退出程序、退出登录……）"
 
 
 # ---- 帮手 -----------------------------------------------------------------------
@@ -306,16 +306,29 @@ def test_the_computer_is_unavailable_where_there_is_no_desktop(start):
     assert computer.status == "unavailable" and computer.reason.startswith("Windows 上暂时不支持") and computer.actions == []
 
 
-@pytest.mark.parametrize("mode", list(MODES))
-def test_the_computer_asks_every_step_in_every_mode(start, mode):
-    """操作整台电脑每一步都问，"全部自动允许"也一样：清单不能因为换了一档就说"直接做"。"""
+@pytest.mark.parametrize("mode", ["ask", "readonly", "edits"])
+def test_the_computer_asks_every_step_unless_everything_is_allowed(start, mode):
+    """操作整台电脑：只读的命令、改文件那两档不放开它，每一步都问；危险的组合键是"哪一档都问"。"""
     s = start()
     with_computer(s)
     s.agent.permissions.mode = mode
     computer = item(overview(s), "computer")
     assert computer.status == "on" and computer.tools == [COMPUTER_TOOLSET]
-    assert computer.approval.level == "always"
-    assert outcomes(computer) == {SCREENSHOTS: "always", INPUT: "always"}
+    assert computer.approval.level == "ask"  # 页面上是"先问你"，不再是"每步都问"：换成"全部自动允许"就不问了
+    assert outcomes(computer) == {INPUT: "ask", SCREENSHOTS: "ask", DANGER: "always"}
+    assert computer.approval.summary == "每一步都先问你"
+    assert "停止" in computer.approval.note and "点击和打字不再问" in computer.approval.note
+
+
+def test_everything_allowed_frees_the_computer_except_dangerous_keys(start):
+    """选了"全部自动允许"：截图、点击、打字都直接做，只有危险的组合键照样问。"""
+    s = start()
+    with_computer(s)
+    s.agent.permissions.mode = "all"
+    computer = item(overview(s), "computer")
+    assert outcomes(computer) == {INPUT: "free", SCREENSHOTS: "free", DANGER: "always"}
+    assert computer.approval.level == "some"
+    assert computer.approval.summary == "点击、打字直接做；危险的组合键每次都问"
 
 
 def test_trusting_screenshots_frees_only_screenshots(start):
@@ -324,8 +337,25 @@ def test_trusting_screenshots_frees_only_screenshots(start):
     with_computer(s)
     s.app.chat_desktop.trust_screenshots = True
     computer = item(overview(s), "computer")
-    assert outcomes(computer) == {SCREENSHOTS: "free", INPUT: "always"}
+    assert outcomes(computer) == {INPUT: "ask", SCREENSHOTS: "free", DANGER: "always"}
     assert computer.approval.level == "some"
+    assert computer.approval.summary == "截图不再问（这段对话里）；点击、打字每一步都问"
+
+
+def test_trusting_clicks_and_typing_frees_them_for_this_conversation_only(start):
+    """选了"这段对话里的点击、打字不再问"：这一类直接做（总结里写明是这段对话里），截图照样问；新的对话从头再问。"""
+    s = start()
+    with_computer(s)
+    s.app.chat_desktop.trust_actions = True
+    computer = item(overview(s), "computer")
+    assert outcomes(computer) == {INPUT: "free", SCREENSHOTS: "ask", DANGER: "always"}
+    assert computer.approval.summary == "点击、打字不再问（这段对话里）；截图每次都问"
+    s.app.chat_desktop.trust_screenshots = True
+    computer = item(overview(s), "computer")
+    assert outcomes(computer) == {INPUT: "free", SCREENSHOTS: "free", DANGER: "always"}
+    assert computer.approval.level == "some"
+    s.app.new_conversation()
+    assert outcomes(item(overview(s), "computer")) == {INPUT: "ask", SCREENSHOTS: "ask", DANGER: "always"}
 
 
 def test_scheduled_runs_need_their_own_switch_for_the_computer(start):
@@ -338,8 +368,13 @@ def test_scheduled_runs_need_their_own_switch_for_the_computer(start):
     assert actions(computer) == [("settings", "computer")]
 
     s.app.settings.set_computer({"enabled": True, "unattended": True})
+    s.app.chat_desktop.trust_actions = True  # 你在对话里放开的，任务里不算数
+    computer = item(overview(s, run=s.app.unattended_agent(RecordingUI(), "ask")), "computer")
+    assert computer.status == "on" and outcomes(computer) == {INPUT: "ask", SCREENSHOTS: "ask", DANGER: "always"}
+    assert "没有“这段对话里不再问”" in computer.approval.note
     computer = item(overview(s, run=s.app.unattended_agent(RecordingUI(), "all")), "computer")
-    assert computer.status == "on" and computer.approval.level == "always"  # 任务选了"全部自动允许"也照样问
+    assert computer.status == "on" and computer.approval.level == "some"  # 任务选了"全部自动允许"：只有危险的组合键还问
+    assert outcomes(computer) == {INPUT: "free", SCREENSHOTS: "free", DANGER: "always"}
 
 
 # ---- MCP 服务器 -------------------------------------------------------------------------
@@ -630,8 +665,8 @@ def test_each_mode_changes_what_is_asked(start, mode):
     assert item(found, "todo").approval.level == "free" and item(found, "memory").approval.level == "free"
 
 
-def test_everything_allowed_still_asks_for_passwords_and_the_computer(start):
-    """"全部自动允许"也有放不开的：往密码框、银行卡里输入，和操作整台电脑。清单要照实说"哪一档都问"。"""
+def test_everything_allowed_still_asks_for_passwords_and_dangerous_keys(start):
+    """"全部自动允许"也有放不开的：往密码框、银行卡里输入，和操作电脑时危险的组合键。清单要照实说"哪一档都问"。"""
     s = start()
     with_browser(s)
     with_computer(s)
@@ -640,7 +675,7 @@ def test_everything_allowed_still_asks_for_passwords_and_the_computer(start):
     browser = outcomes(item(found, "browser"))
     assert browser[SECRETS] == "always" and set(browser.values()) == {"free", "always"}
     assert item(found, "browser").approval.level == "some"
-    assert item(found, "computer").approval.level == "always"
+    assert item(found, "computer").approval.level == "some" and outcomes(item(found, "computer"))[DANGER] == "always"
 
 
 def test_the_browser_in_ask_mode(start):

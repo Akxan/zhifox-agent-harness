@@ -59,7 +59,7 @@ def test_the_section_lists_capabilities_not_tool_names(page):
     assert all(has_icon and text for _, has_icon, text in chips), chips
     assert page.js(f"document.querySelector({row('shell')!r} + ' .caps-chip').textContent") == "先问你"
     assert page.js(f"document.querySelector({row('todo')!r} + ' .caps-chip').textContent") == "直接做"
-    assert page.js(f"document.querySelector({row('computer')!r} + ' .caps-chip').textContent") == "每步都问"
+    assert page.js(f"document.querySelector({row('computer')!r} + ' .caps-chip').textContent") == "先问你"
     assert page.text("#caps-mode-name") == "每次确认"
 
     # 点开"读写文件"：问不问你（几类操作各自怎样）、在哪儿执行；技术细节默认收着

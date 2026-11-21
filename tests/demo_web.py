@@ -777,7 +777,8 @@ server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里�
 ui = WebUI()
 fresh = not (root / "data" / "tasks.json").exists()
 # 演示里"这台电脑上用哪个后端"永远回答这台假的电脑：真的那个（截你的屏幕、动你的鼠标）连找都不会去找
-desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop)
+# 假电脑是哪种系统：默认当作 macOS；--platform linux 时当作 X11 桌面（举的组合键、权限的说明跟着变）
+desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop, platform="x11" if options.platform == "linux" else "macos")
 desktop_backend.detect = lambda: (desktop, "")
 app = build_app(config, ui, client_factory=client_factory)
 # 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里

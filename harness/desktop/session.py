@@ -2,7 +2,8 @@
 
 每一方各有一个 DesktopSession，记着只属于它的几样东西：
   - 坐标换算用的是哪一张截图（frame）：模型说的坐标按它最近看到的那张图算；
-  - "这段对话里截图不再问"（trust_screenshots，只有你在对话里的确认卡片上点了才会打开）；
+  - "这段对话里截图不再问"（trust_screenshots）、"这段对话里的点击、打字不再问"（trust_actions）：
+    只有你正在看的那段对话（attended）才有，只有你在它的确认卡片上点了才会打开（见 trust）；
   - 你点过"停止"没有（stopped_by_user：这一轮里再也不动电脑，直到这一轮结束）；
   - 鼠标左键是不是还按着（left_mouse_down 之后、left_mouse_up 之前）：一轮结束时替它松开。
 屏幕只有一个，所以同一时间只让一方操作（见 manager.py 的 claim）。
@@ -71,6 +72,14 @@ KIND = {
     "scroll": "input", "type": "input", "key": "input", "hold": "input", "cursor": "input",
     "wait": "wait",
 }
+# "这段对话里不再问"有两种，每个动作属于哪一种看它是哪一类：看的（截图、放大）、动手的（点击、打字、按键……）。
+# 确认卡片上的按钮、/api/computer/trust 认的就是这两个词（规矩在 permissions.py 的"操作整台电脑"一节）
+TRUSTS = {"look": "screenshots", "input": "actions"}
+
+
+def trust_of(action: str) -> str:
+    """这个动作归哪一种"这段对话里不再问"管：screenshots / actions；什么都不碰的（等一等）是空的。"""
+    return TRUSTS.get(KIND.get(action, ""), "")
 
 
 class Halted(Exception):
@@ -113,14 +122,19 @@ class Facts:
     region: tuple[int, ...] = ()
     danger: str = ""  # 危险的组合键的警告（原文，见 keys.DANGEROUS）
     newline: bool = False  # type：里面有换行（在很多程序里就是按回车：发送、提交）
-    trusted: bool = False  # 这段对话里截图不再问
+    trusted: bool = False  # 这段对话里这一类不再问（截图、放大看 trust_screenshots；点击、打字……看 trust_actions，见 trust_of）
+    attended: bool = False  # 你正看着的那段对话：确认卡片上可以给"这段对话里不再问"（定时任务、聊天通道的运行没有）
 
 
 class DesktopSession:
-    def __init__(self, manager: DesktopManager, label: str):
+    def __init__(self, manager: DesktopManager, label: str, attended: bool = False):
         self.manager = manager
         self.label = label  # 是谁（"你的对话"、"一个定时任务"……，原文），页面顶上的提示和"电脑被别人占着"的回答里用
+        # 你正看着的那段对话（App.chat_desktop）是 True；定时任务、聊天通道的运行是 False：它们多半没人看着，
+        # "这段对话里不再问"根本打不开（见 trust），只能按它们自己的那一档问
+        self.attended = attended
         self.trust_screenshots = False
+        self.trust_actions = False
         self.stopped_by_user = False
         self.frame: Frame | None = None  # 模型最近看到的那张截图的大小（坐标按它换算）
         self.held = False  # 鼠标左键按着没松开
@@ -164,6 +178,27 @@ class DesktopSession:
                 return self._facts(backend, action, **args)
             except ToolError:
                 return Facts(action, bad=True, platform=backend.platform if backend else "")
+
+    def trust(self, what: str) -> bool:
+        """你在确认卡片上选了"这段对话里截图不再问"（screenshots）或"这段对话里的点击、打字不再问"（actions）。
+        只有你正看着的那段对话能打开；别的（定时任务、聊天通道）一律不打开，返回 False。换一段对话就换一个 session，从头再问。"""
+        if not self.attended or what not in TRUSTS.values():
+            return False
+        if what == "screenshots":
+            self.trust_screenshots = True
+        else:
+            self.trust_actions = True
+        return True
+
+    def untrust(self) -> None:
+        """收回"这段对话里不再问"（设置里的"恢复每一步都问"）：截图、点击打字又都先问你。"""
+        self.trust_screenshots = self.trust_actions = False
+
+    def trusts(self, action: str) -> bool:
+        """这个动作这段对话里是不是已经说过不再问（还要看 permissions.py：危险的组合键怎么都要问）。
+        没人看着的运行一律不算，哪怕有人直接改了这两个字段：放开只能是你看着的时候做的决定。"""
+        what = trust_of(action)
+        return self.attended and ((what == "screenshots" and self.trust_screenshots) or (what == "actions" and self.trust_actions))
 
     def stop(self) -> None:
         """停下正在进行的动作（你点了"停止"）。"""
@@ -383,7 +418,7 @@ class DesktopSession:
     # ---- 事实（问你之前看一眼） -----------------------------------------------------------
 
     def _facts(self, backend: Backend, action: str, **args: Any) -> Facts:
-        common: dict[str, Any] = {"platform": backend.platform, "trusted": self.trust_screenshots}
+        common: dict[str, Any] = {"platform": backend.platform, "trusted": self.trusts(action), "attended": self.attended}
         if action == "wait":
             return Facts(action, duration=args.get("duration", 0.0), **common)
         frame = _safe(lambda: self._peek_frame(backend), None)
@@ -483,7 +518,7 @@ def check_text(value: object) -> str:
     if not isinstance(value, str) or not value:
         raise ToolError("text 要是一段不空的文字。")
     if len(value) > DESKTOP_MAX_TYPE_CHARS:
-        raise ToolError(f"一次最多打 {DESKTOP_MAX_TYPE_CHARS} 个字，这次是 {len(value)} 个。请分几次打（每一次用户都要批准）。")
+        raise ToolError(f"一次最多打 {DESKTOP_MAX_TYPE_CHARS} 个字，这次是 {len(value)} 个。请分几次打。")
     return value
 
 
