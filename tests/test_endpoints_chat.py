@@ -123,6 +123,10 @@ def test_other_providers_keys_never_reach_the_endpoint(rig, monkeypatch):
             assert piece.split(": ")[-1] not in sent, piece
     assert not any(name in headers for headers in h.server.headers for name in ("openai-organization", "openai-project", "x-leak"))
     assert h.server.paths[0].startswith("/v1/")  # 用的是你填的地址，不是 OPENAI_BASE_URL
+    # 评测给的 timeout 也不能让它照着环境变量重建一个（SDK 的 with_options 会那样做，见 providers.make_client）
+    timed = make_client(find(PROVIDER), timeout=5)
+    headers = {key.lower(): value for key, value in timed.default_headers.items() if isinstance(value, str)}
+    assert timed.organization is None and timed.project is None and "x-leak" not in headers and timed.api_key == "endpoint-own-key-1234"
 
 
 # ---- 没做全的服务器：退一步 ----------------------------------------------------
