@@ -16,9 +16,14 @@
 退出码：0 正常退出；1 已经有一个在运行，或者端口被占用；2 设置有问题（比如 channels.json 坏了），重启也没用，
 要先修好（systemd 的 Restart=on-failure 会一直重试，所以在日志里写清楚要怎么修）。
 
---service launchd / systemd：由 `harness service install` 写进服务的配置里（见 service/），自己不用加。它让这里知道
-自己是"后台服务"：数据目录的锁上记着 service（另开一个的时候，提示里会说"它正作为后台服务运行"，见 instance.py），
-网页的设置里显示出来；launchd 下日志写进 data/logs/service.log，写满了换新的（launchd 自己不管日志的大小）。
+--service launchd / systemd / taskscheduler：由 `harness service install` 写进服务的配置里（见 service/），自己不用加。
+它让这里知道自己是"后台服务"：数据目录的锁上记着 service（另开一个的时候，提示里会说"它正作为后台服务运行"，
+见 instance.py），网页的设置里显示出来；launchd 和 taskscheduler 下日志写进 data/logs/service.log，写满了换新的
+（launchd 自己不管日志的大小，任务计划程序根本不管输出）。
+
+taskscheduler（Windows）还多一条：Windows 没有 SIGTERM，开着我们的是 service/supervise.py，它要我们停下时，
+就关掉我们的标准输入。所以这时有一个线程一直读标准输入，读到头（supervise.py 关了它，或者 supervise.py
+被任务计划程序结束了、管道跟着断了）就和收到 SIGTERM 一样：停下正在进行的、存好盘，再退出。
 """
 
 from __future__ import annotations
@@ -29,12 +34,12 @@ import signal
 import sys
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import IO, Any
 
 from . import instance, log
 from .app import build_app
 from .channels.platforms import ORDER, label
-from .config import APP_NAME, Config
+from .config import APP_NAME, EXIT_BUSY, EXIT_CONFIG, EXIT_OK, Config
 from .i18n import t
 from .providers import has_key
 from .safe import write_file
@@ -45,20 +50,42 @@ from .webui.ui import WebUI
 
 logger = logging.getLogger("harness.serve")
 
-EXIT_OK, EXIT_BUSY, EXIT_CONFIG = 0, 1, 2
-SERVICES = ("launchd", "systemd")  # --service 能写的几种（见开头的说明）
+SERVICES = ("launchd", "systemd", "taskscheduler")  # --service 能写的几种（见开头的说明）
+FILE_LOGGED = ("launchd", "taskscheduler")  # 这几种没有 journald，日志写进数据目录里的文件
 
 
 def setup_logs(config: Config, service: str | None) -> None:
-    """日志写到哪儿：launchd 下写进数据目录里的日志文件（按大小换新的），别的时候写到标准错误。"""
-    if service != "launchd":
+    """日志写到哪儿：launchd、taskscheduler 下写进数据目录里的日志文件（按大小换新的），别的时候写到标准错误。"""
+    if service not in FILE_LOGGED:
         log.setup()
         return
     try:
         log.setup(file=config.service_log, own_stdio=True)
-    except OSError as exc:  # 日志文件开不了（文件夹没有权限……）：退回标准错误，launchd 还是会把它写进 plist 里那个文件
+    except OSError as exc:  # 日志文件开不了（文件夹没有权限……）：退回标准错误，launchd（或者 supervise.py）还是会把它写进那个文件
         log.setup()
         logger.warning("%s", t("打不开日志文件 {path}：{error}", path=config.service_log, error=exc))
+
+
+def watch_input(stream: IO[bytes] | None, stop: threading.Event) -> threading.Thread | None:
+    """一直读 stream（标准输入），读到头就设置 stop（见开头的说明）。stream 是 None（pythonw 没有标准输入）时什么都不做。
+
+    supervise.py 从不往里写东西，所以读到的只会是"结束"。读的时候出错（管道断了）也算结束。"""
+    if stream is None:
+        return None
+
+    def wait_for_end() -> None:
+        try:
+            while stream.read(65536):
+                pass
+        except (OSError, ValueError):
+            pass
+        if not stop.is_set():
+            logger.info("%s", t("开着我们的 supervise.py 要我们停下（或者它已经不在了）。"))
+            stop.set()
+
+    thread = threading.Thread(target=wait_for_end, daemon=True, name="supervisor")
+    thread.start()
+    return thread
 
 
 def run_serve(config: Config, web: bool = False, port: int | None = None, service: str | None = None) -> int:
@@ -73,6 +100,8 @@ def run_serve(config: Config, web: bool = False, port: int | None = None, servic
     previous = {}
     for number in (signal.SIGTERM, signal.SIGINT):
         previous[number] = signal.signal(number, lambda *_: stop.set())  # 信号处理只立个旗子，收尾在下面做
+    if service == "taskscheduler":
+        watch_input(getattr(sys.stdin, "buffer", None), stop)  # Windows：supervise.py 关掉标准输入，就是请我们停下
     try:
         return serve(config, stop, web=web, port=port, service=service)
     finally:

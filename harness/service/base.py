@@ -1,6 +1,6 @@
 """后台服务的几样基础：系统命令的结果、怎么运行系统命令、服务现在的状态。
 
-launchctl、systemctl、journalctl 都经过 run_command / run_attached 运行。测试把这两个换成会报错的假函数
+launchctl、systemctl、journalctl、schtasks、taskkill 都经过 run_command / run_attached 运行。测试把这两个换成会报错的假函数
 （见 tests/conftest.py），每个测试再自己给一个假的"系统"：这样开发和测试的时候，绝不会真的在这台电脑上装上、
 开起一个服务（那会改动你的系统，还可能对着你真正的数据再开一个智狐）。
 """
@@ -44,18 +44,34 @@ def _environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in SECRET_ENV_VARS}
 
 
+def decode(data: bytes) -> str:
+    """把系统命令的输出变成文字。macOS、Linux 上一律是 UTF-8。
+
+    Windows 上的 schtasks、taskkill 往管道里写的是控制台的"OEM 代码页"（中文系统是 GBK，西欧是 850……），
+    不是 UTF-8；有人用 chcp 65001 把控制台换成了 UTF-8 时又是 UTF-8。所以先按 UTF-8 严格地试一次，
+    不对再按 OEM 代码页（Python 在 Windows 上叫它 "oem"）。别的系统上没有 "oem"，就照 UTF-8 把认不出的字换成 �。"""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode("oem", "replace")
+    except LookupError:
+        return data.decode("utf-8", "replace")
+
+
 def run_command(args: list[str]) -> Result:
     """运行一个系统命令，把输出收回来。参数列表直接交给系统，不经过 shell：路径里有空格、引号也不会出事。"""
     try:
         done = subprocess.run(
-            args, check=False, capture_output=True, text=True, errors="replace", timeout=SERVICE_COMMAND_SECONDS,
-            stdin=subprocess.DEVNULL, env=_environment(),
+            args, check=False, capture_output=True, timeout=SERVICE_COMMAND_SECONDS, stdin=subprocess.DEVNULL, env=_environment(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows：没有控制台的后台服务调用它时，不弹出命令行窗口
         )
     except FileNotFoundError:
         return Result(127, "", t("找不到命令 {command}", command=args[0]))
     except subprocess.TimeoutExpired:
         return Result(124, "", t("{command} 过了 {seconds} 秒还没有结束", command=args[0], seconds=SERVICE_COMMAND_SECONDS))
-    return Result(done.returncode, done.stdout, done.stderr)
+    return Result(done.returncode, decode(done.stdout), decode(done.stderr))
 
 
 def run_attached(args: list[str]) -> int:
@@ -73,11 +89,11 @@ def run_attached(args: list[str]) -> int:
 class State:
     """服务现在的样子。
 
-    installed  服务的配置文件（plist / unit）在不在
-    loaded     系统的服务管家（launchd / systemd）有没有读进它
-    running    正在运行；pid 是它的进程编号
+    installed  服务的配置文件（plist / unit / 任务的 XML）在不在
+    loaded     系统的服务管家（launchd / systemd / 任务计划程序）有没有读进它
+    running    正在运行；pid 是它的进程编号（Windows 上是占着数据目录的那个智狐，还没开好时是 None，见 windows.py）
     exit_code、signal  上一次退出时的退出码，或者结束它的信号（不知道的时候是 None）
-    enabled    登录时会不会自动启动（systemd 的 enable；launchd 下只要文件在就会）
+    enabled    登录时会不会自动启动（systemd 的 enable；任务计划程序里的"已启用"；launchd 下只要文件在就会）
     restarting 退出以后正等着被重新开起来（systemd 的 activating / auto-restart）
     """
 

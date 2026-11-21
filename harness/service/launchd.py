@@ -36,7 +36,6 @@ from pathlib import Path
 from typing import IO
 
 from ..config import SERVICE_RESTART_SECONDS
-from ..i18n import t
 from ..safe import private_dir, write_file
 from . import logs
 from .base import Result, Runner, State
@@ -187,17 +186,7 @@ class Launchd:
         return str(plan.log_file)
 
     def show_logs(self, plan: Plan, lines: int, follow: bool, out: IO[str]) -> int:
-        if not plan.log_file.is_file():
-            print(t("还没有日志：{path}", path=plan.log_file), file=out)
-            return 0
-        for line in logs.tail(plan.log_file, lines):
-            print(line, file=out)
-        if follow:
-            try:
-                logs.follow(plan.log_file, out)
-            except KeyboardInterrupt:
-                pass
-        return 0
+        return logs.show(plan.log_file, lines, follow, out)
 
     def problems(self, plan: Plan, count: int) -> list[str]:
-        return logs.problems(logs.tail(plan.log_file, 2000), count)
+        return logs.recent_problems(plan.log_file, count)
