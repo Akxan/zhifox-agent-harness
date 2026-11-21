@@ -360,7 +360,9 @@ claude = SlowClaude(
         *(reply(text("（这是一条预设的回复，用来凑数。）" * 3)) for _ in range(8)),
     ]
 ).start()
-others = FakeOpenAI(
+# GPT、Gemini、DeepSeek 共用的假服务器（OpenAI 格式）。别叫它 others：下面聊天平台的那几个假服务器叫这个名字，
+# 重名的话后面那个会顶掉它，换到 DeepSeek 时就连不上了（真出过：保存 DeepSeek 的密钥、换模型都回答 500）
+compat = FakeOpenAI(
     [
         chat("你好！我是 DeepSeek。", reasoning="用户换了模型，打个招呼。"),
         chat(calls=[call("call_1", "todo_list", "{}")]),
@@ -578,7 +580,7 @@ def client_factory(provider):
     key = os.environ.get(provider.key_env) or "missing"
     if provider.kind == "anthropic":
         return anthropic.Anthropic(api_key=key, base_url=claude.base_url, max_retries=0)
-    return openai.OpenAI(api_key=key, base_url=others.base_url, max_retries=0)
+    return openai.OpenAI(api_key=key, base_url=compat.base_url, max_retries=0)
 
 
 # 页面每次请求都重新读一遍，改了 index.html 刷新就能看到
