@@ -34,6 +34,7 @@
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
+  POST /api/model/catalog  换模型面板要的目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（见 model_catalog.py）
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
@@ -84,7 +85,7 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, quote, urlsplit
 
-from .. import export, i18n, instance, media, memories, rewind
+from .. import export, i18n, instance, media, memories, model_catalog, rewind
 from .. import prompt as prompts
 from ..agents import AgentError
 from ..app import App, build_app, retry_turn, run_turn
@@ -110,14 +111,14 @@ from ..media import Entry, MediaError
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
 from ..pricing import estimate, price_of
-from ..providers import CLAUDE_MODELS, PROVIDERS, ProviderError, has_key
+from ..providers import PROVIDERS, ProviderError, has_key
 from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
 from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
-from . import lifecycle
+from . import lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
@@ -346,11 +347,8 @@ class WebApp:
         }
 
     def _models(self, provider_id: str) -> list[str]:
-        """一家可以选择的模型：同步到的列表；Claude 在同步之前先用内置的几个。"""
-        models = list(self.app.settings.models.get(provider_id) or (CLAUDE_MODELS if provider_id == "anthropic" else []))
-        if provider_id == self.app.settings.provider and self.app.settings.model not in models:
-            models.insert(0, self.app.settings.model)
-        return models
+        """一家可以选择的模型（规矩在 model_catalog.models_of，换模型的面板用的也是它）。"""
+        return model_catalog.models_of(self.app.settings, provider_id)
 
     # ---- 对话 --------------------------------------------------------------
 
@@ -1072,6 +1070,11 @@ class WebApp:
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
                 if blocked:
                     return blocked
+            else:
+                # 同一家：这段会话接着用新模型，要存一次盘。它正在聊天通道里跑一轮的话，两边会抢着写同一个文件（见 claims.py）
+                held = self._held_elsewhere(self.app.conversation.id)
+                if held:
+                    return held
             continued = self.app.select_model(provider_id, model)
             if not continued:
                 self._left()
@@ -1449,6 +1452,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.select_model(provider, model.strip()))
+        elif path == "/api/model/catalog":
+            # 只读内存里的设置和环境变量，不改任何东西，所以不拿对话的锁：对话进行中也能打开换模型的面板看一看
+            self._send_json(200, {"ok": True, "catalog": models_api.page_state(web.app)})
         elif path == "/api/key":
             provider, key = body.get("provider"), body.get("key")
             if provider not in PROVIDERS or not isinstance(key, str):

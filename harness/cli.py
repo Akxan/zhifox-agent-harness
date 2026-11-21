@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import capabilities, i18n, rewind
+from . import capabilities, i18n, model_catalog, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -48,7 +48,7 @@ HELP = k("""\
 /todos   查看未完成的待办
 /tools   查看智狐能做的事：哪些在用、会不会先问你、关着的怎么打开
 /usage   查看本次运行的 token 用量和估算费用
-/model   查看当前使用的模型
+/model   查看各家的模型：现在用的是哪个、能做什么、多少钱、哪一家还没有密钥
 /mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
 /auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto readonly 只读的命令不用问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
 /retry   重新生成最后一个回答（只去掉这一轮里模型写的、做的，你的消息原样再发一次）
@@ -232,8 +232,9 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
         if servers:
             ui.info(t("新连上的服务器从下一段新对话（/new）开始可以用。"))
     elif command == "/model":
-        ui.plain(f"{app.provider.label} · {app.settings.model}")
-        ui.info(t("换模型：运行 uv run harness --web ，在网页界面的“设置”里选择。选择会保存下来，终端版也会跟着用。"))
+        # 和网页上换模型的面板是同一份目录（见 model_catalog.py）：每一家有没有密钥、能选的模型、能做什么、价格
+        for text, style in model_catalog.lines(model_catalog.catalog(app)):
+            (ui.plain if style == "plain" else ui.info)(text)
     return True
 
 

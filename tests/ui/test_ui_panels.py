@@ -79,20 +79,21 @@ def test_media_library_opens_the_viewer(page):
     steps.escape_closes(page, "viewer")
 
 
-def test_switch_to_another_provider_in_settings(page):
-    # 设置里填一个（编造的）DeepSeek 密钥、换到 DeepSeek，接着就能聊（回答来自本地的假服务器）
-    steps.open_dialog(page, "#model", "settings")
+def test_save_a_key_in_settings_then_switch_to_that_provider(page):
+    # 设置里填一个（编造的）DeepSeek 密钥，再在顶上的换模型面板里换到 DeepSeek，接着就能聊（回答来自本地的假服务器）
+    steps.open_dialog(page, "#settings-open", "settings")
     page.click("#keys input[data-keep='key-deepseek']")
     page.type("fake-deepseek-key-0002")
     page.click("#keys .key-row:has(input[data-keep='key-deepseek']) .button.primary")
     page.wait("document.querySelector('#keys .key-row:has(input[data-keep=\\'key-deepseek\\']) .tag.set')", what="密钥保存好（显示最后 4 位）")
     assert "0002" in page.text("#keys .key-row:has(input[data-keep='key-deepseek']) .tag.set")
     assert page.js("document.querySelector(\"#keys input[data-keep='key-deepseek']\").value") == ""  # 完整的密钥不再留在页面上
-    page.js("(() => { const pick = document.getElementById('pick-provider'); pick.value = 'deepseek'; pick.dispatchEvent(new Event('change')); })()")
-    page.wait("[...document.getElementById('pick-model').options].some((option) => option.value === 'deepseek-flash')", what="DeepSeek 的模型列出来")
-    page.js("document.getElementById('pick-model').value = 'deepseek-flash'")
-    page.click("#apply-model")
-    page.wait("!document.getElementById('settings').open && document.getElementById('model-label').textContent.includes('deepseek')", what="换到 DeepSeek")
+    steps.escape_closes(page, "settings")
+    steps.open_models(page)
+    page.wait("document.querySelector('#models-menu [data-model=deepseek-flash]')", what="DeepSeek 的模型列出来")
+    page.click("#models-menu [data-model=deepseek-flash]")  # 这段对话还没聊：直接换过去，不用问
+    page.wait("document.getElementById('model-label').textContent.includes('deepseek-flash')", what="换到 DeepSeek")
+    steps.escape_closes_flyout(page, "models", "#model")
     steps.send(page, "你好")
     steps.reply(page, "我是 DeepSeek")
 
@@ -100,7 +101,7 @@ def test_switch_to_another_provider_in_settings(page):
 def test_settings_say_how_to_keep_zhifox_running(page):
     """设置里"后台运行"一节：演示和 harness --web 一样是跟着终端开的，所以给出装成后台服务的命令，可以复制
     （见 page/scripts/service.js）。复制的结果写在设置面板里（窗口里的提示写在窗口里）。"""
-    steps.open_dialog(page, "#model", "settings")
+    steps.open_dialog(page, "#settings-open", "settings")
     page.wait("!document.getElementById('service-section').hidden", what="后台运行这一节")
     assert page.text("#service-card b") == "跟着启动它的终端"
     assert page.text("#service-card .service-command code") == "uv run harness service install"

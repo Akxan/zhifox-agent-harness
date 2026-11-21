@@ -233,6 +233,7 @@ function capAction(item, action, index, className) {
 function runCapAction(item, action) {
   if (overlaySide.matches) setSide(false, false);  // 窄屏上信息栏盖在对话上面：先收起来，打开的窗口或者新对话才看得见
   if (action.kind === 'settings') openSettingsAt(action.target);
+  else if (action.kind === 'models') openModels();  // 换模型的面板（models.js）
   else if (action.kind === 'extensions') {
     openExtensions(action.target);
     // 某个 MCP 服务器的那一行：直接打开它的详情（它是那一页里已有的样子）
@@ -244,14 +245,14 @@ function runCapAction(item, action) {
   else if (action.kind === 'new') startNew();
 }
 
-// 打开设置，翻到要的那一节，焦点放在它的开关上（浏览器、操作整台电脑），或者选模型的地方
+// 打开设置，翻到要的那一节，焦点放在它的开关上（浏览器、操作整台电脑）
 function openSettingsAt(target) {
   openSettings();
-  const place = { browser: ['browser-section', 'browser-enabled'], computer: ['computer-section', 'computer-enabled'], model: [null, 'pick-provider'] }[target];
+  const place = { browser: ['browser-section', 'browser-enabled'], computer: ['computer-section', 'computer-enabled'] }[target];
   if (!place) return;
   const [section, control] = place;
-  if (section) $(section).scrollIntoView({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
-  $(control).focus({ preventScroll: Boolean(section) });
+  $(section).scrollIntoView({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+  $(control).focus({ preventScroll: true });
 }
 
 $('caps-mode').addEventListener('click', openApproval);

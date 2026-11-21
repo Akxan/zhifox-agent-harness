@@ -47,7 +47,7 @@ def _show(page, rows: Rows) -> None:
         steps.open_nav(page)
         steps.open_dialog(page, "#memory-open", "memory-dialog")
     elif rows.name == "不用问的命令":
-        steps.open_dialog(page, "#model", "settings")
+        steps.open_dialog(page, "#settings-open", "settings")
         page.click("#commands-open")
         page.wait(steps.is_open("commands-dialog"), what="不用问的命令窗口打开")
     else:
@@ -149,9 +149,9 @@ def test_delete_asks_in_place_and_escape_cancels(stocked, which):
 # 能编辑的窗口：打开、改一点、然后用四种办法想关掉它。每一种都要先提醒一次，再来一次才真的关上
 EDITORS = {
     "定时任务": {"open": ["#task-new"], "tab": "tasks", "dialog": "task-editor", "field": "#task-title", "close": "#close-task-editor", "cancel": "#task-cancel", "message": "#task-editor-message"},
-    "提示词": {"open": ["#model", "#prompt-open"], "dialog": "prompt-dialog", "field": "#prompt-text", "close": "#close-prompt", "cancel": "#prompt-cancel", "message": "#prompt-message"},
+    "提示词": {"open": ["#settings-open", "#prompt-open"], "dialog": "prompt-dialog", "field": "#prompt-text", "close": "#close-prompt", "cancel": "#prompt-cancel", "message": "#prompt-message"},
     # 添加框里写了一半，就算有没保存的修改；"完成"在这里就是"取消"那个位置的按钮
-    "不用问的命令": {"open": ["#model", "#commands-open"], "dialog": "commands-dialog", "field": "#commands-new", "close": "#close-commands", "cancel": "#commands-done", "message": "#commands-message"},
+    "不用问的命令": {"open": ["#settings-open", "#commands-open"], "dialog": "commands-dialog", "field": "#commands-new", "close": "#close-commands", "cancel": "#commands-done", "message": "#commands-message"},
 }
 WARNING = "还有没保存的修改，再按一次就放弃。"
 

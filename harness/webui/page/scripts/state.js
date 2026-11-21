@@ -8,7 +8,7 @@ const chat = $('chat'), log = $('log'), empty = $('empty'), starters = $('starte
 const composer = $('composer'), input = $('input'), sendButton = $('send'), toBottom = $('to-bottom');
 const banner = $('banner'), newButton = $('new'), search = $('search');
 const rows = $('conversation-rows'), pill = $('pill');
-const settings = $('settings'), pickProvider = $('pick-provider'), pickModel = $('pick-model');
+const settings = $('settings');
 
 let busy = false;          // 是否有一轮对话正在进行
 let stopping = false;      // 用户点了"停止"，还在等这一轮收尾

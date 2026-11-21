@@ -1,0 +1,16 @@
+/* ---- 浮出的小面板：外观、换模型、语言共用的样子 ------------------------------ */
+/* 顶栏上的按钮弹出来的小面板（开、关、位置的规矩见 scripts/flyouts.js）。它是一个 popover：浏览器把它放在所有内容的最上层，
+   不会被别的栏挡住、裁掉。位置由脚本按按钮的位置算好。各个面板里面的样子在 appearance.css、models.css、language.css。
+   类名叫 flyout 而不是 pop：pop 已经是工具卡片上状态圆点"弹一下"的动画类，两个撞在一起，圆点会套上面板的样式。 */
+.flyout { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 16px)); margin: 0; padding: 14px 14px 12px; overflow: visible; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow-2); transform-origin: 85% top; }
+.flyout { animation: menu-in .26s var(--ease); }  /* 每次从隐藏变成显示，这段入场动画都会从头播一次 */
+@keyframes menu-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.flyout h3 { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+
+/* 窄屏（和 flyouts.js 里的 SHEET 一起改）：换模型、语言两个面板从屏幕底下升起来，占满宽度，后面垫一层暗底。
+   暗底是浏览器给 popover 的 ::backdrop，它不接点击（点它其实点在下面的页面上），所以"点暗底收起、不顺带点到下面"由脚本管。
+   面板顶上那一小横条只是个样子，告诉你这是一张可以收起的"卡"。 */
+.flyout.as-sheet { top: auto; right: 0; bottom: 0; left: 0; width: 100%; max-height: min(88dvh, 680px); padding-bottom: calc(12px + env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; border-width: 1px 0 0; border-radius: 22px 22px 0 0; transform-origin: 50% 100%; animation: sheet-in .36s var(--ease); }
+.flyout.as-sheet::before { content: ""; display: block; width: 36px; height: 4px; margin: -4px auto 10px; border-radius: 2px; background: var(--line-2); }
+.flyout.as-sheet::backdrop { background: var(--scrim); animation: fade .25s ease; }
+@keyframes sheet-in { from { transform: translateY(100%); } }
