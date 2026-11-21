@@ -33,7 +33,8 @@ tool use (function calling) to manage to-dos, remember things across conversatio
 commands, search the web, use websites in a separate Chrome of its own (browser use), operate your whole desktop as an
 advanced opt-in option (computer use) and run scheduled or recurring tasks, with a permission prompt before anything
 that changes your computer or sends something out. It also reads the
-screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching project: every part of
+screenshots, images, PDFs and Word, Excel or PowerPoint files you attach, and when its file tool opens an image on disk
+(PNG, JPEG, GIF or WebP), the picture itself goes to the model, so it can look at a screenshot it just saved. It is also a teaching project: every part of
 this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
@@ -722,7 +723,7 @@ The difference is who writes the spec and who runs the tool:
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
 | Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)) |
-| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)), the browser and computer use for Claude ([browser.py](harness/tools/browser.py), [computer.py](harness/tools/computer.py)) |
+| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py); viewing an image returns the image itself, decided by its first bytes rather than its extension; models that can't see images, like DeepSeek, get a note instead), memory ([memory.py](harness/tools/memory.py)), the browser and computer use for Claude ([browser.py](harness/tools/browser.py), [computer.py](harness/tools/computer.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
 Claude learned the specs of the second kind during training, so for Claude a one-line declaration is enough. Other
