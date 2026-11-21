@@ -57,7 +57,9 @@ class Browser:
         context = self.connection.call("Target.createBrowserContext", {"disposeOnDetach": True})["browserContextId"]
         target = self.connection.call("Target.createTarget", {"url": "about:blank", "browserContextId": context})["targetId"]
         session = self.connection.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-        return Page(self.connection, target, session, context)
+        page = Page(self.connection, target, session, context)
+        page.emulate()  # 系统设置一律从"默认"开始（见 Page.emulate），不随跑测试的这台电脑变
+        return page
 
     def close(self) -> None:
         self.process.close()
@@ -283,9 +285,14 @@ class Page:
     def size(self, width: int, height: int) -> None:
         self.call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
 
+    # "默认"的系统设置：没有要求减少动态效果。不写死的话就跟着这台电脑：CI 的 Windows 机器在系统设置里关着动画，
+    # Chrome 会报 prefers-reduced-motion: reduce，页面（默认跟随系统）就不播动画了，查动画的测试全都看不到动画
+    DEFAULT_MEDIA = (("prefers-reduced-motion", "no-preference"),)
+
     def emulate(self, **features: str) -> None:
-        """模拟系统设置，比如 emulate(prefers_color_scheme="dark", prefers_reduced_motion="reduce")。不给的恢复成默认。"""
-        self.call("Emulation.setEmulatedMedia", {"features": [{"name": name.replace("_", "-"), "value": value} for name, value in features.items()]})
+        """模拟系统设置，比如 emulate(prefers_color_scheme="dark", prefers_reduced_motion="reduce")。不给的恢复成默认（DEFAULT_MEDIA）。"""
+        chosen = {**dict(self.DEFAULT_MEDIA), **{name.replace("_", "-"): value for name, value in features.items()}}
+        self.call("Emulation.setEmulatedMedia", {"features": [{"name": name, "value": value} for name, value in chosen.items()]})
 
     def screenshot(self, path: Path) -> None:
         data = self.call("Page.captureScreenshot", {"format": "png"}, timeout=20)["data"]

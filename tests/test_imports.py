@@ -536,7 +536,7 @@ def test_refs_unit():
     refs = Refs(env, "X", dollar=True, brace=True, editor=True, secrets=True)
     assert refs.text("${env:A}-$B-{env:C}-${{ secrets.D }}") == "${A}-${B}-${C}-${D}"
     assert refs.text("$$E and ${F} and ${F:-x}") == "$$E and ${F} and ${F:-x}"  # 已经是智狐的写法、$$ 都不动
-    assert refs.text("${workspaceFolder}${/}${workspaceFolderBasename}") == "/home/me/project/project"
+    assert refs.text("${workspaceFolder}${/}${workspaceFolderBasename}") == str(Path("/home/me/project")) + "/project"  # 文件夹按这台电脑写，分隔符按 env
     assert refs.text("${input:pw} {file:./k} ${command:pick}") == "${input:pw} {file:./k} ${command:pick}"
     assert refs.text(5) == 5 and refs.pairs("x") == "x" and refs.items({"a": 1}) == {"a": 1}  # 写错类型的原样交给 normalize
     assert set(refs.renamed) == {"A", "B", "C"} and list(refs.from_secrets) == ["D"]

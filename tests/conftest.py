@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import os
 import shutil
 import sys
 import tempfile
@@ -177,6 +178,9 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("HARNESS_ENV_FILE", str(tmp_path / "no-such.env"))
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    # Windows 上 os.path.expanduser 看的是 USERPROFILE（不是 HOME，也不经过 Path.home）：一起换掉，免得读到这台电脑真正的家目录
+    if os.name == "nt":
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     # "从其他工具导入"会看这几个环境变量（CODEX_HOME 这些）找别的工具的配置：清掉，只看假的家目录
     for name in import_places.VARIABLES:
         monkeypatch.delenv(name, raising=False)

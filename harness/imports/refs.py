@@ -20,7 +20,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 
 from ..i18n import Message, t
@@ -82,12 +81,14 @@ class Refs:
         return "${" + name + "}"
 
     def _fill(self, name: str) -> str:
+        # 分隔符照着 env 说的那种系统写（和 VS Code 一样：Windows 上是反斜杠，别处是 /），不看运行测试的这台电脑
+        separator = "\\" if self.env.windows else "/"
         value = {
             "userHome": str(self.env.home),
             "workspaceFolder": str(self.env.workspace),
             "workspaceFolderBasename": self.env.workspace.name,
-            "pathSeparator": "\\" if self.env.windows else os.sep,
-            "/": "\\" if self.env.windows else os.sep,
+            "pathSeparator": separator,
+            "/": separator,
         }[name]
         self.filled["${" + name + "}"] = value
         return value
@@ -103,3 +104,4 @@ class Refs:
         if self.unresolved:
             found.append(t("{what} 要在 {tool} 里当场输入或者从别处读，智狐做不到：导入后编辑这个服务器，填上真正的值。", what=", ".join(self.unresolved), tool=self.tool))
         return found
+

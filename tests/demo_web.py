@@ -471,6 +471,7 @@ root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 # 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
 fake_home = root / "home"
 os.environ["HOME"] = str(fake_home)
+os.environ["USERPROFILE"] = str(fake_home)  # Windows 上 Python 找家目录看的是它，不是 HOME
 for name in import_places.VARIABLES:
     os.environ.pop(name, None)
 # 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
@@ -598,7 +599,7 @@ if not (root / "data").exists():
         "paused": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "enabled": False},
     }
     (root / "data" / "mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=2), encoding="utf-8")
-    # 编造的 Claude Desktop / Claude Code 配置，给"从 Claude 导入"用（macOS 和 Linux 的位置各放一份）
+    # 编造的 Claude Desktop / Claude Code 配置，给"从 Claude 导入"用（macOS、Linux、Windows 的位置各放一份）
     desktop = {
         "mcpServers": {
             "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/demo/Desktop"]},
@@ -606,7 +607,7 @@ if not (root / "data").exists():
             "files": servers["files"],
         }
     }
-    for folder in (fake_home / "Library" / "Application Support" / "Claude", fake_home / ".config" / "Claude"):
+    for folder in (fake_home / "Library" / "Application Support" / "Claude", fake_home / ".config" / "Claude", fake_home / "AppData" / "Roaming" / "Claude"):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "claude_desktop_config.json").write_text(json.dumps(desktop, indent=2), encoding="utf-8")
     claude_code = {
@@ -637,12 +638,14 @@ if not (root / "data").exists():
     '[mcp_servers.figma]\nurl = "https://mcp.figma.example/mcp"\nbearer_token_env_var = "FIGMA_TOKEN"\nstartup_timeout_sec = 20\n',
     encoding="utf-8",
 )
-(fake_home / ".config" / "goose").mkdir(parents=True, exist_ok=True)
-(fake_home / ".config" / "goose" / "config.yaml").write_text(
-    "# Goose 的配置（YAML）\nGOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n    enabled: true\n  memory:\n    type: stdio\n"
-    "    name: Memory\n    cmd: npx\n    args: [-y, '@modelcontextprotocol/server-memory']\n    envs: {}\n    env_keys: [MEMORY_FILE_PATH]\n    enabled: true\n    timeout: 300\n",
-    encoding="utf-8",
-)
+# Goose：macOS、Linux 上在 ~/.config/goose，Windows 上在 %APPDATA%\Block\goose\config（见 harness/imports/registry.py）
+for goose in (fake_home / ".config" / "goose", fake_home / "AppData" / "Roaming" / "Block" / "goose" / "config"):
+    goose.mkdir(parents=True, exist_ok=True)
+    (goose / "config.yaml").write_text(
+        "# Goose 的配置（YAML）\nGOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n    enabled: true\n  memory:\n    type: stdio\n"
+        "    name: Memory\n    cmd: npx\n    args: [-y, '@modelcontextprotocol/server-memory']\n    envs: {}\n    env_keys: [MEMORY_FILE_PATH]\n    enabled: true\n    timeout: 300\n",
+        encoding="utf-8",
+    )
 (fake_home / ".kiro" / "settings").mkdir(parents=True, exist_ok=True)
 (fake_home / ".kiro" / "settings" / "mcp.json").write_text('{\n  "mcpServers": {\n    "broken": {"command": "x",\n', encoding="utf-8")  # 故意写坏的
 for folder, body in {
