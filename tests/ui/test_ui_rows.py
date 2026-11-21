@@ -201,7 +201,9 @@ def test_memory_editor_asks_before_dropping_edits(page):
     steps.open_nav(page)
     steps.open_dialog(page, "#memory-open", "memory-dialog")
     page.click("#memories > li .memory-open")
-    page.wait("document.getElementById('memory-edit')")
+    # 记忆的内容读回来之前，"编辑"按钮已经在了，只是不能点（disabled）：要等它能点再点，
+    # 不然慢的机器上点下去什么都不会发生（GitHub 的 macOS 机器上这样失败过）
+    page.wait("document.getElementById('memory-edit') && !document.getElementById('memory-edit').disabled", what="记忆读出来、编辑按钮能点")
     page.click("#memory-edit")
     page.wait("!document.getElementById('memory-editor').hidden")
     page.click("#memory-edit-text")
