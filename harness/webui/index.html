@@ -795,7 +795,10 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .media-tile-open .icon { width: 22px; height: 22px; }
 /* 方格里的三个按钮压在图片下沿：一条从透明到深色的渐变垫在后面，白色的图标在任何图片上都看得清 */
 .media-tile-actions { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: flex; justify-content: center; gap: 1px; padding: 16px 1px 2px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .6)); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.media-tile:hover .media-tile-actions, .media-tile:focus-within .media-tile-actions { opacity: 1; pointer-events: auto; }
+/* 只有按钮接点击，后面那条渐变不接：方格只有 84 像素见方，这一条有 44 像素高，盖住了方格的正中间。
+   整条都接点击的话，鼠标移到图片中间、按钮一淡入，再点下去点中的是这条底，图片打不开 */
+.media-tile:hover .media-tile-actions, .media-tile:focus-within .media-tile-actions { opacity: 1; }
+.media-tile:hover .media-tile-actions > *, .media-tile:focus-within .media-tile-actions > * { pointer-events: auto; }
 .media-tile-actions .icon-button { color: #fff; }
 .media-tile-actions .icon-button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, .2); }
 .media-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
@@ -808,9 +811,11 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .media-meta { font-size: 11.5px; line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 /* 按钮浮在文字上面：左边垫一段从透明渐变到卡片底色的底，名字被盖住的那一截淡出去，文字不用挪位置 */
 .media-row-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 26px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 12px 12px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.media-row:hover .media-row-actions, .media-row:focus-within .media-row-actions { opacity: 1; pointer-events: auto; }
+.media-row:hover .media-row-actions, .media-row:focus-within .media-row-actions { opacity: 1; }
+.media-row:hover .media-row-actions > *, .media-row:focus-within .media-row-actions > * { pointer-events: auto; }  /* 渐变的那一截不接点击，点在名字上还是打开它 */
 @media (hover: none) {  /* 触屏上没有"悬停"，按钮一直显示，所以一直给它们留好位置 */
-  .media-tile-actions, .media-row-actions { opacity: 1; pointer-events: auto; }
+  .media-tile-actions, .media-row-actions { opacity: 1; }
+  .media-tile-actions > *, .media-row-actions > * { pointer-events: auto; }  /* 同样只有按钮接点击，点图片中间、点名字还是打开它 */
   .media-row-actions { background: none; }
   .media-words { padding-right: 82px; }
 }
