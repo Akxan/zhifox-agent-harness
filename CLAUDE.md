@@ -267,6 +267,12 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   看不了图的模型（DeepSeek）靠 `Tool.vision` 拿不到这些工具。
 - **i18n 里的嵌套**：值本身是一句 `t()` 时，`Message.nested` 记着它的原文，页面的 `t()` 递归重译。拼确认文字时让每一段都保持是 Message，
   不要用 `+` 把它们拼成普通字符串，否则换语言时会半中半英。
+- **联网回答的来源**（`harness/citations.py`、`page/scripts/citations.js`）：`messages` 里 API 给的 `citations` 原样不动，给人看的另抄一份
+  （只认 http、https，标题和原文洗过、截短）。网页上每一处引用一个 `cite` 事件（`marks`、`sources`），编号由程序按"一段回复"算：
+  `webui/ui.py` 的 `PARAGRAPH` 必须和页面 `streaming.js` 里哪些事件结束一段回复保持一致，改了一边要改另一边。终端和聊天通道各自一段（一条消息）一数。
+  `block_end` 只是让回复停一下（`pauseBlock`）：紧接着还是文字就算同一段，别的内容事件到来才收尾（新的内容事件的处理要先调用 `endBlock`），
+  这是为了以前存下的、被切成好几块的联网回答。markdown.js 认 `\uE000编号\uE001` 这个记号，交给 `hooks.cite` 建元素；只能由页面插入
+  （模型写的这两个字符先换成 �），代码和链接文字里不放；原文 `block.text` 不插记号，搜索跳转和复制都靠它。
 - **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
   用过浏览器的旧会话照样带上。Claude 用 Anthropic 的 `browser_toolset_20260801`（`Tool.toolset` / `member` / `stands_in_for`，
   适配层合成一项），结果写回 `toolset_name`；`browser_state` 不放在出错的结果上；一轮里工具包的一步失败了，后面的结果是
