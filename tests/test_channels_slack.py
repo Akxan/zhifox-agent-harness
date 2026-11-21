@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -613,15 +614,17 @@ def test_incoming_text_and_links_are_unescaped_for_the_model(bot):
 
 
 def test_a_title_with_special_characters_is_escaped_everywhere(bot):
-    create = tool_use("toolu_f", "str_replace_based_edit_tool", {"command": "create", "path": "a&b<c>.txt", "file_text": "x < y"})
+    # Windows 的文件名里不能有 < 和 >（文件工具直接拒绝，见 harness/pathnames.py），那里只用 &
+    name, escaped = ("a&b (1).txt", "a&amp;b (1).txt") if os.name == "nt" else ("a&b<c>.txt", "a&amp;b&lt;c&gt;.txt")
+    create = tool_use("toolu_f", "str_replace_based_edit_tool", {"command": "create", "path": name, "file_text": "x < y"})
     s = bot(reply(create, stop_reason="tool_use"), reply(text("建好了")))
     start = s.say("建个文件")
     ask = s.asked(start)
-    assert "a&amp;b&lt;c&gt;.txt" in ask["text"] and "a&b<c>.txt" in ask["plain"]
+    assert escaped in ask["text"] and name in ask["plain"]
     s.fake.press(ask)
     s.wait_reply(start, "建好了")
     s.idle()
-    assert (s.config.workspace / "a&b<c>.txt").read_text(encoding="utf-8") == "x < y"
+    assert (s.config.workspace / name).read_text(encoding="utf-8") == "x < y"
 
 
 # ---- 图片和文件 --------------------------------------------------------------
