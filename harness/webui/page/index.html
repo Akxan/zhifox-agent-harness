@@ -109,6 +109,8 @@ __STYLES__
   <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 4.5h6v3H9zM9 6H6.5a1.5 1.5 0 0 0-1.5 1.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H15M8.5 12h7M8.5 15.5h4.5"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></symbol>
   <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M4.5 4.5h15A1.5 1.5 0 0 1 21 6v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5V6a1.5 1.5 0 0 1 1.5-1.5zM8.5 20h7M12 16v4"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4zM3 8.5h18M6 6.3h.01M8.5 6.3h.01M11.5 11.5l6 2.2-2.6 1-1 2.6z"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
@@ -216,7 +218,7 @@ __STYLES__
             </div>
             <p id="motion-note" class="flyout-note"></p>
           </div>
-          <button id="side-toggle" class="icon-button" type="button" title="用量、待办、记忆和工具" aria-label="用量、待办、记忆和工具" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
+          <button id="side-toggle" class="icon-button" type="button" title="用量、待办和智狐能做的事" aria-label="用量、待办和智狐能做的事" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-panel-right"/></svg></button>
         </div>
       </header>
 
@@ -277,7 +279,7 @@ __STYLES__
     </div>
   </main>
 
-  <aside id="side" class="side" aria-label="用量、待办、记忆和工具" data-i18n-aria-label>
+  <aside id="side" class="side" aria-label="用量、待办和智狐能做的事" data-i18n-aria-label>
     <div class="side-head"><button id="side-close" class="icon-button" type="button" title="收起信息栏" aria-label="收起信息栏" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div class="side-scroll">
       <section class="cost-card">
@@ -304,10 +306,15 @@ __STYLES__
         <h2 data-i18n>未完成的待办</h2>
         <ul id="todos"></ul>
       </section>
-      <section>
-        <h2 data-i18n>模型可以使用的工具</h2>
-        <ul id="tools" class="tool-chips"></ul>
-        <div id="tools-legend" class="legend"><span><i class="dot"></i><span data-i18n>在这台电脑上执行</span></span><span id="legend-remote"><i class="dot remote"></i><span data-i18n>在厂商的服务器上执行</span></span></div>
+      <section id="caps" class="caps" aria-labelledby="caps-title">
+        <h2><span id="caps-title" data-i18n>智狐能做的事</span><span id="caps-count" class="sub"></span></h2>
+        <button id="caps-mode" class="caps-mode" type="button" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="caps-mode-words"><span class="caps-mode-key" data-i18n>确认方式</span><b id="caps-mode-name"></b></span><svg class="icon caps-mode-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+        <div id="caps-notes" class="caps-notes"></div>
+        <ul id="caps-list" class="caps-list" aria-labelledby="caps-title"></ul>
+        <div id="caps-rest" class="caps-rest" hidden>
+          <button id="caps-rest-toggle" class="caps-rest-toggle" type="button" aria-expanded="false" aria-controls="caps-rest-list"><svg class="icon caps-rest-chev" aria-hidden="true"><use href="#i-chevron"/></svg><span id="caps-rest-label"></span></button>
+          <ul id="caps-rest-list" class="caps-list" hidden></ul>
+        </div>
       </section>
       <section>
         <h2 data-i18n>工作目录</h2>

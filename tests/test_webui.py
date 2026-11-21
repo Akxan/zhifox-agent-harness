@@ -347,8 +347,9 @@ def test_state_reports_todos_usage_and_tools(serve):
     # 费用按 claude-opus-5-5 的价格估算：输入 4、命中缓存 0.2、写入缓存 5、输出 20（美元 / 百万 token）
     assert after["cost"] == round((200 * 4 + 80 * 0.2 + 20 * 5 + 40 * 20) / 1_000_000, 4)
     assert after["unpriced"] == []
-    assert {"name": "run_command", "local": True} in after["tools"]
-    assert {"name": "web_search", "local": False} in after["tools"]
+    assert capability(after, "shell")["status"] == "on" and capability(after, "shell")["where"] == "local"
+    assert capability(after, "web")["status"] == "on" and capability(after, "web")["where"] == "provider"  # 在厂商的服务器上执行
+    assert "tools" not in after  # 工具的名字只在清单的技术细节里
     assert (after["provider"], after["model"]) == ("anthropic", "claude-opus-5-5")
     assert after["workspace"] == str(s.config.workspace)
     # 待办不需要确认，所以没有确认事件；工具调用和结果成对出现
@@ -622,6 +623,16 @@ def test_long_tool_results_are_shortened_for_display_only(serve):
 # ---- 设置：密钥、模型、价格 -----------------------------------------------
 
 
+def tool_names(state: dict) -> list[str]:
+    """信息栏"智狐能做的事"里列出的全部工具的名字（每一项的技术细节，按清单的顺序，见 harness/capabilities.py）。"""
+    return [name for item in state["capabilities"]["items"] for name in item["tools"]]
+
+
+def capability(state: dict, name: str) -> dict:
+    """清单里的一项（todo、files、web、mcp:服务器……）。"""
+    return next(item for item in state["capabilities"]["items"] if item["id"] == name)
+
+
 def latest_state(browser: Browser) -> dict:
     deadline = time.monotonic() + 5
     while not browser.of_type("state"):  # 刚连上时，第一个状态事件可能还在路上
@@ -722,10 +733,11 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     assert [message["role"] for message in request["messages"]] == ["system", "user"]  # 之前和 Claude 的对话没有带过来
     state = latest_state(s.browser)
     assert (state["provider"], state["model"]) == ("deepseek", "deepseek-flash")
-    assert [tool["name"] for tool in state["tools"]] == [
+    assert tool_names(state) == [
         "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory",
         "str_replace_based_edit_tool", "run_command", "skill", "agent",
     ]  # 没有联网搜索
+    assert capability(state, "web")["status"] == "unavailable"  # 清单里照样有这一项，说清楚为什么用不了
     # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
     assert state["unpriced"] == []
     assert state["price"] == {"input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0.3}
@@ -1302,7 +1314,7 @@ def test_opening_a_conversation_switches_back_to_its_provider(serve, monkeypatch
     replayed, state = open_conversation(s, deepseek)
     assert (state["provider"], state["model"], state["conversation"]) == ("deepseek", "deepseek-flash", deepseek)
     assert state["usage"]["context"] == 120
-    assert "web_search" not in [tool["name"] for tool in state["tools"]]  # 工具列表也换成了这一家的
+    assert "web_search" not in tool_names(state)  # 工具列表也换成了这一家的
     assert json.loads(s.config.settings_file.read_text(encoding="utf-8"))["provider"] == "deepseek"
     # 逐字到达的回答，重放时是完整的一段
     assert [(event["type"], event.get("text")) for event in replayed if event["type"] in ("user", "thinking", "text")] == [
@@ -1324,7 +1336,7 @@ def test_opening_a_conversation_switches_back_to_its_provider(serve, monkeypatch
     # 反过来也一样：打开 Claude 那一段，又回到 Claude
     _, state = open_conversation(s, claude)
     assert (state["provider"], state["model"], state["conversation"]) == ("anthropic", "claude-opus-5-5", claude)
-    assert "web_search" in [tool["name"] for tool in state["tools"]]
+    assert "web_search" in tool_names(state)
     say(s, "接着说")
     assert len(s.other_api.requests) == 2
     assert [message["role"] for message in s.api.requests[1]["messages"]] == ["user", "assistant", "user"]

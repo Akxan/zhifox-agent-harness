@@ -64,7 +64,8 @@ def test_state_shows_the_servers_but_never_their_secrets(serve, make_config):
         assert row(state, "remote")["config"]["headers"] == [{"name": "Authorization", "hint": "…9876"}]
         assert state["started"] is False and state["problem"] is None
         # 对话还没开始：信息栏里先列出"发第一条消息会用上的"工具
-        assert "mcp__local__echo" in [tool["name"] for tool in latest_state(s.browser)["tools"]]
+        local_row = next(item for item in latest_state(s.browser)["capabilities"]["items"] if item["id"] == "mcp:local")
+        assert local_row["status"] == "on" and "mcp__local__echo" in local_row["tools"]
 
         status, detail = s.browser.post("/api/mcp/detail", {"name": "remote"})
         assert status == 200 and [tool["name"] for tool in detail["server"]["tools"]][:2] == ["echo", "add"]

@@ -58,7 +58,6 @@ from .tools.browser import used_in as browser_used_in
 from .tools.computer import make_computer_tools
 from .tools.computer import used_in as computer_used_in
 from .tools.files import FileEditor
-from .tools.send import TOOL_NAME as SEND_TOOL
 from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
 from .tools.skill import TOOL_NAME as SKILL_TOOL
@@ -294,8 +293,10 @@ class App:
         self.agent.usage.context_tokens = 0
         self._fresh_browser()
         self._fresh_desktop()
-        if self.agent.tools.get(SEND_TOOL) is not None:
-            self.refresh_tools()  # 上一段是网页上打开的聊天通道会话：新的这一段不在聊天软件里，不带 send_file
+        # 手里的工具换成新的这一段会用的（它还没开始，换了不丢任何东西）：角色只放开的那些、上一段中途打开的浏览器……
+        # 上一段是网页上打开的聊天通道会话的话，新的这一段不在聊天软件里，不带 send_file。
+        # 信息栏里"智狐能做的事"照着手里的工具画（见 toolbox），不换的话第一条消息之前列的还是上一段的
+        self.refresh_tools()
         if persona is not None and persona.spec.model:
             self._remember_choice(provider_id, model)
 
@@ -400,20 +401,31 @@ class App:
         persona = self.persona if self.persona is not None and self.persona.name == name else None
         return {"name": name, "color": persona.spec.color if persona else "", "missing": persona is None}
 
-    def tool_names(self) -> list[tuple[str, bool]]:
-        """界面上"模型可以使用的工具"：（名字，是否在本地执行）。
+    def toolbox(self) -> tuple[list[Any], bool]:
+        """这段对话的工具：真正发给模型的那些 Tool（这家模型用不了的不算，见 Backend.sends），和这段对话开始了没有。
 
-        对话已经开始了，就是这段对话实际在用的那一套。还没开始的话，列的是"现在发第一条消息会用上的"：
-        这时手里的还是上一段对话的快照，新连上的服务器还不在里面。
+        对话已经开始了，就是这段对话实际在用的那一套。还没开始的话，是"现在发第一条消息会用上的"：
+        这时手里的 MCP 工具还是上一段对话的快照，所以换成此刻的（新连上的服务器也在里面，见 fresh_tools）。
+        信息栏里"智狐能做的事"（capabilities.py）和终端的 /tools 都照着它。
         """
-        names = self.agent.backend.tool_names()
-        if self.agent.backend.export():
-            return names
-        own = [(name, local) for name, local in names if not name.startswith(MCP_PREFIX)]
+        backend = self.agent.backend
+        tools = [tool for tool in self.agent.tools if backend.sends(tool)]
+        if backend.export():
+            return tools, True
         fresh = self.mcp.snapshot().tools
         if self.persona is not None:
             fresh = agent_tools.allowed(self.persona.spec.tools, fresh)
-        return own + [(tool.name, True) for tool in fresh]
+        own = [tool for tool in tools if not tool.name.startswith(MCP_PREFIX)]
+        return own + [tool for tool in fresh if backend.sends(tool)], False
+
+    def tool_names(self) -> list[tuple[str, bool]]:
+        """这段对话的工具的名字：（名字，是否在本地执行）。工具包只算一个（用包名）。"""
+        names: list[tuple[str, bool]] = []
+        for tool in self.toolbox()[0]:
+            entry = (tool.toolset, True) if tool.toolset else (tool.name, tool.run is not None)
+            if entry not in names:
+                names.append(entry)
+        return names
 
     def close(self) -> None:
         """程序退出前的收尾：关掉启动过的 MCP 服务器进程和浏览器，还按着的鼠标键松开。"""

@@ -54,11 +54,4 @@
 .todo-confirm span { flex: 1 1 110px; min-width: 0; }
 .due { flex: none; padding: 1px 8px; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
 .none { font-size: 13px; color: var(--ink-3); }
-.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tool-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px 3px 8px; font: 11.5px/1.6 var(--mono); color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
-.tool-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--ink-3); }
-.remote .dot, .dot.remote { background: linear-gradient(135deg, var(--a1), var(--a3)); }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 11.5px; color: var(--ink-3); }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
 .path { font: 12px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }

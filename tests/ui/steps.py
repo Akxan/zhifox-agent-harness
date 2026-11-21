@@ -127,3 +127,13 @@ def extensions_tab(page: Page, tab: str) -> None:
     page.click(f"#tab-{tab}")
     page.wait(f"!document.getElementById('panel-{tab}').hidden && document.getElementById('panel-{tab}').children.length > 0", what=f"{tab} 这一页画好")
     idle(page)
+
+
+def expand_capabilities(page: Page) -> None:
+    """信息栏"智狐能做的事"：每一行都点开、每个"技术细节"都展开、"这段对话用不了的"也展开（查翻译、查文字有没有冲出去时用）。"""
+    open_side(page)
+    if page.js("document.getElementById('caps-rest-toggle').getAttribute('aria-expanded') !== 'true' && !document.getElementById('caps-rest').hidden"):
+        page.js("document.getElementById('caps-rest-toggle').click()")
+    page.js("document.querySelectorAll('#caps .caps-head[aria-expanded=false]').forEach((head) => head.click())")
+    page.js("document.querySelectorAll('#caps details.caps-tech:not([open])').forEach((tech) => { tech.open = true; })")
+    idle(page)

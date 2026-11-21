@@ -1,6 +1,6 @@
-// ---- 信息栏：费用、用量、待办、工具 --------------------------------------
-// 右边的信息栏：这段对话的费用和用量（四类 token 的比例条）、待办、这段对话能用的工具。
-// 费用卡片的下半部分（今天、本月、预算）在 spending.js。
+// ---- 信息栏：费用、用量、待办 ----------------------------------------------
+// 右边的信息栏：这段对话的费用和用量（四类 token 的比例条）、待办。
+// 费用卡片的下半部分（今天、本月、预算）在 spending.js；"智狐能做的事"那一节在 capabilities.js。
 
 const usageCells = {};
 for (const [list, key, name, swatch] of [
@@ -40,7 +40,7 @@ function renderUsage(event) {
     : t('按公开价格估算，实际以各家的账单为准。');
 }
 
-let knownTodos = null, todosDrawn = '', toolsDrawn = '';
+let knownTodos = null, todosDrawn = '';
 
 // 待办的截止日期存的是 2026-11-27 这样的写法，显示时按界面语言写成"11月27日""Nov 27""27 nov"。
 // 模型偶尔写的不是这种格式（比如"周五"），就照原样显示
@@ -193,21 +193,4 @@ async function revealData(what, say = toast) {
   const reply = await call('/api/reveal', { what });
   if (!reply.ok) { say(reply.error, true); return; }
   say(revealedText(reply.data.path));
-}
-
-function renderTools(tools) {
-  const print = JSON.stringify([tools, language]);
-  if (print === toolsDrawn) return;
-  toolsDrawn = print;
-  $('tools').replaceChildren(...tools.map((tool) => {
-    const chip = el('li', 'tool-chip' + (tool.local ? '' : ' remote'));
-    chip.title = tool.local ? t('在这台电脑上执行') : t('在厂商的服务器上执行');
-    chip.appendChild(el('i', 'dot'));
-    chip.appendChild(el('span', null, tool.name));
-    return chip;
-  }));
-  $('legend-remote').hidden = tools.every((tool) => tool.local);
-  // 用一个不用工具的 Agent（tools: []）开始的对话：一个工具都没有，说一句，图例也不用了
-  $('tools-legend').hidden = !tools.length;
-  if (!tools.length) $('tools').appendChild(tel('li', 'agents-hint', k('这段对话不用任何工具。')));
 }

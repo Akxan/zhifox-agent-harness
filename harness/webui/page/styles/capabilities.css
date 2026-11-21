@@ -1,0 +1,121 @@
+/* ---- 信息栏 · 智狐能做的事 ----------------------------------------------------
+   一行一样功能：左边一块小图标，右边名字，下面一行说明（开头一个小标签：在用的写"问不问你"，别的写状态）。点开看详情。
+   状态不只靠颜色：标签里有图标和字，图标块的样子也不一样（在用的实心着色、关着的虚线框、用不了的淡下去）。
+   关着的那几行多一个按钮，放在说明下面（不和名字抢宽度：英文、西班牙语的按钮字长，放在右边会把名字挤成省略号）。
+   动效只动 transform 和 opacity：箭头转过去、点开的详情和刚打开的那一行淡入；开合本身是一下子的，范围只有这一行。 */
+
+/* 顶上那一条：现在的确认方式（下面每一行"问不问你"都是按它算的），点了去改 */
+.caps-mode { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; margin: 0 0 10px; padding: 7px 10px; font-size: 12.5px; line-height: 1.4; color: var(--ink-2); text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; transition: border-color .15s ease; }
+.caps-mode:hover { border-color: var(--line-2); }
+.caps-mode > .icon { width: 14px; height: 14px; color: var(--accent); }
+.caps-mode-words { display: flex; flex: 1; flex-wrap: wrap; align-items: baseline; gap: 0 6px; min-width: 0; }
+.caps-mode-key { flex: none; color: var(--ink-3); }
+.caps-mode-words b { min-width: 0; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.caps-mode-chev { width: 12px; height: 12px; color: var(--ink-3); transition: transform .2s var(--ease); }
+.caps-mode:hover .caps-mode-chev { transform: translateX(2px); }
+
+/* 整体的说明：这段对话的角色只放开了一部分、MCP 的工具太多没放进来…… */
+.caps-notes:empty { display: none; }
+.caps-note { margin: 0 0 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; color: var(--ink-2); background: var(--accent-soft); border-radius: 10px; overflow-wrap: anywhere; }
+
+/* 列表：和待办一样，悬停（或者点开）时浮起成卡片 */
+.caps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 -8px; padding: 0; list-style: none; }
+.caps-item { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+.caps-item:hover, .caps-item:focus-within, .caps-item.caps-open { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.caps-head { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; padding: 7px 8px; text-align: left; color: inherit; background: none; border: 0; border-radius: 12px; }
+
+/* 图标块：在用的着色，关着的（和"下一段对话才有"的）是虚线框，用不了的淡下去 */
+.caps-tile { display: grid; place-items: center; width: 30px; height: 30px; flex: none; color: var(--ink-2); background: var(--hover); border: 1px solid transparent; border-radius: 9px; transition: transform .25s var(--spring); }
+.caps-tile .icon { width: 15px; height: 15px; }
+.caps-on .caps-tile { color: var(--accent); background: var(--accent-soft); }
+.caps-off .caps-tile, .caps-pending .caps-tile { color: var(--ink-3); background: none; border: 1px dashed var(--line-3); }
+.caps-unavailable .caps-tile { color: var(--ink-3); background: none; border-color: var(--line); }
+.caps-head:hover .caps-tile { transform: scale(1.06); }
+
+.caps-words { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; }
+/* 名字和小标签一行放不下（西班牙语的"Controlar el ordenador"配上"Siempre pregunta"）：标签换到下一行，名字不在字中间断开 */
+.caps-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px 8px; min-width: 0; }
+.caps-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.caps-label { min-width: 0; font-size: 13.5px; font-weight: 550; line-height: 1.35; color: var(--ink); overflow-wrap: break-word; }
+.caps-server { overflow-wrap: anywhere; }  /* 服务器的名字是你起的，可能是一长串没有空格的字 */
+.caps-unavailable .caps-label { color: var(--ink-2); font-weight: 500; }
+.caps-count { flex: none; min-width: 18px; padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; color: var(--ink-2); background: var(--hover); border-radius: 999px; }
+.caps-brief { min-width: 0; overflow: hidden; font-size: 12px; line-height: 1.45; color: var(--ink-3); text-overflow: ellipsis; white-space: nowrap; }
+.caps-open .caps-brief { overflow: visible; white-space: normal; overflow-wrap: anywhere; color: var(--ink-2); }
+
+/* MCP 服务器那几行上面的小标题 */
+.caps-group { padding: 10px 8px 2px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+
+/* 小标签：图标加字 */
+.caps-chip { display: inline-flex; flex: none; align-items: center; gap: 3px; margin: 1px 0 0 auto; padding: 0 6px 0 4px; font-size: 11px; font-weight: 600; line-height: 17px; white-space: nowrap; border-radius: 6px; }
+.caps-chip .icon, .caps-outcome .icon, .caps-why .icon { width: 11px; height: 11px; stroke-width: 2.3; }
+.caps-level-free { color: var(--ok); background: var(--ok-soft); }
+.caps-level-some, .caps-level-ask { color: var(--ink-2); background: var(--hover); }
+.caps-level-always { color: var(--warn); background: var(--warn-soft); }
+.caps-state-on { color: var(--ink-2); background: var(--hover); }
+.caps-state-pending { color: var(--accent); background: var(--accent-soft); }
+.caps-state-off { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.caps-state-unavailable { color: var(--ink-3); background: var(--hover); }
+
+.caps-chev { width: 13px; height: 13px; margin-top: 3px; color: var(--ink-3); opacity: .55; transition: transform .2s var(--ease), opacity .15s ease; }
+.caps-head:hover .caps-chev, .caps-head:focus-visible .caps-chev { opacity: 1; }
+.caps-head[aria-expanded="true"] .caps-chev { opacity: 1; transform: rotate(90deg); }
+
+/* 关着的那几行：说明下面一个按钮（对齐名字），直接去打开、去管 */
+.caps-quick { justify-self: start; display: inline-flex; align-items: center; max-width: calc(100% - 56px); min-height: 26px; margin: -1px 8px 8px 48px; padding: 3px 11px; font-size: 12px; font-weight: 600; line-height: 1.4; text-align: left; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; overflow-wrap: anywhere; transition: transform .15s var(--ease); }
+.caps-quick::after { content: "→"; margin-left: 6px; transition: transform .2s var(--ease); }
+.caps-quick:hover::after { transform: translateX(2px); }
+.caps-quick:active { transform: scale(.96); }
+
+/* 点开以后的详情：和名字对齐 */
+.caps-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; padding: 0 10px 12px 48px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.caps-body > * { margin: 0; }
+.caps-desc { overflow-wrap: anywhere; }
+.caps-why { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.caps-why .icon { margin-top: 4px; }
+.caps-why > span { min-width: 0; }
+.caps-why b { font-weight: 600; color: var(--ink); }
+.caps-why-pending .icon { color: var(--accent); }
+.caps-h { margin: 0 0 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.caps-summary { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.caps-approval > :first-child { margin-top: 0; }
+.caps-rules { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; margin: 7px 0 0; padding: 0; list-style: none; }
+.caps-rule { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; padding: 4px 8px; font-size: 12px; background: var(--hover); border-radius: 7px; }
+.caps-rule-text { min-width: 0; overflow-wrap: anywhere; }
+.caps-outcome { display: inline-flex; flex: none; align-items: center; gap: 3px; margin-top: 1px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.caps-outcome-free .caps-outcome { color: var(--ok); }
+.caps-outcome-ask .caps-outcome { color: var(--ink-2); }
+.caps-outcome-always .caps-outcome { color: var(--warn); }
+.caps-outcome-never .caps-outcome { color: var(--ink-3); }
+.caps-fine { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+
+/* 在哪儿执行：这台电脑上是实心的灰点，厂商的服务器上是极光色的点，第三方的 MCP 服务器是空心的圈（原来那条图例的意思） */
+.caps-where { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-3); }
+.caps-where > span { min-width: 0; overflow-wrap: anywhere; }
+.caps-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-3); }
+.caps-dot-provider { background: linear-gradient(135deg, var(--a1), var(--a3)); }
+.caps-dot-mcp-local, .caps-dot-mcp-remote { background: none; box-shadow: inset 0 0 0 1.6px var(--a2); }
+
+.caps-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.caps-actions .mini { height: auto; min-height: 26px; max-width: 100%; padding: 3px 10px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; }
+
+/* 技术细节：发给模型的名字，默认收着 */
+.caps-tech summary { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3); list-style: none; cursor: pointer; border-radius: 6px; }
+.caps-tech summary::-webkit-details-marker { display: none; }
+.caps-tech summary::before { content: ""; width: 0; height: 0; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; border-left: 4.5px solid currentColor; transition: transform .2s var(--ease); }
+.caps-tech summary:hover { color: var(--ink-2); }
+.caps-tech[open] summary::before { transform: rotate(90deg); }
+.caps-tech .caps-fine { margin-top: 4px; }
+.caps-names { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.caps-names li { max-width: 100%; padding: 1px 7px; font: 11px/1.6 var(--mono); color: var(--ink-2); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+
+/* 最下面：这段对话用不了的几项，收着 */
+.caps-rest { margin-top: 6px; }
+.caps-rest-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 6px 0; font-size: 12px; text-align: left; color: var(--ink-3); background: none; border: 0; border-radius: 8px; }
+.caps-rest-toggle:hover { color: var(--ink-2); }
+.caps-rest-toggle > span { min-width: 0; overflow-wrap: anywhere; }
+.caps-rest-chev { width: 12px; height: 12px; transition: transform .2s var(--ease); }
+.caps-rest-toggle[aria-expanded="true"] .caps-rest-chev { transform: rotate(90deg); }
+#caps-rest-list { margin-top: 2px; }
+
+@media (hover: none) { .caps-chev { opacity: 1; } }

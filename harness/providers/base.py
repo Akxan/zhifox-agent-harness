@@ -163,4 +163,5 @@ class Backend(Protocol):
     def add_tool_results(self, results: list[ToolResult]) -> None: ...  # 追加工具结果
     def step(self, ui: StreamUI) -> Step: ...  # 调用一次模型，边收边显示，并把回复追加进历史
     def tool_names(self) -> list[tuple[str, bool]]: ...  # 这家模型能用的工具：（名字，是否在本地执行）
+    def sends(self, tool: Any) -> bool: ...  # 这个工具（Tool）发不发给这家模型（见各家的 use_tools）
     def use_tools(self, tools: Any) -> None: ...  # 换一套工具（ToolRegistry）。只在一段对话开始之前调用，见 agent.py 的 on_start
