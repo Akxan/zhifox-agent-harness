@@ -1,3 +1,6 @@
+/* ---- 工具卡片、确认卡片、"正在工作" ------------------------------------------
+   助手每调用一个工具，对话里就有一张卡片（.call）；要你批准的是确认卡片（.confirm）；
+   助手工作时，输入框上方那个标志上的环转起来（.working）。 */
 /* 工具调用卡片 */
 .call { font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .call summary { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 12px; cursor: pointer; user-select: none; list-style: none; }

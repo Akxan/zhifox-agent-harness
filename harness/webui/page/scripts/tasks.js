@@ -241,7 +241,7 @@ function taskRow(task) {
   return row;
 }
 
-// 一个任务"要不要先问你"的那一档，画成一个小标签。名字和对话里的三档是同一套（APPROVAL，在"要不要先问你"那一节）
+// 一个任务"要不要先问你"的那一档，画成一个小标签。名字和对话里的三档是同一套（APPROVAL，在 approval.js）
 function modeChip(mode) {
   const chip = el('span', 'chip task-mode ' + mode);
   chip.appendChild(icon('shield'));

@@ -1,4 +1,5 @@
 // ---- 小工具 --------------------------------------------------------------
+// 建元素（el）、画图标（icon、iconButton）、在浏览器里记一点小东西（remember、recall）、取一段话的第一行（firstLine）。
 
 function el(tag, className, text) {
   const node = document.createElement(tag);

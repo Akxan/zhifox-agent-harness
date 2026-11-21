@@ -1,4 +1,6 @@
 // ---- 逐字输出的文字 ------------------------------------------------------
+// 模型一个字一个字吐出来的思考和回复：开一段（stream）、接着往里写、写完收尾（endBlock）。
+// 还有回复和代码块上的"复制"（copy）。
 
 async function copy(text, button) {
   // 过一会儿换回原来的说明（回复上是"复制"，代码块上是"复制代码"）。第一次点的时候记下来，连点两下也不会记错
@@ -40,7 +42,7 @@ function stream(kind, text) {
       holder = box.appendChild(el('div', 'msg-text md'));
     }
     // 思考过程是纯文字：整段放在同一个文本节点里，来一小段就接在后面。
-    // 回复按 Markdown 画：先把字攒在 text 里，一帧最多画一次（见"回复里的 Markdown"一节的 drawSoon）
+    // 回复按 Markdown 画：先把字攒在 text 里，一帧最多画一次（见 markdown-view.js 的 drawSoon）
     block = { kind, box, holder, label, text: '', node: null, view: null, queued: false };
     if (kind === 'thinking') block.node = holder.appendChild(document.createTextNode(''));
     else {

@@ -1125,7 +1125,7 @@ class WebApp:
     def set_language(self, language: str) -> str:
         """换界面语言。成功返回空字符串，否则返回原因。
 
-        不刷新页面：记下新的选择、发一次新的状态，页面收到后在原地把文字换掉（见 index.html 的 applyLanguage）。
+        不刷新页面：记下新的选择、发一次新的状态，页面收到后在原地把文字换掉（见 page/scripts/language.js 的 applyLanguage）。
         也不用拿对话的锁：对话进行中也可以换。之后程序发给页面的话（提示、确认卡片上的说明）都用新的语言。
         """
         i18n.choose(language)

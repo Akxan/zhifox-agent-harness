@@ -1,3 +1,5 @@
+/* ---- 扩展 ------------------------------------------------------------------
+   "扩展"对话框的壳：大小、四个标签。每一页里面的样子在 skills.css、mcp.css、channels.css、agents.css。 */
 /* 扩展：比设置面板宽一些、高度固定（切换标签页时对话框不跟着内容忽大忽小） */
 .settings.extensions { width: min(860px, calc(100vw - 32px)); height: min(720px, calc(100vh - 48px)); }
 .extensions-head { min-width: 0; }

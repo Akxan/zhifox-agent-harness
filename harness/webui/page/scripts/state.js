@@ -1,3 +1,8 @@
+// ---- 常用的元素和页面的状态 ----------------------------------------------
+// 好几节都要用的元素（对话区、输入框、设置面板……）先在这里找好；下面的变量记着整个页面此刻的样子
+// （是不是正在工作、正在逐字输出的是哪一段、现在画的是不是重放出来的旧内容），各节一起读、一起改。
+// 这一块用到 i18n.js 里的 k()，所以排在多语言后面。
+
 const nav = $('nav'), side = $('side'), main = $('main'), sheet = $('sheet'), viewport = $('viewport');
 const chat = $('chat'), log = $('log'), empty = $('empty'), starters = $('starters'), working = $('working');
 const composer = $('composer'), input = $('input'), sendButton = $('send'), toBottom = $('to-bottom');

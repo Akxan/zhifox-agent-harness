@@ -187,7 +187,7 @@ def test_a_message_inside_a_message_keeps_its_own_original(monkeypatch):
 def test_a_space_beside_a_chinese_platform_name_is_dropped():
     """中文的句子给 {platform} 两边留了空格，是为 Telegram 这样的英文名字留的；填进去的是"飞书"时不要那个空格。
     只管 {platform}：别的值（文件名、机器人的名字）两边的空格留着；句子本身的空格、英文句子里的空格都不动。
-    页面里的 t() 照着同一条规矩（见 index.html）。"""
+    页面里的 t() 照着同一条规矩（见 harness/webui/page/scripts/i18n.js）。"""
     assert i18n.fill("连接 {platform}", {"platform": "飞书"}) == "连接飞书"
     assert i18n.fill("连接 {platform}", {"platform": "Telegram"}) == "连接 Telegram"
     assert i18n.fill("先在 {platform} 里建一个机器人", {"platform": "钉钉"}) == "先在钉钉里建一个机器人"

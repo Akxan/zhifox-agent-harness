@@ -1,3 +1,6 @@
+/* ---- 记忆 ------------------------------------------------------------------
+   左边栏顶部的"记忆"入口，和点开的窗口：左边是列表（可以搜），右边是选中的那一条。
+   窗口顶上的名字和编辑时的样子在 memory-editor.css。 */
 /* 记忆：一个文件一行，上面是文件名，下面是所在的文件夹 · 大小 · 修改时间。鼠标移上去（或者键盘移到这一行）出现删除按钮 */
 /* 左边栏顶部的固定入口：点开"记忆"窗口。放在这里而不是右边的信息栏：记忆多了以后，信息栏会被拉得很长 */
 .nav-link { flex: none; display: flex; align-items: center; gap: 10px; margin: 0 6px 6px; padding: 7px 12px; font-size: 13.5px; color: var(--ink-2); text-align: left; background: none; border: 0; border-radius: 10px; transition: color .15s ease, background-color .15s ease; }

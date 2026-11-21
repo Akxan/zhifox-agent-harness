@@ -1,6 +1,6 @@
 // 回复里的 Markdown：把模型写的标题、列表、表格、代码块……画成页面上的元素。
 //
-// 这个文件只管一件事：Markdown 原文 → 页面元素。页面（index.html）只用最下面的 createView。
+// 这个文件只管一件事：Markdown 原文 → 页面元素。页面（page/scripts/markdown-view.js）只用最下面的 createView。
 //
 // 为什么自己写，不用现成的库：页面不加载任何外部资源（安全策略不允许，离线也要能用），而完整的 Markdown 库
 // 有几千行。我们只需要聊天回复里常见的那部分：CommonMark 的大部分，加上 GitHub 的表格、任务列表、删除线。

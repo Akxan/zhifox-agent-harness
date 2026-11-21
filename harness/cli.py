@@ -83,7 +83,7 @@ def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
             ui.error(t(AUTO_RISK))
 
 
-# 倒回去之前，这一轮操作过整台电脑、在浏览器里点过输入过的话，再单独说一句（网页上是同样的两句，见 index.html 的 TURN_OPERATED）
+# 倒回去之前，这一轮操作过整台电脑、在浏览器里点过输入过的话，再单独说一句（网页上是同样的两句，见 webui/page/scripts/rewind.js 的 TURN_OPERATED）
 OPERATED = {
     "computer": k("这一轮操作过整台电脑（点击、拖动、打字、按键）：在别的程序里已经做了的事，撤不回来。"),
     "browser": k("这一轮在浏览器里点击、输入过：网页上已经提交、发出去的东西，撤不回来。"),

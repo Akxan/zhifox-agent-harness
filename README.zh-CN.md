@@ -770,12 +770,22 @@ t("已换成 {provider} · {model}。对话继续。", provider="DeepSeek", mode
 
 ```
 agent 循环 ──调用──► WebUI ──事件──► 本地服务器 ──推送──► 浏览器里的页面
-                    (webui/ui.py)   (webui/server.py)     (webui/index.html)
+                    (webui/ui.py)   (webui/server.py)     (webui/page/)
 ```
 
 `WebUI` 把每次调用记成一条"事件"存进日志，服务器把事件推送给浏览器，页面收到后画出对应的内容。
 你在页面上点"允许"或"停止"，则是浏览器向服务器发一个请求，服务器再转告 `WebUI`。
 页面自己不保存对话，所以刷新后服务器把日志重发一遍，页面就能照着重新画出来。
+
+发给浏览器的页面是一个自给自足的 HTML：它的安全策略只运行带着一次性 `nonce` 的内联 `<script>` 和 `<style>`，
+不加载任何外部的东西。但这不等于它得写成一个文件。页面的源码在 [harness/webui/page/](harness/webui/page/) 里，
+一个文件只讲一件事：`index.html` 是骨架（标记，外加几行占位符），`styles/` 里是按界面的部分分开的样式
+（`tokens.css`、`chat.css`、`memory.css`、`skills.css`……），`scripts/` 里是按小节分开的页面脚本
+（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
+里的清单按顺序列出这些块，服务器启动时把它们拼回同一个页面（演示每次刷新都重新拼）。顺序很要紧：样式里两条一样具体的规则，
+后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
+所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
+文件漏列了或者列了两次，测试会失败。
 
 页面上的动画只给"此刻正在发生"的内容：新来的消息会浮现出来，而刷新页面、打开旧会话时重放出来的内容直接显示，
 不会把几百条消息的入场动画挨个播一遍。页面怎么分辨这两种内容？服务器在补发完已有的事件之后，会多发一个名叫
@@ -1755,7 +1765,11 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 测试里用的是一个很小的假文档：`innerHTML` 这类会解析 HTML 的接口一碰就报错，只允许建出固定的几种标签和属性。
 它覆盖了每一种支持的写法、嵌套、转义、恶意输入、按随机大小一段段输出（结果必须和一次画完的一样），以及一万行的长输入。
 
-页面本身（`index.html` 里的样式和脚本）由 [tests/ui/](tests/ui/) 里的页面测试在真正的 Chrome（无界面）里测。
+[tests/test_page.py](tests/test_page.py) 里有几条不用浏览器的静态检查：页面的每一块都在清单里列了、只列了一次；
+没有哪一块里有 `</script`、`</style`、`<!--` 或者占位符（放进页面会出问题）；没有两个函数同名；每一块脚本、
+以及拼好的整段脚本都能通过 `node --check`（两块里用 `const` 定义了同一个名字，单独查都没事，拼起来整个页面就跑不起来）。
+
+页面本身（[harness/webui/page/](harness/webui/page/) 里的标记、样式和脚本）由 [tests/ui/](tests/ui/) 里的页面测试在真正的 Chrome（无界面）里测。
 `uv run pytest` 会带上它们；`uv run pytest -m ui` 只跑它们，`-m "not ui"` 跳过它们。这台电脑上没有 Chrome 时跳过，CI 里必须跑。
 一共一分钟左右，不加任何依赖：驾驶 Chrome 用的是智狐自己手写的 CDP 客户端（不用 Playwright、Selenium，也不用 npm），
 整个测试会话只把 `tests/demo_web.py` 作为子进程启动一次（数据在临时目录里），每个测试在一个新的、像隐身窗口一样的浏览器上下文里打开页面。

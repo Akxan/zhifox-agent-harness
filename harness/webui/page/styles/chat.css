@@ -1,6 +1,8 @@
 /* ---- 消息 ---------------------------------------------------------------- */
+/* 这个文件管对话里的消息：你说的、助手回答的，编辑和重新生成的那排按钮，思考过程，对话里的提示条。
+   工具卡片和确认卡片在 tool-cards.css，回复里的 Markdown 在 markdown.css。 */
 .msg { position: relative; font-size: 15.5px; line-height: 1.75; }
-.msg-text { overflow-wrap: anywhere; }  /* 回复按 Markdown 画（见下面"回复里的 Markdown"一节） */
+.msg-text { overflow-wrap: anywhere; }  /* 回复按 Markdown 画（见 markdown.css） */
 .msg.user { align-self: flex-end; max-width: min(86%, 600px); padding: 10px 16px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bubble-ink); background: var(--bubble); border-radius: 20px 20px 6px 20px; transform-origin: 100% 100%; }
 .msg.user:not(:first-child) { margin-top: 12px; }
 /* 正在逐字输出时，文字末尾跟着一个呼吸的小光点。它画在最后一段（或最后一个单元格、最后一行代码）的末尾，
@@ -13,7 +15,7 @@
 .msg.assistant:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
 .msg.streaming .msg-actions { visibility: hidden; }
 
-/* ---- 编辑最后一条消息、重新生成（脚本里同名的一节） -------------------------------
+/* ---- 编辑最后一条消息、重新生成（脚本在 scripts/rewind.js） -------------------------------
    "编辑"浮在最后一条消息左边的空白里：不占位置，悬停才出现，不会把文字挤动。最后一个回答下面那排按钮一直亮着，
    里面多一个"重新生成"；这一轮没有回答（出错了、被停下了），就在最后单独放一排。改的时候，消息原地变成一个输入框；
    倒回去之前要确认的话，确认也在原地 */

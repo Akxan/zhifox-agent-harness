@@ -534,13 +534,25 @@ more step, because the loop and the browser are not in the same program:
 
 ```
 agent loop ──calls──► WebUI ──events──► local server ──pushes──► page in the browser
-                   (webui/ui.py)     (webui/server.py)          (webui/index.html)
+                   (webui/ui.py)     (webui/server.py)          (webui/page/)
 ```
 
 `WebUI` records each call as an event in a log, the server pushes the events to the browser as a Server-Sent Events
 (SSE) stream, and the page draws each one. When you click Allow or Stop, the browser sends a request to the server, which
 passes it on to `WebUI`. The page keeps no copy of the conversation; after a refresh the server resends the log and the
 page redraws from it.
+
+The page is one self-contained HTML document: its security policy only runs inline `<script>` and `<style>` blocks that
+carry a one-time nonce, and it loads nothing from outside. That doesn't mean it has to be written as one file. Its
+source lives in [harness/webui/page/](harness/webui/page/), one concern per file: `index.html` is the skeleton (the
+markup plus a few placeholder lines), `styles/` holds the CSS split by part of the interface (`tokens.css`, `chat.css`,
+`memory.css`, `skills.css`…), and `scripts/` holds the page script split by section (`i18n.js`, `motion.js`,
+`memory.js`, `tasks.js`, `browser.js`…). A manifest in [page/\_\_init\_\_.py](harness/webui/page/__init__.py) lists the
+parts in order, and the server joins them into the same single page once at startup (the demo re-assembles it on
+every refresh). Order matters: in CSS a later rule beats an equally specific earlier one, so `reduce-motion.css` comes
+last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses
+(`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
+fails if a file is missing from it or listed twice.
 
 Only content that is happening right now animates. New messages fade in, but content replayed after a refresh or when
 opening an old conversation appears directly, rather than playing hundreds of entrance animations one by one. How does
@@ -2165,7 +2177,13 @@ available. They use a tiny fake document whose `innerHTML` and similar HTML-pars
 a fixed list of tags and attributes. They cover every supported syntax, nesting, escaping, malicious input, streaming
 in random-sized pieces (the result must equal rendering all at once), and 10,000-line inputs.
 
-The page itself (the styles and scripts in `index.html`) is tested in a real headless Chrome by the suite in
+Static checks in [tests/test_page.py](tests/test_page.py) run without a browser: every part of the page is listed
+exactly once in the manifest, no part contains `</script`, `</style`, `<!--` or a placeholder that would break the
+inlining, no two functions share a name, and every script part, as well as the assembled script, passes
+`node --check` (two parts that both declare the same `const` each pass alone, but break the whole page once joined).
+
+The page itself (the markup, styles and scripts in [harness/webui/page/](harness/webui/page/)) is tested in a real
+headless Chrome by the suite in
 [tests/ui/](tests/ui/). `uv run pytest` includes it; `uv run pytest -m ui` runs only it and `-m "not ui"` skips it. It is
 skipped when no Chrome is installed, and CI requires it. It takes about a minute and adds no dependencies: it drives
 Chrome with ZhiFox's own hand-written CDP client (no Playwright, Selenium or npm), starts `tests/demo_web.py` once as a

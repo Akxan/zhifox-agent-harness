@@ -1,6 +1,6 @@
 // ---- 扩展：Skill、MCP、通道、Agent -----------------------------------------
 // 一个对话框，四个标签页。这一节只管"壳"：打开、关上、切换标签页、记住上次看的是哪一页。
-// 每一页里的内容由各自那一节画（见下面的 Skill、MCP、通道、Agent 几节），它们通过 extensionTabs 挂上来：
+// 每一页里的内容由各自那一节画（见 skills.js、mcp.js、channels.js、agents.js），它们通过 extensionTabs 挂上来：
 //   extensionTabs.skills = { open() { …这一页被打开时调用，适合在这时去读列表… } }
 // 切换标签页按的是 WAI-ARIA 的"标签页"模式：左右方向键在标签之间移动，Home / End 到头尾。
 

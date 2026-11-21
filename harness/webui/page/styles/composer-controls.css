@@ -1,3 +1,8 @@
+/* ---- 发送键、输入框下面那一行、回到底部 ----------------------------------------
+   发送键（助手工作时变成"停止"）；输入框下面那一行：快捷键提示、这段对话的花费、"要不要先问你"的开关；
+   确认卡片里的"不想每次都问？"；往上翻了以后出现的"回到底部"。
+   它们和输入区（composer.css）是一回事，只是在原来的页面里写在查看器后面。拆开时没有挪动任何规则的先后
+   （两条一样具体的规则，后写的盖过先写的），所以单独成了一块，排在 viewer.css 后面。 */
 .send { position: relative; display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; color: var(--ink-3); background: var(--sunken); border: 0; border-radius: 50%; overflow: hidden; transition: transform .2s var(--ease); }
 .send::before, .send::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s ease; }
 .send::before { background: var(--aurora-solid); }

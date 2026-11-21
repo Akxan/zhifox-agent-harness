@@ -1,4 +1,6 @@
 /* ---- 输入区 -------------------------------------------------------------- */
+/* 这个文件管底部的输入框和附件（输入框上方待发的附件、拖进来的提示、对话里消息带的附件）。
+   发送键和输入框下面那一行在 composer-controls.css。 */
 .composer { position: relative; flex: none; padding: 0 24px 12px; }
 .box { position: relative; display: flex; align-items: flex-end; gap: 6px; padding: 7px 7px 7px 18px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 26px; box-shadow: var(--shadow-1); }
 .box:focus-within::before { opacity: 1; }

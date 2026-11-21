@@ -1,4 +1,5 @@
 // ---- 键盘 ----------------------------------------------------------------
+// 整个页面的快捷键：⌘F / Ctrl+F（或者 ⌘K / Ctrl+K）搜索会话，Esc 依次收起外观面板和窄窗口里的抽屉。
 
 document.addEventListener('keydown', (key) => {
   if (key.key === 'Escape' && appearanceOpen()) {  // Esc 先收起外观面板，焦点回到外观按钮上

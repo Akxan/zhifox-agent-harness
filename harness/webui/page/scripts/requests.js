@@ -1,4 +1,6 @@
 // ---- 提示和请求 ----------------------------------------------------------
+// 浮在页面底部的提示（toast）、顶上的横幅（showBanner）、给读屏软件的播报（announce），
+// 向助手程序发请求的 call() 和 post()，以及按"现在忙不忙"更新发送键和"正在工作"那一行的 refreshStatus()。
 
 let toastTimer = 0;
 function toast(text) {

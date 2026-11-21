@@ -3,7 +3,7 @@
 // 不用重新排版，所以即使脚本正忙着处理模型不断吐出来的文字，动画也不会卡。
 
 // 现在要不要减少动画：看 <html data-motion>。它综合了系统的"减少动态效果"和用户在外观面板里的选择
-// （见"外观"一节的 applyMotion）。脚本里要判断的地方都问它，不要直接查 prefers-reduced-motion。
+// （见 appearance.js 的 applyMotion）。脚本里要判断的地方都问它，不要直接查 prefers-reduced-motion。
 const calm = () => root.dataset.motion === 'reduce';
 const EASE = 'cubic-bezier(.2, .8, .2, 1)';
 

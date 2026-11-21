@@ -1,3 +1,7 @@
+/* ---- 记忆窗口的头和编辑 ------------------------------------------------------
+   记忆窗口顶上的名字，和点了"编辑"以后的样子（文件名、内容框）。列表和入口在 memory.css。
+   这几条在原来的页面里写在通道的样式后面。拆开时没有挪动任何规则的先后（两条一样具体的规则，
+   后写的盖过先写的），所以单独成了一块，排在 channels.css 后面。 */
 .memory-dialog .settings-head { align-items: flex-start; gap: 12px; }
 .memory-head { min-width: 0; }
 .memory-head h2 { overflow-wrap: anywhere; }

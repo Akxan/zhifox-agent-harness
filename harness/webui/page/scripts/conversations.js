@@ -1,4 +1,6 @@
 // ---- 会话列表 ------------------------------------------------------------
+// 左边栏的会话列表：按时间分组、搜索（在助手程序那边搜，这里标出命中的字）、当前那一段的高亮，
+// 每一行悬停时的"在访达中显示 / 重命名 / 删除"。
 
 let filter = '';         // 搜索框里的字
 let found = null;        // 搜索结果：{stamp, results}。没在搜索时是 null
@@ -100,7 +102,7 @@ function revealedText(path) {
   return ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown });
 }
 
-// 会话列表里，在聊天通道里聊的那几段标着平台的名字（名字由助手程序给，见"扩展 · 通道"一节）
+// 会话列表里，在聊天通道里聊的那几段标着平台的名字（名字由助手程序给，见 channels.js）
 const channelLabel = (id) => { const item = chanFind(id); return item ? item.label : id; };
 
 

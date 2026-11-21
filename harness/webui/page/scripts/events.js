@@ -1,4 +1,6 @@
 // ---- 每种事件怎么画 ------------------------------------------------------
+// 服务器推来的每一种事件（文字、思考、工具调用和结果、确认请求、状态……）在 handlers 里各有一个函数，
+// 收到事件就按它的类型调用对应的那个（连上事件流的地方在 start.js）。
 
 function finishTool(kind, text) {
   const { card, status, outcome } = toolCard;
@@ -66,7 +68,7 @@ const handlers = {
       refreshStatus();  // 重放期间没有刷新过，这里按最终的状态刷新一次
       if (synced) settle();
     }
-    renderTurnTools();  // "编辑""重新生成"摆在最后一轮上（见"编辑最后一条消息、重新生成"一节）
+    renderTurnTools();  // "编辑""重新生成"摆在最后一轮上（见 rewind.js）
   },
 
   user(event) {
