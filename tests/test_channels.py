@@ -481,6 +481,20 @@ def test_errors_never_contain_the_token(fake):
     assert TOKEN not in log.redact(f"GET https://api.telegram.org/bot{TOKEN}/getMe")
 
 
+def test_records_from_a_channel_still_stopping_do_not_bring_a_removed_platform_back(tmp_path):
+    # 删掉一个平台的时候，它收消息的线程可能还没停下，还会记一笔"读到了哪儿"、"这个聊天接着哪段会话"、
+    # "又忽略了一条"。这些记录只改已经有的那一份，不能新建一份空的：不然删掉的平台又回到了 channels.json 里
+    # （GitHub 上偶尔出现过：删完以后文件里还有一份 credentials 是空的 telegram）
+    store = ChannelStore(tmp_path / "channels.json")
+    store.connect("telegram", {"token": "123:abc"}, {"id": 1, "username": "zhifox_bot"})
+    store.remove("telegram")
+    store.set_offset("telegram", 42)
+    store.remember_chat("telegram", "111", "20261121-120000-abcdef")
+    assert store.attempt("telegram", "222", "陌生人", "你好") == "ignore"
+    assert "telegram" not in json.loads((tmp_path / "channels.json").read_text(encoding="utf-8"))["platforms"]
+    assert store.known() == [] and not store.configured("telegram")
+
+
 def test_long_polling_advances_and_remembers_the_offset(fake, tmp_path):
     store = paired_store(tmp_path / "channels.json")
     got = []

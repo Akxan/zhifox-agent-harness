@@ -238,7 +238,14 @@ class ChannelStore:
         return result
 
     def _entry(self, data: dict, platform: str) -> dict:
+        """一个平台的那一份，没有就新建一份空白的。只给页面、命令行上的操作用（它们之前都检查过这个平台设置了没有）。"""
         return data["platforms"].setdefault(platform, _blank())
+
+    @staticmethod
+    def _existing(data: dict, platform: str) -> dict | None:
+        """一个平台的那一份，没有就是 None，不新建。给"运行时的记录"用（见下面那一节）：
+        删掉一个平台时，它收消息的线程可能还没停下，还会再记一笔；用 _entry 的话，删掉的平台又会以一份空白的样子回来。"""
+        return data["platforms"].get(platform)
 
     def get(self, platform: str) -> dict:
         """一个平台的全部设置（一份拷贝，改它不影响存着的）。没设置过的是空白的那一份。"""
@@ -318,7 +325,9 @@ class ChannelStore:
         now = self.clock()
 
         def change(data: dict) -> str:
-            entry = self._entry(data, platform)
+            entry = self._existing(data, platform)
+            if entry is None:
+                return "ignore"  # 这个平台刚被删掉，还没停下的那个线程又交来一条：不理，也不把它记回来
             code = entry["pairing"]
             if code is None or code["expires"] <= now:
                 entry["pairing"] = None
@@ -355,7 +364,9 @@ class ChannelStore:
         now = self.clock()
 
         def change(data: dict) -> None:
-            entry = self._entry(data, platform)
+            entry = self._existing(data, platform)
+            if entry is None:
+                return  # 平台刚被删掉（见 _existing）
             entry["chats"][chat] = {"conversation": conversation, "last_active": now}
             entry["last_active"] = now
 
@@ -365,8 +376,13 @@ class ChannelStore:
         return self.get(platform)["chats"].get(chat, {}).get("conversation", "")
 
     def set_offset(self, platform: str, offset: int) -> None:
-        # 只是记着读到了哪儿，页面上看不出变化，不用通知谁
-        self._change(lambda data: self._entry(data, platform).update(offset=offset), notify=False)
+        # 只是记着读到了哪儿，页面上看不出变化，不用通知谁。平台刚被删掉的话什么都不记（见 _existing）
+        def change(data: dict) -> None:
+            entry = self._existing(data, platform)
+            if entry is not None:
+                entry["offset"] = offset
+
+        self._change(change, notify=False)
 
     # ---- 给页面看的 --------------------------------------------------------
 
