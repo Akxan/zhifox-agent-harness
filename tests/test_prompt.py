@@ -24,6 +24,18 @@ def system_text(request: dict) -> str:
     return request["system"][0]["text"]
 
 
+def test_on_windows_the_system_line_says_commands_are_powershell(make_config, monkeypatch):
+    """Windows 上"操作系统"那一行写明命令用的是 PowerShell：模型最容易默认写 bash。别的系统上只是系统的名字和版本。"""
+    from harness import prompt
+    from harness.tools import shell
+
+    monkeypatch.setattr(shell, "WINDOWS", True)
+    monkeypatch.setattr(shell.shutil, "which", lambda name: None)
+    assert "Windows PowerShell 5.1" in prompt.placeholder_values(make_config())["system"]
+    monkeypatch.setattr(shell, "WINDOWS", False)
+    assert "PowerShell" not in prompt.placeholder_values(make_config())["system"]
+
+
 def test_placeholders_are_filled_and_other_braces_kept(make_config):
     config = make_config()
     filled = render('我叫{name}（{latin}），在 {workspace} 里工作。示例：{"a": 1} 和 {不认识的}', config)
