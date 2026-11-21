@@ -154,8 +154,9 @@ end up in the same place.
 
 ## Windows
 
-ZhiFox runs on Windows 10 and 11, and every push is tested on `windows-latest` as well as Ubuntu and macOS. In
-PowerShell:
+ZhiFox runs on Windows. Every push is tested on GitHub's `windows-latest` runner (Windows Server) as well as Ubuntu and
+macOS; it hasn't been tried by hand on a Windows 10 or 11 desktop yet, so tell us if something there behaves
+differently. In PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
@@ -3100,7 +3101,7 @@ server, run `harness serve` (see [Deploying to a server](#deploying-to-a-server)
 
 ### Does it run on Windows?
 
-Yes, on Windows 10 and 11, tested in CI on every push. Commands run in PowerShell, the background service uses Task
+Yes. It is tested on every push on GitHub's Windows runner (not yet by hand on a Windows 10/11 desktop). Commands run in PowerShell, the background service uses Task
 Scheduler, and the page says Ctrl and File Explorer. Computer use isn't available on Windows yet. See [Windows](#windows).
 
 ## Keywords

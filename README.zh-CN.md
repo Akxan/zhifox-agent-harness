@@ -99,7 +99,8 @@ GPT 和 Gemini 是对照各自的官方文档写的，并用本地的假服务�
 
 ### 在 Windows 上使用
 
-智狐能在 Windows 10 和 11 上运行，每次推送都会在 `windows-latest` 上和 Ubuntu、macOS 一起跑一遍测试。在 PowerShell 里：
+智狐能在 Windows 上运行。每次推送都会在 GitHub 的 `windows-latest`（Windows Server）上和 Ubuntu、macOS 一起跑一遍测试；
+还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。在 PowerShell 里：
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
