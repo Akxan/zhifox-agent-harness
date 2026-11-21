@@ -96,6 +96,14 @@ def _sweep(page) -> dict[str, list[str]]:
 
     steps.open_dialog(page, "#settings-open", "settings")
     look("设置", ["#settings"])
+    # 自定义模型接口：编辑窗口（叠在设置上面），测试连接以后的结果和猜出来的能力
+    page.click("#endpoints-list > li.endpoint-row .endpoint-open")
+    page.wait(steps.is_open("endpoint-dialog"), what="编辑接口的窗口打开")
+    page.click("#endpoint-test")
+    page.wait("document.getElementById('endpoint-result').classList.contains('good')", timeout=15)
+    steps.idle(page)
+    look("自定义模型接口（编辑）", ["#endpoint-dialog"])
+    steps.escape_closes(page, "endpoint-dialog")
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")

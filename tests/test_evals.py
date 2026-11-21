@@ -547,7 +547,7 @@ def paid(make_config, monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_BASE_URL", api.base_url)  # 万一哪里绕过了下面那一行，也只会打到假服务器上
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.setattr(runner, "make_client", lambda provider: anthropic.Anthropic(api_key="test-key", base_url=api.base_url, max_retries=0))
+    monkeypatch.setattr(runner, "make_client", lambda provider, timeout=None: anthropic.Anthropic(api_key="test-key", base_url=api.base_url, max_retries=0))
     write_task(tmp_path / "tasks", "hello", SIMPLE)
     config = make_config(default_provider="anthropic", default_model="claude-sonnet-5-5")
     yield config, api, ["--tasks-dir", str(tmp_path / "tasks")]
@@ -599,7 +599,7 @@ def test_a_real_run_is_refused_in_ci_and_without_a_key(paid, monkeypatch):
     assert code == 2 and api.requests == []
     monkeypatch.delenv("CI")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    monkeypatch.setattr(runner, "make_client", lambda provider: pytest.fail("没有密钥就不该连"))
+    monkeypatch.setattr(runner, "make_client", lambda provider, timeout=None: pytest.fail("没有密钥就不该连"))
     monkeypatch.setattr(eval_cli, "has_key", lambda provider: False)
     code, _ = cli(config, "run", "--real", "--yes", *tasks)
     assert code == 2 and api.requests == []

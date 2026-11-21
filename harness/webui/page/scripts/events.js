@@ -66,6 +66,7 @@ const handlers = {
     if (modelsFlyout.isOpen() || !modelsCatalog) refreshModels();
     renderApproval(event.approval);
     renderCommands(event.commands);
+    renderEndpoints(event.endpoints);  // 设置里的"自定义模型接口"（见 endpoints.js）
 
     if (replaying) {  // 重放的旧内容到这里就画完了
       replaying = false;

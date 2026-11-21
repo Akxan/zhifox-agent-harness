@@ -35,7 +35,7 @@ from ..config import CHANNEL_QUEUE, CHANNEL_TYPING_SECONDS
 from ..conversations import Conversation, ConversationError, make_title
 from ..i18n import k, message_of, t
 from ..permissions import MODES
-from ..providers import PROVIDERS, has_key
+from ..providers import caps, find, has_key
 from ..tasks import retell
 from .base import ChannelError, Inbound, Prompt
 from .outbound import Outlet
@@ -202,7 +202,8 @@ class Session:
         app = router.app
         conversation, agent = self.conversation, self.agent
         if agent is not None:
-            provider, model = PROVIDERS[agent.backend.provider].label, agent.backend.model
+            found = find(agent.backend.provider)
+            provider, model = found.label if found is not None else agent.backend.provider, agent.backend.model
         else:
             provider, model = app.provider.label, app.settings.model
         lines = [
@@ -302,8 +303,11 @@ class Session:
         assert conversation is not None and agent is not None
         started = time.monotonic()
         try:
-            provider = PROVIDERS[agent.backend.provider]
-            problem = unsupported(attachments, provider.label, provider.vision, provider.pdf)
+            # 收不收得了按这个模型算（自定义接口上同一家的模型能力不一样，见 providers.caps）
+            provider = find(agent.backend.provider)
+            accepts = caps(provider, agent.backend.model) if provider is not None else None
+            label = provider.label if provider is not None else agent.backend.provider
+            problem = unsupported(attachments, label, bool(accepts and accepts.vision), bool(accepts and accepts.pdf))
             if problem:
                 say(problem)
                 return
@@ -390,7 +394,10 @@ class Session:
             self._catch_up(conversation)  # 网页上可能刚接着聊过、改过名
         conversation = self.conversation
         assert conversation is not None
-        provider = PROVIDERS[conversation.provider]
+        provider = find(conversation.provider)
+        if provider is None:  # 这段会话用的自定义接口被删掉了
+            self.router.claims.release(conversation.id, self.key)
+            return t("这段会话用的模型接口（{provider}）已经被删掉了。发 /new 开始一段新的。", provider=conversation.provider)
         if not has_key(provider):
             self.router.claims.release(conversation.id, self.key)
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
@@ -411,7 +418,7 @@ class Session:
             conversation = self.router.app.store.load(conversation_id)
         except ConversationError:
             return None
-        provider = PROVIDERS.get(conversation.provider)
+        provider = find(conversation.provider)
         return conversation if provider is not None and has_key(provider) else None
 
     def _adopt(self, conversation: Conversation) -> None:
@@ -443,7 +450,10 @@ class Session:
                 self.persona = ""
                 return t("Agent「{name}」现在用不了：{reason}", name=self.persona or "?", reason=message_of(exc))
             if persona.spec.model:
-                provider, model = PROVIDERS[persona.spec.provider], persona.spec.model_id
+                chosen = find(persona.spec.provider)
+                if chosen is None:  # 它的文件里写的是一个后来被删掉的自定义接口
+                    return t("Agent「{name}」用的模型接口（{provider}）已经不在了。", name=persona.name, provider=persona.spec.provider)
+                provider, model = chosen, persona.spec.model_id
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
         conversation = app.store.new(provider.id, model)

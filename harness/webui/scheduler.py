@@ -380,7 +380,7 @@ class Scheduler:
                 app.store.save(conversation)
             except Exception as exc:  # noqa: BLE001 —— 存不上也要把这次运行的结果记下来
                 problem = t("这次运行的会话没能保存：{error}", error=str(exc) or type(exc).__name__)
-        total, unpriced = estimate(agent.usage_by_model, app.settings.prices)
+        total, unpriced = estimate(agent.usage_by_model, app.prices())
         if ui.stopped:
             status, error = "stopped", ""
         elif ui.failure is not None:
@@ -465,7 +465,7 @@ class Scheduler:
     def snapshot(self) -> tuple[list[dict], list[dict]]:
         """状态里的 tasks 和 reminders（格式见这个文件开头的说明，以及 server.py 的 publish_state）。"""
         tasks, reminders = self.store.snapshot()
-        prices, max_steps = self.web.app.settings.prices, self.web.app.config.max_steps
+        prices, max_steps = self.web.app.prices(), self.web.app.config.max_steps
         with self._lock:
             live = {pending.task_id: _live_view(pending, prices, max_steps, self.limit) for pending in self._queue}
         for task in tasks:
