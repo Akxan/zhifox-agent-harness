@@ -207,6 +207,18 @@ COMPUTER_TOOLSET_MODELS = {
 # 工具包的说明书每次请求大约要多发这么多个 token（文档的 Pricing 一节：默认的 17 个成员约 4500）。只用来在设置里告诉你
 COMPUTER_TOOLSET_TOKENS = 4500
 
+# "只读的命令不用问"那一档（见 commands/ 和 permissions.py）。
+# 一条命令最长这么多个字符还去判断它是不是只读的；再长的一律照常问：看懂一条很长的命令本来就难，人也很难一眼看清
+READONLY_MAX_CHARS = 2000
+# 会把一个文件夹里的文件内容整个读一遍的命令（grep -r、rg、diff -r），先把那个文件夹看一遍有没有像密钥的文件
+# （.env、私钥、凭据……）。最多看这么多项，看不完的（文件夹太大）就照常问，不去猜剩下的里面有没有
+READONLY_SCAN_ENTRIES = 3000
+# 你自己加的"不用问的命令"（data/commands.json，见 commands/allowlist.py）：最多这么多条，每条最长这么多个字符。
+# 默认一条都没有：常见的只读命令（ls、git status、df……）已经内置，不用你加
+ALLOWED_COMMANDS_DEFAULT: tuple[str, ...] = ()
+MAX_ALLOWED_COMMANDS = 100
+MAX_ALLOWED_COMMAND_CHARS = 200
+
 
 @dataclass(frozen=True)
 class Config:
@@ -291,6 +303,10 @@ class Config:
     @property
     def channels_file(self) -> Path:
         return self.data_dir / "channels.json"  # 聊天通道的设置：机器人的 token（密钥）、绑定的账号（见 channels/store.py）
+
+    @property
+    def commands_file(self) -> Path:
+        return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
 
 
 def load_env_file(path: Path) -> None:

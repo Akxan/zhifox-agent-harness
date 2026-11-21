@@ -38,6 +38,7 @@ NAMES = [
     ".conv-title", ".conv-snippet", ".todo-text", ".task-title", ".memory-name", ".memory-meta", ".skill-name",
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
+    ".cmd-text",  # 你自己加的"不用问的命令"
 ]
 # 在任何语言下都照原样写的几个词：标志的名字，以及语言选单里每种语言用它自己的文字写的名字
 ALLOWED_WORDS = ["智狐", "中文", "语言"]

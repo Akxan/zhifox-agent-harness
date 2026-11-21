@@ -20,6 +20,7 @@ from .agents.runner import Delegator
 from .attachments import Attachment, unsupported
 from .browser.manager import BrowserManager
 from .browser.session import BrowserSession
+from .commands.allowlist import CommandList
 from .config import Config
 from .conversations import (
     Conversation,
@@ -552,8 +553,11 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
 
     # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序。
-    # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上
-    files = FileEditor(config.workspace, config.backup_dir, protected=[config.env_file, config.mcp_file, config.channels_file])
+    # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上。
+    # commands.json（你自己加的"不用问的命令"）也是：改了它，模型就能让自己想运行的命令不再问你（见 commands/allowlist.py）
+    commands = CommandList(config.commands_file)
+    protected = [config.env_file, config.mcp_file, config.channels_file, config.commands_file]
+    files = FileEditor(config.workspace, config.backup_dir, protected=protected)
     todos = TodoStore(config.todo_file)
     tasks = TaskStore(config.tasks_file)
     shell = Shell(config.workspace)
@@ -565,7 +569,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     prompt = build_system_prompt(config, web=config.web and provider.web)
     backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
     mcp = McpManager(McpConfig(config.mcp_file))
-    permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp)
+    permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp, commands=commands)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）。
     # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）

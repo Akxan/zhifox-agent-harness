@@ -241,7 +241,7 @@ function taskRow(task) {
   return row;
 }
 
-// 一个任务"要不要先问你"的那一档，画成一个小标签。名字和对话里的三档是同一套（APPROVAL，在 approval.js）
+// 一个任务"要不要先问你"的那一档，画成一个小标签。名字和对话里的几档是同一套（APPROVAL，在 approval-modes.js）
 function modeChip(mode) {
   const chip = el('span', 'chip task-mode ' + mode);
   chip.appendChild(icon('shield'));
@@ -291,7 +291,7 @@ function progressBlock(task) {
       const item = log.appendChild(el('li', entry.ok === true ? 'ok' : entry.ok === false ? 'bad' : ''));
       item.appendChild(el('span', 'mark', entry.ok === true ? '✓' : entry.ok === false ? '✕' : '…'));
       item.appendChild(el('span', null, entry.summary || entry.tool));
-      if (entry.auto) item.appendChild(el('span', 'task-log-auto', t('自动允许')));  // 按这个任务的那一档，没问你就放行了
+      if (entry.auto) item.appendChild(el('span', 'task-log-auto', t(autoTag(entry.why))));  // 按这个任务的那一档，没问你就放行了
     }
   }
   if (running.confirm) {
@@ -525,6 +525,7 @@ function drawDetail() {
     line.appendChild(modeChip(task.approval));
     line.appendChild(el('span', null, task.approval === 'all' ? t('任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。')
       : task.approval === 'edits' ? t('改工作目录里的文件直接做；执行命令等别的操作，停下来等你批准。')
+        : task.approval === 'readonly' ? t('只是看的命令和读文件直接做；会改动东西的命令、改文件，停下来等你批准。')
         : t('要确认的操作会停下来，等你在任务列表里批准。')));
   }
   if (task.prompt) section(task.kind === 'agent' ? t('让助手做什么') : t('提醒的内容')).appendChild(el('pre', null, task.prompt));

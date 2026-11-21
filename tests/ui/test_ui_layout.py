@@ -26,6 +26,7 @@ def _surfaces(page):
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#model", "settings")), ["#settings"], "settings"),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
+        ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
         ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
         ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
@@ -36,6 +37,14 @@ def _surfaces(page):
         ("重新生成之前的确认", lambda: (steps.close_nav(page), _retry_confirm(page)), ["#log"], None),
         ("编辑最后一条消息", lambda: _edit_confirm(page), ["#log"], None),
     ]
+
+
+def _commands(page) -> None:
+    """"不用问的命令"窗口，里面有一条很长的命令（命令要整条看得到，所以折行，不能冲出去）。"""
+    page.demo.api("/api/commands/add", {"command": "./scripts/check-everything-before-release.sh --with-a-very-long-option-name --and-another-one=value"})
+    steps.open_dialog(page, "#approval", "approval-dialog")
+    page.click("#approval-commands")
+    page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
 
 
 def _retry_confirm(page) -> None:

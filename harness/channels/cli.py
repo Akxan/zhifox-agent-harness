@@ -4,7 +4,7 @@
     harness channels setup <平台>                 照着步骤建机器人，填 token 或 ID 和密钥（密钥不回显；也可以先放在环境变量里，
                                                   比如 TELEGRAM_BOT_TOKEN、SLACK_BOT_TOKEN，见 platforms.py 的 fields）
     harness channels pair <平台>                  显示配对码，等你从自己的账号发给机器人
-    harness channels approval <平台> ask          这个通道里要不要先问你：ask / edits / all
+    harness channels approval <平台> ask          这个通道里要不要先问你：ask / readonly / edits / all
     harness channels enable|disable <平台>        打开、关掉
     harness channels remove <平台>                删掉这个平台的全部设置
 
@@ -58,7 +58,9 @@ def add_parser(commands: argparse._SubParsersAction) -> None:
             action.add_argument("--no-wait", action="store_true", help=t("只显示配对码，不等"))
         if name == "remove":
             action.add_argument("--yes", action="store_true", help=t("不再问一遍"))
-    approval = actions.add_parser("approval", help=t("这个通道里要不要先问你：ask 每次都问，edits 改工作目录里的文件不用问，all 全部自动允许"))
+    approval = actions.add_parser(
+        "approval", help=t("这个通道里要不要先问你：ask 每次都问，readonly 只读的命令不用问，edits 改工作目录里的文件不用问，all 全部自动允许")
+    )
     approval.add_argument("platform", choices=ORDER)
     approval.add_argument("mode", choices=list(MODES))
 

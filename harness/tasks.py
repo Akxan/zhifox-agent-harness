@@ -6,7 +6,7 @@
             每次运行都要花 API 费用（每一次花了多少都记下来，见 webui/scheduler.py）。
   reminder  到时间后，只在页面上弹出一条提醒。不调用模型，不花钱。
 
-agent 任务还记着"要不要先问你"（approval）：和对话里的三档同名、同义（ask / edits / all，见 permissions.py 的 MODES），
+agent 任务还记着"要不要先问你"（approval）：和对话里的几档同名、同义（ask / readonly / edits / all，见 permissions.py 的 MODES），
 默认 ask。只有你在页面上编辑任务时能放宽；模型用工具添加的一律是 ask（见 tools/tasks.py）。
 
 时间表，全部按这台电脑的本地时间：

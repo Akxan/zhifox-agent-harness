@@ -28,7 +28,8 @@
   POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
   POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
-  POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 改文件不用问 / 全部自动允许）
+  POST /api/commands/add、edit、delete、reveal   你自己加的"不用问的命令"：加、改、删、在访达中显示 commands.json（见 commands_api.py）
+  POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
   POST /api/key        用户填写或删除了一家的 API 密钥
@@ -116,6 +117,7 @@ from ..tools.shell import SECRET_ENV_VARS
 from . import lifecycle
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
+from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .page import assemble as assemble_page
 from .scheduler import Scheduler
@@ -155,7 +157,7 @@ def reveal_in_file_manager(path: Path) -> None:
     路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory、reveal_media 和
     skills_api.py、agents_api.py 的 reveal：浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、
     附件的编号（查过格式，文件名由内容的 SHA-256 定）、一个 Skill 的名字（只能是 Skill 文件夹里的一个子文件夹），
-    或者什么都不给）；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
+    或者什么都不给（commands_api.py 的 reveal：只显示 data/commands.json））；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
     if not has_file_manager():
         return
@@ -201,6 +203,7 @@ class WebApp:
         self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
+        self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -293,7 +296,8 @@ class WebApp:
             spend=self.app.spending(),  # 今天、本月花了多少，预算超了没有（这些记在账本里，重启也不会清零）
             tools=[{"name": name, "local": local} for name, local in self.app.tool_names()],
             mcp=self._mcp_state(),
-            approval=agent.permissions.mode,  # 要不要每次都问：ask / edits / all
+            approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
+            commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒
@@ -1478,6 +1482,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "image/jpeg", content, headers)
         elif path.startswith("/api/browser/"):
             status, payload = web.browser.route(path.removeprefix("/api/browser/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/commands/"):
+            status, payload = web.commands.route(path.removeprefix("/api/commands/"), body)
             self._send_json(status, payload)
         elif path == "/api/computer/shot":
             content = web.computer.shot(body.get("id"))

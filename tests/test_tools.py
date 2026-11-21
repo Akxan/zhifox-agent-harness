@@ -300,19 +300,20 @@ def test_auto_allow_modes_decide_what_is_done_without_asking(tmp_path):
     permissions = Permissions(editor, private=[data])
     outside = str(tmp_path / "outside.txt")
 
-    # 每一行：一次工具调用，以及它在三种模式下是不是"不用问就可以做"（ask、edits、all）
+    # 每一行：一次工具调用，以及它在四种模式下是不是"不用问就可以做"（ask、readonly、edits、all）
     cases = [
-        ((FILE_TOOL, {"command": "create", "path": "new.txt", "file_text": "内容"}), (False, True, True)),
-        ((FILE_TOOL, {"command": "str_replace", "path": "a.txt", "old_str": "x", "new_str": "y"}), (False, True, True)),
-        ((FILE_TOOL, {"command": "insert", "path": "a.txt", "insert_line": 0, "insert_text": "y"}), (False, True, True)),
-        ((FILE_TOOL, {"command": "create", "path": "sub/../b.txt", "file_text": "x"}), (False, True, True)),
+        ((FILE_TOOL, {"command": "create", "path": "new.txt", "file_text": "内容"}), (False, False, True, True)),
+        ((FILE_TOOL, {"command": "str_replace", "path": "a.txt", "old_str": "x", "new_str": "y"}), (False, False, True, True)),
+        ((FILE_TOOL, {"command": "insert", "path": "a.txt", "insert_line": 0, "insert_text": "y"}), (False, False, True, True)),
+        ((FILE_TOOL, {"command": "create", "path": "sub/../b.txt", "file_text": "x"}), (False, False, True, True)),
         # 下面这些，"改文件不用问"并不包括
-        ((FILE_TOOL, {"command": "create", "path": outside, "file_text": "x"}), (False, False, True)),  # 工作目录之外
-        ((FILE_TOOL, {"command": "create", "path": "../outside.txt", "file_text": "x"}), (False, False, True)),
-        ((FILE_TOOL, {"command": "create", "path": "data/settings.json", "file_text": "{}"}), (False, False, True)),  # 数据目录
-        ((FILE_TOOL, {"command": "view", "path": outside}), (False, False, True)),  # 读工作目录之外的文件
-        ((FILE_TOOL, {"command": "view", "path": "data/settings.json"}), (False, False, True)),  # 读数据目录
-        (("run_command", {"command": "rm -rf build"}), (False, False, True)),  # 执行命令
+        ((FILE_TOOL, {"command": "create", "path": outside, "file_text": "x"}), (False, False, False, True)),  # 工作目录之外
+        ((FILE_TOOL, {"command": "create", "path": "../outside.txt", "file_text": "x"}), (False, False, False, True)),
+        ((FILE_TOOL, {"command": "create", "path": "data/settings.json", "file_text": "{}"}), (False, False, False, True)),  # 数据目录
+        ((FILE_TOOL, {"command": "view", "path": outside}), (False, True, False, True)),  # 读工作目录之外的文件：只是看
+        ((FILE_TOOL, {"command": "view", "path": "data/settings.json"}), (False, False, False, True)),  # 读数据目录：只有全部放开才不问
+        (("run_command", {"command": "rm -rf build"}), (False, False, False, True)),  # 执行会改东西的命令
+        (("run_command", {"command": "ls -la"}), (False, True, False, True)),  # 只读的命令："改文件不用问"不包括它
     ]
     assert permissions.mode == "ask"  # 一开始总是"每次都问"
     for mode_index, mode in enumerate(MODES):
@@ -321,7 +322,7 @@ def test_auto_allow_modes_decide_what_is_done_without_asking(tmp_path):
             # 模式只决定"问不问"；这次操作需不需要确认、确认时给用户看什么，和模式无关
             assert permissions.review(tool, tool_input) is not None, (mode, tool_input)
             assert permissions.auto_allows(tool, tool_input) is expected[mode_index], (mode, tool_input)
-    assert list(MODES) == ["ask", "edits", "all"]
+    assert list(MODES) == ["ask", "readonly", "edits", "all"]
 
     # 本来就不用问的操作，问"能不能自动放行"没有意义，但也不该出错
     permissions.mode = "edits"

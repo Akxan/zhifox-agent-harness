@@ -12,11 +12,7 @@ const chanPanel = $('panel-channels');
 const CHAN_STATUS = { online: k('在线'), connecting: k('连接中'), error: k('有问题'), off: k('已关闭') };
 const CHAN_STAGE = { ready: k('现在能用'), soon: k('即将支持'), public_url: k('需要公网地址 · 第二阶段'), unsupported: k('不支持') };
 const CHAN_STEPS = [k('建机器人'), k('填 token'), k('配对'), k('确认方式')];
-const CHAN_MODES = [
-  { mode: 'ask', text: k('改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。') },
-  { mode: 'edits', text: k('创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。') },
-  { mode: 'all', text: k('执行命令、改文件、读工作目录之外的文件，都不再问。') },
-];
+const CHAN_MODES = APPROVAL_ORDER.map((mode) => ({ mode, text: APPROVAL_TEXT[mode] }));  // 几档的名字和说明在 approval-modes.js
 let chanState = null;            // 状态里的 channels：{problem, file, platforms, approvals}
 let chanView = { kind: 'list' };
 let chanDrawn = '';

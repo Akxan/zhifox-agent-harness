@@ -349,6 +349,11 @@ __STYLES__
       <button id="prompt-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span data-i18n>编辑提示词</span></button>
     </section>
     <section>
+      <h3><span data-i18n>不用问的命令</span> <small id="commands-state"></small></h3>
+      <p class="hint" data-i18n>选了“自动允许只读命令”时，只是看的命令（ls、git status、df……）不用问。你天天用、信得过的别的命令（比如 npm test），也可以加进来。</p>
+      <button id="commands-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>管理不用问的命令</span></button>
+    </section>
+    <section>
       <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
       <div class="row">
         <input id="budget-amount" class="field" type="number" min="0" step="any" inputmode="decimal" aria-label="每月预算（美元）" data-i18n-aria-label>
@@ -506,11 +511,7 @@ __STYLES__
       <p id="task-preview" class="task-preview" aria-live="polite"></p>
     </div>
     <div id="task-approval-field" class="task-field"><span class="task-label" id="task-approval-label" data-i18n>动手之前要不要先问你</span>
-      <div class="task-approval" role="radiogroup" aria-labelledby="task-approval-label">
-        <button class="task-approval-option" type="button" role="radio" data-approval="ask"><b data-i18n>每次确认</b><span data-i18n>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-        <button class="task-approval-option" type="button" role="radio" data-approval="edits"><b data-i18n>自动允许改文件</b><span data-i18n>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-        <button class="task-approval-option" type="button" role="radio" data-approval="all"><b data-i18n>全部自动允许</b><span data-i18n>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-      </div>
+      <div id="task-approval-options" class="task-approval" role="radiogroup" aria-labelledby="task-approval-label"></div>
       <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。</span></p>
       <p class="hint task-approval-hint" data-i18n>任务按这里选的来，和对话里选的那一档互不影响。要确认的操作会停下来，等你在任务列表里批准。</p>
     </div>
@@ -612,11 +613,7 @@ __STYLES__
     <button id="close-approval" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
   <div class="settings-body">
-    <div id="approval-options" class="options">
-      <button class="option" type="button" data-mode="ask"><b data-i18n>每次确认</b><span data-i18n>改文件、执行命令、读工作目录之外的文件，每一次都先问你。最稳妥，也是默认的做法。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-      <button class="option" type="button" data-mode="edits"><b data-i18n>自动允许改文件</b><span data-i18n>创建和修改工作目录里的文件不再问。执行命令、读工作目录之外的文件仍然每次问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-      <button class="option" type="button" data-mode="all"><b data-i18n>全部自动允许</b><span data-i18n>执行命令、改文件、读工作目录之外的文件，都不再问。</span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
-    </div>
+    <div id="approval-options" class="options"></div>
     <div id="approval-warning" class="warning" hidden>
       <p><b data-i18n>开启之前请知道：</b><span data-i18n>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件。只在你信任手头的任务、并且会盯着它的时候开启。</span></p>
       <div class="row">
@@ -624,8 +621,37 @@ __STYLES__
         <button id="approval-cancel" class="button" type="button" data-i18n>取消</button>
       </div>
     </div>
+    <p class="approval-commands"><span data-i18n>选“自动允许只读命令”时，你自己加的命令也不用问。</span><button id="approval-commands" class="link" type="button" data-i18n>管理不用问的命令</button></p>
     <p class="hint" data-i18n>不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
   </div>
+</dialog>
+
+<dialog id="commands-dialog" class="settings commands-dialog" aria-labelledby="commands-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="commands-title" data-i18n>不用问的命令</h2>
+      <p class="memory-sub" data-i18n>选了“自动允许只读命令”时（对话、定时任务、聊天通道都能选），这些命令不再问你。</p>
+    </div>
+    <button id="close-commands" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body commands-body">
+    <div class="commands-builtin">
+      <span class="commands-glyph" aria-hidden="true"><svg class="icon"><use href="#i-eye"/></svg></span>
+      <div class="commands-builtin-words">
+        <b data-i18n>内置的只读命令，不用加</b>
+        <p data-i18n>ls、cat、grep、find、df、ps、git status、git log、systemctl status、journalctl、docker ps……只是看、不改东西的，已经不用问。看不懂的写法（; && | sh、> 文件、$( )、*）一律照常问；碰到 .env、助手自己的数据、~/.ssh 这类地方，哪怕只是 cat，也照常问。</p>
+      </div>
+    </div>
+    <h3 class="commands-heading"><span data-i18n>你加的命令</span> <small id="commands-count"></small></h3>
+    <p id="commands-problem" class="commands-problem" role="note" hidden></p>
+    <ul id="commands-list" class="commands-list" aria-label="你加的命令" data-i18n-aria-label></ul>
+    <div class="row commands-add">
+      <input id="commands-new" class="field" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="200" placeholder="比如 npm test、make check" aria-label="要加的命令" data-i18n-placeholder data-i18n-aria-label>
+      <button id="commands-add" class="button" type="button" data-i18n>添加</button>
+    </div>
+    <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
+  </div>
+  <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
 </dialog>
 
 <dialog id="language-dialog" class="settings approval-dialog" aria-labelledby="language-title">

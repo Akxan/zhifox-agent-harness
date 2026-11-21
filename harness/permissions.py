@@ -38,6 +38,21 @@
 "先问用户"可以由用户自己放宽（见 MODES）。放宽的只是"问不问"：哪些操作需要确认、
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
 
+四档从严到松：
+
+  ask        每次都问
+  readonly   只读的命令不用问：只是看、不改东西的命令（ls、cat、grep、df、git status、journalctl……，
+             怎么判断见 commands/），加上读工作目录之外的文件，不问就做；你自己加的"不用问的命令"（commands/allowlist.py）
+             也在这一档里不问。改文件、别的命令、MCP、浏览器、发文件照常问。
+             读 .env 这类密钥文件、助手自己的数据目录、~/.ssh 这类地方，哪怕只是 cat，也照常问
+  edits      改工作目录里的文件不用问（不算助手自己的数据目录）。命令一律照常问，包括只读的
+  all        全部自动允许
+
+为什么 readonly 排在 edits 前面、而且不包括改文件：它是给"远程看一眼服务器"准备的（在聊天软件里问 df -h、
+systemctl status），要的正是"会改东西的都还问我"。两档管的是不同的两样东西，按"不问你时最坏会怎样"排：
+只读的命令最多是把东西给模型看了（密钥和数据目录照样拦着），改文件会真的改掉东西（虽然有备份），全部放开什么都可能。
+判断"只读"是保守的：看不懂的、拿不准的一律不算，照常问（理由见 commands/__init__.py）。
+
 MCP 的工具是别人写的程序，它能做什么我们看不到（它说自己"只读"也没法验证），所以默认每次都问。
 你在"扩展 → MCP"里把某个工具设成"不用问"，它就和"全部自动允许"一样直接执行，在对话的任何模式下都算数，
 对话里照样标着"自动允许"。这是你对一个具体工具做的决定，记在 data/mcp.json 里，重启后还在。
@@ -76,6 +91,8 @@ from typing import Any
 
 from .browser import urls
 from .browser.session import Facts
+from .commands import Places, Unclear, classify
+from .commands.allowlist import CommandList
 from .desktop.session import Facts as DesktopFacts
 from .display import file_size, short
 from .i18n import k, t
@@ -90,16 +107,23 @@ from .tools.computer import DesktopTool
 from .tools.files import FileEditor
 from .tools.send import SendFacts, SendTool
 
-# 用户可以选的三种模式，以及给人看的说法。
+# 用户可以选的四种模式，以及给人看的说法（从严到松，页面和命令行都按这个顺序列）。
 MODES = {
     "ask": k("每次都问"),
+    "readonly": k("只读的命令不用问"),
     "edits": k("改工作目录里的文件不用问"),
     "all": k("全部自动允许"),
 }
 
+# 没问就放行时，为什么（见 Permissions.allowance）。界面上 readonly、listed 两种写得更具体（"自动允许（只读）"）
+WHY_READONLY = "readonly"  # 内置的只读命令、读工作目录之外的文件
+WHY_LISTED = "listed"  # 你自己加的"不用问的命令"
+
 
 class Permissions:
-    def __init__(self, editor: FileEditor, private: Iterable[Path] = (), tasks: TaskStore | None = None, mcp: Any = None):
+    def __init__(
+        self, editor: FileEditor, private: Iterable[Path] = (), tasks: TaskStore | None = None, mcp: Any = None, commands: CommandList | None = None
+    ):
         """private 是助手自己的数据目录（保存下来的会话、设置、待办、记忆）。
 
         在项目目录里运行时，这个目录就在工作目录里面。如果把它当成普通的工作目录文件、读取时不用问，
@@ -111,6 +135,7 @@ class Permissions:
         self.private = [path.resolve() for path in private]
         self.tasks = tasks  # 删除定时任务时要看一眼它是哪一种（只是提醒的不用问）
         self.mcp = mcp  # MCP 服务器的管理者（mcp/manager.py）：记着哪些工具设成了"不用问"
+        self.commands = commands  # 你自己加的"不用问的命令"（只在 readonly 那一档里算）
         # 现在是哪种模式。每次启动都从"每次都问"开始，不记进设置文件：
         # 放开之后忘了关，比每次多点一下要危险得多。
         self.mode = "ask"
@@ -122,28 +147,63 @@ class Permissions:
         是另外一个对象，所以用户在页面上换对话的模式（改的是对话用的那一份）碰不到它；
         这次运行开始以后用户再改任务的那一档，也只影响以后的运行。不认识的模式按"每次都问"算。
         """
-        copy = Permissions(self.editor, self.private, self.tasks, self.mcp)
+        copy = Permissions(self.editor, self.private, self.tasks, self.mcp, self.commands)
         copy.mode = mode if mode in MODES else "ask"
         copy.trust_mcp = False  # 在"扩展 → MCP"里放开的工具，是在对话里放开的（见文件开头的说明）
         return copy
 
     def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
         """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
+        return self.allowance(tool_name, tool_input, tool) is not None
+
+    def allowance(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
+        """和 auto_allows 一样，只是说出为什么可以不问：返回 None 表示要问；
+        WHY_READONLY、WHY_LISTED 是 readonly 那一档放行的（界面上写得更具体），别的情况返回 "mode"。"""
         if isinstance(tool, DesktopTool):
             # 操作整台电脑：在任何模式下都要问（见文件开头）。只有截图在你选了"这段对话里截图不再问"之后不问
             facts = tool.look(tool_input) if isinstance(tool_input, dict) else None
-            return facts is not None and facts.action in LOOKS and facts.trusted
+            return "mode" if facts is not None and facts.action in LOOKS and facts.trusted else None
         if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
-            return False  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
+            return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
         if self.mode == "all":
-            return True
+            return "mode"
         found = self._mcp_of(tool_name, tool)
         if found is not None:
             # 你单独放开了这个 MCP 工具（见文件开头的说明）。认不出是哪个服务器的，一律问
-            return self.trust_mcp and found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
+            trusted = self.trust_mcp and found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
+            return "mode" if trusted else None
         if self.mode == "edits":
-            return self._edits_workspace_file(tool_name, tool_input)
-        return False
+            return "mode" if self._edits_workspace_file(tool_name, tool_input) else None
+        if self.mode == "readonly":
+            return self._reads_only(tool_name, tool_input)
+        return None
+
+    def places(self) -> Places:
+        """命令在哪儿运行、哪些地方不能不问就读（给 commands.classify 用）。"""
+        protected = [*self.editor.protected, *([self.commands.path] if self.commands is not None else [])]
+        return Places(self.editor.workspace, protected=protected, private=self.private)
+
+    def _reads_only(self, tool_name: str, tool_input: object) -> str | None:
+        """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；
+        碰到密钥文件、助手自己的数据目录、~/.ssh 这类地方的不算（见 commands/paths.py）。"""
+        if self.editor is None or not isinstance(tool_input, dict):
+            return None
+        if tool_name == shell.TOOL_NAME:
+            listed = self.commands.words() if self.commands is not None else []
+            verdict = classify(tool_input.get("command"), self.places(), listed)
+            if not verdict.readonly:
+                return None
+            return WHY_LISTED if verdict.source == "listed" else WHY_READONLY
+        if tool_name == files.TOOL_NAME and tool_input.get("command") == "view":
+            try:
+                path = self.editor.resolve(tool_input.get("path"))
+                if self._is_private(path):
+                    return None  # 助手自己的数据：除了"全部自动允许"，读它一律先问（见 __init__ 的说明）
+                self.places().check(str(path))
+            except (ToolError, Unclear):
+                return None
+            return WHY_READONLY
+        return None
 
     def _edits_workspace_file(self, tool_name: str, tool_input: object) -> bool:
         """是不是"创建或修改工作目录里的文件"（不算助手自己的数据目录）。"""

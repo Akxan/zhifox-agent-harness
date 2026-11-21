@@ -373,10 +373,13 @@ def test_approval_all_comes_with_a_warning(harness_cli):
     assert code == 0 and "Telegram 的确认方式改成了：全部自动允许" in out, err
     assert "确认是你和模型之间唯一的一道关卡" in out
     assert harness_cli.store().get("telegram")["approval"] == "all"
+    code, out, err = harness_cli("channels", "approval", "telegram", "readonly")
+    assert code == 0 and "Telegram 的确认方式改成了：只读的命令不用问" in out and "唯一的一道关卡" not in out, err
+    assert harness_cli.store().get("telegram")["approval"] == "readonly"
     code, out, err = harness_cli("channels", "approval", "telegram", "ask")
     assert code == 0 and "唯一的一道关卡" not in out, err
     with pytest.raises(SystemExit):
-        harness_cli("channels", "approval", "telegram", "yolo")  # argparse 拦下：只有三档
+        harness_cli("channels", "approval", "telegram", "yolo")  # argparse 拦下：只有那几档
 
 
 def test_status_enable_disable_and_remove(harness_cli, monkeypatch):

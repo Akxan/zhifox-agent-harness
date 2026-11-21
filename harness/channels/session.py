@@ -61,6 +61,11 @@ UNSUPPORTED = {
 }
 
 
+# 没问你就放行了一步时，聊天里发的那一行（为什么不问，见 permissions.Permissions.allowance）
+AUTO_SAY = k("已自动允许：{action}")
+AUTO_SAID = {"readonly": k("已自动允许（只读）：{action}"), "listed": k("已自动允许（你加的命令）：{action}")}
+
+
 @dataclass
 class Waiting:
     """一个发到聊天里、还没答复的确认请求。"""
@@ -95,7 +100,7 @@ class Session:
             on_notice=lambda level, text: router.say(platform, chat, text),
             on_confirm=self._asked,
             on_settled=self._settled,
-            on_auto=lambda action: router.say(platform, chat, t("已自动允许：{action}", action=action)),
+            on_auto=lambda action, why: router.say(platform, chat, t(AUTO_SAID.get(why, AUTO_SAY), action=action)),
         )
         self.ui.on_stop(self._kill)
         self.outlet = Outlet(router, platform, chat, self.ui, lambda: self.name)  # send_file 发的文件发到这个聊天里

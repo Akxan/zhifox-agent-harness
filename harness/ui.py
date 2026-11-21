@@ -16,7 +16,7 @@ from prompt_toolkit.history import FileHistory
 
 from .config import APP_NAME
 from .display import describe_call, short
-from .i18n import t
+from .i18n import k, t
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -28,6 +28,10 @@ CYAN = "\033[36m"
 # 确认时认得的回答：中文、英文、西班牙语都行
 YES = {"y", "yes", "是", "好", "允许", "allow", "s", "si", "sí", "permitir"}
 NO = {"", "n", "no", "否", "不", "deny", "rechazar"}
+
+# 没问你就放行的那一步后面标的一句。只读的命令、你自己加的命令写得更具体（为什么不问，见 permissions.Permissions.allowance）
+AUTO_NOTE = k("（自动允许）")
+AUTO_NOTES = {"readonly": k("（自动允许：只读的命令）"), "listed": k("（自动允许：你加的命令）")}
 
 
 class TerminalUI:
@@ -170,8 +174,8 @@ class TerminalUI:
         shot = f" · {t('截图已保存')}" if preview and preview.get("shot") else ""
         self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}{shot}")
 
-    def auto_allowed(self) -> None:
-        self.info("   " + t("（自动允许）"))
+    def auto_allowed(self, why: str = "mode") -> None:
+        self.info("   " + t(AUTO_NOTES.get(why, AUTO_NOTE)))
 
     # ---- 子 Agent（见 agents/runner.py）------------------------------------
 
@@ -186,7 +190,7 @@ class TerminalUI:
         elif step == "tool_result":
             self._line(RED if data.get("is_error") else DIM, f"      ↳ {short(str(data.get('text', '')), 100)}")
         elif step == "auto":
-            self.info("      " + t("（自动允许）"))
+            self.info("      " + t(AUTO_NOTES.get(str(data.get("why", "")), AUTO_NOTE)))
         elif step == "note":
             self.info(f"   （{data.get('text', '')}）")
         elif step == "done":

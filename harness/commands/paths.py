@@ -1,0 +1,210 @@
+"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问就读的地方。
+
+"只读"不等于"读什么都行"。有三种地方，命令就算只是看，也照常问你：
+
+  1. 智狐自己的密钥文件（.env、mcp.json、channels.json）和"不用问的命令"清单（commands.json）。
+     文件工具根本读不了它们；命令也一样，不能因为是 cat 就放过去。
+  2. 智狐的数据目录（data/：以前的会话、记忆、设置）。和文件工具一样：除了"全部自动允许"，读它一律先问。
+  3. 看起来存着密钥的地方：~/.ssh、~/.aws 这类文件夹，.env、私钥、凭据、shell 的历史记录这类文件。
+     这一条是猜的（按名字），猜不全，所以只用来多拦一些，从不用来放行。
+
+怎么判断"碰到"：命令里的每一个词都当作可能的路径（选项的值、git 的 HEAD:路径、@文件 也算），
+展开 ~、相对于工作目录、顺着符号链接找到真正的位置，再和上面三种比。多当成路径只会让命令多问一次，
+少当成一个就可能漏掉一个，所以宁多勿少。macOS 的文件名不分大小写（.ENV 就是 .env），也不分 Unicode 的
+两种写法（é 可以是一个字符，也可以是 e 加一个音调），所以比较之前两样都先统一。
+同一个文件的另一个名字（硬链接）按"是不是同一个文件"（inode）比，只对密钥文件做（数据目录里的文件太多）。
+
+会把整个文件夹读一遍的命令（grep -r、rg、diff 两个文件夹），文件夹里面包含上面这些地方也不行，
+还要先看一遍里面有没有像密钥的文件、指到别的文件夹去的符号链接，看不完（太大）也不行。
+只列出名字的（find、ls -R、du、tree），列出数据目录里有哪些文件也不行（和文件工具一样，看数据目录要先问）；
+跟着符号链接走的（ls -RL、find -L）同样要先看一遍有没有指到别处去的链接。
+
+还有两类路径根本不去看：macOS 的 /net/主机名 一碰就会去连那台主机（自动挂载），判断时 stat 一下都等于联网；
+/dev 下是设备，读一下可能有副作用。
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import os
+import unicodedata
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from ..config import READONLY_SCAN_ENTRIES
+from .words import Unclear
+
+# 看起来存着密钥的文件（比较文件名，不分大小写）
+SECRET_FILES = (
+    ".env", ".env.*", "*.env", ".envrc", ".netrc", "_netrc", ".pgpass", ".my.cnf", ".npmrc", ".pypirc", ".git-credentials",
+    ".dockercfg", ".vault-token", ".htpasswd", "*credential*", "*secret*", "*.pem", "*.key", "*.p12", "*.pfx", "*.keystore",
+    "*.jks", "*.kdbx", "*.gpg", "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*", "shadow", "gshadow", "master.passwd",
+    "sudoers", "environ", "*_history", ".lesshst", "cookies", "cookies.sqlite", "login data", "wp-config.php",
+)
+# 看起来存着密钥的文件夹：路径里连着出现这几段就算（不分大小写）
+SECRET_DIRS = (
+    (".ssh",), (".gnupg",), (".aws",), (".azure",), (".kube",), (".docker",), (".password-store",), ("keychains",),
+    ("keyrings",), (".config", "gcloud"), (".config", "gh"), (".config", "hub"), (".terraform.d",),
+)
+# 一碰就有事的地方：/dev 下是设备；/net、/Network 是 macOS 的自动挂载（ls /net/某个域名 会去连那台主机）
+UNTOUCHABLE = ("/dev", "/net", "/network")
+PROC_SECRETS = ("environ", "mem", "kmem", "kcore", "pagemap")
+
+
+def _folded(path: str | Path) -> str:
+    """比较路径用的写法：不分大小写，Unicode 统一成同一种写法（见文件开头）。"""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", os.path.normcase(str(path))).casefold())
+
+
+def _inside(path: str, folder: str) -> bool:
+    """path 是不是 folder 本身或者在它里面（两个都已经 _folded 过）。"""
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+@dataclass
+class Places:
+    """一条命令运行的地方，以及哪些地方不能不问就读。"""
+
+    workspace: Path
+    protected: list[Path] = field(default_factory=list)  # 密钥文件、"不用问的命令"清单
+    private: list[Path] = field(default_factory=list)  # 智狐的数据目录
+    home: Path = field(default_factory=lambda: Path(os.path.expanduser("~")))
+
+    def __post_init__(self) -> None:
+        self._protected = [_folded(path.resolve()) for path in self.protected]
+        self._private = [_folded(path.resolve()) for path in self.private]
+        home = self.home.resolve()
+        self._secret_dirs = [_folded(home.joinpath(*parts)) for parts in SECRET_DIRS]
+        self._inodes = set()
+        for path in self.protected:
+            try:
+                info = os.stat(path)
+            except OSError:
+                continue
+            self._inodes.add((info.st_dev, info.st_ino))
+
+    # ---- 一个路径 ------------------------------------------------------------
+
+    def resolve(self, raw: str) -> Path:
+        """命令里的一个词，当作路径时指的是哪里（展开 ~、相对于工作目录、顺着符号链接）。"""
+        if raw == "~" or raw.startswith("~/"):
+            raw = str(self.home) + raw[1:]
+        path = Path(raw)
+        if not path.is_absolute():
+            path = self.workspace / path
+        # 先只按字面算一遍（不碰磁盘）：/net/某个主机 光是 stat 一下就会去连它
+        if any(_inside(_folded(os.path.normpath(path)), item) for item in UNTOUCHABLE):
+            raise Unclear(f"{raw} 是设备或者网络上的位置")
+        try:
+            return path.resolve()
+        except (OSError, RuntimeError, ValueError) as exc:  # 符号链接绕成了圈、名字太长、有不能用的字符……
+            raise Unclear(f"看不清 {raw} 指的是哪里") from exc
+
+    def check(self, raw: str) -> None:
+        """命令里的一个词。当作路径时，它指向不该不问就读的地方，就抛出 Unclear。"""
+        for candidate in _candidates(raw):
+            self._check_one(candidate)
+
+    def _check_one(self, raw: str) -> None:
+        _secret_name(raw)  # 先看写出来的样子（~/.ssh/x），再看顺着符号链接找到的真正位置
+        path = self.resolve(raw)
+        folded = _folded(path)
+        if any(_inside(folded, item) for item in self._protected):
+            raise Unclear(f"{raw} 是保存密钥的文件")
+        if any(_inside(folded, item) for item in self._private):
+            raise Unclear(f"{raw} 在智狐自己的数据目录里")
+        if any(_inside(folded, item) for item in self._secret_dirs):
+            raise Unclear(f"{raw} 在存着密钥的文件夹里")
+        if any(_inside(folded, item) for item in UNTOUCHABLE):
+            raise Unclear(f"{raw} 是设备或者网络上的位置")
+        if folded.startswith("/proc/") and path.name.casefold() in PROC_SECRETS:
+            raise Unclear(f"{raw} 是进程的内存或环境变量")
+        _secret_name(str(path))
+        try:
+            info = os.stat(path)
+        except OSError:
+            return  # 不存在、看不了：命令会报错，什么都读不到
+        self._same_file(info, raw)
+
+    def _same_file(self, info: os.stat_result, raw: str) -> None:
+        if (info.st_dev, info.st_ino) in self._inodes:
+            raise Unclear(f"{raw} 就是保存密钥的文件（另一个名字）")
+
+    # ---- 一个文件夹 ----------------------------------------------------------
+
+    def check_tree(self, raw: str, contents: bool, follow: bool = False) -> None:
+        """一个会被整个走一遍的文件夹（grep -r、find……）。contents：会不会读里面每个文件的内容（grep -r 会，find 不会）；
+        follow：会不会跟着符号链接走进别的文件夹（ls -RL、find -L）。
+
+        里面包含数据目录、存着密钥的文件夹，就不行；会读内容的、会跟着链接走的，还要先看一遍里面
+        （像密钥的名字、指向文件夹的符号链接、密钥文件的另一个名字），看不完（太大）也不行。
+        """
+        self.check(raw)
+        path = self.resolve(raw)
+        try:
+            if not path.is_dir():
+                return
+        except OSError as exc:
+            raise Unclear(f"看不清 {raw} 是什么") from exc
+        folded = _folded(path)
+        watched = [*self._private, *self._secret_dirs, *(self._protected if contents else [])]
+        if any(_inside(item, folded) for item in watched):
+            raise Unclear(f"{raw} 里面有不该不问就读的地方")
+        if contents or follow:
+            self._scan(path, raw)
+
+    def _scan(self, root: Path, raw: str) -> None:
+        """把文件夹看一遍（不跟着符号链接走）：有像密钥的名字、指向文件夹的符号链接、密钥文件的另一个名字、看不完，都抛出 Unclear。"""
+        seen = 0
+        pending = [root]
+        while pending:
+            folder = pending.pop()
+            try:
+                entries = list(os.scandir(folder))
+            except OSError as exc:
+                raise Unclear(f"看不了 {folder} 里面有什么") from exc
+            for entry in entries:
+                seen += 1
+                if seen > READONLY_SCAN_ENTRIES:
+                    raise Unclear(f"{raw} 里面的东西太多，看不完")
+                try:
+                    _secret_name(entry.path)
+                    if entry.is_symlink():
+                        target = Path(entry.path).resolve()
+                        if target.is_dir():
+                            raise Unclear(f"{raw} 里面有指向别的文件夹的符号链接")
+                        self._check_one(str(target))
+                    elif entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    else:
+                        self._same_file(entry.stat(follow_symlinks=False), entry.path)
+                except (OSError, RuntimeError) as exc:
+                    raise Unclear(f"看不清 {entry.path}") from exc
+
+
+def _candidates(raw: str) -> list[str]:
+    """一个词里可能藏着的路径：它本身；每个 = 和 : 后面的部分（--file=x、-o=jsonpath-file=x、HEAD:x）；
+    去掉开头的 @ 以后的部分（GNU binutils 的 strings @文件 会把那个文件里的词当成参数读进来）。"""
+    if not raw or raw == "-":
+        return []
+    found = [raw]
+    for separator in "=:":
+        for text in list(found):
+            found.extend(text[at + 1 :] for at, char in enumerate(text) if char == separator)
+    found.extend(text[1:] for text in list(found) if text.startswith("@"))
+    return [item for item in dict.fromkeys(found) if item and item != "-"]
+
+
+def _secret_name(raw: str) -> None:
+    """路径里有一段的名字像是存着密钥的（.env、id_rsa、.ssh……），就抛出 Unclear。"""
+    parts = [unicodedata.normalize("NFC", part).casefold() for part in Path(raw).parts]
+    for part in parts:
+        if any(fnmatch.fnmatchcase(part, pattern) for pattern in SECRET_FILES):
+            raise Unclear(f"{raw} 看起来存着密钥")
+    for pattern in SECRET_DIRS:
+        size = len(pattern)
+        if any(tuple(parts[index : index + size]) == pattern for index in range(len(parts) - size + 1)):
+            raise Unclear(f"{raw} 在存着密钥的文件夹里")
+    # .git 下面的 config（.git/config、.git/modules/x/config、.git/worktrees/x/config）：远程仓库的地址里常常带着 token
+    if ".git" in parts[:-1] and parts[-1:] == ["config"]:
+        raise Unclear(f"{raw} 是 git 的设置（远程地址里可能带着 token）")

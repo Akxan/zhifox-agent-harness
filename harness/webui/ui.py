@@ -312,9 +312,10 @@ class WebUI:
         self.end_stream()
         self.publish("tool_call", name=name, summary=describe_call(name, tool_input), input=tool_input)
 
-    def auto_allowed(self) -> None:
-        """刚才那次工具调用本来要问用户，但用户设置了自动允许。页面会在那张工具卡片上标出来。"""
-        self.publish("auto_allowed")
+    def auto_allowed(self, why: str = "mode") -> None:
+        """刚才那次工具调用本来要问用户，但用户设置了自动允许。页面会在那张工具卡片上标出来；
+        why 是为什么（"readonly"：只读的命令，"listed"：你自己加的命令，别的是 "mode"），页面照着它写得更具体。"""
+        self.publish("auto_allowed", why=why)
 
     def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
         if len(text) > MAX_RESULT_CHARS:

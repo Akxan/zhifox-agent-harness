@@ -33,7 +33,7 @@
     跑完存成一段普通的会话，出现在会话列表里，可以打开、重放、接着聊。
 
   要不要问你，每个任务自己定。
-    每个任务记着一档"要不要先问你"（approval：ask / edits / all，和对话里的三档同名、同义，见 ../permissions.py），
+    每个任务记着一档"要不要先问你"（approval：ask / readonly / edits / all，和对话里的几档同名、同义，见 ../permissions.py），
     默认是"每次确认"：要你确认的操作（执行命令、改文件……），任务会停下来等你。停着的那个确认放在状态里
     （tasks[].running.confirm），页面上能看到、能答复（/api/task/confirm）。你在对话里换的那一档碰不到任务。
     放宽只能由你在页面上编辑任务时选；模型用工具添加的任务一律是"每次确认"，它自己改不了（见 ../tools/tasks.py）。
@@ -431,6 +431,7 @@ class Scheduler:
                 # 这一步本来要问你，按这个任务的那一档没问就放行了。进度里标出来，会话里也记着（RunUI 照常记下这个事件）
                 if pending.log:
                     pending.log[-1]["auto"] = True
+                    pending.log[-1]["why"] = str(data.get("why", "mode"))  # 只读的命令、你加的命令，页面上写得更具体
             elif kind == "tool_result":
                 if pending.log and pending.log[-1]["ok"] is None:
                     pending.log[-1]["ok"] = not data["is_error"]
@@ -639,6 +640,7 @@ def instruction(task: dict, pending: Pending) -> str:
 # 按任务的那一档，告诉模型哪些操作会停下来等用户（写给模型看的，中文、不翻译）
 APPROVAL_NOTES = {
     "ask": "需要用户确认的操作会停在那里，等他回来批准。",
+    "readonly": "这个任务设置成了只读的命令不用问：只是看的命令（ls、cat、grep、df、git status……）和读文件会直接执行；会改动东西的命令、改文件等别的需要确认的操作会停在那里，等他回来批准。",
     "edits": "这个任务设置成了改工作目录里的文件不用问：改文件会直接执行；执行命令等别的需要确认的操作会停在那里，等他回来批准。",
     "all": "这个任务设置成了全部自动允许：执行命令、改文件都会直接执行，不会再有人确认，所以只做指令要求的事，拿不准的不要做。",
 }

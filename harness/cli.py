@@ -4,6 +4,7 @@
     harness --web                 网页界面（在浏览器里打开）
     harness serve [--web]         服务器上的服务：定时任务和聊天通道，没有浏览器（见 serve.py）
     harness channels ...          设置聊天通道（见 channels/cli.py）
+    harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -19,6 +20,7 @@ from pathlib import Path
 from . import i18n, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
+from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
 from .i18n import k, t
 from .permissions import MODES
@@ -46,7 +48,7 @@ HELP = k("""\
 /usage   查看本次运行的 token 用量和估算费用
 /model   查看当前使用的模型
 /mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
-/auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
+/auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto readonly 只读的命令不用问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
 /retry   重新生成最后一个回答（只去掉这一轮里模型写的、做的，你的消息原样再发一次）
 /edit    改最后一条消息再发：上一条会填在输入行里，改完按回车；也可以直接写 /edit 新的文字
 /exit    退出""")
@@ -59,6 +61,10 @@ MCP_STATUS = {"connecting": k("连接中"), "ready": k("已连接"), "failed": k
 # /auto 换成每种模式之后各说一句话，让用户清楚自己放开了什么
 AUTO_NOTES = {
     "ask": k("已改成：每次都问。助手要改文件、执行命令之前，都会先请你确认。"),
+    "readonly": k(
+        "已改成：只读的命令不用问。ls、cat、grep、df、git status 这类只是看的命令，以及读工作目录之外的文件，不再问你；"
+        "会改动东西的命令、改文件、读密钥和助手自己的数据，照常先问。你自己加的不用问的命令见 harness commands list。"
+    ),
     "edits": k("已改成：创建和修改工作目录里的文件不再问你。执行命令、读写工作目录之外的文件，照常先问。"),
     "all": k("已改成：全部自动允许。助手改文件、执行命令都不会再问你（保存密钥的 .env 仍然碰不了）。"),
 }
@@ -73,7 +79,7 @@ def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
     permissions = app.agent.permissions
     if not argument:
         ui.plain(t("现在是：{label}（{mode}）", label=t(MODES[permissions.mode]), mode=permissions.mode))
-        ui.info(t("更改：/auto ask 每次都问；/auto edits 改工作目录里的文件不用问；/auto all 全部自动允许。"))
+        ui.info(t("更改：/auto ask 每次都问；/auto readonly 只读的命令不用问；/auto edits 改工作目录里的文件不用问；/auto all 全部自动允许。"))
     elif argument not in MODES:
         ui.error(t("没有 {mode} 这种模式。可以用的是：{modes}。", mode=argument, modes=t("、").join(MODES)))
     else:
@@ -271,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))
     serve.add_argument("--port", dest="serve_port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
     channels_cli.add_parser(commands)
+    commands_cli.add_parser(commands)
     args = parser.parse_args(argv)
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
@@ -284,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_serve(config, web=args.serve_web, port=args.serve_port)
     if args.command == "channels":
         return channels_cli.run(args, config)
+    if args.command == "commands":
+        return commands_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

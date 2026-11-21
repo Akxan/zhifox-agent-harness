@@ -1,0 +1,42 @@
+/* ---- 不用问的命令 ---------------------------------------------------------------
+   你自己加的命令（scripts/commands.js）：上面一张说明内置的只读命令的卡片，下面是你加的那几条和添加框。
+   每一行的样子和别的本地的东西一样：悬停时右边浮出"在访达中显示 / 编辑 / 删除"。命令可能很长，
+   要整条都看得到（这是你放行的东西），所以折行显示，右边一直给三个按钮留着位置，悬停时不会把文字挤得跳一下。
+   还有"要不要先问你"窗口里通往这里的那一行，以及新那一档在开关和任务标签上的颜色。 */
+.settings.commands-dialog { width: min(620px, calc(100vw - 32px)); }
+.commands-body { padding-bottom: 14px; }
+.commands-builtin { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.commands-glyph { flex: none; display: grid; place-items: center; width: 34px; height: 34px; color: var(--ok); background: var(--ok-soft); border-radius: 11px; }
+.commands-glyph .icon { width: 17px; height: 17px; }
+.commands-builtin-words { min-width: 0; }
+.commands-builtin-words b { font-size: 13.5px; font-weight: 600; }
+.commands-builtin-words p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.settings h3.commands-heading { margin: 20px 0 8px; }
+.commands-heading small { font-variant-numeric: tabular-nums; }
+.commands-problem { margin: 0 0 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; overflow-wrap: anywhere; }
+.commands-problem[hidden] { display: none; }
+
+.commands-list { display: grid; gap: 2px; margin: 0 0 10px; padding: 0; list-style: none; }
+.commands-empty { padding: 14px 12px; font-size: 13px; color: var(--ink-3); background: var(--hover); border-radius: 12px; }
+.cmd-row { position: relative; display: flex; align-items: center; min-height: 40px; border-radius: 11px; transition: background-color .15s ease, box-shadow .15s ease; }
+.cmd-row:hover, .cmd-row:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.cmd-text { flex: 1; min-width: 0; padding: 9px 104px 9px 12px; font: 13px/1.55 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.cmd-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.cmd-row:hover .cmd-actions, .cmd-row:focus-within .cmd-actions { opacity: 1; }
+.cmd-row:hover .cmd-actions > *, .cmd-row:focus-within .cmd-actions > * { pointer-events: auto; }
+@media (hover: none) { .cmd-actions { opacity: 1; } .cmd-actions > * { pointer-events: auto; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+.cmd-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.cmd-confirm, .cmd-edit { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; font-size: 13px; }
+.cmd-confirm span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.cmd-edit .field { flex: 1 1 200px; min-width: 0; font: 13px var(--mono); }
+.commands-add { display: flex; gap: 8px; }
+.commands-add .field { flex: 1 1 200px; min-width: 0; font-family: var(--mono); }
+
+/* "要不要先问你"的窗口里：通往这个窗口的那一行 */
+.approval-commands { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 12px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.approval-commands span { min-width: 0; }
+.approval-commands .link { padding: 0; font-size: 12.5px; color: var(--accent); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; }
+
+/* "自动允许只读命令"这一档的颜色：放开得最少的一档，用表示"安全"的绿色（改文件是琥珀色，全部放开是红色） */
+.approval.readonly { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.chip.task-mode.readonly { color: var(--ok); background: var(--ok-soft); }

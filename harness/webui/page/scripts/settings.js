@@ -171,12 +171,12 @@ $('model').addEventListener('click', openSettings);
 $('setup-open').addEventListener('click', openSettings);
 $('close-settings').addEventListener('click', () => settings.close());
 // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了
-for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog]) {
+for (const dialog of [settings, approvalDialog, languageDialog, viewer, memoryDialog, extensionsDialog, taskEditor, taskDetail, promptDialog, spendDialog, commandsDialog]) {
   let pressedOutside = false;
   dialog.addEventListener('mousedown', (press) => { pressedOutside = press.target === dialog; });
   dialog.addEventListener('click', (click) => {
     if (click.target !== dialog || !pressedOutside) return;
-    if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor(); else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else dialog.close();  // 正在编辑、还没保存的，先提醒
+    if (dialog === memoryDialog) requestCloseMemory(); else if (dialog === taskEditor) requestCloseEditor(); else if (dialog === promptDialog) requestClosePrompt(); else if (dialog === extensionsDialog) requestCloseExtensions(); else if (dialog === commandsDialog) requestCloseCommands(); else dialog.close();  // 正在编辑、还没保存的，先提醒
   });
 }
 pickProvider.addEventListener('change', () => fillModels(pickProvider.value, ''));

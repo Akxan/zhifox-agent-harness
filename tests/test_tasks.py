@@ -606,8 +606,8 @@ def test_a_task_run_asks_as_much_as_its_own_setting_says(tmp_path):
     private = ("str_replace_based_edit_tool", {"command": "create", "path": "data/settings.json", "file_text": "{}"})
     command = ("run_command", {"command": "rm -rf build"})
 
-    # 每一档：改工作目录里的文件、改助手自己的数据目录、执行命令，哪些可以不问就做
-    expected = {"ask": (False, False, False), "edits": (True, False, False), "all": (True, True, True)}
+    # 每一档：改工作目录里的文件、改助手自己的数据目录、执行命令（会改东西的），哪些可以不问就做
+    expected = {"ask": (False, False, False), "readonly": (False, False, False), "edits": (True, False, False), "all": (True, True, True)}
     assert list(expected) == list(MODES)
     for mode, allowed in expected.items():
         run = chat.unattended(mode)

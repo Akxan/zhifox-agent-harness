@@ -68,7 +68,7 @@ def _view(task: dict) -> dict:
         "next_run": None if task["next_run"] is None else local_text(task["next_run"]),
     }
     if task["kind"] == "agent":
-        view["approval"] = task["approval"]  # 运行时要确认的操作问不问用户：ask / edits / all（只有用户能改）
+        view["approval"] = task["approval"]  # 运行时要确认的操作问不问用户：ask / readonly / edits / all（只有用户能改）
     if task["runs"]:
         last = task["runs"][0]
         view["last_run"] = {"at": local_text(last["started_at"]), "status": last["status"], "summary": last["summary"]}

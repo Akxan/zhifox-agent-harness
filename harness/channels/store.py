@@ -9,7 +9,7 @@
              助手的文件工具也读不了它（见 app.py 里的 protected）。旧版本存的是一个 token 字段，读进来时换成 {"token": …}
   bot        机器人自己的名字（@username）、打开和它聊天的链接，给页面显示用
   enabled    开着没有
-  approval   这个通道里"要不要先问你"：ask / edits / all，和对话里的三档同名、同义（见 ../permissions.py）
+  approval   这个通道里"要不要先问你"：ask / readonly / edits / all，和对话里的几档同名、同义（见 ../permissions.py）
   owner      配对绑定的主人：账号编号、名字、什么时候配对的。只有他发来的消息会被处理（见 pairing.py）
   pairing    正在进行的配对：配对码（secret）、什么时候过期、猜错了几次、提醒过哪些人
   chats      每个聊天接着的是哪一段会话（重启以后还接着聊），最后一次说话是什么时候

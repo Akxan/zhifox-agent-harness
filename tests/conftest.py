@@ -32,6 +32,7 @@ class RecordingUI:
         self.previews: list[dict | None] = []  # 每个结果带的预览（浏览器的截图），大多数是 None
         self.confirmations: list[str] = []
         self.auto_allowed_count = 0  # 有几次是没问用户、自动放行的
+        self.auto_whys: list[str] = []  # 每一次为什么没问（见 Permissions.allowance）
         self.infos: list[str] = []
         self.askers: list[str] = []  # 每一次确认是谁在问（子 Agent 的名字；主助手自己问时是空的）
         self.subagents: list[tuple[str, dict]] = []  # 子 Agent 的每一步进展：(step, data)
@@ -63,8 +64,9 @@ class RecordingUI:
         self.askers.append(agent)
         return self.approve, self.feedback
 
-    def auto_allowed(self) -> None:
+    def auto_allowed(self, why: str = "mode") -> None:
         self.auto_allowed_count += 1
+        self.auto_whys.append(why)
 
     def info(self, text: str) -> None:
         self.infos.append(text)

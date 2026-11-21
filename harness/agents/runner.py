@@ -133,8 +133,8 @@ class SubUI:
         # 确认卡片照常画在页面上，只是写明是哪个 Agent 在问（再往下一层的，写的是最里面那一个）
         return self.parent.confirm(description, agent=agent or self.name)
 
-    def auto_allowed(self) -> None:
-        self.parent.subagent("auto", run=self.run, agent=self.name)
+    def auto_allowed(self, why: str = "mode") -> None:
+        self.parent.subagent("auto", run=self.run, agent=self.name, why=why)
 
     # 再往下一层的子 Agent（层数上限调大了才会有）：它的进展、停止原样交给上一层
     def subagent(self, step: str, **data: Any) -> None:

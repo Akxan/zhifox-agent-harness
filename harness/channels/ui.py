@@ -9,7 +9,7 @@ agent 循环只认那几个方法（thinking、text、tool_call、confirm……�
   一段文字写完了（end_stream）      → 把这段文字发出去。模型边想边写，写完一段发一段，不用等整轮结束
   要你确认一个操作（confirm）       → 发一条带"允许 / 拒绝"按钮的消息，然后等答复（网页上也能答）
   确认答复了（confirm_done）        → 把那条消息上的按钮去掉，写上结果
-  没问你就放行了（auto_allowed）    → 发一行"已自动允许：$ 命令"，在聊天里也看得到它做了什么
+  没问你就放行了（auto_allowed）    → 发一行"已自动允许：$ 命令"（只读的命令写"已自动允许（只读）"），在聊天里也看得到它做了什么
   提示和出错（info、error）         → 原样发一句
   交给一个子 Agent（subagent）      → 开始、没问你就放行的一步、结束时各发一行简短的进展（它在做的每一步完整地记在会话里）
 
@@ -33,7 +33,7 @@ class ChannelUI(WebUI):
         on_notice: Callable[[str, str], None],
         on_confirm: Callable[[int, str], None],
         on_settled: Callable[[int, bool, bool], None],
-        on_auto: Callable[[str], None],
+        on_auto: Callable[[str, str], None],
     ):
         """on_confirm 收到（确认的编号，要做的事，哪个子 Agent 在问——主助手自己问时是空的）。"""
         super().__init__()
@@ -77,7 +77,7 @@ class ChannelUI(WebUI):
             self._sub_doing[run] = str(data.get("summary", ""))
             self.activity = t("「{agent}」：{summary}", agent=name, summary=data.get("summary", ""))
         elif step == "auto":
-            self._on_auto(t("「{agent}」：{summary}", agent=name, summary=self._sub_doing.get(run, "")))
+            self._on_auto(t("「{agent}」：{summary}", agent=name, summary=self._sub_doing.get(run, "")), str(data.get("why", "mode")))
         elif step == "done":
             self._sub_doing.pop(run, None)
             status = data.get("status")
@@ -113,9 +113,9 @@ class ChannelUI(WebUI):
             self._on_text(self._pending)
         self._pending = ""
 
-    def auto_allowed(self) -> None:
-        super().auto_allowed()
-        self._on_auto(self.activity)
+    def auto_allowed(self, why: str = "mode") -> None:
+        super().auto_allowed(why)
+        self._on_auto(self.activity, why)
 
     def info(self, text: str) -> None:
         super().info(text)

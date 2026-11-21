@@ -501,7 +501,7 @@ def test_a_task_can_be_allowed_to_edit_files_or_to_do_everything(serve):
     assert save(s, id=edits, title="笔记", kind="agent", prompt="记笔记", schedule=DAILY, approval="ask") == edits
     assert task_of(s, edits)["approval"] == "ask" and s.web.tasks._find(edits).agent.permissions.mode == "edits"
     assert (s.config.workspace / "notes.txt").read_text(encoding="utf-8") == "笔记\n"
-    assert running["log"][0] == {"tool": "str_replace_based_edit_tool", "summary": "str_replace_based_edit_tool create notes.txt", "ok": True, "auto": True}
+    assert running["log"][0] == {"tool": "str_replace_based_edit_tool", "summary": "str_replace_based_edit_tool create notes.txt", "ok": True, "auto": True, "why": "mode"}
     assert running["log"][1]["auto"] is False and "touch edits.txt" in running["confirm"]["summary"]
     s.browser.post("/api/task/confirm", {"id": edits, "confirm_id": running["confirm"]["id"], "allow": False})
     task = finished(s, edits, "done")
@@ -518,6 +518,31 @@ def test_a_task_can_be_allowed_to_edit_files_or_to_do_everything(serve):
     events = s.app.store.load(task["runs"][0]["conversation"]).events
     assert "auto_allowed" in [event["type"] for event in events] and "confirm" not in [event["type"] for event in events]
     assert "全部自动允许" in requests_for(s, "全都做")[0]["messages"][0]["content"][-1]["text"]
+
+
+def test_a_task_can_be_allowed_to_run_read_only_commands(serve):
+    s = serve(routes={
+        "查服务器": [
+            reply(tool_use("toolu_1", "run_command", {"command": "df -h"}), stop_reason="tool_use"),
+            reply(tool_use("toolu_2", "run_command", {"command": "npm test"}), stop_reason="tool_use"),
+            reply(tool_use("toolu_3", "run_command", {"command": "touch made.txt"}), stop_reason="tool_use"),
+            reply(text("看过了，没动东西。")),
+        ],
+    })
+    s.app.agent.permissions.commands.add("npm test")  # 你自己加的：在这一档里也不问
+    task_id = save(s, title="巡检", kind="agent", prompt="查服务器", schedule=DAILY, approval="readonly")
+    assert task_of(s, task_id)["approval"] == "readonly"
+    s.browser.post("/api/task/run", {"id": task_id})
+    running = paused(s, task_id)
+    # 只读的命令、你加的命令没问就做了，进度里写着为什么；会改东西的停下来等你
+    assert [(entry["auto"], entry.get("why")) for entry in running["log"][:2]] == [(True, "readonly"), (True, "listed")]
+    assert running["log"][2]["auto"] is False and "touch made.txt" in running["confirm"]["summary"]
+    s.browser.post("/api/task/confirm", {"id": task_id, "confirm_id": running["confirm"]["id"], "allow": False})
+    task = finished(s, task_id, "done")
+    assert not (s.config.workspace / "made.txt").exists()
+    events = s.app.store.load(task["runs"][0]["conversation"]).events
+    assert [event["why"] for event in events if event["type"] == "auto_allowed"] == ["readonly", "listed"]
+    assert "只读的命令不用问" in requests_for(s, "查服务器")[0]["messages"][0]["content"][-1]["text"]  # 发给模型的说明照实说
 
 
 def test_stopping_a_queued_task_and_a_running_one(serve):

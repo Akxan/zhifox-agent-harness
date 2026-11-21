@@ -42,7 +42,7 @@ def test_auto_shows_and_changes_how_much_is_asked(start, capsys):
     h.agent.permissions.mode = "edits"
     out = run("/auto everything")
     assert h.agent.permissions.mode == "edits"
-    assert "没有 everything 这种模式" in out and "ask、edits、all" in out
+    assert "没有 everything 这种模式" in out and "ask、readonly、edits、all" in out
 
     assert "/auto" in HELP and HELP in run("/help")
 

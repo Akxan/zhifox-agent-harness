@@ -62,6 +62,7 @@ const handlers = {
     renderComputer(event.computer);
     if (settings.open) renderSettings();
     renderApproval(event.approval);
+    renderCommands(event.commands);
 
     if (replaying) {  // 重放的旧内容到这里就画完了
       replaying = false;
@@ -128,10 +129,11 @@ const handlers = {
     toolCard = { card, status, outcome, details, summary, holder, shots };
   },
 
-  // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出
-  auto_allowed() {
+  // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出；
+  // 只读的命令、你自己加的命令写明为什么（event.why，见 approval-modes.js 的 autoTag）
+  auto_allowed(event) {
     if (!toolCard || toolCard.summary.querySelector('.auto-tag')) return;
-    toolCard.summary.insertBefore(tel('span', 'auto-tag', k('自动允许')), toolCard.summary.lastChild);
+    toolCard.summary.insertBefore(tel('span', 'auto-tag', autoTag(event && event.why)), toolCard.summary.lastChild);
   },
 
   tool_result(event) {

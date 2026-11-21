@@ -64,6 +64,7 @@ class Demo:
     """作为子进程运行的演示服务器。"""
 
     def __init__(self, root: Path):
+        self.root = root
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS and "proxy" not in key.lower()}
         env.update(NO_PROXY="*", no_proxy="*", PYTHONUNBUFFERED="1")
         command = [
@@ -120,6 +121,9 @@ class Demo:
         ):
             status, reply = self.api(path, data)
             assert status == 200, f"{path} 失败：{reply}"
+        # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
+        # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）
+        (self.root / "data" / "commands.json").unlink(missing_ok=True)
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 

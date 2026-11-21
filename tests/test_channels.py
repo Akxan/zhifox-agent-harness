@@ -953,6 +953,20 @@ def test_stop_kills_a_running_command(bot):
     assert len(s.api.requests) == 1
 
 
+def test_read_only_commands_run_without_asking_in_a_readonly_channel(bot):
+    s = bot(run("toolu_1", "ls"), run("toolu_2", "touch made.txt"), reply(text("看过了。")), approval="readonly")
+    start = s.say("看看有什么文件，再建一个")
+    s.wait_reply(start, "已自动允许（只读）：")  # 聊天里照样看得到它没问就做了什么，以及为什么
+    ask = s.asked(start)  # 会改东西的照常问
+    assert "touch made.txt" in ask["plain"]
+    s.press(ask, allow=False)
+    s.wait_reply(start, "看过了")
+    s.idle()
+    assert not (s.config.workspace / "made.txt").exists()
+    status = s.wait_reply(s.say("/status"), "现在：")["plain"]
+    assert "确认方式：只读的命令不用问" in status
+
+
 def test_status_tells_what_is_going_on(bot):
     from harness.providers import PROVIDERS
 

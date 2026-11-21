@@ -74,7 +74,7 @@ class FileEditor:
         command = tool_input.get("command")
         path = self.resolve(tool_input.get("path"))
         if path in self.protected:
-            raise ToolError("这个文件保存着密钥，助手不能读取或修改它。")
+            raise ToolError("这个文件保存着密钥或者权限的设置，助手不能读取或修改它。")
 
         if command == "view":
             return self._view(path, tool_input.get("view_range"))

@@ -60,6 +60,7 @@ STYLES = (
     "styles/memory-editor.css",  # 记忆窗口里的编辑
     "styles/agents.css",  # 自定义 Agent
     "styles/settings.css",  # 设置面板
+    "styles/commands.css",  # 不用问的命令
     "styles/spending.css",  # 花费
     "styles/appearance.css",  # 外观面板
     "styles/notices.css",  # 浮在最上面的提示
@@ -79,6 +80,7 @@ SCRIPTS = (
     "scripts/motion.js",  # 动效：calm()、play()、relayout()、crossfade()
     "scripts/follow.js",  # 跟着最新内容滚动
     "scripts/requests.js",  # 提示和请求：toast()、call()、post()、announce()
+    "scripts/approval-modes.js",  # 要不要先问你：几档的名字和说明（对话、任务、通道三处共用）
     "scripts/settle.js",  # 空白页和收尾，定位到搜索命中的地方
     "scripts/markdown-view.js",  # 回复里的 Markdown（接上 markdown.js）
     "scripts/streaming.js",  # 逐字输出的文字
@@ -105,6 +107,7 @@ SCRIPTS = (
     "scripts/channels.js",  # 扩展 · 通道
     "scripts/language.js",  # 语言
     "scripts/approval.js",  # 要不要先问你
+    "scripts/commands.js",  # 不用问的命令（你自己加的）
     "scripts/settings.js",  # 设置面板
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑

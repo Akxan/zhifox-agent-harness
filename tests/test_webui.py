@@ -2146,11 +2146,11 @@ def test_auto_allowed_calls_are_marked_live_and_when_the_conversation_is_reopene
     shown = ["user", "turn_start", "tool_call", "auto_allowed", "tool_result", "tool_call", "tool_result", "text", "block_end"]
     assert without_states(s.browser) == [*shown, "turn_end"]
     (mark,) = s.browser.of_type("auto_allowed")
-    assert set(mark) == {"id", "type"}  # 不带任何数据：说的就是它前面那一次调用
+    assert set(mark) == {"id", "type", "why"} and mark["why"] == "mode"  # 说的就是它前面那一次调用；why：为什么没问（这里是选了"全部自动允许"）
 
     # 存进了会话文件：以后翻看记录时，看得出哪些操作是没问就做了的
     saved = saved_file(s.config, first)["events"]
-    assert kinds(saved) == shown and {"type": "auto_allowed"} in saved
+    assert kinds(saved) == shown and {"type": "auto_allowed", "why": "mode"} in saved
     act(s, "/api/new")
     say(s, "另一段")
     replayed, _ = open_conversation(s, first)

@@ -50,7 +50,9 @@ class UI(StreamUI, Protocol):
     def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None: ...
     # agent：是哪个子 Agent 在问（见 agents/runner.py）；主助手自己问的时候是空的
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]: ...
-    def auto_allowed(self) -> None: ...  # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许
+    # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许。why 是为什么（见 Permissions.allowance）：
+    # "readonly"（只读的命令）、"listed"（你自己加的不用问的命令），别的情况是 "mode"
+    def auto_allowed(self, why: str = "mode") -> None: ...
 
 
 class Agent:
@@ -246,8 +248,9 @@ class Agent:
         # 先过权限这一关
         question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
         if question is not None:
-            if self.permissions.auto_allows(call.name, call.input, tool):
-                self.ui.auto_allowed()  # 没有问用户就放行了：告诉界面一声，记录里要看得出来
+            why = self.permissions.allowance(call.name, call.input, tool)
+            if why is not None:
+                self.ui.auto_allowed(why)  # 没有问用户就放行了：告诉界面一声（为什么也说上），记录里要看得出来
             else:
                 allowed, feedback = self.ui.confirm(question)
                 if not allowed:

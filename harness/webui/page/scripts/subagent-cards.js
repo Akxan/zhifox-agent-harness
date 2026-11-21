@@ -93,7 +93,7 @@ function subagentStep(event) {
     sub.last = null;
     setSubLive(sub, k('正在思考'));
   } else if (event.step === 'auto' && sub.last) {
-    sub.last.item.insertBefore(tel('span', 'auto-tag', k('自动允许')), sub.last.note);
+    sub.last.item.insertBefore(tel('span', 'auto-tag', autoTag(event.why)), sub.last.note);
   } else if (event.step === 'note') {
     const item = sub.steps.appendChild(el('li', 'subagent-step note'));
     item.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.text || '')));

