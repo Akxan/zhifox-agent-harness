@@ -52,7 +52,7 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 和 ImageMagick，不装任何新的依赖）；每一个动作都先问你，在任何模式下都一样。截图先缩小到模型收得下的大小，模型说的坐标再换算回屏幕上
 真正的位置（Retina 屏幕也算对）。Claude 用 Anthropic 的电脑工具包，GPT、Gemini 用智狐自己写的替身工具（见下面的"操作整台电脑"）。
 还可以接上你自己的机器人：Telegram、Discord、Slack、飞书、钉钉或者 QQ（网页上一个四步的向导，或者用命令行），
-在手机上和它聊天，照片和文件也能发。不需要公网地址，也不用开端口：是智狐主动去问 Telegram 有没有新消息（长轮询），
+在手机上和它聊天，照片和文件也能发；反过来也行：要一张截图、一份报告，你批准以后它就以照片或文件的样子出现在聊天里。不需要公网地址，也不用开端口：是智狐主动去问 Telegram 有没有新消息（长轮询），
 对别的平台是智狐自己连出去、一直开着一条 WebSocket（手写的 RFC 6455 客户端；飞书和钉钉用官方的 SDK，想用才装）。
 只有用 6 位配对码配对过的那个账号能用；要执行命令、改文件时，聊天里会先问你：有按钮的平台带着"允许 / 拒绝"按钮，
 没有按钮的平台请你回复"允许"或"拒绝"（在网页上答复也行，先到的算数）。WhatsApp 和企业微信要公网地址，以后再做。
@@ -303,7 +303,7 @@ uv run harness --web
   用它把机器人加到你自己的账号（**Add to My Apps**），再打开和它的私聊。不用打开 Message Content Intent：和机器人的私聊不受它限制。
 - **Slack。** [新建一个应用](https://api.slack.com/apps?new_app=1)，选 **From a manifest**，粘贴向导替你复制的那份清单
   （权限、`message.im` 事件、按钮、Socket Mode 和 `/zhifox` 命令一次都设好了）。然后在 **OAuth & Permissions** 里点
-  **Install to Workspace**，得到 Bot token（`xoxb-…`）；在 **Basic Information → App-Level Tokens** 里生成一个带
+  **Install to Workspace**，得到 Bot token（`xoxb-…`；照着旧清单建的应用没有 `files:write` 这个权限，要加上它、重新安装以后才能发文件）；在 **Basic Information → App-Level Tokens** 里生成一个带
   `connections:write` 权限的，得到 App-level token（`xapp-…`）。在这个应用的 **Messages** 标签里聊天；命令写成
   `/zhifox new`、`/zhifox stop`、`/zhifox status`、`/zhifox help`。
 - **飞书。** 先运行 `uv sync --extra feishu`。在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，复制 **App ID**
@@ -317,7 +317,9 @@ uv run harness --web
   里复制 **AppID** 和 **AppSecret**，事件选 WebSocket。你自己是管理员，不用上线、不用沙箱就能直接和它私聊。
 
 之后直接给你的机器人发消息就行。照片和文件经过的检查和页面上的附件一样（Word、Excel、PowerPoint 变成文字；
-语音和视频暂时还不支持）。聊天里可以用这几个命令（在 Slack 里写成 `/zhifox new` 这样）：
+语音和视频暂时还不支持）。反过来也行：让它截一张屏、画一张图表、把刚写好的报告发给你，你在确认卡片上（写着文件、大小、
+发到哪里）点了允许，它就以照片或文件的样子出现在聊天里（QQ 除外；各平台的上限见[六个平台，三种收消息的办法](#六个平台三种收消息的办法)）。
+聊天里可以用这几个命令（在 Slack 里写成 `/zhifox new` 这样）：
 
 | 命令 | 作用 |
 |---|---|
@@ -459,8 +461,8 @@ uv run --project "/这个项目的完整路径" harness
 | 共用的目录 | [harness/catalog.py](harness/catalog.py) | 有哪些 Skill、哪些 Agent 随时会变，系统提示词却不能变。两份列表都放在用户消息里，变了才再附一次 |
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你的对话同时运行并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
-| 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（Telegram、Discord、Slack、飞书、钉钉、QQ）：每个平台一个小小的客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、用按钮或者回复文字答复的确认（见[聊天通道：在聊天软件里和智狐说话](#聊天通道在聊天软件里和智狐说话)） |
-| WebSocket 和 HTTP | [harness/net/](harness/net/) | Discord、Slack、QQ 的消息顺着机器人自己连出去的一条 WebSocket 推过来。一个用 `socket` + `ssl` 写的小小的 RFC 6455 客户端（掩码、分片、ping/pong、关闭握手、大小上限、超时、HTTP 代理），和一个"发 JSON、收 JSON"的 HTTPS 帮手（出错信息和重定向里都不带 token） |
+| 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（Telegram、Discord、Slack、飞书、钉钉、QQ）：每个平台一个小小的客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、用按钮或者回复文字答复的确认，还有把照片和文件发回聊天里的 `send_file`（[tools/send.py](harness/tools/send.py)；见[聊天通道：在聊天软件里和智狐说话](#聊天通道在聊天软件里和智狐说话)） |
+| WebSocket 和 HTTP | [harness/net/](harness/net/) | Discord、Slack、QQ 的消息顺着机器人自己连出去的一条 WebSocket 推过来。一个用 `socket` + `ssl` 写的小小的 RFC 6455 客户端（掩码、分片、ping/pong、关闭握手、大小上限、超时、HTTP 代理），和一个"发 JSON、收 JSON"的 HTTPS 帮手（出错信息和重定向里都不带 token），还有上传文件用的 `multipart/form-data` 编码（[multipart.py](harness/net/multipart.py)） |
 | 无界面模式 | [harness/serve.py](harness/serve.py)、[harness/log.py](harness/log.py)、[harness/webui/lifecycle.py](harness/webui/lifecycle.py) | 服务器上没有浏览器。`harness serve` 不开浏览器就启动调度器和通道，日志按 journald 的习惯写、密钥都遮住，收到 SIGTERM 时干净地退出；网页界面和无界面模式在同一个地方启动、停下这些后台的部分 |
 | 编辑和重新生成 | [harness/rewind.py](harness/rewind.py) | 你打错了字，或者回答不对。最后一轮可以倒回去再跑一遍：倒到哪儿、这一轮哪些事可能改动了东西（要先提醒）、附件怎么原样取回来 |
 | 会话的认领 | [harness/claims.py](harness/claims.py) | 同一段会话可能同时开在网页上和聊天软件里。每一轮开始前先"认领"这段会话，两边就不会同时往里写、把对方的那一轮冲掉 |
@@ -887,6 +889,19 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
    选了 **自动允许改文件** 或 **全部自动允许** 时，没问你就做了的每一步照样会在聊天里说一声（"已自动允许：run_command $ …"）。
 6. **每个聊天可以有自己的角色。** 发 `/new researcher`，新的一段会话就用自定义 Agent *researcher* 当角色，
    和在网页上用它开始一段对话一样（用它的提示词、只有它放开的工具、它写了模型的话用那个模型）。
+7. **把文件发回聊天里。** 以前你在 Telegram 里说"截屏看下你在做啥"，助手能截图、也能看图，最后却只能回一句"我没法把图片发到
+   Telegram"：它手里没有发东西的工具。现在聊天里的会话多了一个工具 `send_file`（[tools/send.py](harness/tools/send.py)）：
+   一个路径，加一句可选的说明。图片（PNG、JPEG、GIF、WebP，看文件开头的几个字节认）在平台能直接显示的地方当照片发，
+   别的当文件发，大小按各平台文档写的上限来。它和别的"把东西送出这台电脑"的操作一样先问你（见[权限规则](#权限规则)），
+   路径的解析和文件工具一模一样，保存密钥的文件永远不发。真正发之前再读一遍文件，和卡片上给你看的对一对（位置、大小、格式都没变），
+   而且排进这个聊天的发送队列，所以它出现在助手之前说的话后面。通道那一半在 [outbound.py](harness/channels/outbound.py)
+   （哪个平台收什么）和各平台的 `send_file` 里；上传用手写的 `multipart/form-data` 编码（[net/multipart.py](harness/net/multipart.py)），
+   走的还是同一个 HTTPS 帮手（有超时、有大小上限、出错说明里遮住密钥）。
+   **它在哪儿有**，照着"一段对话里工具清单不变"的规矩：它属于在聊天通道里*开始*的会话（`Conversation.channel`），
+   在聊天里有，在网页上接着聊这段会话时也有，说明书一字不差（缓存照样命中），只是调用时回答"这段对话现在不在聊天软件里"。
+   网页上的普通对话和定时任务从来没有它，不用为一份用不上的说明书花钱。同样的原因，说明书里不写是哪个平台、上限多大；
+   发不了的时候，结果里会说清楚为什么、该怎么办（"先打包成 zip""先缩小一份"）。聊天里一段会话的第一条消息（`<channel>` 那句说明）
+   也提醒模型：直接把文件发过去，别只说路径（手机上打不开）。系统提示词没有动：所有的对话都用它。
 
 #### 六个平台，三种收消息的办法
 
@@ -902,6 +917,17 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 | 飞书 | 官方 SDK `lark-oapi` 的长连接 | 卡片上的按钮（发不出卡片时退回成文字） | `post` 消息里 `md` 标签的 Markdown | 可选：`uv sync --extra feishu` |
 | 钉钉 | 官方 SDK `dingtalk-stream` 的 Stream 模式 | 回复"允许"或"拒绝"（能回传点击的按钮要先在卡片平台上建模板） | 钉钉的 markdown | 可选：`uv sync --extra dingtalk`。回复先用消息带来的 `sessionWebhook`，过期了改用单聊的主动发送接口 |
 | QQ | Gateway 的 WebSocket（和 Discord 是同一套），`access_token` 会定期换 | 回复"允许"或"拒绝" | 纯文字 | 一条消息 60 分钟内最多"被动回复" 4 次，之后改成主动消息 |
+
+把文件发回聊天里（`send_file`）用的是各平台自己的上传接口，上限是它们文档里写的：
+
+| 平台 | 文件怎么发 | 上限 |
+|---|---|---|
+| Telegram | 图片用 `sendPhoto`（GIF 用 `sendAnimation`），别的用 `sendDocument`，都是 `multipart/form-data` 上传；说明写在消息里 | 照片 10 MB（更大的、或者 Telegram 显示不了的图片当文件发），文件 50 MB，说明 1024 个字符（更长的另发一条） |
+| Discord | 就是发一条消息，文件放在 `files[0]`，消息本身放在 `payload_json` | 一个文件 20 MB；说明 2000 个字符 |
+| Slack | `files.getUploadURLExternal`，把字节传到那个一次性的上传地址（不带 Bot token），再 `files.completeUploadExternal` 发到私聊里 | 要 `files:write` 这个权限（清单里有；照着旧清单建的应用要加上它、重新安装） |
+| 飞书 | 图片传到 `im/v1/images`，别的传到 `im/v1/files`（`file_type` 按扩展名选），再发一条 `image` 或 `file` 消息；说明另发一条 | 图片 10 MB，文件 30 MB |
+| 钉钉 | 传到 `media/upload`（老的 `oapi` 接口，同一个 access_token），再主动发一条 `sampleImageMsg` 或 `sampleFile` 单聊消息 | 20 MB；图片只认 JPEG、PNG、GIF；文件只认 doc、docx、xlsx、pdf、zip、rar（别的会让模型先打包成 zip） |
+| QQ | 不支持：QQ 单聊的富媒体只能给一个公网网址、由 QQ 自己去下载，智狐没有公网地址（为了它把你的文件放到网上，等于交给了所有拿到链接的人） | 工具会直接这么告诉模型 |
 
 - **网关**（[gateway.py](harness/channels/gateway.py)）给 Discord 和 QQ 写一遍、两边共用：第一次心跳先等"间隔 × 随机数"；
   下一次心跳时上一次的还没回 ACK，说明连接已经僵死了（不做关闭握手直接断开，然后 Resume）；op 7 是"请你重连"，
@@ -924,7 +950,7 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 
 | 类别 | 说明书 | 执行 | 这个项目里的例子 |
 |---|---|---|---|
-| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、定时任务（[tasks.py](harness/tools/tasks.py)）、执行命令（[shell.py](harness/tools/shell.py)）、读 Skill（[skill.py](harness/tools/skill.py)） |
+| 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、定时任务（[tasks.py](harness/tools/tasks.py)）、执行命令（[shell.py](harness/tools/shell.py)）、读 Skill（[skill.py](harness/tools/skill.py)）、把文件发到聊天里（只有聊天通道里有，[send.py](harness/tools/send.py)） |
 | Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)；查看图片时交回图片本身，是不是图片看文件开头的几个字节、不看扩展名；看不了图片的模型（DeepSeek）收到一句说明）、记忆（[memory.py](harness/tools/memory.py)）、给 Claude 用的浏览器和操作电脑（[browser.py](harness/tools/browser.py)、[computer.py](harness/tools/computer.py)） |
 | 服务器工具 | Anthropic | Anthropic 的服务器 | 联网搜索（[web.py](harness/tools/web.py)） |
 
@@ -1385,6 +1411,7 @@ Chat Completions 格式的工具结果只能是文字。这两家没有专门为
 | 操作整台电脑：点击、拖动、移动鼠标、滚动、打字、按键 | 每次都问，不管选了哪一档（"全部自动允许"也不放开）。卡片上写着位置（是哪个程序的窗口）、要按的键或要打的字，⌘Q、Ctrl+Alt+Del 这类危险的组合键带着警告 |
 | 操作整台电脑：等一等、看鼠标在哪儿 | 直接执行（什么都不看、什么都不碰） |
 | 操作整台电脑：不许碰的程序在最前面（或者在点击的位置上）、屏幕正被另一个运行占着 | 不问，直接拒绝，并告诉模型为什么 |
+| 把文件发到聊天里（`send_file`，只有聊天通道里有） | 先问你，在聊天里（网页上也能答），这个通道选了"全部自动允许"的除外。卡片上写着文件、大小、是不是当照片发、说明，以及发到哪个聊天。`data/` 里的文件照样问、卡片上带着提醒，和读它一样。保存密钥的文件（`.env`、`data/mcp.json`、`data/channels.json`）不管哪一档都不发；平台不收的（太大、种类不对）不问，直接告诉模型 |
 
 MCP 的工具是别人写的程序，它做什么智狐看不到，它说自己"只读"也没法验证，所以默认每次都问。
 在"扩展 → MCP"里可以把某一个工具、或者整个服务器设成"不用问"。这是你对一个具体工具做的决定，
@@ -1397,6 +1424,9 @@ MCP 的调用也会停下来等你批准。
 点页面上已有的链接不问：链接是网站自己放在那里的，带不走页面本来不知道的东西。密码和银行卡是被带偏的模型最想要的，
 所以哪怕选了"全部自动允许"也要问；往别的网站嵌进来的框里输入也是（智狐看不到框里是什么，常见的是付款信息）。
 "这段对话里允许过的网站"只记在这段对话自己的浏览器上，换一段新对话就从头再问。定时任务和聊天通道按同样的规矩来，档位用它们自己的那一档。
+
+往聊天里发文件也要问，是同一个道理：文件离开了这台电脑，到了聊天平台的服务器上，收不回来；就算是发到你自己的聊天里，
+想发的也可能是被网页、文件里的一句话带偏的模型。"自动允许改文件"放开的是改文件，不是往外发，所以选了这一档照样问。
 
 操作整台电脑的规矩更严：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，而智狐只看得到像素，没法告诉你点下去会发生什么
 （见上面的"操作整台电脑：看你的屏幕、动你的鼠标键盘"）。所以每一步都要你亲眼看一下，哪一档都不放开；
@@ -1720,7 +1750,10 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 [tests/fake_feishu.py](tests/fake_feishu.py) / [tests/fake_dingtalk.py](tests/fake_dingtalk.py)（HTTP 接口，加一个代替 SDK 的假长连接）。
 一套组装（[tests/channel_rig.py](tests/channel_rig.py)）把整个程序对着它们中的任何一个跑起来。测的有：配对（对的、错的、过期的配对码，
 陌生人和群聊不理）、同一条消息推了两次、拆开长回复、照片和文件、用按钮、打字和在网页上答复确认（几边抢着答）、
-每个通道自己的确认方式、`/new` `/stop` `/status`、断线重连和 Resume、限流，以及 token 和密钥从不出现在页面、日志、出错信息和导出里
+每个通道自己的确认方式、`/new` `/stop` `/status`、断线重连和 Resume、限流、把文件发回聊天里（每个假服务器都收各平台的上传、
+照着平台的上限检查；当照片还是当文件、说明、太大的文件在问你之前就拒绝、密钥永远不发、`data/` 照样问、上传到一半 `/stop`、
+请求的开头在几轮之间、重启以后、到网页上接着聊都一个字节不差：[tests/test_send_file.py](tests/test_send_file.py)），
+以及 token 和密钥从不出现在页面、日志、出错信息和导出里
 （[tests/test_channels.py](tests/test_channels.py)、[tests/test_channels_web.py](tests/test_channels_web.py)、`tests/test_channels_<平台>.py`、
 [tests/test_channels_platforms.py](tests/test_channels_platforms.py)）。装了 SDK 的时候，飞书的事件分发器和真的钉钉 Stream 客户端
 也会对着假服务器跑一遍；没装就跳过这几个。WebSocket 客户端和 HTTPS 帮手有自己的测试，对着本地的假服务器和假代理
@@ -1816,7 +1849,8 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
   HTML 按原文显示成文字，链接只认 http、https、mailto，不支持缩进四格的代码块、引用式链接和脚注。代码着色只认常见语言的
   注释、字符串、数字和关键字。终端界面照原样显示 Markdown 原文。
 - 定时任务和聊天通道只在网页界面或者 `harness serve` 开着的时候运行；定时任务最多同时三个。
-  聊天通道能收文字、图片和文件（还不能收语音和视频）；WhatsApp 和企业微信要公网地址，还不支持。Discord、Slack、飞书、钉钉、QQ
+  聊天通道能收文字、图片和文件（还不能收语音和视频），也能把图片和文件发回去（QQ 除外：它只收公网网址上的图片）；
+  WhatsApp 和企业微信要公网地址，还不支持。Discord、Slack、飞书、钉钉、QQ
   是照着它们官方的文档写的，目前只对着本地的假服务器测过，还没有接过真的机器人。两次运行（或者一次运行和你的对话）改同一个文件的同一处时不会合并：
   每次改动整个做完，后改的那一边发现原文已经变了就会报错，模型会重新读一遍再改。
   提醒只显示在页面上，不会弹出系统通知。

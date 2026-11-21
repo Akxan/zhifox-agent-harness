@@ -90,6 +90,10 @@ CHANNEL_TIMEOUT = 20  # 发消息、下载文件这类普通请求的超时（�
 CHANNEL_RETRY_SECONDS = 60  # 连不上时，重试的间隔从 1 秒起每次翻倍，最多隔这么久
 CHANNEL_TYPING_SECONDS = 4  # 一轮还在进行时，每隔这么久发一次"正在输入"（Telegram 的这个状态只维持 5 秒）
 CHANNEL_DOWNLOAD_BYTES = 20_000_000  # 聊天里发来的文件最多下载这么大（Telegram 机器人能下载的上限就是 20 MB）
+# 智狐往聊天里发文件（send_file 工具，见 tools/send.py）：一个文件最多这么大（要整个读进内存再上传）。
+# 各平台自己的上限更小（Telegram 50 MB、Discord 20 MiB、飞书 30 MB、钉钉 20 MB），按平台的算，见各平台的 UPLOADS
+CHANNEL_SEND_BYTES = 50_000_000
+CHANNEL_UPLOAD_TIMEOUT = 120  # 上传一个文件的超时（秒）。比普通请求长得多：在慢的网络上传 20 MB 要好一会儿
 # 聊天里发来的照片，网页上会话里显示的预览图至少要这么大（长边，像素）。页面上预览图大约 240 个点宽，
 # Retina 屏幕上一个点是 2 个像素，所以要 480 左右才清楚。Telegram 一张照片给好几种尺寸（大约 90、320、800、1280），
 # 用不小于它的里面最小的一张；最小的那张只有 90 像素，放大以后是糊的
@@ -226,6 +230,8 @@ class Config:
     qq_api: str = "https://api.bot.qq.com"  # 换 access_token、开网关、发消息都在这一个域名下（2026 年 8 月起的新地址）
     feishu_api: str = "https://open.feishu.cn"
     dingtalk_api: str = "https://api.dingtalk.com"
+    # 钉钉的老接口（上传图片和文件，发图片、文件消息要先传上去拿到 media_id，见 channels/dingtalk.py）在另一个域名下
+    dingtalk_oapi: str = "https://oapi.dingtalk.com"
 
     @property
     def todo_file(self) -> Path:
@@ -316,6 +322,7 @@ API_BASES = [
     ("qq_api", "QQ_API_BASE", "https://api.bot.qq.com"),
     ("feishu_api", "FEISHU_API_BASE", "https://open.feishu.cn"),
     ("dingtalk_api", "DINGTALK_API_BASE", "https://api.dingtalk.com"),
+    ("dingtalk_oapi", "DINGTALK_OAPI_BASE", "https://oapi.dingtalk.com"),
 ]
 
 

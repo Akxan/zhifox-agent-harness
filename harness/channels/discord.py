@@ -6,6 +6,8 @@
   发消息、改消息    https://docs.discord.com/developers/resources/message
   按钮              https://docs.discord.com/developers/components/reference
   回应按钮和命令    https://docs.discord.com/developers/interactions/receiving-and-responding
+  上传文件          https://docs.discord.com/developers/reference#uploading-files
+                   https://docs.discord.com/developers/resources/message#create-message
   斜杠命令          https://docs.discord.com/developers/interactions/application-commands
   限流              https://docs.discord.com/developers/topics/rate-limits
 
@@ -22,6 +24,12 @@
 怎么发：POST /channels/{id}/messages。一条最多 2000 个字符，更长的拆开；allowed_mentions 是空的，模型写了 @everyone
 也不会真的去 @ 谁。确认请求带两个按钮（action row 里的两个 button），答复以后 PATCH 那条消息，把按钮去掉、写上结果。
 "正在输入"是 POST /channels/{id}/typing，维持 10 秒。
+
+发文件（send_file 工具）：同一个 POST /channels/{id}/messages，只是请求体换成 multipart/form-data：消息本身写成 JSON
+放在 payload_json 这一段里，文件放在 files[0]，payload_json 里的 attachments 用编号 0 指着它（文档的写法）。
+图片和别的文件走同一条路：Discord 自己会把图片直接显示在聊天里。一个文件最大 20 MiB（文档："The default limit is
+20 MiB"，有 Nitro、服务器加成的会更大，机器人按默认的算），整个请求最大 25 MiB；超了 Discord 回 413（错误编号 40005）。
+说明写在这条消息的 content 里（最多 2000 个字符），更长的话文件先发，说明再另发几条。
 
 斜杠命令：用 PUT /applications/{应用的编号}/commands 一次登记全部（只在和机器人的私聊里出现，contexts=[1]）。
 登记了以后，在私聊里打 /new 会弹出命令的菜单，选了就是一次 type 2 的交互。
@@ -40,7 +48,8 @@ from typing import Any
 from .. import log
 from ..config import CHANNEL_DOWNLOAD_BYTES, Config
 from ..i18n import t
-from ..net import http
+from ..net import http, multipart
+from ..safe import to_json
 from . import markup
 from .base import (
     Capabilities,
@@ -48,9 +57,11 @@ from .base import (
     Event,
     Inbound,
     InboundFile,
+    OutboundFile,
     Press,
     Prompt,
     PushChannel,
+    Uploads,
 )
 from .gateway import FATAL, IDENTIFY_NEXT, RESUME_NEXT, Fatal, Gateway, Rules, Wait
 
@@ -91,9 +102,20 @@ class RestAPI:
         headers = {"User-Agent": USER_AGENT}
         if auth:
             headers["Authorization"] = f"Bot {self.token}"
+        return self._answer(lambda: http.request(method, self.base + path, headers=headers, body=body, hide=(self.token,)))
+
+    def upload(self, path: str, payload: dict, file: multipart.File) -> Any:
+        """带着一个文件 POST（发文件的那条消息）：payload 是消息本身（写进 payload_json），file 的 field 是 files[0]。
+        出错、被限流和 call 一样处理。"""
+        headers = {"User-Agent": USER_AGENT, "Authorization": f"Bot {self.token}"}
+        fields = {"payload_json": to_json(payload)}
+        return self._answer(lambda: multipart.post(self.base + path, fields=fields, files=[file], headers=headers, hide=(self.token,)))
+
+    def _answer(self, send: Callable[[], http.Reply]) -> Any:
+        """发一次请求（send），看回答：2xx 返回解析好的 JSON；429 按 Discord 说的时间等一等再发一次；别的抛出 DiscordError。"""
         for attempt in range(MAX_RETRIES + 1):
             try:
-                reply = http.request(method, self.base + path, headers=headers, body=body, hide=(self.token,))
+                reply = send()
             except http.NetError as exc:
                 raise DiscordError(t("连不上 Discord（{error}）", error=str(exc))) from None
             if reply.status == 429 and attempt < MAX_RETRIES:
@@ -108,6 +130,8 @@ class RestAPI:
 
 
 def _explain(status: int, code: int, message: str) -> str:
+    if status == 413 or code == 40005:
+        return t("这个文件太大了，Discord 不让机器人发这么大的文件。")
     if status == 401:
         return t("Discord 不认这个 token：可能抄错了，或者已经在开发者后台点过 Reset Token。")
     if status == 429:
@@ -166,9 +190,14 @@ def _person(user: dict) -> str:
     return str(username or name or user.get("id", ""))
 
 
+# 能往聊天里发什么（见 base.Uploads）：一个文件最大 20 MiB，图片也是（Discord 自己会把图片显示出来）。
+# 按 20 MB 算，比文档的 20 MiB（20 971 520 字节）少一点：给 payload_json 和各段的头留出余量，告诉模型的上限也是整数
+UPLOADS = Uploads(file_bytes=20_000_000, photo_bytes=20_000_000, caption_chars=LIMIT)
+
+
 class DiscordChannel(PushChannel):
     platform = "discord"
-    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=True, files=True)
+    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=True, files=True, uploads=UPLOADS)
 
     def __init__(self, token: str, base: str = "https://discord.com/api/v10", app_id: str = ""):
         super().__init__()
@@ -369,6 +398,16 @@ class DiscordChannel(PushChannel):
             self.api.call("PATCH", f"/channels/{chat}/messages/{handle}", {"content": f"{content}\n\n**{outcome}**", "components": [], "allowed_mentions": {"parse": []}})
         except DiscordError:
             self._post(chat, outcome)  # 改不了：另发一条说明结果
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """发一个文件：一条带附件的消息（见文件开头）。说明排成 Discord 的样子写在 content 里，放不下的文件先发、说明另发。"""
+        caption = outgoing.caption.strip()
+        shaped = markup.to_discord(caption) if caption else ""
+        inline = shaped if shaped and markup.length(shaped) <= UPLOADS.caption_chars else ""
+        payload = {"content": inline, "allowed_mentions": {"parse": []}, "attachments": [{"id": 0, "filename": outgoing.name}]}
+        self.api.upload(f"/channels/{chat}/messages", payload, multipart.File("files[0]", outgoing.name, outgoing.media_type, outgoing.data))
+        if caption and not inline:
+            self.send(chat, caption, markdown=True)
 
     def typing(self, chat: str) -> None:
         try:

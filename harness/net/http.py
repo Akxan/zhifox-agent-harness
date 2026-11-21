@@ -10,6 +10,7 @@
     （Slack 的文件下载会重定向）。token 不一定放在 Authorization 里（钉钉放在 x-acs-dingtalk-access-token），
     所以是"只留下认识的几个"，而不是"去掉认识的几个"。重定向到 trusted() 不认的地址（明文的 http://、ftp://）不跟
   - 回答最多读 limit 个字节，超了就不读了：一个出了毛病的服务器不能把内存撑满
+  - 上传文件（content 是已经拼好的字节）也走这里：请求体怎么拼见 multipart.py
 """
 
 from __future__ import annotations
@@ -115,14 +116,19 @@ def request(
     headers: dict[str, str] | None = None,
     body: Any = None,
     form: dict[str, str] | None = None,
+    content: bytes | None = None,
     timeout: float = CHANNEL_TIMEOUT,
     limit: int = MAX_JSON_BYTES,
     hide: tuple[str, ...] | list[str] = (),
 ) -> Reply:
-    """发一个请求。body 是要编码成 JSON 的东西，form 是表单（二者最多给一个）。回答原样交回（不管状态码）。"""
+    """发一个请求。body 是要编码成 JSON 的东西，form 是表单，content 是已经编码好的字节（上传文件用，Content-Type 由调用的人
+    写在 headers 里，见 multipart.py）；三者最多给一个。回答原样交回（不管状态码）。"""
     data: bytes | None = None
     sent = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
-    if body is not None:
+    if content is not None:
+        data = content
+        sent.setdefault("Content-Type", "application/octet-stream")
+    elif body is not None:
         data = to_json(body).encode("utf-8")
         sent.setdefault("Content-Type", "application/json; charset=utf-8")
     elif form is not None:

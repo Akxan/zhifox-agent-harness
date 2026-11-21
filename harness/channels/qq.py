@@ -16,6 +16,12 @@
     说了很多句）改成"主动消息"，不带 msg_id，每个用户每分钟最多 20 条。同一个 msg_id 的几次回复用 msg_seq 区分
   - 没有按钮（要申请 markdown、键盘的权限），确认请求靠回复"允许"或"拒绝"；也不排版，Markdown 变成纯文字发
   - 同一条消息可能推两次，按消息的编号去掉重复的
+
+为什么助手不能在 QQ 里发文件（send_file，见 ../tools/send.py；Capabilities.uploads 是 None，工具会直接说"暂时不支持"）：
+单聊的富媒体（develop/api-v2/server-inter/message/send-receive/rich-media.html：先 POST /v2/users/{openid}/files，
+再发一条 msg_type 7 的消息）要的是一个公网上能访问的网址（url），由 QQ 的服务器自己去下载；直接传文件的字节只有频道能用
+（2026 年 11 月看的，开源 SDK botrs 的说明也是这样写的）。智狐运行在你自己的电脑上，没有公网地址；为了发一张截图
+把文件放到公网上，等于把它交给了所有知道网址的人。所以不做，等 QQ 的单聊支持直接上传以后再加。
 """
 
 from __future__ import annotations

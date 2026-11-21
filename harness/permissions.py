@@ -31,6 +31,9 @@
   操作整台电脑：点击、拖动、移动鼠标、滚动、打字、按键   每次都问，在任何模式下（"全部自动允许"也不放开）。
                                     卡片上写着落在哪个程序上；危险的组合键（⌘Q、Ctrl+Alt+Del……）带着警告
   操作整台电脑：等一等、看鼠标在哪儿   直接执行（什么都不看、什么都不碰）
+  把文件发到聊天里（send_file）     先问用户（"全部自动允许"除外）。卡片上写着文件名、大小、发到哪个聊天。
+                                    保存密钥的文件（.env、mcp.json、channels.json）在任何模式下都不发；
+                                    助手自己的数据目录里的文件，卡片上带着提醒
 
 "先问用户"可以由用户自己放宽（见 MODES）。放宽的只是"问不问"：哪些操作需要确认、
 确认时给用户看什么，仍然由上面这张表决定；保存密钥的 .env 在任何模式下都碰不了。
@@ -51,6 +54,11 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 每张都问会把人问烦，问烦了就会不看就点"允许"。这一项记在这段对话自己的 DesktopSession 上，只有你在对话里的确认卡片上点了才打开，
 换一段对话就从头再问；定时任务、聊天通道里没有这个选项。
 
+发文件的规矩为什么是这样：发出去的文件离开了这台电脑，到了聊天平台的服务器上，收不回来。哪怕是发给你自己的聊天，
+也可能是被网页、文件里的一句话带偏的模型想把你的东西送出去，所以和"读工作目录之外的文件"一样要你看一眼。
+"改工作目录里的文件不用问"放开的是改文件，不是往外发，所以那一档照样问。数据目录（以前的会话、设置、待办）
+和读它一样：只有"全部自动允许"不问，卡片上多一句提醒。保存密钥的文件根本不发（工具直接回答"不能发"，不弹卡片）。
+
 定时任务自己运行的时候（多半没人看着），用的是这个任务自己的那一档（见 unattended），和对话里选的哪一档无关：
 用户在对话里放开时，想的是"我看着它做"，不是"它半夜自己做的时候也别问"。每个任务默认"每次都问"，
 表上要问的一律停下来等用户批准；只有用户自己在页面上编辑任务时才能为它放宽。模型用工具添加的任务
@@ -69,6 +77,7 @@ from typing import Any
 from .browser import urls
 from .browser.session import Facts
 from .desktop.session import Facts as DesktopFacts
+from .display import file_size, short
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool
@@ -79,6 +88,7 @@ from .tools.base import ToolError
 from .tools.browser import BrowserTool
 from .tools.computer import DesktopTool
 from .tools.files import FileEditor
+from .tools.send import SendFacts, SendTool
 
 # 用户可以选的三种模式，以及给人看的说法。
 MODES = {
@@ -180,6 +190,8 @@ class Permissions:
             return review_browser(tool.look(tool_input))
         if isinstance(tool, DesktopTool):
             return review_computer(tool.look(tool_input))
+        if isinstance(tool, SendTool):
+            return self._review_send(tool.look(tool_input))
         if tool_name == shell.TOOL_NAME:
             return t("执行命令：\n\n    $ {command}", command=tool_input.get("command"))
         if tool_name == files.TOOL_NAME:
@@ -189,6 +201,25 @@ class Permissions:
         if tool_name == task_tools.DELETE:
             return self._review_task_delete(tool_input)
         return None
+
+    def _review_send(self, facts: SendFacts) -> str | None:
+        """把一个文件发到聊天里：每次都问（"全部自动允许"除外，auto_allows 照常按模式算）。发不了的（不在聊天里、
+        保存密钥的文件、太大……）不问：工具会直接把原因告诉模型，什么都不会发出去。"""
+        if facts.refusal or facts.path is None:
+            return None
+        kind = t("图片，会直接显示在聊天里") if facts.kind == "photo" else t("作为文件发送")
+        caption = t("\n  说明：{caption}", caption=short(facts.caption, 300)) if facts.caption else ""
+        private = t("\n\n⚠ 这是助手自己保存的数据（以前的会话、设置、待办都在这个目录里）。发出去以后它就离开了这台电脑。") if self._is_private(facts.path) else ""
+        return t(
+            "把一个文件发到 {platform}（和 {person} 的私聊）：\n\n  文件：{path}\n  大小：{size}（{kind}）{caption}{private}",
+            platform=t(facts.label),
+            person=facts.person or "?",
+            path=facts.shown,
+            size=file_size(facts.size),
+            kind=kind,
+            caption=caption,
+            private=private,
+        )
 
     def _review_task_add(self, tool_input: dict) -> str | None:
         if "approval" in tool_input:

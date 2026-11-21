@@ -8,7 +8,7 @@
             ├─ 有确认请求在等，回的是"允许""拒绝" → 当作答复
             └─ 别的                           → 交给这个聊天的 Session，排队跑一轮（见 session.py）
 
-要发到聊天里的话（回答、确认请求、提示）不在这里直接发，而是排进这个平台的发送队列（Outbox），
+要发到聊天里的话（回答、确认请求、提示，还有助手用 send_file 发的文件）不在这里直接发，而是排进这个平台的发送队列（Outbox），
 由一个单独的线程按顺序发出去：网络可能慢，agent 循环和收消息的线程都不该等它；顺序也不能乱，
 一段回答和紧跟着它的确认请求，在聊天里也得是这个顺序。
 """
@@ -28,7 +28,16 @@ from ..claims import Claims
 from ..config import APP_NAME, PAIRING_ATTEMPTS
 from ..i18n import message_of, t
 from . import pairing
-from .base import Capabilities, Channel, ChannelError, Event, Inbound, Press, Prompt
+from .base import (
+    Capabilities,
+    Channel,
+    ChannelError,
+    Event,
+    Inbound,
+    OutboundFile,
+    Press,
+    Prompt,
+)
 from .platforms import label
 from .session import Session, Waiting
 from .store import ChannelStore
@@ -139,6 +148,10 @@ class Router:
         with self._lock:
             self._channels.pop(platform, None)
 
+    def attached(self, platform: str) -> bool:
+        """这个平台现在有没有一个开着的通道。"""
+        return platform in self._channels
+
     def capabilities(self, platform: str) -> Capabilities:
         channel = self._channels.get(platform)
         return channel.capabilities if channel is not None else Capabilities(buttons=False, max_chars=4000, typing=False, files=False)
@@ -180,6 +193,46 @@ class Router:
     def settle(self, platform: str, chat: str, waiting: Waiting, outcome: str) -> None:
         # waiting.handle 是发确认请求的那一步填上的。两步排在同一个队里，到这里时它一定已经发完了
         self._later(platform, lambda channel: channel.settle(chat, waiting.handle, outcome) if waiting.handle else None)
+
+    def send_file(self, platform: str, chat: str, outgoing: OutboundFile, cancelled: threading.Event, timeout: float) -> str:
+        """把一个文件排进发送队列，等它发完（send_file 工具要知道发没发出去，见 outbound.py）。
+
+        排在队列里、而不是直接发：助手发文件之前说的话可能还没发出去，聊天里的顺序要和它做的一样。
+        返回 sent（发出去了）、skipped（还没轮到就被 /stop 了，没有发）、pending（/stop 了或者等了 timeout 秒，
+        这时它可能正在上传：不知道发没发出去）。平台拒绝了、连不上，抛出 ChannelError。
+        """
+        outbox = self._outbox(platform)
+        if outbox is None or not self.attached(platform):
+            raise ChannelError(t("{platform} 现在没有连着。", platform=label(platform)))
+        done = threading.Event()
+        outcome: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                if cancelled.is_set():
+                    outcome["state"] = "skipped"
+                    return
+                channel = self._channels.get(platform)
+                if channel is None:
+                    raise ChannelError(t("{platform} 现在没有连着。", platform=label(platform)))
+                channel.send_file(chat, outgoing)
+                outcome["state"] = "sent"
+            except ChannelError as exc:
+                outcome["error"] = exc
+            except Exception:  # 平台的代码里有 bug：记进日志，给模型一句话，不让发送队列停下
+                logger.exception("%s: 发文件时出错", platform)
+                outcome["error"] = ChannelError(t("发文件时出错了，详细的原因写在智狐的日志里。"))
+            finally:
+                done.set()
+
+        outbox.put(run)
+        deadline = time.monotonic() + timeout
+        while not done.wait(0.1):
+            if cancelled.is_set() or time.monotonic() > deadline:
+                return "pending"
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("state", "sent")
 
     def typing(self, platform: str, chat: str) -> None:
         outbox = self._outbox(platform)

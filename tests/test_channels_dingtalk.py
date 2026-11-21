@@ -4,6 +4,7 @@
 对着本地的假钉钉（tests/fake_dingtalk.py）：REST 和 sessionWebhook 是真的 HTTP，Stream 连接平常换成 FakeStreamListener
 （交给通道的消息和 SDK 交的一样）。组装见 tests/channel_rig.py，测试代码扮演手机上的你（s.say）和浏览器（s.browser）。
 最后一节用真的 SDK（dingtalk-stream）连假钉钉的 Stream 网关：换票据、连 WebSocket、收消息、回执、停下；没装 SDK 就跳过。
+助手用 send_file 发文件的那一节：先传到老接口 media/upload，再主动发一条图片或文件消息（sessionWebhook 发不了这两种）。
 不连真正的钉钉，不花钱。
 """
 
@@ -16,6 +17,7 @@ import logging
 import threading
 import time
 import zipfile
+from dataclasses import replace
 
 import pytest
 from channel_rig import rig_fixture
@@ -28,13 +30,16 @@ from fake_dingtalk import (
     STRANGER,
     TOPIC,
     FakeDingTalk,
+    FakeStreamListener,
 )
-from sample_files import JPEG_BYTES
+from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import result_text, run, stop_later, tool_results, until
+from test_send_file import outgoing, result_of, send
 
 from harness.channels import dingtalk, platforms
-from harness.channels.base import ChannelError
+from harness.channels.base import ChannelError, Uploads
 from harness.channels.dingtalk import SAFE_LIMIT, DingTalkChannel, StreamListener
+from harness.channels.outbound import plan
 from harness.channels.store import ChannelStore
 from harness.net import http
 
@@ -437,6 +442,140 @@ def test_the_export_leaves_out_the_client_secret(tmp_path):
     entry = json.loads(archive.read("channels.json"))["platforms"]["dingtalk"]
     assert entry["credentials"] == {"client_id": CLIENT_ID, "client_secret": PLACEHOLDER}
     assert CLIENT_SECRET.encode() not in b"".join(archive.read(name) for name in archive.namelist())
+
+
+# ---- 发文件（send_file）：先传到 media/upload、再主动发一条图片或文件消息 ---------------------------
+
+
+def channel_of(fake) -> DingTalkChannel:
+    return DingTalkChannel(CLIENT_ID, CLIENT_SECRET, fake.base_url, listener=FakeStreamListener(fake), oapi=fake.base_url)
+
+
+def test_an_image_is_uploaded_and_sent_as_an_image_message_with_the_caption_after(fake):
+    channel_of(fake).send_file(OWNER, outgoing("屏幕.png", caption="**现在**的屏幕"))
+    (upload,) = fake.uploads
+    assert (upload["type"], upload["filename"], upload["content_type"], upload["data"]) == ("image", "屏幕.png", "image/png", PNG_BYTES)
+    assert upload["token"] == fake.tokens[-1]  # 老接口用的就是 v1.0/oauth2/accessToken 换来的那个
+    image, caption = fake.sent
+    assert (image["via"], image["msgtype"], image["chat"], image["upload"]["media_id"]) == ("batch", "image", OWNER, upload["media_id"])
+    image_batch = fake.batches[0]
+    assert image_batch["msgKey"] == "sampleImageMsg" and json.loads(image_batch["msgParam"]) == {"photoURL": upload["media_id"]}
+    assert caption["msgtype"] == "markdown" and caption["text"] == "**现在**的屏幕"  # 说明跟在图片后面
+
+
+def test_a_file_is_uploaded_and_sent_as_a_file_message(fake):
+    channel_of(fake).send_file(OWNER, outgoing("报告.PDF", PDF_BYTES, "application/octet-stream", "document"))
+    (upload,) = fake.uploads
+    assert (upload["type"], upload["filename"]) == ("file", "报告.PDF")
+    (message,) = fake.sent
+    assert (message["msgtype"], message["plain"], message["fileType"]) == ("file", "报告.PDF", "pdf")
+    assert json.loads(fake.batches[0]["msgParam"]) == {"mediaId": upload["media_id"], "fileName": "报告.PDF", "fileType": "pdf"}
+
+
+def test_files_go_to_the_chat_the_last_message_came_from_even_with_a_fresh_session_webhook(bot):
+    """图片和文件 sessionWebhook 发不了：就算它还有效，也主动发，而且发给消息里记下的员工编号、用记下的 robotCode。"""
+    s = bot(send("toolu_1", "a.pdf"), reply(text("好")), approval="all")
+    (s.config.workspace / "a.pdf").write_bytes(PDF_BYTES)
+    start = s.say("发")
+    s.wait_reply(start, "好")
+    s.idle()
+    (message,) = [item for item in s.fake.sent if item["msgtype"] == "file"]
+    assert (message["via"], message["chat"]) == ("batch", OWNER)
+    assert [batch["robotCode"] for batch in s.fake.batches if batch["msgKey"] == "sampleFile"] == [CLIENT_ID]
+
+
+def test_dingtalk_only_takes_some_kinds_of_files():
+    uploads = DingTalkChannel.capabilities.uploads
+    assert uploads == Uploads(file_bytes=20_000_000, photo_bytes=20_000_000, photo_types=frozenset({"image/png", "image/jpeg", "image/gif"}),
+                              extensions=frozenset({"doc", "docx", "xlsx", "pdf", "zip", "rar"}))
+    assert plan(uploads, "钉钉", "a.png", 10, "image/png") == ("photo", "")
+    assert plan(uploads, "钉钉", "a.zip", 10, "application/octet-stream") == ("document", "")
+    kind, problem = plan(uploads, "钉钉", "notes.txt", 10, "application/octet-stream")
+    assert kind == "" and "钉钉只能发 GIF、JPEG、PNG 格式的图片，和这几种文件：doc、docx、pdf、rar、xlsx、zip" in problem and "打包成 zip" in problem
+    kind, problem = plan(uploads, "钉钉", "shot.webp", 10, "image/webp")  # WebP：当不了图片，也不在能发的文件里
+    assert kind == "" and "只能发 GIF、JPEG、PNG 格式的图片" in problem
+
+
+def test_an_upload_dingtalk_refuses_is_explained_without_the_token(fake):
+    channel = channel_of(fake)
+    channel.send_file(OWNER, outgoing())
+    token = fake.tokens[-1]
+    fake.upload_error = {"errcode": 40006, "errmsg": f"不合法的文件大小 access_token={token} {CLIENT_SECRET}"}
+    with pytest.raises(ChannelError) as caught:
+        channel.send_file(OWNER, outgoing("b.png"))
+    assert "钉钉回答了一个错误" in str(caught.value) and "40006" in str(caught.value)
+    assert token not in str(caught.value) and CLIENT_SECRET not in str(caught.value)
+    # 连不上（端口没人听）：说明里只有主机名，没有网址里的 access_token
+    broken = DingTalkChannel(CLIENT_ID, CLIENT_SECRET, fake.base_url, listener=FakeStreamListener(fake), oapi="http://127.0.0.1:9")
+    with pytest.raises(ChannelError) as caught:
+        broken.send_file(OWNER, outgoing())
+    assert "连不上钉钉" in str(caught.value) and all(secret not in str(caught.value) for secret in fake.secrets)
+    assert len(fake.sent) == 1  # 传不上去的，什么消息都不发
+
+
+def test_the_fake_dingtalk_rejects_a_file_over_20_mb(fake):
+    with pytest.raises(ChannelError, match="40006"):
+        channel_of(fake).send_file(OWNER, outgoing("big.pdf", PDF_BYTES + b"\0" * (20 * 1024 * 1024), "application/octet-stream", "document"))
+    assert fake.uploads == [] and fake.sent == []
+
+
+def test_an_expired_token_is_replaced_for_uploads(fake):
+    channel = channel_of(fake)
+    channel.api.token()
+    fake.tokens.clear()  # 钉钉那边作废了（通道里记着的还没到期）：第一次传回 40014，换一个新的再传
+    channel.send_file(OWNER, outgoing())
+    assert len(fake.uploads) == 1 and fake.uploads[0]["token"] == fake.tokens[-1]
+
+
+def test_a_screenshot_is_approved_with_words_and_arrives_as_an_image(bot):
+    s = bot(send("toolu_1", "screen.png", caption="这是现在的屏幕"), reply(text("发过去了")))
+    (s.config.workspace / "screen.png").write_bytes(PNG_BYTES)
+    start = s.say("截屏看下你在做啥")
+    ask = s.asked(start)
+    assert ask["title"] == f"助手想要把一个文件发到钉钉（和 {OWNER_NAME} 的私聊）："  # 汉字和"钉钉"之间不留空格
+    assert "文件：screen.png" in ask["text"] and "大小：1 KB（图片，会直接显示在聊天里）" in ask["text"] and "说明：这是现在的屏幕" in ask["text"]
+    assert s.fake.uploads == []  # 你回复之前什么都没传
+    s.say("允许")
+    s.wait_reply(start, "发过去了")
+    s.idle()
+    image = next(message for message in s.fake.sent if message["msgtype"] == "image")
+    caption = s.fake.sent[s.fake.sent.index(image) + 1]
+    assert image["upload"]["data"] == PNG_BYTES and caption["plain"] == "这是现在的屏幕"
+    assert s.fake.sent.index(ask) < s.fake.sent.index(image)
+    assert result_of(s.api.requests[1])["text"].startswith("已经把 screen.png（图片，作为照片显示在聊天里，1 KB）发到了钉钉的聊天里")
+
+
+def test_with_everything_allowed_a_file_is_sent_without_asking(bot):
+    s = bot(send("toolu_1", "report.docx"), reply(text("发了")), approval="all")
+    (s.config.workspace / "report.docx").write_bytes(PDF_BYTES)
+    start = s.say("把报告发我")
+    s.wait_reply(start, "已自动允许：send_file report.docx")
+    s.wait_reply(start, "发了")
+    s.idle()
+    assert [(upload["type"], upload["filename"]) for upload in s.fake.uploads] == [("file", "report.docx")]
+    assert not any(s.fake.is_prompt(message) for message in s.fake.sent)
+
+
+def test_a_text_file_is_refused_before_asking_with_the_zip_hint(bot):
+    s = bot(send("toolu_1", "notes.txt"), reply(text("我先打包")))
+    (s.config.workspace / "notes.txt").write_text("笔记", encoding="utf-8")
+    s.wait_reply(s.say("发笔记"), "我先打包")
+    s.idle()
+    assert s.fake.uploads == [] and not any(s.fake.is_prompt(message) for message in s.fake.sent)
+    result = result_of(s.api.requests[1])
+    assert result["error"] and "钉钉只能发" in result["text"] and "打包成 zip" in result["text"]
+
+
+def test_a_file_too_big_for_dingtalk_is_refused_before_asking(bot):
+    s = bot(send("toolu_1", "big.pdf"), reply(text("太大了")))
+    (s.config.workspace / "big.pdf").write_bytes(PDF_BYTES + b"\0" * 5000)
+    channel = s.channel()
+    channel.capabilities = replace(channel.capabilities, uploads=replace(channel.capabilities.uploads, file_bytes=3000))
+    s.wait_reply(s.say("发"), "太大了")
+    s.idle()
+    assert s.fake.uploads == [] and not any(s.fake.is_prompt(message) for message in s.fake.sent)
+    result = result_of(s.api.requests[1])
+    assert result["error"] and "文件太大了（5 KB），钉钉最多能发 3 KB" in result["text"]
 
 
 # ---- 真的 SDK：连假钉钉的 Stream 网关（装了 dingtalk-stream 才跑）--------------------------------

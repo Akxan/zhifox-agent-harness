@@ -16,6 +16,11 @@ Bot API 很朴素：每个操作都是一次 HTTPS 请求，https://api.telegram
   sendChatAction    显示"正在输入"，持续 5 秒
   getFile           聊天里发来的图片和文件：先问到它在 Telegram 服务器上的路径，再下载
   setMyCommands     把 /new、/stop 这些命令登记到聊天输入框旁边的菜单里
+  sendPhoto         助手用 send_file 发一张图片：当照片发，聊天里直接显示（最大 10 MB；宽加高不超过 10000、长宽比不超过 20）
+  sendAnimation     发一张 GIF：当动图发，聊天里会动（最大 50 MB）
+  sendDocument      发别的文件，以及太大、尺寸不合格当不了照片的图片（最大 50 MB）
+                    这三个都是用 multipart/form-data 上传（见 ../net/multipart.py），说明（caption）最多 1024 个字符
+                    （https://core.telegram.org/bots/api#sending-files、#sendphoto、#sendanimation、#senddocument）
 
 token 是这个机器人的钥匙，它就写在每个请求的网址里。所以出错时给人看的话里一律把它换掉（_redact），
 不打印网址，日志里也不出现（见 ../log.py）。
@@ -43,6 +48,7 @@ from ..config import (
     CHANNEL_TIMEOUT,
 )
 from ..i18n import t
+from ..net import http, multipart
 from . import markup
 from .base import (
     Capabilities,
@@ -51,9 +57,11 @@ from .base import (
     Event,
     Inbound,
     InboundFile,
+    OutboundFile,
     Press,
     Prompt,
     Status,
+    Uploads,
 )
 
 LIMIT = 4096  # 一条消息最多这么多个字符（UTF-16 单位，按排版之后的文字算）
@@ -113,6 +121,24 @@ class BotAPI:
         except (OSError, ValueError) as exc:  # 连不上、超时、回答不是 JSON（URLError、TimeoutError 都是 OSError）
             reason = getattr(exc, "reason", None) or exc
             raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(reason)) or type(exc).__name__)) from None
+        return self._result(payload)
+
+    def upload(self, method: str, params: dict, file: multipart.File) -> Any:
+        """用 multipart/form-data 调用一个方法（sendPhoto、sendDocument……：要把文件本身传上去）。返回 result，出错和 call 一样。"""
+        fields = {name: value if isinstance(value, str) else json.dumps(value) for name, value in params.items()}
+        try:
+            reply = multipart.post(f"{self.base}/bot{self.token}/{method}", fields=fields, files=[file], hide=(self.token,))
+        except http.NetError as exc:
+            raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(exc)))) from None
+        payload = reply.data if isinstance(reply.data, dict) else {}
+        if not reply.ok:
+            payload = {**payload, "ok": False}
+            payload.setdefault("error_code", reply.status)
+            payload.setdefault("description", reply.text)
+        return self._result(payload)
+
+    def _result(self, payload: Any) -> Any:
+        """Telegram 的回答 → result；不是 ok 的抛出 TelegramError（说明里没有 token）。"""
         if not isinstance(payload, dict):
             raise TelegramError(t("Telegram 的回答看不懂。"))
         if payload.get("ok"):
@@ -151,6 +177,8 @@ def _explain(code: int, description: str) -> str:
         return t("这个机器人设置了 webhook（消息会推到别的网址），所以收不到消息。先在别处取消 webhook，或者换一个机器人。")
     if code == 409:
         return t("另一个程序正在用这个机器人收消息（同一个 token 同时只能有一处在收）。先关掉那一个，或者在 @BotFather 那里换一个 token。")
+    if code == 413 or "too large" in lowered:
+        return t("这个文件太大了，Telegram 不让机器人发这么大的文件。")
     if "file is too big" in lowered:
         return t("这个文件太大了，Telegram 的机器人最多只能下载 20 MB 的文件。")
     if code == 429:
@@ -180,9 +208,13 @@ def _person(sender: dict) -> str:
     return name or str(sender.get("id", ""))
 
 
+# 能往聊天里发什么（见 base.Uploads）：照片 10 MB，别的文件（动图也是）50 MB，说明 1024 个字符
+UPLOADS = Uploads(file_bytes=50_000_000, photo_bytes=10_000_000, caption_chars=1024)
+
+
 class TelegramChannel(Channel):
     platform = "telegram"
-    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=True, files=True)
+    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=True, files=True, uploads=UPLOADS)
 
     def __init__(
         self,
@@ -421,6 +453,46 @@ class TelegramChannel(Channel):
             self._call("editMessageText", {"chat_id": chat, "message_id": int(handle), "text": text, "parse_mode": "HTML"})
         except (TelegramError, ValueError):
             self._call("sendMessage", {"chat_id": chat, "text": outcome})  # 改不了（比如消息太旧）：另发一条说明结果
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """发一个文件：图片当照片（GIF 当动图），别的当文件。说明放进 caption（太长的另发一条）。
+
+        当照片发被拒绝了（Telegram 说尺寸不合格 PHOTO_INVALID_DIMENSIONS、处理不了这张图 IMAGE_PROCESS_FAILED，都是 400）：
+        改成当文件发一次，图片照样到了，只是不直接显示。"""
+        caption = outgoing.caption.strip()
+        inline = caption if caption and markup.length(caption) <= UPLOADS.caption_chars else ""  # 原文不超，排版去掉符号以后更不会超
+        if outgoing.kind == "photo" and outgoing.media_type == "image/gif":
+            method, field = "sendAnimation", "animation"
+        elif outgoing.kind == "photo":
+            method, field = "sendPhoto", "photo"
+        else:
+            method, field = "sendDocument", "document"
+        try:
+            self._upload(chat, method, field, outgoing, inline)
+        except TelegramError as exc:
+            if method == "sendDocument" or exc.code != 400 or not any(word in exc.description.lower() for word in ("photo", "image", "dimension", "animation")):
+                raise
+            logger.info("telegram: 当照片发不出去，改成当文件发（%s）", exc)
+            self._upload(chat, "sendDocument", "document", outgoing, inline)
+        if caption and not inline:
+            self.send(chat, caption, markdown=True)
+
+    def _upload(self, chat: str, method: str, field: str, outgoing: OutboundFile, caption: str) -> None:
+        params: dict = {"chat_id": chat}
+        if caption:
+            params.update(caption=markup.to_html(caption), parse_mode="HTML")
+        file = multipart.File(field, outgoing.name, outgoing.media_type, outgoing.data)
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                self.api.upload(method, params, file)
+                return
+            except TelegramError as exc:
+                if exc.code == 400 and caption and "parse" in exc.description.lower() and "parse_mode" in params:
+                    params = {"chat_id": chat, "caption": caption}  # 说明的排版出了问题：去掉格式再发一次
+                    continue
+                if exc.code != 429 or attempt == MAX_RETRIES:
+                    raise
+                time.sleep(min(max(exc.retry_after, 1.0), 30.0))
 
     def typing(self, chat: str) -> None:
         try:

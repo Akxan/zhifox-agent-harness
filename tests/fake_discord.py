@@ -7,6 +7,8 @@ REST 照着真的回答：/users/@me、/oauth2/applications/@me、/gateway/bot�
   - 按钮的字超过 80 个、custom_id 超过 100 个、一行超过 5 个按钮
   - 同一次交互回应了两次（真的会回 40060 "已经回应过了"）；斜杠命令回了只有按钮才能用的 type 6
   - 改一条不存在的消息（10008 Unknown Message）
+  - 带文件的消息（multipart/form-data：payload_json 加 files[n]）：attachments 要和 files[n] 一一对上；
+    一个文件超过 file_limit（默认 20 MiB，文档写的默认上限）、整个请求超过 25 MiB，回 413（40005），和真的一样
 
 Gateway 是同一个端口上的 WebSocket（GET /gateway，带 Upgrade: websocket；READY 里给的 resume_gateway_url 是 /resume，
 和真的一样是另一个地址）：Hello → Identify 或 Resume → READY / RESUMED → 心跳和 ACK → 事件。
@@ -24,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 import fake_ws
+from multipart_form import is_multipart, parse
 
 from harness.net.websocket import OP_CLOSE
 
@@ -73,6 +76,10 @@ class FakeDiscord:
         self.callbacks: list[dict] = []  # 回应交互：{"id", "token", "type", "data"}
         self.timeline: list[tuple[str, str]] = []  # 发消息、改消息、回应交互的先后：("message" | "edit" | "callback", 编号)
         self.files: dict[str, bytes] = {}
+        # 机器人发的文件：{"id", "chat", "filename", "content_type", "data", "content", "description"}。
+        # id 和 sent 里的消息共用一个计数（也记进 timeline），比一比就知道聊天里谁先谁后
+        self.uploads: list[dict] = []
+        self.file_limit = 20 * 1024 * 1024  # 一个文件最大多少（测试可以调小，不用真的传 20 MB）
         self.downloads: list[dict] = []  # 被下载过的附件：{"key", "authorization"（下载时带没带 token，应该一直是 None）}
         self.identifies: list[dict] = []
         self.resumes: list[dict] = []
@@ -99,9 +106,13 @@ class FakeDiscord:
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def _body(self) -> object:
+            def _body(self) -> tuple[object, dict]:
+                """请求体：JSON，或者带文件的 multipart/form-data（消息在 payload_json 里）。返回（消息，文件）。"""
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
-                return json.loads(raw) if raw else None
+                if is_multipart(self.headers.get("Content-Type")):
+                    fields, files = parse(self.headers["Content-Type"], raw)  # 格式不对：ValueError
+                    return json.loads(fields.get("payload_json") or "{}"), files
+                return (json.loads(raw) if raw else None), {}
 
             def _reply(self, status: int, payload: object = None) -> None:
                 data = b"" if payload is None else json.dumps(payload).encode()
@@ -132,8 +143,12 @@ class FakeDiscord:
                     self.end_headers()
                     self.wfile.write(content)
                     return
-                body = self._body()
-                status, payload = fake._api(method, path.removeprefix("/api/v10"), body, self.headers)
+                try:
+                    body, files = self._body()
+                except ValueError:
+                    self._reply(400, {"code": 50035, "message": "Invalid Form Body"})
+                    return
+                status, payload = fake._api(method, path.removeprefix("/api/v10"), body, self.headers, files)
                 self._reply(status, payload)
 
             def do_GET(self) -> None:
@@ -181,7 +196,7 @@ class FakeDiscord:
 
     # ---- REST ------------------------------------------------------------------
 
-    def _api(self, method: str, path: str, body: object, headers) -> tuple[int, object]:
+    def _api(self, method: str, path: str, body: object, headers, files: dict | None = None) -> tuple[int, object]:
         with self._changed:
             self.requests.append(f"{method} {path}")
             failure = self.fail_next.pop(f"{method} {path}", None)
@@ -220,6 +235,8 @@ class FakeDiscord:
             problem = _bad_components(body.get("components") or [])
             if problem:
                 return 400, {"code": 50035, "message": f"Invalid Form Body: {problem}"}
+            if method == "POST" and parts[2] == "messages" and files:
+                return self._upload(chat, body, files)
             with self._changed:
                 if method == "POST" and parts[2] == "messages":
                     if not content.strip():
@@ -238,6 +255,33 @@ class FakeDiscord:
                     self._changed.notify_all()
                     return 200, {"id": parts[3], "channel_id": chat, "content": content}
         return 404, {"message": "404: Not Found", "code": 0}
+
+    def _upload(self, chat: str, body: dict, files: dict) -> tuple[int, object]:
+        """一条带文件的消息（https://docs.discord.com/developers/reference#uploading-files）。"""
+        attachments = body.get("attachments")
+        if not isinstance(attachments, list) or len(attachments) != len(files):
+            return 400, {"code": 50035, "message": "Invalid Form Body: attachments must match files[n]"}
+        for item in attachments:
+            part = files.get(f"files[{item.get('id') if isinstance(item, dict) else None}]")
+            if part is None or part["filename"] != item.get("filename"):
+                return 400, {"code": 50035, "message": "Invalid Form Body: attachment id or filename does not match"}
+        sizes = [len(part["data"]) for part in files.values()]
+        if max(sizes) > self.file_limit or sum(sizes) > 25 * 1024 * 1024:
+            return 413, {"code": 40005, "message": "Request entity too large"}
+        content = str(body.get("content") or "")
+        with self._changed:
+            self._next_id += 1
+            records = [{"id": str(self._next_id), "chat": chat, "filename": part["filename"], "content_type": part["content_type"], "data": part["data"],
+                        "content": content, "description": item.get("description")} for item, part in ((item, files[f"files[{item['id']}]"]) for item in attachments)]
+            self.uploads.extend(records)
+            self.timeline.append(("upload", str(self._next_id)))
+            self._changed.notify_all()
+        return 200, {"id": str(self._next_id), "channel_id": chat, "content": content,
+                     "attachments": [{"id": f"att-{index}", "filename": record["filename"], "size": len(record["data"])} for index, record in enumerate(records)]}
+
+    def wait_upload(self, predicate=lambda upload: True, timeout: float = 10.0) -> dict:
+        """等机器人发出一个满足 predicate 的文件，返回它。"""
+        return self.wait_until(lambda: next((upload for upload in self.uploads if predicate(upload)), None), timeout)
 
     def _callback(self, path: str, body: object) -> tuple[int, object]:
         """POST /interactions/{编号}/{交互的 token}/callback：每次交互只能回应一次。"""

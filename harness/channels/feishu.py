@@ -8,6 +8,9 @@
   卡片的按钮回调     uAjLw4CM/ukzMukzMukzM/feishu-cards/card-callback-communication（card.action.trigger）
   下载图片和文件     uAjLw4CM/ukTMukTMukTM/reference/im-v1/message-resource/get
   机器人自己的信息   client-docs/bot-v3/obtain-bot-info
+  上传图片          server-docs/im-v1/image/create（https://open.feishu.cn/document/server-docs/im-v1/image/create）
+  上传文件          server-docs/im-v1/file/create（https://open.feishu.cn/document/server-docs/im-v1/file/create）
+  图片、文件消息     https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json
 
 为什么收消息要用 SDK：飞书的长连接不是普通的 JSON，而是 protobuf 编码的帧，还有分包、合包、心跳配置这些，
 官方的 SDK（PyPI 上的 lark-oapi，github.com/larksuite/oapi-sdk-python）已经写好了。它是可选的依赖：
@@ -24,6 +27,14 @@ SDK 的几个坑（2026 年 11 月的 1.8.0 版），绕开的办法都在 LarkL
   - 卡片回调要在 3 秒内回答，回答里可以带一句小提示（toast）：按钮的答复正好用它
 
 单聊的消息里没有发消息的人的名字。有"读取通讯录"的权限的话问一下（contact/v3/users），没有就显示编号的后几位。
+
+助手用 send_file 发文件（见 ../tools/send.py）：飞书的消息里不能直接带文件，要先传上去换一个编号，再发一条带着编号的消息。
+  图片   POST /open-apis/im/v1/images（multipart：image_type=message、image），拿到 image_key，发一条 image 消息。
+         最大 10 MB；GIF 不超过 2000×2000，别的不超过 12000×12000。尺寸不合格、飞书认不出格式的，改成当文件发
+  文件   POST /open-apis/im/v1/files（multipart：file_type、file_name、file），拿到 file_key，发一条 file 消息。
+         最大 30 MB，不收空文件。file_type 按扩展名选（pdf、doc、xls、ppt、mp4、opus），别的都是 stream
+  说明   图片和文件消息里放不了文字，另发一条富文本，跟在文件后面
+要的权限是"获取与上传图片或文件资源"（im:resource），向导里本来就让你开了。
 """
 
 from __future__ import annotations
@@ -33,12 +44,13 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from pathlib import PurePath
 from typing import Any, Protocol
 
 from .. import log
 from ..config import CHANNEL_DOWNLOAD_BYTES, CHANNEL_RETRY_SECONDS, Config
 from ..i18n import t
-from ..net import http
+from ..net import http, multipart
 from . import markup
 from .base import (
     Capabilities,
@@ -46,9 +58,11 @@ from .base import (
     Event,
     Inbound,
     InboundFile,
+    OutboundFile,
     Press,
     Prompt,
     PushChannel,
+    Uploads,
     backoff,
     close_loop,
 )
@@ -58,6 +72,13 @@ SAFE_LIMIT = 6000  # 一条消息自己拆到这么长（富文本最大 30 KB�
 CARD_DETAIL = 5000  # 确认卡片里放的命令最多这么长，更长的前面几段先各发一条
 TOKEN_INVALID = {99991663, 99991661, 99991668}  # tenant_access_token 过期了、不对：换一个再试
 UNSUPPORTED = {"audio": "voice", "media": "video", "sticker": "sticker"}
+# 能往聊天里发什么（见 base.Uploads）：图片当图片消息发最大 10 MB；别的文件（和更大的图片）当文件消息发，最大 30 MB。
+# 飞书文档写的是"10 MB""30 MB"，没说是不是 1024 进位的：按小的算（10_000_000），宁可少发一点，也不要传上去才被拒绝
+UPLOADS = Uploads(file_bytes=30_000_000, photo_bytes=10_000_000)
+# 上传文件时的 file_type：按扩展名选。这几种之外的都是 stream（"任意二进制文件"）
+FILE_TYPES = {"pdf": "pdf", "doc": "doc", "docx": "doc", "xls": "xls", "xlsx": "xls", "ppt": "ppt", "pptx": "ppt", "mp4": "mp4", "opus": "opus"}
+# 传图片时飞书说"认不出格式"（234011）、"尺寸太大"（234039）：这张图当不了图片消息，改成当文件发
+IMAGE_REFUSED = {234011, 234039}
 
 logger = logging.getLogger("harness.channels.feishu")
 
@@ -77,6 +98,14 @@ def _explain(code: int, message: str) -> str:
         return t("这个飞书组织本月调用接口的次数用完了。")
     if code == 230002:
         return t("机器人不在这个聊天里。")
+    if code == 234006:
+        return t("文件太大了，飞书不收：图片最大 10 MB，别的文件最大 30 MB。")
+    if code == 234010:
+        return t("飞书不收空文件。")
+    if code == 234011:
+        return t("飞书认不出这张图片的格式。")
+    if code == 234039:
+        return t("图片的尺寸太大了，飞书不收（GIF 最大 2000×2000，别的最大 12000×12000）。")
     return t("飞书回答了一个错误：{error}", error=f"{code} {message}".strip())
 
 
@@ -129,6 +158,30 @@ class OpenAPI:
                 raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code)
             return data
         return {}
+
+    def upload(self, path: str, fields: dict[str, str], file: multipart.File, key: str) -> str:
+        """上传一张图片或一个文件（multipart/form-data），返回回答里 data 的 key 那一项（image_key 或 file_key）。
+
+        和 call 一样：token 被飞书提前作废了（99991663……），换一个新的再传一次。"""
+        for attempt in range(2):
+            token = self.token(fresh=attempt > 0)
+            try:
+                reply = multipart.post(self.base + path, fields=fields, files=[file], headers={"Authorization": f"Bearer {token}"}, hide=self.secrets)
+            except http.NetError as exc:
+                raise FeishuError(t("连不上飞书（{error}）", error=str(exc))) from None
+            data = reply.data if isinstance(reply.data, dict) else None
+            if data is None:
+                raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status))
+            code = int(data.get("code") or 0)
+            if code in TOKEN_INVALID and attempt == 0:
+                continue
+            if code != 0:
+                raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code)
+            found = (data.get("data") or {}).get(key) if isinstance(data.get("data"), dict) else None
+            if not isinstance(found, str) or not found:
+                raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status))
+            return found
+        return ""
 
     def download(self, message_id: str, key: str, kind: str) -> bytes:
         """下载聊天里的一张图片或者一个文件（kind 是 image 或 file）。
@@ -293,7 +346,7 @@ def _button(text: str, kind: str, answer: str) -> dict:
 
 class FeishuChannel(PushChannel):
     platform = "feishu"
-    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=False, files=True)
+    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=False, files=True, uploads=UPLOADS)
 
     def __init__(self, app_id: str, secret: str, base: str = "https://open.feishu.cn", listener: Listener | None = None):
         super().__init__()
@@ -436,6 +489,30 @@ class FeishuChannel(PushChannel):
                 self._post(chat, piece)
             else:
                 self._create(chat, "text", {"text": piece})
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """发一个文件：图片先传成 image_key、发一条图片消息；别的先传成 file_key、发一条文件消息。说明另发一条，跟在后面。"""
+        if outgoing.kind == "photo":
+            try:
+                key = self.api.upload("/open-apis/im/v1/images", {"image_type": "message"}, multipart.File("image", outgoing.name, outgoing.media_type, outgoing.data), "image_key")
+            except FeishuError as exc:
+                if exc.code not in IMAGE_REFUSED or len(outgoing.data) > UPLOADS.file_bytes:
+                    raise
+                logger.info("feishu: 当图片发不出去，改成当文件发（%s）", exc)
+            else:
+                self._create(chat, "image", {"image_key": key})
+                self._caption(chat, outgoing)
+                return
+        file_type = FILE_TYPES.get(PurePath(outgoing.name).suffix.lower().removeprefix("."), "stream")
+        fields = {"file_type": file_type, "file_name": outgoing.name}
+        key = self.api.upload("/open-apis/im/v1/files", fields, multipart.File("file", outgoing.name, outgoing.media_type, outgoing.data), "file_key")
+        self._create(chat, "file", {"file_key": key})
+        self._caption(chat, outgoing)
+
+    def _caption(self, chat: str, outgoing: OutboundFile) -> None:
+        """文件的说明：图片、文件消息里放不了文字，另发一条（Markdown 排成富文本，太长照样拆开）。"""
+        if outgoing.caption.strip():
+            self.send(chat, outgoing.caption.strip(), markdown=True)
 
     def ask(self, chat: str, prompt: Prompt) -> str:
         """确认请求：一张卡片，标题、代码块里的完整命令、工作目录，下面两个按钮。卡片发不出去的话，退回成一段文字（回复"允许"也行）。"""

@@ -5,10 +5,12 @@
     收消息  ──► 平台把"谁、在哪个聊天里、说了什么、带了什么文件"交给我们（Inbound）
                有人点了消息下面的按钮，也交给我们（Press）
     发消息  ◄── 我们把要说的话（send）、要你批准的操作（ask，带"允许 / 拒绝"按钮）交给平台
+    发文件  ◄── 助手用 send_file 工具把这台电脑上的一个文件发过去（send_file）：图片尽量当照片发，聊天里直接看得到
 
 每个平台各写一个类（telegram.py……），实现下面 Channel 的这几个方法；router.py 只认这几个方法，
 不知道背后是哪一家。平台之间的差别（能不能放按钮、一条消息多长、能不能显示"正在输入"）写在 Capabilities 里，
 router.py 按它决定怎么说话：没有按钮的平台，确认请求后面跟一句"回复 允许 或 拒绝"。
+能不能发文件、多大、哪几种，写在 Capabilities.uploads 里（Uploads）；不能发的平台（QQ）是 None。
 """
 
 from __future__ import annotations
@@ -25,10 +27,38 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import CHANNEL_SEEN_MESSAGES
+from ..i18n import t
 
 
 class ChannelError(Exception):
     """通道出错了（token 不对、连不上、平台拒绝了请求……）。错误信息可以直接显示给用户，里面绝不含 token。"""
+
+
+# 能当照片发的图片（按文件内容认出来的，见 attachments.sniff_image）
+IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+
+
+@dataclass(frozen=True)
+class Uploads:
+    """一个平台能往聊天里发什么文件（send_file 工具）。数字是平台文档写的上限，见各平台模块里的 UPLOADS。"""
+
+    file_bytes: int  # 当普通文件发，一个最多多大
+    photo_bytes: int = 0  # 图片当照片发（聊天里直接显示出来）最多多大；更大的当普通文件发。0：图片也只能当文件发
+    photo_types: frozenset[str] = IMAGE_TYPES  # 哪几种图片能当照片发
+    # 只能发这几种扩展名的文件（小写，不带点；钉钉只认几种）。None：什么文件都行
+    extensions: frozenset[str] | None = None
+    caption_chars: int = 0  # 说明能和文件放在同一条消息里的话，最多多少个字符（UTF-16）；更长的、或者是 0，另发一条
+
+
+@dataclass
+class OutboundFile:
+    """要发到聊天里的一个文件。kind 是 photo（当照片发，聊天里直接显示）或 document（当文件发）。"""
+
+    name: str
+    data: bytes
+    media_type: str  # 按内容认出来的图片格式（image/png……），不是图片的是 application/octet-stream
+    kind: str
+    caption: str = ""  # 附在文件下面的一句说明（模型写的 Markdown）
 
 
 @dataclass(frozen=True)
@@ -40,6 +70,7 @@ class Capabilities:
     # 在这个平台上，/new 这些命令怎么写。大多数平台就是 /new；Slack 会把所有 / 开头的话都当成它自己的命令拦下来，
     # 所以只能登记一个 /zhifox，命令写成 /zhifox new（见 slack.py）
     command: str = "/{name}"
+    uploads: Uploads | None = None  # 能往聊天里发什么文件（send_file 工具）；None：这个平台暂时不支持
 
     def spell(self, name: str) -> str:
         """命令 name 在这个平台上的写法，比如 "/new" 或 "/zhifox new"。"""
@@ -150,6 +181,11 @@ class Channel(ABC):
 
     def set_commands(self, commands: dict[str, str]) -> None:
         """把 /new、/stop 这些命令登记到平台的菜单里（命令 → 一句说明）。没有菜单的平台什么都不做。"""
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """把一个文件发到聊天里（大小、种类已经按 capabilities.uploads 检查过，见 outbound.plan）。说明太长、和文件放不进
+        同一条消息的，文件之后另发一条。发不出去抛出 ChannelError。不支持的平台（uploads 是 None）用这里的：直接说不支持。"""
+        raise ChannelError(t("这个平台暂时不支持发文件。"))
 
 
 class PushChannel(Channel):

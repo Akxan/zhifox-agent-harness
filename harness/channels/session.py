@@ -4,7 +4,8 @@
 
   会话      聊过的内容存成一段普通的会话（会话列表里标着"Telegram"），重启以后接着聊，发 /new 开始新的一段；
             /new 后面跟一个自定义 Agent 的名字，新的一段就用它当角色（和网页上用它开始一段对话一样，见 App.new_conversation）
-  助手      自己的适配层、权限（这个通道的那一档）和 shell（见 App.channel_agent）
+  助手      自己的适配层、权限（这个通道的那一档）和 shell（见 App.channel_agent）；还有一个"去处"（outbound.Outlet）：
+            助手用 send_file 工具发的文件就发到这个聊天里
   队伍      同一个聊天里一次只跑一轮。正在跑的时候又来了消息，排在后面，跑完一轮接着下一轮
   线程      跑这些轮的线程。它和网页上的对话、别的聊天各跑各的，谁也不等谁
 
@@ -37,6 +38,7 @@ from ..permissions import MODES
 from ..providers import PROVIDERS, has_key
 from ..tasks import retell
 from .base import ChannelError, Inbound, Prompt
+from .outbound import Outlet
 from .platforms import LABELS
 from .ui import ChannelUI
 
@@ -96,6 +98,7 @@ class Session:
             on_auto=lambda action: router.say(platform, chat, t("已自动允许：{action}", action=action)),
         )
         self.ui.on_stop(self._kill)
+        self.outlet = Outlet(router, platform, chat, self.ui, lambda: self.name)  # send_file 发的文件发到这个聊天里
 
     # ---- 外面用的 ------------------------------------------------------------
 
@@ -388,7 +391,7 @@ class Session:
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
         if self.agent is None:
             approval = self.router.store.get(self.platform)["approval"]
-            self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model, self._persona(conversation))
+            self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model, self._persona(conversation), outlet=self.outlet)
             self.agent = self.run.agent
             if conversation.messages:
                 self.agent.backend.restore(conversation.messages, conversation.dropped)
@@ -524,12 +527,17 @@ def _first_note(platform: str, buttons: bool = True) -> Callable[[list], str]:
 
     写给模型看的，所以是中文、不翻译。只附在第一条上（history 是空的时候）：之后的历史只在末尾追加，
     这句说明一直留在第一条消息里，模型每一轮都看得到，系统提示词和缓存都不受影响。
+
+    "能用 send_file 发文件"写在这里，而不是系统提示词里：系统提示词所有的对话共用（网页上的对话没有这个工具），
+    改了它，每一段已经聊起来的对话的缓存都会作废。工具的说明书里也写着怎么用，这句只是提醒它：用户在手机上，
+    要给他看的图片、文件直接发过去，别只说"文件在某某路径"（他在手机上打不开）。
     """
     name = LABELS.get(platform, platform)
     approve = "他点了按钮才会执行" if buttons else "他回复“允许”才会执行"
     return lambda history: "" if history else (
         f"<channel>这段对话在 {name} 里进行：用户多半在手机上看你的回复。回复尽量简短，"
-        f"不要用表格（{name} 里显示不出来），需要列举时用列表。需要用户批准的操作会发到他的聊天里，{approve}。</channel>"
+        f"不要用表格（{name} 里显示不出来），需要列举时用列表。需要用户批准的操作会发到他的聊天里，{approve}。"
+        f"要给他看截图、图片或者文件时，用 send_file 发到这个聊天里（他在手机上打不开这台电脑上的路径）。</channel>"
     )
 
 

@@ -18,6 +18,7 @@ import random
 import re
 import threading
 import zipfile
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -39,11 +40,12 @@ from fake_slack import (
     unescape,
     unescaped,
 )
-from sample_files import JPEG_BYTES
+from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import result_text, run, stop_later, tool_results, until
+from test_send_file import result_of, send
 
 from harness.channels import markup, slack
-from harness.channels.base import ChannelError, Prompt
+from harness.channels.base import ChannelError, OutboundFile, Prompt, Uploads
 from harness.channels.store import ChannelStore
 from harness.export import PLACEHOLDER, write_archive
 
@@ -775,3 +777,133 @@ def test_an_export_leaves_both_tokens_out(tmp_path):
     assert entry["bot"]["app"] == APP_ID and entry["bot"]["username"] == "zhifox"  # 别的照样留着，恢复以后只要重新填两个 token
     everything = b"".join(archive.read(name) for name in archive.namelist())
     assert BOT_TOKEN.encode() not in everything and APP_TOKEN.encode() not in everything
+
+
+# ---- 发文件（send_file）--------------------------------------------------------------
+
+
+def outgoing(name: str = "屏幕.png", data: bytes = PNG_BYTES, media_type: str = "image/png", kind: str = "photo", caption: str = "") -> OutboundFile:
+    return OutboundFile(name, data, media_type, kind, caption)
+
+
+def test_a_file_is_uploaded_in_three_steps_without_the_token_leaving_slack(fake):
+    channel = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, fake.base_url + "/api")
+    channel.send_file(OWNER_CHAT, outgoing(caption="**现在**的屏幕 & <它>"))
+    (ticket,) = fake.methods("files.getUploadURLExternal")
+    # 文档里它只收表单：参数是表单发的（假 Slack 不看这个方法的 JSON 请求体），用 Bot token
+    assert (ticket["verb"], ticket["token"], ticket["args"]) == ("POST", "bot", {"filename": "屏幕.png", "length": str(len(PNG_BYTES))})
+    (upload_request,) = fake.upload_requests
+    assert upload_request["authorization"] is None and upload_request["size"] == len(PNG_BYTES)  # 上传地址不带 token
+    (complete,) = fake.methods("files.completeUploadExternal")
+    assert complete["token"] == "bot" and complete["args"]["channel_id"] == OWNER_CHAT
+    (upload,) = fake.uploads
+    assert (upload["chat"], upload["filename"], upload["title"], upload["data"]) == (OWNER_CHAT, "屏幕.png", "屏幕.png", PNG_BYTES)
+    assert upload["initial_comment"] == "*现在*的屏幕 &amp; &lt;它&gt;"  # 排成 mrkdwn，& < > 转义
+    assert fake.sent == []
+
+    channel.send_file(OWNER_CHAT, outgoing("report.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    assert fake.uploads[1]["filename"] == "report.pdf" and fake.uploads[1]["initial_comment"] is None
+
+
+def test_a_long_caption_follows_the_file_in_its_own_messages(fake):
+    channel = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, fake.base_url + "/api")
+    caption = "很长的说明。" * 800  # 4800 个字：initial_comment 放不下
+    channel.send_file(OWNER_CHAT, outgoing(caption=caption))
+    (upload,) = fake.uploads
+    assert upload["initial_comment"] is None
+    assert fake.sent and "".join(message["text"] for message in fake.sent) == caption
+    assert float(upload["ts"]) < float(fake.sent[0]["ts"])  # 先文件，再说明
+
+
+def test_an_app_without_files_write_is_told_what_to_add(fake):
+    channel = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, fake.base_url + "/api")
+    fake.files_write = False  # 照着旧的清单建的应用
+    with pytest.raises(slack.SlackError, match="files:write") as caught:
+        channel.send_file(OWNER_CHAT, outgoing())
+    assert caught.value.error == "missing_scope" and "重新安装" in str(caught.value)
+    assert fake.upload_requests == [] and fake.uploads == []
+
+
+def test_an_upload_address_outside_slack_is_never_used(fake):
+    channel = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, fake.base_url + "/api")
+    for address in ("https://evil.example.com/upload", "http://192.0.2.1/upload", "https://slack.com.evil.example/upload"):
+        fake.fail_next["files.getUploadURLExternal"] = (200, {"ok": True, "upload_url": address, "file_id": "F0NOPE"}, {})
+        with pytest.raises(slack.SlackError, match="不是 Slack 自己的"):
+            channel.send_file(OWNER_CHAT, outgoing())
+    assert fake.methods("files.completeUploadExternal") == []
+
+
+def test_upload_failures_are_explained_without_the_tokens(fake):
+    channel = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, fake.base_url + "/api")
+    fake.fail_next["files.completeUploadExternal"] = (200, {"ok": False, "error": f"file_upload_size_restricted Bearer {BOT_TOKEN}"}, {})
+    with pytest.raises(slack.SlackError) as caught:
+        channel.send_file(OWNER_CHAT, outgoing())
+    assert "file_upload_size_restricted" in str(caught.value) and BOT_TOKEN not in str(caught.value) and APP_TOKEN not in str(caught.value)
+    # 上传地址回了一个错误（字节数对不上、过期了）
+    fake.fail_next["files.getUploadURLExternal"] = (200, {"ok": True, "upload_url": fake.base_url + "/upload/v1/expired", "file_id": "F0GONE"}, {})
+    with pytest.raises(slack.SlackError, match="HTTP 404"):
+        channel.send_file(OWNER_CHAT, outgoing())
+    nowhere = slack.SlackChannel(BOT_TOKEN, APP_TOKEN, "http://127.0.0.1:9/api")
+    with pytest.raises(slack.SlackError, match="连不上 Slack") as caught:
+        nowhere.send_file(OWNER_CHAT, outgoing())
+    assert BOT_TOKEN not in str(caught.value) and APP_TOKEN not in str(caught.value)
+
+
+def test_the_manifest_asks_for_files_write():
+    from harness.channels.guides import SLACK_MANIFEST
+
+    scopes = json.loads(SLACK_MANIFEST)["oauth_config"]["scopes"]["bot"]
+    assert {"files:read", "files:write"} <= set(scopes)
+
+
+def test_a_screenshot_is_approved_in_slack_and_uploaded(bot):
+    s = bot(send("toolu_1", "screen.png", caption="这是**现在**的屏幕", before="截好了。"), reply(text("发过去了，看得到吗？")))
+    (s.config.workspace / "screen.png").write_bytes(PNG_BYTES)
+    start = s.say("截屏看下你在做啥")
+    first = s.wait_reply(start, "截好了")
+    ask = s.asked(start)
+    head = ask["blocks"][0]["text"]["text"]
+    assert head == f"*助手想要把一个文件发到 Slack（和 {OWNER_NAME} 的私聊）：*"
+    assert "文件：screen.png" in ask["plain"] and "图片，会直接显示在聊天里" in ask["plain"]
+    assert s.fake.uploads == []  # 你点之前什么都没发
+    s.fake.press(ask)
+
+    upload = s.fake.wait_upload()
+    assert (upload["chat"], upload["filename"], upload["data"], upload["initial_comment"]) == (OWNER_CHAT, "screen.png", PNG_BYTES, "这是*现在*的屏幕")
+    s.wait_reply(start, "看得到吗")
+    s.idle()
+    assert float(first["ts"]) < float(ask["ts"]) < float(upload["ts"])  # 聊天里的顺序和助手做的一样
+    assert last_text(s.fake.edit_of(ask)) == "*已允许*"
+    assert all(item["authorization"] is None for item in s.fake.upload_requests)
+    result = result_of(s.api.requests[1])
+    assert not result["error"] and result["text"].startswith("已经把 screen.png（图片，作为照片显示在聊天里，1 KB）发到了 Slack 的聊天里")
+
+
+def test_with_everything_allowed_a_file_is_sent_without_asking(bot):
+    s = bot(send("toolu_1", "report.pdf"), reply(text("发了。")), approval="all")
+    (s.config.workspace / "report.pdf").write_bytes(PDF_BYTES)
+    start = s.say("把报告发给我")
+    s.wait_reply(start, "已自动允许：send_file report.pdf")
+    assert s.fake.wait_upload()["filename"] == "report.pdf"
+    s.wait_reply(start, "发了。")
+    s.idle()
+    assert not any(s.fake.is_prompt(message) for message in s.fake.sent)
+
+
+def test_a_missing_scope_reaches_the_model_and_a_too_big_file_is_refused_before_asking(bot):
+    s = bot(send("toolu_1", "a.pdf"), reply(text("没有权限。")), send("toolu_2", "big.pdf"), reply(text("太大了。")), approval="all")
+    (s.config.workspace / "a.pdf").write_bytes(PDF_BYTES)
+    (s.config.workspace / "big.pdf").write_bytes(PDF_BYTES + b"0" * 5000)
+    s.fake.files_write = False
+    s.wait_reply(s.say("发 a"), "没有权限")
+    s.idle()
+    result = result_of(s.api.requests[1])
+    assert result["error"] and result["text"].startswith("没有发出去：Slack 应用缺少权限 files:write")  # 写给模型的是中文原文
+
+    channel = s.channel()
+    channel.capabilities = replace(channel.capabilities, uploads=Uploads(file_bytes=3000, photo_bytes=3000))
+    s.wait_reply(s.say("发大的"), "太大了")
+    s.idle()
+    result = result_of(s.api.requests[3])
+    assert result["error"] and "Slack 最多能发 3 KB" in result["text"]
+    assert s.fake.uploads == [] and len(s.fake.methods("files.getUploadURLExternal")) == 1  # 太大的那个根本没去要上传地址

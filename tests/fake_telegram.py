@@ -2,6 +2,8 @@
 
 它像真的 Bot API 一样回答 getMe、getUpdates（长轮询，带 offset）、sendMessage、editMessageText、
 answerCallbackQuery、sendChatAction、setMyCommands、getFile 和文件下载，并记下机器人发出去的每一条消息。
+机器人发的图片和文件（sendPhoto、sendAnimation、sendDocument，multipart/form-data 上传）记在 uploads 里，
+也像真的一样检查：照片最大 10 MB、别的 50 MB（超了回答 413），说明最多 1024 个字符，HTML 要合格。
 测试代码扮演手机上的你：user_says 发一条消息、press 点一个按钮、wait_sent 等机器人回话。
 
 它还会像 Telegram 一样检查机器人发来的 HTML：只认那几个标签、必须成对、去掉标签以后不能超过 4096 个字符
@@ -18,7 +20,10 @@ import threading
 import time
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import ClassVar
 from urllib.parse import urlsplit
+
+from multipart_form import is_multipart, parse
 
 TOKEN = "123456789:AAH-fake-token-for-tests-0123456789abcd"
 ALLOWED_TAGS = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "tg-spoiler", "span", "blockquote"}
@@ -76,6 +81,9 @@ class FakeTelegram:
         self.actions: list[dict] = []  # sendChatAction
         self.commands: list | None = None
         self.files: dict[str, bytes] = {}
+        # 机器人发的图片和文件：{"method", "chat_id", "field", "filename", "content_type", "data", "caption", "parse_mode", "message_id"}。
+        # message_id 和 sent 里的消息共用一个计数，比一比就知道聊天里谁先谁后
+        self.uploads: list[dict] = []
         self.calls: list[str] = []  # 收到的每个请求的方法名
         self.requests: list[str] = []  # 收到的每个请求的完整路径（检查 token 有没有被送到别处）
         self.offsets: list[int] = []  # getUpdates 带来的 offset
@@ -101,7 +109,15 @@ class FakeTelegram:
                 if prefix != f"/bot{fake.token}":
                     self._reply(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})
                     return
-                status, payload = fake._api(method, json.loads(body))
+                if is_multipart(self.headers.get("content-type")):
+                    try:
+                        fields, files = parse(self.headers["content-type"], body)
+                    except ValueError as exc:
+                        self._reply(400, {"ok": False, "error_code": 400, "description": f"Bad Request: {exc}"})
+                        return
+                    status, payload = fake._upload(method, fields, files)
+                else:
+                    status, payload = fake._api(method, json.loads(body))
                 self._reply(status, payload)
 
             def do_GET(self) -> None:
@@ -203,6 +219,40 @@ class FakeTelegram:
                 return 400, {"ok": False, "error_code": 400, "description": "Bad Request: invalid file_id"}
             return 200, {"ok": True, "result": {"file_id": file_id, "file_size": len(self.files[file_id]), "file_path": file_id}}
         return 404, {"ok": False, "error_code": 404, "description": "Not Found"}
+
+    UPLOAD_FIELDS: ClassVar[dict] = {"sendPhoto": ("photo", 10_000_000), "sendAnimation": ("animation", 50_000_000), "sendDocument": ("document", 50_000_000)}
+
+    def _upload(self, method: str, fields: dict[str, str], files: dict[str, dict]) -> tuple[int, dict]:
+        """sendPhoto、sendAnimation、sendDocument（文件用 multipart/form-data 传上来）。"""
+        with self._changed:
+            self.calls.append(method)
+            failure = self.fail_next.pop(method, None)
+        if failure is not None:
+            return failure.get("error_code", 400), {"ok": False, **failure}
+        if method not in self.UPLOAD_FIELDS:
+            return 404, {"ok": False, "error_code": 404, "description": "Not Found"}
+        field, limit = self.UPLOAD_FIELDS[method]
+        file = files.get(field)
+        if file is None or not fields.get("chat_id"):
+            return 400, {"ok": False, "error_code": 400, "description": f"Bad Request: there is no {field} in the request"}
+        if len(file["data"]) > limit:
+            return 413, {"ok": False, "error_code": 413, "description": "Request Entity Too Large"}
+        caption, problem = visible(fields.get("caption", ""), fields.get("parse_mode"))
+        if problem:
+            return 400, {"ok": False, "error_code": 400, "description": f"Bad Request: can't parse entities: {problem}"}
+        if utf16(caption) > 1024:
+            return 400, {"ok": False, "error_code": 400, "description": "Bad Request: message caption is too long"}
+        with self._changed:
+            self._next_message += 1
+            upload = {"method": method, "chat_id": fields["chat_id"], "field": field, **file, "caption": fields.get("caption", ""),
+                      "parse_mode": fields.get("parse_mode"), "plain_caption": caption, "message_id": self._next_message}
+            self.uploads.append(upload)
+            self._changed.notify_all()
+        return 200, {"ok": True, "result": {"message_id": upload["message_id"], "chat": {"id": fields["chat_id"]}, field: {"file_id": f"sent-{upload['message_id']}"}}}
+
+    def wait_upload(self, predicate=lambda upload: True, timeout: float = 10.0) -> dict:
+        """等机器人发出一个满足 predicate 的文件，返回它。"""
+        return self.wait_until(lambda: next((upload for upload in self.uploads if predicate(upload)), None), timeout)
 
     def _updates(self, offset: float, timeout: float) -> list[dict]:
         deadline = time.monotonic() + min(timeout, self.max_poll)

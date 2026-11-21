@@ -75,7 +75,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   your conversation (up to three at once), ask for approval the way you choose for each task (Ask every time by
   default), catch up once after ZhiFox was closed, and record what each one cost.
 - 📱 **Chat channels: talk to it from Telegram, Discord, Slack, Feishu, DingTalk or QQ.** Connect your own bot in a
-  four-step wizard (or from the command line) and chat with ZhiFox from your phone, photos and files included. No
+  four-step wizard (or from the command line) and chat with ZhiFox from your phone, photos and files included, both
+  ways: ask for a screenshot or a report and it arrives in the chat as a photo or a file (after you approve it). No
   public URL or open port: ZhiFox long-polls Telegram and keeps an outgoing WebSocket open to the others (a
   hand-written RFC 6455 client; Feishu and DingTalk use their official SDKs, installed only if you want them). Only the
   account you pair with a 6-digit code is served, and every command or file change it wants to make arrives in the chat
@@ -247,8 +248,8 @@ Each part of the harness has its own file or directory:
 | Shared catalog | [harness/catalog.py](harness/catalog.py) | The lists of skills and agents change at any time, but the system prompt mustn't. Both lists travel in user messages, attached again only when they change |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
-| Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
-| WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects |
+| Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply, and `send_file` ([tools/send.py](harness/tools/send.py)) to send photos and files back into the chat (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
+| WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects, plus a `multipart/form-data` encoder for uploading files ([multipart.py](harness/net/multipart.py)) |
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
@@ -678,6 +679,25 @@ each finished paragraph goes back to the chat; a command or file change first ar
    without asking is still reported in the chat ("Auto-allowed: run_command $ …").
 6. **A persona per chat.** `/new researcher` starts a conversation with the custom agent *researcher* as its persona,
    the same as starting one from the page (its prompt, only the tools it allows, its model if it names one).
+7. **Sending files back.** "Take a screenshot and show me" used to end with "I can't send images to Telegram": the
+   assistant could take the screenshot and look at it, but had nothing to send it with. A chat conversation now has one
+   more tool, `send_file` ([tools/send.py](harness/tools/send.py)): a path and an optional caption. Images (PNG, JPEG,
+   GIF, WebP, recognised by their first bytes) go as photos where the platform shows them inline, everything else as a
+   document, each platform within its documented size limits. It asks first like any step that sends something off the
+   computer (see [Permissions](#permissions)), resolves paths exactly like the file tool, and never sends the files that
+   hold secrets. The file is read again just before sending and compared with what the card showed (same place, size and
+   format), and it goes through the chat's send queue, so it lands after what the assistant said before it. The
+   platform half lives in [outbound.py](harness/channels/outbound.py) (which platform takes what) and each platform's
+   `send_file`; uploads use a hand-written `multipart/form-data` encoder ([net/multipart.py](harness/net/multipart.py))
+   on top of the same HTTPS helper (timeouts, size cap, secrets redacted from errors).
+   **Where the tool exists** follows the rule that a conversation's tool list never changes: it belongs to conversations
+   that *started* in a chat channel (`Conversation.channel`), in the chat and also when you continue one in the web page,
+   where the spec is byte for byte the same (the cache still hits) and calling it answers "this conversation isn't in a
+   chat app right now". The web chat and scheduled tasks never have it, so they don't pay for a spec they can't use. The
+   spec names no platform and no limit for the same reason; when a file can't go, the result says why and what to do
+   ("zip it first", "make a smaller copy"). The first message of a chat conversation (the `<channel>` note) also tells
+   the model to send files rather than paths, which a phone can't open; the system prompt is untouched, because every
+   conversation shares it.
 
 #### Six platforms, three ways in
 
@@ -694,6 +714,17 @@ opens the connection:
 | Feishu | Long connection through the official SDK `lark-oapi` | Interactive card buttons (falls back to a text prompt) | Markdown in a `post` message's `md` tag | Optional: `uv sync --extra feishu` |
 | DingTalk | Stream mode through the official SDK `dingtalk-stream` | Reply "allow" / "deny" (buttons need a card template made in DingTalk's card platform) | DingTalk markdown | Optional: `uv sync --extra dingtalk`. Replies use the message's `sessionWebhook`, then the one-to-one send API once it expires |
 | QQ | Gateway WebSocket (the same design as Discord's) with an `access_token` that's renewed | Reply "allow" / "deny" | Plain text | Up to 4 "passive" replies per message within 60 minutes, then proactive messages |
+
+Sending files back (`send_file`) uses each platform's own upload API; the limits are the ones in its documentation:
+
+| Platform | How a file is sent | Limits |
+|---|---|---|
+| Telegram | `sendPhoto` for images (`sendAnimation` for GIFs), `sendDocument` for everything else, uploaded as `multipart/form-data`; the caption goes in the message | Photos 10 MB (bigger images, or ones Telegram can't show, go as documents), files 50 MB, caption 1,024 characters (a longer one follows as a message) |
+| Discord | The message itself with the file as `files[0]` and the message in `payload_json` | 20 MB per file; caption 2,000 characters |
+| Slack | `files.getUploadURLExternal`, the bytes to the one-time upload URL (without the bot token), then `files.completeUploadExternal` into the DM | Needs the `files:write` scope (in the manifest; an app made from an older manifest needs it added and reinstalled) |
+| Feishu | Upload to `im/v1/images` (images) or `im/v1/files` (with a `file_type` by extension), then an `image` or `file` message; the caption follows as a message | Images 10 MB, files 30 MB |
+| DingTalk | Upload to `media/upload` (the older `oapi` API, same access token), then a `sampleImageMsg` or `sampleFile` one-to-one message | 20 MB; images JPEG, PNG, GIF; files only doc, docx, xlsx, pdf, zip, rar (the model is told to zip anything else) |
+| QQ | Not supported: QQ's one-to-one rich media must be a public URL that QQ downloads, and ZhiFox has none (putting your file on the internet for it would hand it to anyone with the link) | The tool says so |
 
 - **The gateway** ([gateway.py](harness/channels/gateway.py)) is written once for Discord and QQ: the first heartbeat
   waits `interval × random()`, a heartbeat that isn't acknowledged before the next one means the connection is dead
@@ -722,7 +753,7 @@ The difference is who writes the spec and who runs the tool:
 
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
-| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)) |
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)), sending a file into the chat (chat channels only, [send.py](harness/tools/send.py)) |
 | Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py); viewing an image returns the image itself, decided by its first bytes rather than its extension; models that can't see images, like DeepSeek, get a note instead), memory ([memory.py](harness/tools/memory.py)), the browser and computer use for Claude ([browser.py](harness/tools/browser.py), [computer.py](harness/tools/computer.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
@@ -1277,6 +1308,7 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 | Computer use: clicking, dragging, moving the mouse, scrolling, typing, pressing keys | Asks every time, in every mode, Allow everything included. The card shows where (and whose window), the keys or the text, and a warning for dangerous combinations such as ⌘Q or Ctrl+Alt+Del |
 | Computer use: waiting, reading the cursor position | Runs directly (they neither look nor touch) |
 | Computer use: anything while a blocked app is in front or under the click, or while another run holds the screen | Refused without asking; the model is told why |
+| Sending a file into the chat (`send_file`, chat channels only) | Asks you first, in the chat (and on the page), unless the channel is set to Allow everything. The card shows the file, its size, whether it goes as a photo, the caption and the chat it goes to. A file in `data/` asks with a warning, like reading it. The files that hold secrets (`.env`, `data/mcp.json`, `data/channels.json`) are never sent, in any mode, and files a platform won't take (too big, wrong kind) are refused without asking |
 
 An MCP tool is someone else's program. ZhiFox can't see what it does, and what it says about itself ("read-only")
 isn't verified, so every call asks by default. In **Extensions → MCP** you can mark one tool, or a whole server, as
@@ -1287,6 +1319,10 @@ task is set to Allow everything.
 
 Reading `data/` always asks because otherwise the model could quietly read every past conversation and send it to the
 provider you're using now, whether because you asked "what files are in this folder?" or because a web page misled it.
+
+Sending a file into a chat asks for the same reason: the file leaves your computer for the platform's servers and can't
+be taken back, and the request may come from a model misled by a page or a file, even though it's your own chat. Allow
+file edits relaxes editing files, not sending them, so it still asks there.
 
 The browser rules follow one question: can this step send something out? Looking can't, because the browser holds none
 of your accounts. Typing can (the text may be your information), and so can submitting a form. So can opening a new
@@ -1611,7 +1647,8 @@ Setting up each platform (the wizard and `harness channels setup <platform>` pri
   the pairing step gives you a link to add the bot to your own account (**Add to My Apps**); then open a DM with it.
   You don't need the Message Content intent: DMs with the bot are exempt.
 - **Slack.** [Create an app](https://api.slack.com/apps?new_app=1) **From a manifest** and paste the one the wizard
-  copies for you (bot scopes, `message.im`, interactivity, Socket Mode and the `/zhifox` command, all set). Then
+  copies for you (bot scopes, `message.im`, interactivity, Socket Mode and the `/zhifox` command, all set; an app made
+  from an older manifest needs the `files:write` scope added and the app reinstalled before it can send files). Then
   **OAuth & Permissions → Install to Workspace** gives the Bot token (`xoxb-…`), and **Basic Information → App-Level
   Tokens → Generate** with the `connections:write` scope gives the App-level token (`xapp-…`). Chat in the app's
   **Messages** tab; commands are `/zhifox new`, `/zhifox stop`, `/zhifox status`, `/zhifox help`.
@@ -1630,7 +1667,10 @@ Setting up each platform (the wizard and `harness channels setup <platform>` pri
   for events. As the bot's admin you can chat with it right away, without publishing it or using the sandbox.
 
 After that, just message your bot. Photos and files go through the same checks as attachments in the page (Word, Excel
-and PowerPoint become text; voice messages and videos aren't supported yet). In the chat (on Slack, write
+and PowerPoint become text; voice messages and videos aren't supported yet). It works the other way too: ask for a
+screenshot, a chart or the report it just wrote, and after you approve the card (file, size, where it goes) it arrives
+in the chat as a photo or a file (except on QQ; see the limits in [Six platforms, three ways in](#six-platforms-three-ways-in)).
+In the chat (on Slack, write
 `/zhifox new` and so on):
 
 | Command | What it does |
@@ -2116,7 +2156,10 @@ gateway that can ask to reconnect, invalidate the session, stop acknowledging he
 fake listener in place of the SDK). One rig ([tests/channel_rig.py](tests/channel_rig.py)) runs the whole program
 against any of them: pairing (right, wrong, expired codes, strangers and groups ignored), duplicate deliveries,
 splitting long replies, photos and documents, approvals answered by button, by text and from the web (racing each
-other), per-channel approval modes, `/new` `/stop` `/status`, reconnecting and resuming, rate limits, and that no
+other), per-channel approval modes, `/new` `/stop` `/status`, reconnecting and resuming, rate limits, sending files back
+(every fake accepts the platform's uploads and checks its limits; photo or document, captions, too-big files refused
+before asking, secrets never sent, `data/` asking, `/stop` during an upload, and the request prefix staying byte for byte
+the same across turns, restarts and the web page: [tests/test_send_file.py](tests/test_send_file.py)), and that no
 token or secret appears in the page, the logs, error messages or the export ([tests/test_channels.py](tests/test_channels.py),
 [tests/test_channels_web.py](tests/test_channels_web.py), `tests/test_channels_<platform>.py`,
 [tests/test_channels_platforms.py](tests/test_channels_platforms.py)). When the SDKs are installed, the Feishu
@@ -2243,7 +2286,8 @@ integration test runs there against a virtual display. The result is the Tests b
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
   only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
 - Scheduled tasks and chat channels run only while the web UI or `harness serve` is running; tasks at most three at once.
-  Chat channels take text, photos and files (no voice or video yet); WhatsApp and WeCom aren't supported yet because
+  Chat channels take text, photos and files (no voice or video yet) and can send photos and files back, except on QQ,
+  which only takes media from a public URL; WhatsApp and WeCom aren't supported yet because
   they need a public URL. Discord, Slack, Feishu, DingTalk and QQ were built from their official documentation and
   are tested only against local fakes so far, not yet with real bots. Two runs (or a run and your
   conversation) editing the same lines of the same file don't merge their changes: each edit is applied whole, and the

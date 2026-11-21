@@ -4,6 +4,10 @@
 REST 照着钉钉文档里的样子回答（见 harness/channels/dingtalk.py 开头）：换 access_token、往一条消息带来的 sessionWebhook
 回复（能让它过期）、主动发单聊消息（oToMessages/batchSend）、换文件的下载地址（messageFiles/download）再下载，
 并记下机器人发出去的每一样东西（"via" 写着是从哪条路发的：webhook 或 batch）。
+机器人发的图片和文件（send_file）：先传到老接口 /media/upload（multipart/form-data，access_token 在网址里；真的在
+oapi.dingtalk.com，这里和别的接口在同一个假服务器上），拿到 media_id，再用 batchSend 发 sampleImageMsg 或 sampleFile。
+上传的东西记在 uploads 里，也像真的一样检查：token 不对回 errcode 40014，最大 20 MB，图片只认 jpg、gif、png、bmp，
+文件只认 doc、docx、xls、xlsx、ppt、pptx、zip、pdf、rar；sampleFile 的 fileType 只认 xlsx、pdf、zip、rar、doc、docx。
 
 收消息有两种办法，测试自己选：
   - 平常用 FakeStreamListener（实现 dingtalk.Listener，不用装 SDK）：user_says 把一条机器人消息（和钉钉文档里的 JSON 一样的字典）
@@ -22,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import fake_ws
+from multipart_form import is_multipart, parse
 
 CLIENT_ID = "dingfake0test0client"
 CLIENT_SECRET = "FAKE-dingtalk-client-secret-0123456789-abcdefghijkl"  # 编造的，长得像真的
@@ -32,6 +37,10 @@ OWNER_NAME = "Akxan"  # 钉钉里主人的昵称（senderNick）
 STRANGER = "stranger9999"
 TOPIC = "/v1.0/im/bot/messages/get"  # 机器人收到消息的那个 Stream 主题
 HINT = "回复“允许”或“拒绝”"
+MEDIA_LIMIT = 20 * 1024 * 1024  # media/upload：图片和文件最大 20 MB
+IMAGE_EXTENSIONS = {"jpg", "jpeg", "gif", "png", "bmp"}
+FILE_EXTENSIONS = {"doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip", "pdf", "rar"}
+SAMPLE_FILE_TYPES = {"xlsx", "pdf", "zip", "rar", "doc", "docx"}
 
 
 class FakeDingTalk:
@@ -53,6 +62,10 @@ class FakeDingTalk:
         self.rejected: list[str] = []
         self.batches: list[dict] = []  # batchSend 收到的请求体
         self.files: dict[str, bytes] = {}  # downloadCode → 内容
+        # 机器人传上来的图片和文件：{"type": "image" 或 "file", "media_id", "filename", "content_type", "data", "token"}
+        self.uploads: list[dict] = []
+        self.media: dict[str, dict] = {}  # media_id → 上传的那一项
+        self.upload_error: dict | None = None  # 下一次 media/upload 回的错误（内容）
         self.downloads: list[str] = []  # 换过下载地址的 downloadCode
         self.opens: list[dict] = []  # connections/open 收到的请求体（去掉了密钥）
         self.frames: list[dict] = []  # 发给 SDK 的 Stream 帧
@@ -82,8 +95,11 @@ class FakeDingTalk:
                     fake._stream(self, query.get("ticket", ""))
                     return
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
-                body = json.loads(raw) if raw else None
-                status, payload = fake._api(method, parts.path, query, body, self.headers)
+                if method == "POST" and parts.path == "/media/upload":
+                    status, payload = fake._media(query, self.headers.get("content-type"), raw)
+                else:
+                    body = json.loads(raw) if raw else None
+                    status, payload = fake._api(method, parts.path, query, body, self.headers)
                 data = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode()
                 self.send_response(status)
                 self.send_header("content-type", "application/octet-stream" if isinstance(payload, bytes) else "application/json; charset=utf-8")
@@ -107,7 +123,7 @@ class FakeDingTalk:
         return self
 
     def config(self) -> dict:
-        return {"dingtalk_api": self.base_url}
+        return {"dingtalk_api": self.base_url, "dingtalk_oapi": self.base_url}
 
     def factory(self, config, store):
         """建一个连这个假钉钉的通道。平常 Stream 连接换成 FakeStreamListener（不用装 SDK）；use_sdk 时用真的 SDK。"""
@@ -115,7 +131,7 @@ class FakeDingTalk:
 
         credentials = store.get("dingtalk")["credentials"]
         listener = None if self.use_sdk else FakeStreamListener(self)
-        return DingTalkChannel(credentials.get("client_id", ""), credentials.get("client_secret", ""), config.dingtalk_api, listener=listener)
+        return DingTalkChannel(credentials.get("client_id", ""), credentials.get("client_secret", ""), config.dingtalk_api, listener=listener, oapi=config.dingtalk_oapi)
 
     def stop(self) -> None:
         with self._changed:
@@ -173,6 +189,39 @@ class FakeDingTalk:
             return 200, {"downloadUrl": f"{self.base_url}/files/{code}"}
         return 404, {"code": "notFound", "message": "not found"}
 
+    def _media(self, query: dict, content_type: str | None, raw: bytes) -> tuple[int, object]:
+        """老接口的上传（media/upload）：access_token 在网址里，type 是 image、voice、video、file，文件放在 media 里。
+        和老接口一样，出错时 HTTP 状态还是 200，错误写在 errcode 里。"""
+        token = query.get("access_token", "")
+        with self._changed:
+            self.requests.append("POST /media/upload")
+            failure, self.upload_error = self.upload_error, None
+        if failure is not None:
+            return 200, failure
+        if token not in self.tokens:
+            return 200, {"errcode": 40014, "errmsg": "不合法的access_token"}
+        if not is_multipart(content_type):
+            return 200, {"errcode": 40035, "errmsg": "不合法的参数"}
+        try:
+            fields, files = parse(content_type or "", raw)
+        except ValueError:
+            return 200, {"errcode": 40035, "errmsg": "不合法的参数"}
+        kind, item = fields.get("type"), files.get("media")
+        if kind not in ("image", "file") or item is None:
+            return 200, {"errcode": 40035, "errmsg": "不合法的参数"}
+        extension = item["filename"].rsplit(".", 1)[-1].lower() if "." in item["filename"] else ""
+        if extension not in (IMAGE_EXTENSIONS if kind == "image" else FILE_EXTENSIONS):
+            return 200, {"errcode": 40005, "errmsg": "不合法的文件类型"}
+        if not item["data"] or len(item["data"]) > MEDIA_LIMIT:
+            return 200, {"errcode": 40006, "errmsg": "不合法的文件大小"}
+        media_id = "@lA" + secrets.token_hex(10)
+        upload = {"type": kind, "media_id": media_id, **item, "token": token}
+        with self._changed:
+            self.uploads.append(upload)
+            self.media[media_id] = upload
+            self._changed.notify_all()
+        return 200, {"errcode": 0, "errmsg": "ok", "type": kind, "media_id": media_id, "created_at": int(time.time() * 1000)}
+
     def _record(self, message: dict) -> None:
         with self._changed:
             self.sent.append(message)
@@ -214,14 +263,32 @@ class FakeDingTalk:
             return self._reject("robotCode 不对")
         if not isinstance(users, list) or not users or not all(isinstance(user, str) for user in users):
             return self._reject("userIds 要是员工编号的列表")
-        if key not in ("sampleText", "sampleMarkdown") or not isinstance(raw, str):
+        if key not in ("sampleText", "sampleMarkdown", "sampleImageMsg", "sampleFile") or not isinstance(raw, str):
             return self._reject("msgKey、msgParam 不对")
         param = json.loads(raw)
+        if key in ("sampleImageMsg", "sampleFile"):
+            return self._batch_media(users[0], key, param)
         words = param.get("text") if key == "sampleMarkdown" else param.get("content")
         if not isinstance(words, str) or (key == "sampleMarkdown" and not param.get("title")):
             return self._reject("msgParam 的内容不对")
         self._record({"via": "batch", "chat": users[0], "msgtype": "markdown" if key == "sampleMarkdown" else "text",
                       "title": param.get("title", ""), "text": words, "plain": words})
+        return 200, {"processQueryKey": "fake-query-key", "invalidStaffIdList": [], "flowControlledStaffIdList": []}
+
+    def _batch_media(self, user: str, key: str, param: dict) -> tuple[int, object]:
+        """主动发的图片消息（photoURL 是 media_id）或文件消息（mediaId、fileName、fileType）。media_id 要是传上来过的。"""
+        if key == "sampleImageMsg":
+            upload = self.media.get(str(param.get("photoURL")))
+            if upload is None or upload["type"] != "image" or set(param) != {"photoURL"}:
+                return self._reject("sampleImageMsg 的 photoURL 不对")
+            message = {"via": "batch", "chat": user, "msgtype": "image", "title": "", "text": "", "plain": "", "upload": upload}
+        else:
+            upload = self.media.get(str(param.get("mediaId")))
+            if upload is None or upload["type"] != "file" or not param.get("fileName") or param.get("fileType") not in SAMPLE_FILE_TYPES:
+                return self._reject("sampleFile 的 mediaId、fileName、fileType 不对")
+            message = {"via": "batch", "chat": user, "msgtype": "file", "title": "", "text": "", "plain": str(param["fileName"]), "upload": upload,
+                       "fileType": param["fileType"]}
+        self._record(message)
         return 200, {"processQueryKey": "fake-query-key", "invalidStaffIdList": [], "flowControlledStaffIdList": []}
 
     # ---- Stream 网关（给真的 SDK 用）------------------------------------------------

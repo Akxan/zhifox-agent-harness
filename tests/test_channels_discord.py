@@ -21,6 +21,7 @@ import threading
 import time
 import types
 import zipfile
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -36,7 +37,7 @@ from fake_discord import (
     FakeDiscord,
     utf16,
 )
-from sample_files import JPEG_BYTES
+from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import (
     fences_balanced,
     result_text,
@@ -45,10 +46,18 @@ from test_channels import (
     tool_results,
     until,
 )
+from test_send_file import result_of, send
 
 from harness import export, log
 from harness.channels import gateway, markup
-from harness.channels.base import ChannelError, Inbound, Press, Prompt
+from harness.channels.base import (
+    ChannelError,
+    Inbound,
+    OutboundFile,
+    Press,
+    Prompt,
+    Uploads,
+)
 from harness.channels.discord import (
     DiscordChannel,
     DiscordError,
@@ -976,3 +985,108 @@ def test_an_export_leaves_out_the_discord_token(tmp_path):
     everything = b"".join(archive.read(name) for name in archive.namelist())
     assert TOKEN.encode() not in everything and SECRET_PART.encode() not in everything
     assert ChannelStore(data / "channels.json").credentials("discord") == {"token": TOKEN}  # 导出不改原来的文件
+
+
+# ---- 发文件（send_file）--------------------------------------------------------------
+
+
+def outgoing(name: str = "屏幕.png", data: bytes = PNG_BYTES, media_type: str = "image/png", kind: str = "photo", caption: str = "") -> OutboundFile:
+    return OutboundFile(name, data, media_type, kind, caption)
+
+
+def test_a_file_goes_as_an_attachment_with_its_caption(fake):
+    channel = client(fake)
+    channel.send_file(OWNER_CHAT, outgoing(caption="**现在**的屏幕\n#### 小标题"))
+    channel.send_file(OWNER_CHAT, outgoing("report.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    photo, document = fake.uploads
+    assert (photo["chat"], photo["filename"], photo["content_type"], photo["data"]) == (OWNER_CHAT, "屏幕.png", "image/png", PNG_BYTES)
+    assert photo["content"] == markup.to_discord("**现在**的屏幕\n#### 小标题") == "**现在**的屏幕\n**小标题**"  # 排成 Discord 的样子
+    assert (document["filename"], document["data"], document["content"]) == ("report.pdf", PDF_BYTES, "")
+    assert fake.sent == []  # 说明和文件在同一条消息里，没有另发
+    assert fake.requests.count(MESSAGES) == 2  # 和普通的消息是同一个接口（假 Discord 照样查了 token 和 User-Agent）
+
+
+def test_a_long_caption_follows_the_file(fake):
+    channel = client(fake)
+    caption = "很长的说明。" * 400  # 2400 个字：放不进一条消息
+    channel.send_file(OWNER_CHAT, outgoing(caption=caption))
+    (upload,) = fake.uploads
+    assert upload["content"] == ""
+    assert len(fake.sent) == 2 and "".join(message["content"] for message in fake.sent) == caption
+    assert [kind for kind, _ in fake.timeline] == ["upload", "message", "message"]  # 先文件，再说明
+
+
+def test_a_file_discord_says_is_too_big(fake):
+    channel = client(fake)
+    fake.file_limit = 100  # 真的是 20 MiB：测试里不用真的传那么多
+    with pytest.raises(DiscordError, match="这个文件太大了，Discord 不让机器人发这么大的文件") as caught:
+        channel.send_file(OWNER_CHAT, outgoing("big.pdf", b"%PDF" + b"0" * 200, "application/octet-stream", "document"))
+    assert (caught.value.status, caught.value.code) == (413, 40005)
+    assert fake.uploads == []
+
+
+def test_upload_errors_never_contain_the_token_and_a_rate_limit_is_waited_out(fake):
+    channel = client(fake)
+    fake.fail_next[MESSAGES] = (400, {"code": 50035, "message": f"Invalid Form Body: Authorization: Bot {TOKEN}"})
+    with pytest.raises(DiscordError) as caught:
+        channel.send_file(OWNER_CHAT, outgoing())
+    assert TOKEN not in str(caught.value) and SECRET_PART not in str(caught.value) and "<hidden>" in str(caught.value)
+    nowhere = DiscordChannel(TOKEN, "http://127.0.0.1:9/api/v10")  # 没有人在听的端口
+    with pytest.raises(DiscordError, match="连不上 Discord") as caught:
+        nowhere.send_file(OWNER_CHAT, outgoing())
+    assert TOKEN not in str(caught.value)
+
+    fake.fail_next[MESSAGES] = (429, {"message": "You are being rate limited.", "retry_after": 0.05, "global": False})
+    channel.send_file(OWNER_CHAT, outgoing())
+    assert len(fake.uploads) == 1 and fake.requests.count(MESSAGES) == 3  # 第一次出错；被限流了一次，等一会儿再传，传上了
+
+
+def test_discords_upload_limits_follow_its_documentation():
+    uploads = DiscordChannel.capabilities.uploads
+    assert uploads is not None and uploads.file_bytes == uploads.photo_bytes <= 20 * 1024 * 1024 and uploads.caption_chars == 2000
+
+
+def test_a_screenshot_is_approved_in_the_chat_and_arrives_as_an_attachment(bot):
+    s = bot(send("toolu_1", "screen.png", caption="这是**现在**的屏幕", before="截好了。"), reply(text("发过去了，看得到吗？")))
+    (s.config.workspace / "screen.png").write_bytes(PNG_BYTES)
+    start = s.say("截屏看下你在做啥")
+    first = s.wait_reply(start, "截好了")
+    ask = s.asked(start)
+    # 确认请求上写着发到哪里、哪个文件、多大
+    assert ask["content"].startswith(f"**助手想要把一个文件发到 Discord（和 {OWNER_NAME} 的私聊）：**")
+    assert "文件：screen.png" in ask["content"] and "图片，会直接显示在聊天里" in ask["content"]
+    assert s.fake.uploads == []  # 你点之前什么都没发
+    s.fake.press(ask)
+
+    upload = s.fake.wait_upload()
+    assert (upload["chat"], upload["filename"], upload["data"], upload["content"]) == (OWNER_CHAT, "screen.png", PNG_BYTES, "这是**现在**的屏幕")
+    s.wait_reply(start, "看得到吗")
+    s.idle()
+    assert int(first["id"]) < int(ask["id"]) < int(upload["id"])  # 聊天里的顺序和助手做的一样
+    assert s.fake.edit_of(ask)["content"].endswith("**已允许**")
+    result = result_of(s.api.requests[1])
+    assert not result["error"] and result["text"].startswith("已经把 screen.png（图片，作为照片显示在聊天里，1 KB）发到了 Discord 的聊天里")
+
+
+def test_with_everything_allowed_a_file_is_sent_without_asking(bot):
+    s = bot(send("toolu_1", "report.pdf"), reply(text("发了。")), approval="all")
+    (s.config.workspace / "report.pdf").write_bytes(PDF_BYTES)
+    start = s.say("把报告发给我")
+    s.wait_reply(start, "已自动允许：send_file report.pdf")  # 没问你，但聊天里看得到它做了什么
+    assert s.fake.wait_upload()["filename"] == "report.pdf"
+    s.wait_reply(start, "发了。")
+    s.idle()
+    assert not any(s.fake.is_prompt(message) for message in s.fake.sent)
+    assert "（文件，" in result_of(s.api.requests[1])["text"]
+
+
+def test_a_file_too_big_for_discord_is_refused_before_asking(bot):
+    s = bot(send("toolu_1", "big.pdf"), reply(text("太大了，我压缩一下。")))
+    (s.config.workspace / "big.pdf").write_bytes(PDF_BYTES + b"0" * 5000)
+    channel = s.channel()
+    channel.capabilities = replace(channel.capabilities, uploads=Uploads(file_bytes=3000, photo_bytes=3000))
+    s.wait_reply(s.say("发大文件"), "太大了")
+    s.idle()
+    assert s.fake.uploads == [] and not any(s.fake.is_prompt(message) for message in s.fake.sent)  # 明知发不了：不弹确认
+    result = result_of(s.api.requests[1])
+    assert result["error"] and "Discord 最多能发 3 KB" in result["text"]

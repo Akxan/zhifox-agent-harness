@@ -11,6 +11,11 @@ def short(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def file_size(size: int) -> str:
+    """一个文件有多大，给人（和模型）看的写法：12.3 MB、850 KB。"""
+    return f"{size / 1_000_000:.1f} MB" if size >= 1_000_000 else f"{max(1, round(size / 1000))} KB"
+
+
 def describe_call(name: str, tool_input: object) -> str:
     """把一次工具调用压缩成一行，显示给用户看。"""
     if not isinstance(tool_input, dict):
@@ -23,6 +28,8 @@ def describe_call(name: str, tool_input: object) -> str:
         return f"{name} $ {short(str(tool_input.get('command')), 200)}"
     if name == "agent":  # 交给一个子 Agent：agent 资料研究员 · 任务的开头
         return short(f"{name} {tool_input.get('name')} · {' '.join(str(tool_input.get('task') or '').split())}", 200)
+    if name == "send_file":  # 往聊天里发一个文件：send_file screen.png
+        return short(f"{name} {tool_input.get('path')}", 200)
     if name == "skill":  # 读一个 Skill：skill pdf，或者 skill pdf references/FORMS.md
         return short(f"{name} {tool_input.get('name')} {tool_input.get('file') or ''}".rstrip(), 200)
     if name.startswith(("browser.", "browser_")):  # 浏览器：browser.navigate https://…、browser.left_click ref_12

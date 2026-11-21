@@ -18,7 +18,8 @@ from ..config import APP_NAME_LATIN
 from ..i18n import k
 
 # Slack 的应用清单：照着它建应用，权限、事件、Socket Mode、命令一次就设好了（见 slack.py 开头的说明）。
-# 只登记一个 /zhifox：Slack 会把所有 / 开头的话都当成命令拦下来，/status 这类名字它自己就有
+# 只登记一个 /zhifox：Slack 会把所有 / 开头的话都当成命令拦下来，/status 这类名字它自己就有。
+# files:read 是下载你发来的文件，files:write 是助手往聊天里发文件（send_file，见 slack.py）
 SLACK_COMMAND = "/zhifox"
 SLACK_MANIFEST = json.dumps(
     {
@@ -28,7 +29,7 @@ SLACK_MANIFEST = json.dumps(
             "bot_user": {"display_name": APP_NAME_LATIN, "always_online": True},
             "slash_commands": [{"command": SLACK_COMMAND, "description": "new · stop · status · help", "usage_hint": "[new | stop | status | help]", "should_escape": False}],
         },
-        "oauth_config": {"scopes": {"bot": ["chat:write", "im:history", "im:write", "files:read", "commands", "users:read"]}},
+        "oauth_config": {"scopes": {"bot": ["chat:write", "im:history", "im:write", "files:read", "files:write", "commands", "users:read"]}},
         "settings": {
             "event_subscriptions": {"bot_events": ["message.im"]},
             "interactivity": {"is_enabled": True},

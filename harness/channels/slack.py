@@ -8,6 +8,9 @@
   斜杠命令           https://docs.slack.dev/interactivity/implementing-slash-commands
   mrkdwn 的写法      https://docs.slack.dev/messaging/formatting-message-text
   限流              https://docs.slack.dev/apis/web-api/rate-limits
+  上传文件          https://docs.slack.dev/reference/methods/files.getUploadURLExternal
+                   https://docs.slack.dev/reference/methods/files.completeUploadExternal
+                   https://docs.slack.dev/messaging/working-with-files
 
 要两个 token：
   Bot token（xoxb-）       以机器人的身份调 Web API：发消息（chat.postMessage）、改消息（chat.update）、下载文件
@@ -28,6 +31,17 @@
 加一排两个按钮，答复以后用 chat.update 换成去掉按钮、写着结果的样子。Slack 没有给机器人用的"正在输入"。
 
 Slack 的 Web API 出错时 HTTP 状态码多半还是 200，回答是 {"ok": false, "error": "invalid_auth"}，要看 ok。
+
+发文件（send_file 工具）分三步，都是文档里写的那一套（旧的 files.upload 已经停用了）：
+  1. files.getUploadURLExternal   告诉 Slack 文件名和大小（filename、length），拿到一个一次性的上传地址和文件编号。
+                                  文档只写了它收表单（application/x-www-form-urlencoded），所以参数用表单发，不用 JSON
+  2. 往上传地址 POST 文件的字节    原样的字节（application/octet-stream）。这个地址本身就是凭证，不带 Bot token：
+                                  token 只发给 slack.com 自己的接口；地址也要是 Slack 的域名，不然不传
+  3. files.completeUploadExternal  把文件发到这个聊天里（channel_id），说明写在 initial_comment（排成 mrkdwn）。
+                                  不调用这一步的话，传上去的文件会被 Slack 丢掉
+图片也走这一条路：Slack 自己会给图片显示预览。文档没写文件最大多大，按智狐自己的上限（CHANNEL_SEND_BYTES）算。
+要 files:write 这个权限（应用清单里有，见 guides.py）；以前照着旧清单建的应用没有它，Slack 回 missing_scope，
+说明里会写清楚缺的是 files:write、怎么加上。
 """
 
 from __future__ import annotations
@@ -45,7 +59,9 @@ from ..config import (
     CHANNEL_DOWNLOAD_BYTES,
     CHANNEL_IDLE_SECONDS,
     CHANNEL_RETRY_SECONDS,
+    CHANNEL_SEND_BYTES,
     CHANNEL_TIMEOUT,
+    CHANNEL_UPLOAD_TIMEOUT,
     Config,
 )
 from ..i18n import t
@@ -59,9 +75,11 @@ from .base import (
     Event,
     Inbound,
     InboundFile,
+    OutboundFile,
     Press,
     Prompt,
     PushChannel,
+    Uploads,
     backoff,
 )
 from .guides import SLACK_COMMAND
@@ -113,13 +131,17 @@ class WebAPI:
     def secrets(self) -> tuple[str, str]:
         return (self.bot_token, self.app_token)
 
-    def call(self, method: str, body: dict | None = None, query: dict | None = None, app: bool = False) -> dict:
-        """调用一个方法（有 body 用 POST 发 JSON，没有用 GET 带 query）。返回回答；ok 不是 true 时抛出 SlackError。"""
+    def call(self, method: str, body: dict | None = None, query: dict | None = None, app: bool = False, form: dict[str, str] | None = None) -> dict:
+        """调用一个方法（有 body 用 POST 发 JSON，有 form 用 POST 发表单，都没有用 GET 带 query）。返回回答；ok 不是 true 时抛出 SlackError。
+
+        表单是给只收表单的方法用的（files.getUploadURLExternal：文档里它只收 application/x-www-form-urlencoded）。"""
         token = self.app_token if app else self.bot_token
         url = f"{self.base}/{method}" + (f"?{urllib.parse.urlencode(query)}" if query else "")
+        verb = "POST" if body is not None or form is not None or app else "GET"
+        payload = body if body is not None else ({} if app and form is None else None)
         for attempt in range(MAX_RETRIES + 1):
             try:
-                reply = http.request("POST" if body is not None or app else "GET", url, headers={"Authorization": f"Bearer {token}"}, body=body if body is not None else ({} if app else None), hide=self.secrets)
+                reply = http.request(verb, url, headers={"Authorization": f"Bearer {token}"}, body=payload, form=form, hide=self.secrets)
             except http.NetError as exc:
                 raise SlackError(t("连不上 Slack（{error}）", error=str(exc))) from None
             data = reply.data if isinstance(reply.data, dict) else {}
@@ -180,9 +202,19 @@ def from_slack(text: str) -> str:
     return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
+# 能往聊天里发什么（见 base.Uploads）：文档没写上限，按智狐自己的算；图片也当"照片"（Slack 会直接显示预览）
+UPLOADS = Uploads(file_bytes=CHANNEL_SEND_BYTES, photo_bytes=CHANNEL_SEND_BYTES, caption_chars=MESSAGE_LIMIT)
+
+
+def _slack_host(url: str) -> bool:
+    """这个地址是不是 Slack 自己的（slack.com 和它的子域名）。http:// 只有测试里的本机才会通过 trusted，也算。"""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    return http.trusted(url) and (host == "slack.com" or host.endswith(".slack.com") or url.startswith("http://"))
+
+
 class SlackChannel(PushChannel):
     platform = "slack"
-    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=False, files=True, command=SLACK_COMMAND + " {name}")
+    capabilities = Capabilities(buttons=True, max_chars=SAFE_LIMIT, typing=False, files=True, command=SLACK_COMMAND + " {name}", uploads=UPLOADS)
 
     def __init__(self, bot_token: str, app_token: str, base: str = "https://slack.com/api"):
         super().__init__()
@@ -394,9 +426,7 @@ class SlackChannel(PushChannel):
 
     def _download(self, url: str, mime: str = "") -> bytes:
         """下载一个私有文件。mime 是 Slack 说的类型：用来认出"其实没下载到"（见下面）。"""
-        host = urllib.parse.urlsplit(url).hostname or ""
-        # 只把 token 带到 Slack 自己的域名（http:// 只有测试里的本机才会通过 trusted）
-        if not http.trusted(url) or not (host == "slack.com" or host.endswith(".slack.com") or url.startswith("http://")):
+        if not _slack_host(url):  # 只把 token 带到 Slack 自己的域名
             raise ChannelError(t("没能下载这个文件。"))
         try:
             content = http.download(url, headers={"Authorization": f"Bearer {self.api.bot_token}"}, limit=CHANNEL_DOWNLOAD_BYTES, hide=self.api.secrets)
@@ -426,6 +456,31 @@ class SlackChannel(PushChannel):
     def send(self, chat: str, text: str, markdown: bool = False) -> None:
         for piece in _pieces(text, markdown):
             self._post(chat, piece)
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """发一个文件：要上传地址、传上去、发到这个聊天里（三步见文件开头）。说明放进 initial_comment，放不下的另发。"""
+        ticket = self.api.call("files.getUploadURLExternal", form={"filename": outgoing.name, "length": str(len(outgoing.data))})
+        url, file_id = str(ticket.get("upload_url") or ""), str(ticket.get("file_id") or "")
+        if not url or not file_id:
+            raise SlackError(t("Slack 的回答看不懂。"))
+        if not _slack_host(url):
+            raise SlackError(t("Slack 给的上传地址不是 Slack 自己的，没有上传。"))
+        try:
+            # 不带 token：上传地址本身就是这一次的凭证（文档的例子也不带）
+            reply = http.request("POST", url, headers={"Content-Type": "application/octet-stream"}, content=outgoing.data, timeout=CHANNEL_UPLOAD_TIMEOUT, hide=self.api.secrets)
+        except http.NetError as exc:
+            raise SlackError(t("连不上 Slack（{error}）", error=str(exc))) from None
+        if not reply.ok:
+            raise SlackError(t("把文件传到 Slack 失败了（HTTP {status}）。", status=reply.status), "upload_failed", reply.status)
+        caption = outgoing.caption.strip()
+        shaped = markup.to_mrkdwn(caption) if caption else ""
+        inline = shaped if shaped and markup.length(shaped) <= UPLOADS.caption_chars else ""
+        body: dict = {"files": [{"id": file_id, "title": outgoing.name}], "channel_id": chat}
+        if inline:
+            body["initial_comment"] = inline
+        self.api.call("files.completeUploadExternal", body)
+        if caption and not inline:
+            self.send(chat, caption, markdown=True)
 
     def ask(self, chat: str, prompt: Prompt) -> str:
         """确认请求：粗体的标题、代码块里的完整命令（一段放不下就分几段）、工作目录，下面两个按钮。

@@ -3,6 +3,7 @@
 对着本地的假飞书（tests/fake_feishu.py）：REST 是真的 HTTP，长连接换成 FakeLarkListener（交给通道的事件和 SDK 交的一样）。
 组装见 tests/channel_rig.py，测试代码扮演手机上的你（s.say、s.fake.press）和浏览器（s.browser）。
 最后一节用真的 SDK（lark-oapi）把飞书推来的 JSON 变成事件，看两边接得上；没装 SDK（比如 CI 上）就跳过。
+助手用 send_file 发文件的那一节：先上传（im/v1/images、im/v1/files）、再发一条图片或文件消息，说明跟在后面。
 不连真正的飞书，不花钱。
 """
 
@@ -14,6 +15,7 @@ import json
 import logging
 import threading
 import zipfile
+from dataclasses import replace
 
 import pytest
 from channel_rig import rig_fixture
@@ -29,11 +31,12 @@ from fake_feishu import (
     FakeFeishu,
     card_elements,
 )
-from sample_files import JPEG_BYTES
+from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import result_text, run, stop_later, tool_results, until
+from test_send_file import GIF_BYTES, outgoing, result_of, send
 
 from harness.channels import feishu, platforms
-from harness.channels.base import ChannelError
+from harness.channels.base import ChannelError, Uploads
 from harness.channels.feishu import SAFE_LIMIT, FeishuChannel, LarkListener
 from harness.channels.store import ChannelStore
 
@@ -462,6 +465,118 @@ def test_the_export_leaves_out_the_app_secret(tmp_path):
     entry = json.loads(archive.read("channels.json"))["platforms"]["feishu"]
     assert entry["credentials"] == {"app_id": APP_ID, "app_secret": PLACEHOLDER}  # App ID 不是密钥：留着，恢复以后只要重填 Secret
     assert APP_SECRET.encode() not in b"".join(archive.read(name) for name in archive.namelist())
+
+
+# ---- 发文件（send_file）：先上传、再发一条图片或文件消息 --------------------------------------
+
+
+def channel_of(fake) -> FeishuChannel:
+    return FeishuChannel(APP_ID, APP_SECRET, fake.base_url)
+
+
+def test_an_image_is_uploaded_and_sent_as_an_image_message_with_the_caption_after(fake):
+    channel_of(fake).send_file(OWNER_CHAT, outgoing("屏幕.png", caption="**现在**的屏幕"))
+    (upload,) = fake.uploads
+    assert (upload["kind"], upload["filename"], upload["content_type"], upload["data"]) == ("image", "屏幕.png", "image/png", PNG_BYTES)
+    assert upload["fields"] == {"image_type": "message"}
+    image, caption = fake.sent
+    assert (image["msg_type"], image["chat"], image["content"]) == ("image", OWNER_CHAT, {"image_key": upload["key"]})
+    assert caption["msg_type"] == "post" and caption["content"]["zh_cn"]["content"] == [[{"tag": "md", "text": "**现在**的屏幕"}]]  # 说明跟在图片后面
+
+
+@pytest.mark.parametrize(
+    ("name", "file_type"),
+    [("报告.pdf", "pdf"), ("a.docx", "doc"), ("b.DOC", "doc"), ("表.xlsx", "xls"), ("c.xls", "xls"), ("d.pptx", "ppt"), ("e.mp4", "mp4"), ("f.opus", "opus"), ("notes.txt", "stream"), ("noext", "stream")],
+)
+def test_a_file_is_uploaded_with_the_file_type_for_its_extension(fake, name, file_type):
+    channel_of(fake).send_file(OWNER_CHAT, outgoing(name, PDF_BYTES, "application/octet-stream", "document"))
+    (upload,) = fake.uploads
+    assert (upload["kind"], upload["fields"], upload["data"]) == ("file", {"file_type": file_type, "file_name": name}, PDF_BYTES)
+    (message,) = fake.sent
+    assert (message["msg_type"], message["content"], message["plain"]) == ("file", {"file_key": upload["key"]}, name)
+
+
+def test_an_image_feishu_cannot_take_as_an_image_goes_as_a_file(fake):
+    fake.fail("upload:image", code=234039, message="Image resolution exceeds limit.")  # GIF 超过 2000×2000 这类
+    channel_of(fake).send_file(OWNER_CHAT, outgoing("tall.gif", GIF_BYTES, "image/gif"))
+    (upload,) = fake.uploads
+    assert upload["kind"] == "file" and upload["fields"]["file_type"] == "stream"
+    assert [message["msg_type"] for message in fake.sent] == ["file"]
+
+
+def test_a_file_too_big_for_feishu_is_explained(fake):
+    with pytest.raises(ChannelError, match="文件太大了，飞书不收") as caught:
+        channel_of(fake).send_file(OWNER_CHAT, outgoing("big.png", PNG_BYTES + b"\0" * (10 * 1024 * 1024)))
+    assert caught.value.code == 234006
+    assert fake.uploads == [] and fake.sent == []  # 太大的图片不会改成当文件再传一遍（飞书说的是"太大"，不是"认不出"）
+
+
+def test_an_expired_token_is_replaced_for_uploads_too(fake):
+    channel = channel_of(fake)
+    channel.send_file(OWNER_CHAT, outgoing("a.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    fake.expire_tokens()
+    channel.send_file(OWNER_CHAT, outgoing("b.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    assert [upload["filename"] for upload in fake.uploads] == ["a.pdf", "b.pdf"]
+    assert fake.rejected_tokens == ["/open-apis/im/v1/files"]  # 被拒了一次，换了 token 再传就成了
+
+
+def test_upload_errors_never_contain_the_secret_or_the_token(fake):
+    channel = channel_of(fake)
+    channel.send_file(OWNER_CHAT, outgoing("a.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    token = fake.tokens[-1]
+    fake.fail("upload:file", code=99999, message=f"bad request: token {token}, secret {APP_SECRET}")
+    with pytest.raises(ChannelError) as caught:
+        channel.send_file(OWNER_CHAT, outgoing("b.pdf", PDF_BYTES, "application/octet-stream", "document"))
+    assert "飞书回答了一个错误" in str(caught.value) and token not in str(caught.value) and APP_SECRET not in str(caught.value)
+    with pytest.raises(ChannelError) as caught:
+        FeishuChannel(APP_ID, APP_SECRET, "http://127.0.0.1:9").send_file(OWNER_CHAT, outgoing())  # 连不上
+    assert "连不上飞书" in str(caught.value) and APP_SECRET not in str(caught.value)
+
+
+def test_feishus_upload_limits_follow_its_documentation():
+    assert FeishuChannel.capabilities.uploads == Uploads(file_bytes=30_000_000, photo_bytes=10_000_000)
+
+
+def test_a_screenshot_is_approved_on_the_card_and_arrives_as_an_image(bot):
+    s = bot(send("toolu_1", "screen.png", caption="这是现在的屏幕"), reply(text("发过去了")))
+    (s.config.workspace / "screen.png").write_bytes(PNG_BYTES)
+    start = s.say("截屏看下你在做啥")
+    ask = s.asked(start)
+    card = ask["card"]
+    assert card["header"]["title"]["content"] == f"助手想要把一个文件发到飞书（和 {OWNER_NAME} 的私聊）："  # 汉字和"飞书"之间不留空格
+    assert "文件：screen.png" in markdowns(card)[0] and "图片，会直接显示在聊天里" in markdowns(card)[0]
+    assert s.fake.uploads == []  # 点之前什么都没传
+    s.fake.press(ask)
+    s.wait_reply(start, "发过去了")
+    s.idle()
+    image = next(message for message in s.fake.sent if message["msg_type"] == "image")
+    caption = s.fake.sent[s.fake.sent.index(image) + 1]
+    assert image["upload"]["data"] == PNG_BYTES and caption["plain"] == "这是现在的屏幕"
+    assert s.fake.sent.index(ask) < s.fake.sent.index(image)
+    assert result_of(s.api.requests[1])["text"].startswith("已经把 screen.png（图片，作为照片显示在聊天里，1 KB）发到了飞书的聊天里")
+
+
+def test_with_everything_allowed_a_file_is_sent_without_asking(bot):
+    s = bot(send("toolu_1", "report.pdf"), reply(text("发了")), approval="all")
+    (s.config.workspace / "report.pdf").write_bytes(PDF_BYTES)
+    start = s.say("把报告发我")
+    s.wait_reply(start, "已自动允许：send_file report.pdf")
+    s.wait_reply(start, "发了")
+    s.idle()
+    assert [(upload["kind"], upload["fields"]["file_type"]) for upload in s.fake.uploads] == [("file", "pdf")]
+    assert not any(s.fake.is_prompt(message) for message in s.fake.sent)
+
+
+def test_a_file_too_big_for_feishu_is_refused_before_asking(bot):
+    s = bot(send("toolu_1", "big.pdf"), reply(text("太大了")))
+    (s.config.workspace / "big.pdf").write_bytes(PDF_BYTES + b"\0" * 5000)
+    channel = s.channel()
+    channel.capabilities = replace(channel.capabilities, uploads=Uploads(file_bytes=3000, photo_bytes=2000))
+    s.wait_reply(s.say("发"), "太大了")
+    s.idle()
+    assert s.fake.uploads == [] and not any(s.fake.is_prompt(message) for message in s.fake.sent)
+    result = result_of(s.api.requests[1])
+    assert result["error"] and "文件太大了（5 KB），飞书最多能发 3 KB" in result["text"]
 
 
 # ---- 真的 SDK：飞书推来的 JSON → 事件 → 通道（装了 lark-oapi 才跑）------------------------------

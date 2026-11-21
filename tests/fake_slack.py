@@ -12,6 +12,12 @@ Slack 的 JSON 请求体是给写的方法用的，客户端把参数放错了�
   - mrkdwn 里的 & < > 必须写成 &amp; &lt; &gt;（<网址|文字>、<@U…> 这类 Slack 自己的写法除外）。没转义的不拒收
     （真的 Slack 也不拒收，只是显示坏了），记进 problems，测试最后检查它是空的
 
+机器人发文件也照着真的三步来（https://docs.slack.dev/messaging/working-with-files）：
+  files.getUploadURLExternal（只认表单，和文档一样；length 要是正整数）→ 往它给的 /upload/… 地址 POST 文件的字节
+  （收到的字节数要和 length 一样；带着 Authorization 来的记进 problems：这个地址不该收到 token）→ files.completeUploadExternal
+  （只认传完了的文件编号，不然 file_not_found；initial_comment 和消息一样检查）。发出去的文件记在 uploads 里。
+  files_write = False 时，这两个方法回 missing_scope（needed 是 files:write），和没加这个权限的应用一样。
+
 Socket Mode 是同一个端口上的 WebSocket（apps.connections.open 给的一次性地址 /link/?ticket=…，用过一次就作废）：
 连上先发 hello，之后把事件包成信封推过去。每个信封都要等客户端回 {"envelope_id"}（acks 里记着每一个回执、什么时候到的）。
 events_api 的信封过了 resend_after 秒还没有回执（或者回执"丢了"，见 lose_acks），就像 Slack 一样再推一遍：
@@ -48,8 +54,10 @@ OWNER_NAME = "Akxan"  # users.info 里主人的 display_name：通道交给 rout
 STRANGER = "U0STRANGER"
 CHANNEL = "C0GENERAL1"  # 工作区里的一个公开频道
 
-BOT_METHODS = {"auth.test", "bots.info", "users.info", "conversations.open", "chat.postMessage", "chat.update", "chat.postEphemeral"}
-JSON_METHODS = {"auth.test", "conversations.open", "chat.postMessage", "chat.update", "chat.postEphemeral", "apps.connections.open"}
+FILE_METHODS = {"files.getUploadURLExternal", "files.completeUploadExternal"}
+BOT_METHODS = {"auth.test", "bots.info", "users.info", "conversations.open", "chat.postMessage", "chat.update", "chat.postEphemeral", *FILE_METHODS}
+# files.getUploadURLExternal 不在这里：文档只写了它收表单
+JSON_METHODS = {"auth.test", "conversations.open", "chat.postMessage", "chat.update", "chat.postEphemeral", "apps.connections.open", "files.completeUploadExternal"}
 TEXT_LIMIT = 4000
 SECTION_LIMIT = 3000
 BLOCK_LIMIT = 50
@@ -108,6 +116,11 @@ class FakeSlack:
         self.downloads: list[dict] = []  # 文件下载：{"path", "token"}
         self.files: dict[str, bytes] = {}
         self.files_read = True  # 应用有没有 files:read 权限。没有的话，真的 Slack 下载文件时回的是一个 200 的登录页面
+        self.files_write = True  # 应用有没有 files:write 权限（发文件要它）
+        self.pending: dict[str, dict] = {}  # 要过上传地址、还没发出去的文件：编号 → {"filename", "length", "ticket", "data"}
+        self.upload_requests: list[dict] = []  # 往上传地址发的每一个请求：{"path", "authorization", "size"}
+        # 发到聊天里的文件：{"ts", "chat", "file_id", "title", "filename", "data", "initial_comment"}。ts 和消息的 ts 用同一个计数
+        self.uploads: list[dict] = []
         self.problems: list[str] = []  # 客户端做错了、但真的 Slack 不会报错的事（没转义的 mrkdwn、看不懂的回执……）
         self.fail_next: dict[str, tuple[int, object, dict]] = {}  # 方法名 → 下一次的回答（状态码，JSON，头）
         self.holds: dict[str, threading.Event] = {}  # 方法名 → 等这个旗子立起来才回答（模拟 Slack 很慢）
@@ -148,6 +161,15 @@ class FakeSlack:
                     fake._download(self, parts.path)
                     return
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+                if verb == "POST" and parts.path.startswith("/upload/"):
+                    status, answer = fake._receive(parts.path, raw, self.headers)
+                    data = answer.encode()
+                    self.send_response(status)
+                    self.send_header("content-type", "text/plain; charset=utf-8")
+                    self.send_header("content-length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 if not parts.path.startswith("/api/"):
                     self._reply(404, {"ok": False, "error": "not_found"})
                     return
@@ -268,6 +290,8 @@ class FakeSlack:
             if user not in self.users:
                 return error("user_not_found")
             return ok(no_op=True, already_open=True, channel={"id": self.dm_of(user)})
+        if method in FILE_METHODS:
+            return self._files(method, args)
         channel = str(args.get("channel") or "")
         if not channel.startswith(("D", "C")):
             return error("channel_not_found")
@@ -358,6 +382,71 @@ class FakeSlack:
         if bad:
             with self._changed:
                 self.problems.append(f"{method}：mrkdwn 里有没转义的 {''.join(sorted(set(bad)))}（{text[:80]!r}）")
+
+    def _files(self, method: str, args: dict) -> tuple[int, dict, dict]:
+        """files.getUploadURLExternal 和 files.completeUploadExternal（见文件开头）。"""
+        if not self.files_write:
+            return 200, {"ok": False, "error": "missing_scope", "needed": "files:write", "provided": "chat:write,im:history,files:read"}, {}
+        if method == "files.getUploadURLExternal":
+            length = str(args.get("length") or "")
+            if not args.get("filename") or not length.isdigit() or int(length) == 0:
+                return 200, {"ok": False, "error": "missing_argument" if not args.get("filename") or length in ("", "0") else "invalid_arguments"}, {}
+            file_id, ticket = f"F{uuid.uuid4().hex[:10].upper()}", uuid.uuid4().hex
+            with self._changed:
+                self.pending[file_id] = {"filename": str(args["filename"]), "length": int(length), "ticket": ticket, "data": None}
+            return 200, {"ok": True, "upload_url": f"{self.base_url}/upload/v1/{ticket}", "file_id": file_id}, {}
+        files = args.get("files")
+        if isinstance(files, str):  # 用表单发来的话，files 是一段 JSON 文字
+            try:
+                files = json.loads(files)
+            except ValueError:
+                files = None
+        if not isinstance(files, list) or not files or not all(isinstance(item, dict) and item.get("id") for item in files):
+            return 200, {"ok": False, "error": "invalid_arguments"}, {}
+        channel = str(args.get("channel_id") or "")
+        if channel and not channel.startswith(("D", "C")):
+            return 200, {"ok": False, "error": "channel_not_found"}, {}
+        comment = args.get("initial_comment")
+        if comment is not None:
+            if len(str(comment)) > TEXT_LIMIT:
+                return 200, {"ok": False, "error": "msg_too_long"}, {}
+            self._mrkdwn("files.completeUploadExternal", str(comment))
+        with self._changed:
+            entries = [self.pending.get(str(item["id"])) for item in files]
+            if any(entry is None or entry["data"] is None for entry in entries):
+                return 200, {"ok": False, "error": "file_not_found"}, {}
+            done = []
+            for item, entry in zip(files, entries, strict=True):
+                assert entry is not None
+                self.pending.pop(str(item["id"]))
+                self._next_ts += 1
+                ts = f"{1_800_000_000 + self._next_ts}.{self._next_ts:06d}"
+                self.uploads.append({"ts": ts, "chat": channel, "file_id": str(item["id"]), "title": item.get("title"), "filename": entry["filename"],
+                                     "data": entry["data"], "initial_comment": comment})
+                done.append({"id": str(item["id"]), "title": item.get("title") or entry["filename"]})
+            self._changed.notify_all()
+        return 200, {"ok": True, "files": done}, {}
+
+    def _receive(self, path: str, raw: bytes, headers) -> tuple[int, str]:
+        """往上传地址发来的文件的字节。成功时和真的一样回 200 加 "OK - 字节数"。"""
+        ticket = path.rstrip("/").rsplit("/", 1)[-1]
+        authorization = headers.get("Authorization")
+        with self._changed:
+            self.upload_requests.append({"path": path, "authorization": authorization, "size": len(raw)})
+            if authorization:
+                self.problems.append("往上传地址发文件时带着 Authorization：这个地址不该收到 token")
+            entry = next((item for item in self.pending.values() if item["ticket"] == ticket), None)
+            if entry is None:
+                return 404, "Not Found"
+            if len(raw) != entry["length"]:
+                return 400, "length does not match"
+            entry["data"] = raw
+            self._changed.notify_all()
+        return 200, f"OK - {len(raw)}"
+
+    def wait_upload(self, predicate: Callable[[dict], bool] = lambda upload: True, timeout: float = 10.0) -> dict:
+        """等机器人发出一个满足 predicate 的文件，返回它。"""
+        return self.wait_until(lambda: next((upload for upload in self.uploads if predicate(upload)), None), timeout, "机器人发的文件")
 
     def dm_of(self, user: str) -> str:
         """这个人和机器人的私聊的编号。"""

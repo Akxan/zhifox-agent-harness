@@ -57,6 +57,8 @@ from .tools.browser import used_in as browser_used_in
 from .tools.computer import make_computer_tools
 from .tools.computer import used_in as computer_used_in
 from .tools.files import FileEditor
+from .tools.send import TOOL_NAME as SEND_TOOL
+from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
 from .tools.skill import TOOL_NAME as SKILL_TOOL
 from .tools.todo import TodoStore
@@ -124,7 +126,7 @@ class App:
             self.agent.backend.model = model
             self.conversation.model = model
         else:
-            backend = self._backend_for(provider_id, model, self.persona)  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
+            backend = self._backend_for(provider_id, model, self.persona, channel="")  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
             self.agent.backend = backend
             self.prompt_in_use = self.system_prompt
             self.conversation = self._new(provider_id, model, self.persona)
@@ -150,10 +152,11 @@ class App:
         self.prompt_in_use = self.system_prompt
         return True
 
-    def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None) -> Any:
-        """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。"""
+    def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None, channel: str | None = None) -> Any:
+        """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。
+        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是当前这段的。"""
         provider = PROVIDERS[provider_id]
-        tools = self.conversation_tools(persona)
+        tools = self.conversation_tools(persona, channel=channel)
         web = self.config.web and provider.web  # 能不能联网，要看是哪一家
         if persona is None:
             prompt = build_system_prompt(self.config, web=web)
@@ -193,7 +196,7 @@ class App:
         """
         return self._side_run(ui, approval, self.settings.provider, self.settings.model, source="task")
 
-    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str, persona: CustomAgent | None = None) -> UnattendedRun:
+    def channel_agent(self, ui: Any, approval: str, provider_id: str, model: str, persona: CustomAgent | None = None, outlet: Any = None) -> UnattendedRun:
         """给聊天通道里的一个聊天（比如你和 Telegram 机器人的私聊）准备一个助手，以及只属于这个聊天的那几样东西。
 
         和定时任务的一次运行是同一个做法（见上面的 unattended_agent），区别只有几处：
@@ -202,12 +205,15 @@ class App:
           - 花的钱记在 channel 名下；
           - 在聊天里发 /new 某个 Agent 的名字，这段会话就用它当角色（persona）：和网页上用它开始一段对话一样
             （见 new_conversation），提示词换成它的设定，工具只有它放开的那些。
+          - 多一个 send_file 工具：把这台电脑上的文件发到这个聊天里（outlet 是这个聊天，见 channels/outbound.py 和 tools/send.py）。
         在聊天里发 /stop，只结束这个聊天自己的命令、MCP 调用和浏览器操作；网页上的"停止"、别的聊天、定时任务都碰不到它。
         每一轮结束时调用 run.close，关掉这个聊天自己的浏览器标签页（和定时任务的一次运行一样）。
         """
-        return self._side_run(ui, approval, provider_id, model, source="channel", persona=persona)
+        return self._side_run(ui, approval, provider_id, model, source="channel", persona=persona, outlet=outlet)
 
-    def _side_run(self, ui: Any, approval: str, provider_id: str, model: str, source: str, persona: CustomAgent | None = None) -> UnattendedRun:
+    def _side_run(
+        self, ui: Any, approval: str, provider_id: str, model: str, source: str, persona: CustomAgent | None = None, outlet: Any = None
+    ) -> UnattendedRun:
         """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、记在 source 名下的账。"""
         shell = Shell(self.config.workspace)
         owner = object()  # 这次运行的 MCP 调用都记在它名下（见 McpManager.call）
@@ -220,7 +226,10 @@ class App:
         # （权限是这次运行的那一份，"全部自动允许"也不放开，见 permissions.py）。和浏览器一样放在格子里，每一轮结束换一个新的
         desktop = [self.desktop.session(desktop_labels.TASK if source == "task" else desktop_labels.CHANNEL)]
         own_desktop = make_computer_tools(lambda: desktop[0], lambda: self.desktop.unattended) if self.desktop.unattended else []
-        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop])
+        # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 conversation_tools）：
+        # 两边的工具清单一字不差，在网页上接着聊也照样命中缓存
+        own_send = [make_send_tool(self.agent.permissions.editor, outlet)] if source == "channel" else []
+        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop, *own_send])
         backend = self._backend_for(provider_id, model, persona)
         permissions = self.agent.permissions.unattended(approval)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
@@ -274,7 +283,7 @@ class App:
         if persona is not None or self.persona is not None or self.prompt_in_use != self.system_prompt or provider_id != backend.provider:
             # 提示词不一样了（换了角色、用户改过提示词、换了一家）：新的一段用新的。提示词存在适配层里，
             # 所以换一个新建的（历史本来就要清空）
-            self.agent.backend = self._backend_for(provider_id, model, persona)
+            self.agent.backend = self._backend_for(provider_id, model, persona, channel="")
             self.prompt_in_use = self.system_prompt
         else:
             self.agent.reset()
@@ -284,6 +293,8 @@ class App:
         self.agent.usage.context_tokens = 0
         self._fresh_browser()
         self._fresh_desktop()
+        if self.agent.tools.get(SEND_TOOL) is not None:
+            self.refresh_tools()  # 上一段是网页上打开的聊天通道会话：新的这一段不在聊天软件里，不带 send_file
         if persona is not None and persona.spec.model:
             self._remember_choice(provider_id, model)
 
@@ -308,7 +319,7 @@ class App:
         same_provider = conversation.provider == self.agent.backend.provider
         # 同一家、提示词也没改过、前后都不是角色，就接着用现在的适配层；否则新建一个（带着现在的提示词）
         reuse = same_provider and self.prompt_in_use == self.system_prompt and persona is None and self.persona is None
-        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona)
+        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona, channel=conversation.channel)
         backend.model = conversation.model
         backend.restore(conversation.messages, conversation.dropped)
         self.agent.backend = backend
@@ -316,8 +327,8 @@ class App:
         self.persona = persona
         self._fresh_browser()
         self._fresh_desktop()
+        self.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
         self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
-        self.conversation = conversation
         self.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation
@@ -334,18 +345,23 @@ class App:
         self.mcp.active = shot
         self.agent.use_tools(self.conversation_tools(self.persona, shot.tools))
 
-    def conversation_tools(self, persona: CustomAgent | None, mcp_tools: Sequence[Any] = ()) -> ToolRegistry:
+    def conversation_tools(self, persona: CustomAgent | None, mcp_tools: Sequence[Any] = (), channel: str | None = None) -> ToolRegistry:
         """一段对话用的工具：自己的工具、浏览器、agent 工具（把任务交给子 Agent，一直都在，见 tools/agent.py）、MCP 的快照。
         用一个 Agent 当角色的对话，只留它的 tools 放开的那些（见 agents/tools.py）。
 
         浏览器的工具和 MCP 一样算在"这段对话开始时拍的快照"里：设置里开着才带上（Claude 的浏览器工具包每次请求
         要多发六千多个 token 的说明书，没开的人不该为它付钱），开始以后再开、再关，说明书都不变（见 tools/browser.py）。
-        打开一段用过浏览器的旧会话，也照样带上，历史里的那些调用才对得上。"""
+        打开一段用过浏览器的旧会话，也照样带上，历史里的那些调用才对得上。
+
+        channel：这段会话是在哪个聊天通道里开始的（不给就看当前这段）。是的话带上 send_file：在网页上接着聊一段 Telegram 里的会话，
+        工具清单和在 Telegram 里时一样（缓存照样命中），只是它发不出去（没有去处，见 tools/send.py）。普通的对话没有它。"""
+        channel = self.conversation.channel if channel is None else channel
         delegate = self.delegator.tool_for(self.agent)
         browser = make_browser_tools(lambda: self.chat_browser, lambda: self.browser.enabled) if self._wants_browser() else []
         # 操作整台电脑也一样：设置里开着才带上（工具包的说明书每次请求约 4500 个 token），用过它的旧会话也带上
         desktop = make_computer_tools(lambda: self.chat_desktop, lambda: self.desktop.enabled) if self._wants_computer() else []
-        tools = [*self.tools, *browser, *desktop, *([delegate] if delegate else []), *mcp_tools]
+        send = [make_send_tool(self.agent.permissions.editor, None)] if channel else []
+        tools = [*self.tools, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
         return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)
 
     def _wants_browser(self) -> bool:

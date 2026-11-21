@@ -5,6 +5,9 @@ REST 照着飞书文档里的样子回答（都在 https://open.feishu.cn/docume
 问通讯录里一个人叫什么，并记下机器人发出去的每一样东西。和真的一样较真：消息的 content 必须是 JSON 字符串、
 富文本和卡片的结构不对就拒绝、超过 30 KB 回 230025；token 会"过期"（expire_tokens 以后用旧的回 99991663）；
 通讯录可以没有权限（contacts = False）；能让下一条某种消息发失败（fail）。
+机器人发的图片和文件（send_file）：先上传（im/v1/images、im/v1/files，multipart/form-data），再发一条 image 或 file 消息。
+上传的东西记在 uploads 里，也像真的一样检查：图片最大 10 MB、文件最大 30 MB（超了回 234006），空文件回 234010，
+图片认不出格式回 234011，file_type 只认那几种；发 image、file 消息时 key 必须是传上来过的。
 
 长连接在真的程序里是飞书 SDK（lark-oapi）那一侧的事。测试里不装 SDK：FakeLarkListener 实现 feishu.Listener，
 测试代码用 user_says、press 把事件（和飞书文档里的 JSON 一样的字典，也就是 SDK 交给我们的样子）交给通道，
@@ -21,6 +24,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+from multipart_form import is_multipart, parse
+
 APP_ID = "cli_a5fake0test0app1"
 APP_SECRET = "FAKEfeishuAPPsecret0123456789xyz"  # 编造的，长得像真的（32 位）
 BOT_OPEN_ID = "ou_b0t0fake0000000000000000000001"
@@ -34,6 +39,14 @@ STRANGER = "ou_0000000000000000000000000stranger"
 POST_TAGS = {"text", "a", "at", "img", "media", "emotion", "md", "hr", "code_block"}
 CARD_LIMIT = 30 * 1024  # 富文本和卡片的 content 最多 30 KB（文本消息是 150 KB）
 TEXT_LIMIT = 150 * 1024
+IMAGE_LIMIT = 10 * 1024 * 1024  # 上传图片最大 10 MB
+FILE_LIMIT = 30 * 1024 * 1024  # 上传文件最大 30 MB
+FILE_TYPES = {"opus", "mp4", "pdf", "doc", "xls", "ppt", "stream"}
+IMAGE_MAGIC = (b"\x89PNG", b"\xff\xd8", b"GIF8", b"BM")  # 认得出的图片（WebP 另外看：RIFF....WEBP）
+
+
+def looks_like_image(data: bytes) -> bool:
+    return data.startswith(IMAGE_MAGIC) or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
 
 
 def post_text(content: dict) -> str:
@@ -94,7 +107,10 @@ class FakeFeishu:
         self.downloads: list[tuple[str, str, str, str]] = []  # (消息编号, 文件的 key, type, 用的 token)
         self.lookups: list[str] = []  # 问过通讯录的 open_id
         self.files: dict[tuple[str, str], tuple[str, bytes]] = {}  # (消息编号, key) → (image 或 file, 内容)
-        self.fail_next: dict[str, dict] = {}  # 消息的类型（text、post、interactive）或 "PATCH" → 下一次回答的错误
+        self.fail_next: dict[str, dict] = {}  # 消息的类型（text、post、interactive）、"PATCH"、"upload:image"、"upload:file" → 下一次回答的错误
+        # 机器人上传的图片和文件：{"kind": "image" 或 "file", "key", "filename", "content_type", "data", "fields"}
+        self.uploads: list[dict] = []
+        self.uploaded: dict[str, dict] = {}  # image_key / file_key → 上传的那一项
         self.toasts: list[dict | None] = []  # 点按钮以后通道给飞书的回答
         self.listener: FakeLarkListener | None = None
         self._next = 0
@@ -116,9 +132,17 @@ class FakeFeishu:
             def _handle(self, method: str) -> None:
                 parts = urlsplit(self.path)
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
-                body = json.loads(raw) if raw else None
+                form = None
+                if is_multipart(self.headers.get("content-type")):
+                    try:
+                        form = parse(self.headers["content-type"], raw)
+                    except ValueError:
+                        form = ({}, {})
+                    body = None
+                else:
+                    body = json.loads(raw) if raw else None
                 query = {name: values[0] for name, values in parse_qs(parts.query).items()}
-                status, payload = fake._api(method, parts.path, query, body, self.headers)
+                status, payload = fake._api(method, parts.path, query, body, self.headers, form)
                 data = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode()
                 self.send_response(status)
                 self.send_header("content-type", "application/octet-stream" if isinstance(payload, bytes) else "application/json; charset=utf-8")
@@ -170,13 +194,13 @@ class FakeFeishu:
             self._valid.clear()
 
     def fail(self, kind: str, code: int = 230099, message: str = "Failed to create card content, ext=ErrCode: 200861") -> None:
-        """下一条 kind 类型的消息（text、post、interactive）或者下一次改卡片（PATCH）回一个错误。"""
+        """下一条 kind 类型的消息（text、post、interactive）、下一次改卡片（PATCH）或者下一次上传（upload:image、upload:file）回一个错误。"""
         with self._changed:
             self.fail_next[kind] = {"code": code, "msg": message}
 
     # ---- REST ------------------------------------------------------------------
 
-    def _api(self, method: str, path: str, query: dict, body, headers) -> tuple[int, object]:
+    def _api(self, method: str, path: str, query: dict, body, headers, form: tuple[dict, dict] | None = None) -> tuple[int, object]:
         with self._changed:
             self.requests.append(f"{method} {path}")
         if method == "POST" and path == "/open-apis/auth/v3/tenant_access_token/internal":
@@ -194,6 +218,10 @@ class FakeFeishu:
                                                          "ip_white_list": [], "open_id": BOT_OPEN_ID}}
         if method == "POST" and path == "/open-apis/im/v1/messages":
             return self._create(query, body or {})
+        if method == "POST" and path in ("/open-apis/im/v1/images", "/open-apis/im/v1/files"):
+            if form is None:
+                return 400, {"code": 234001, "msg": "Invalid request param."}
+            return self._upload("image" if path.endswith("images") else "file", *form)
         parts = path.strip("/").split("/")
         if parts[:4] == ["open-apis", "im", "v1", "messages"] and len(parts) == 5 and method == "PATCH":
             return self._patch(parts[4], body or {})
@@ -213,6 +241,38 @@ class FakeFeishu:
             self._valid.add(token)
         return 200, {"code": 0, "msg": "ok", "tenant_access_token": token, "expire": 7200}
 
+    def _upload(self, kind: str, fields: dict[str, str], files: dict[str, dict]) -> tuple[int, object]:
+        """上传一张图片（image_type=message、image）或一个文件（file_type、file_name、file）。"""
+        with self._changed:
+            failure = self.fail_next.pop(f"upload:{kind}", None)
+        if failure is not None:
+            return 400, failure
+        item = files.get(kind)
+        if item is None:
+            return 400, {"code": 234001, "msg": "Invalid request param."}
+        if kind == "image":
+            if fields.get("image_type") != "message":
+                return 400, {"code": 234001, "msg": "Invalid request param: image_type."}
+            limit = IMAGE_LIMIT
+        else:
+            if fields.get("file_type") not in FILE_TYPES or not fields.get("file_name"):
+                return 400, {"code": 234001, "msg": "Invalid request param: file_type or file_name."}
+            limit = FILE_LIMIT
+        if not item["data"]:
+            return 400, {"code": 234010, "msg": "File's size can't be 0."}
+        if len(item["data"]) > limit:
+            return 400, {"code": 234006, "msg": "The file size exceed the max value."}
+        if kind == "image" and not looks_like_image(item["data"]):
+            return 400, {"code": 234011, "msg": "Can't recognize image format."}
+        with self._changed:
+            self._next += 1
+            key = f"{'img' if kind == 'image' else 'file'}_v2_sent{self._next:06d}"
+            upload = {"kind": kind, "key": key, "fields": fields, **item}
+            self.uploads.append(upload)
+            self.uploaded[key] = upload
+            self._changed.notify_all()
+        return 200, {"code": 0, "msg": "success", "data": {f"{'image' if kind == 'image' else 'file'}_key": key}}
+
     def _reject(self, why: str, code: int = 230001) -> tuple[int, object]:
         with self._changed:
             self.rejected.append(why)
@@ -223,7 +283,7 @@ class FakeFeishu:
         if query.get("receive_id_type") != "chat_id":
             return self._reject("receive_id_type 应该是 chat_id", 99992402)
         kind, raw, chat = body.get("msg_type"), body.get("content"), body.get("receive_id")
-        if kind not in ("text", "post", "interactive") or not isinstance(raw, str) or not isinstance(chat, str):
+        if kind not in ("text", "post", "interactive", "image", "file") or not isinstance(raw, str) or not isinstance(chat, str):
             return self._reject(f"看不懂的消息：{body}")
         if len(raw.encode()) > (TEXT_LIMIT if kind == "text" else CARD_LIMIT):
             return self._reject("The length of the message content reaches its limit", 230025)
@@ -240,20 +300,28 @@ class FakeFeishu:
                 return 400, failure
             self._next += 1
             message = {"id": f"om_fake{self._next:06d}", "chat": chat, "msg_type": kind, "content": content}
-            message["plain"] = content["text"] if kind == "text" else post_text(content) if kind == "post" else card_text(content)
+            if kind in ("image", "file"):
+                upload = self.uploaded[content[f"{kind}_key"]]
+                message["upload"] = upload
+                message["plain"] = "" if kind == "image" else upload["fields"]["file_name"]
+            else:
+                message["plain"] = content["text"] if kind == "text" else post_text(content) if kind == "post" else card_text(content)
             if kind == "interactive":
                 message["card"] = content
             self.sent.append(message)
             self._changed.notify_all()
         return 200, {"code": 0, "msg": "success", "data": {"message_id": message["id"], "chat_id": chat, "msg_type": kind}}
 
-    @staticmethod
-    def _check(kind: str, content: object) -> str:
+    def _check(self, kind: str, content: object) -> str:
         """消息的内容合不合飞书的格式（见 message-content-description）。合格返回空字符串。"""
         if not isinstance(content, dict):
             return "content 应该是一个对象"
         if kind == "text":
             return "" if isinstance(content.get("text"), str) and content["text"].strip() else "文本消息没有文字"
+        if kind in ("image", "file"):
+            key = content.get(f"{kind}_key")
+            found = self.uploaded.get(key) if isinstance(key, str) else None
+            return "" if found is not None and found["kind"] == kind and set(content) == {f"{kind}_key"} else f"{kind} 消息的 key 不对（要先上传）"
         if kind == "post":
             for language, body in content.items():
                 if language not in ("zh_cn", "en_us", "ja_jp") or not isinstance(body, dict) or not isinstance(body.get("content"), list):

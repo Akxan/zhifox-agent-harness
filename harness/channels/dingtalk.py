@@ -7,6 +7,8 @@
   回复和主动发      orgapp/types-of-messages-sent-by-robots、orgapp/chatbots-send-one-on-one-chat-messages-in-batches
   下载收到的文件    orgapp/download-the-file-content-of-the-robot-receiving-message
   access_token     orgapp/obtain-the-access_token-of-an-internal-app
+  上传媒体文件      orgapp/upload-media-files（国际版的同一页：https://help.dingtalk.io/open/development/upload-media-files.md）
+  图片、文件消息    orgapp/types-of-messages-sent-by-robots（https://help.dingtalk.io/open/development/robot-message-type.md）
 
 为什么收消息要用 SDK：Stream 模式是钉钉自己的一套协议（先用 Client ID、Secret 换一张票据，再连 WebSocket，
 每条消息要按它的格式回执），官方的 SDK（PyPI 上的 dingtalk-stream）已经写好了。它是可选的依赖：
@@ -26,6 +28,16 @@ SDK 的几个坑（2026 年 11 月的 0.24.3 版），绕开的办法都在 Stre
   - 它的事件处理是在回执之前等着的（钉钉 3 秒内收不到回执会重推）：处理函数只把消息交给我们自己的线程，马上返回
   - 它的日志会打印连接用的票据：换成我们自己的日志（经过 ../log.py，只记警告以上）
   - 换票据的那一步（open_connection）用的是基类上写死的地址、不设超时：换成我们自己的请求（见 StreamListener._open）
+
+助手用 send_file 发文件（见 ../tools/send.py）：钉钉的消息里不能直接带文件，要先传到钉钉的服务器上换一个 media_id。
+  上传   老接口 POST https://oapi.dingtalk.com/media/upload?access_token=…（multipart：type=image 或 file，文件放在 media 里），
+         回答里有 media_id。access_token 用的就是上面换来的那一个：SDK（0.24.3 的 stream.py 里的 upload_to_dingtalk）
+         也是拿 v1.0/oauth2/accessToken 换来的 token 去调这个老接口，所以两边通用。token 写在网址里，出错说明里一律遮住
+  发送   还是 oToMessages/batchSend：图片是 sampleImageMsg（photoURL 写 media_id，文档说可以），文件是 sampleFile
+         （mediaId、fileName、fileType）。sessionWebhook 发不了图片和文件（文档的表里这两种打的是 ❌），所以总是主动发
+  限制   图片 jpg、gif、png（bmp 也行，但我们认不出 bmp），最大 20 MB；文件只有 doc、docx、xlsx、pdf、zip、rar 这几种
+         （media/upload 收的和 sampleFile 能发的，两边都认的），最大 20 MB。别的文件，助手会被告知先打包成 zip
+  说明   图片、文件消息里放不了文字，另发一条，跟在后面
 """
 
 from __future__ import annotations
@@ -36,12 +48,13 @@ import threading
 import time
 import urllib.parse
 from collections.abc import Callable
+from pathlib import PurePath
 from typing import Any, Protocol
 
 from .. import log
 from ..config import CHANNEL_DOWNLOAD_BYTES, CHANNEL_RETRY_SECONDS, Config
 from ..i18n import t
-from ..net import http
+from ..net import http, multipart
 from . import markup
 from .base import (
     Capabilities,
@@ -49,8 +62,10 @@ from .base import (
     Event,
     Inbound,
     InboundFile,
+    OutboundFile,
     Prompt,
     PushChannel,
+    Uploads,
     backoff,
     close_loop,
 )
@@ -58,6 +73,15 @@ from .platforms import missing_sdk
 
 SAFE_LIMIT = 3500  # 一条消息自己拆到这么长（文档没写 markdown 的上限，留得保守一点）
 UNSUPPORTED = {"audio": "voice", "video": "video"}
+# 能往聊天里发什么（见 base.Uploads 和文件开头）。文档写的是"20 MB"，按小的算（20_000_000）
+UPLOADS = Uploads(
+    file_bytes=20_000_000,
+    photo_bytes=20_000_000,
+    photo_types=frozenset({"image/png", "image/jpeg", "image/gif"}),
+    extensions=frozenset({"doc", "docx", "xlsx", "pdf", "zip", "rar"}),
+)
+# 老接口（oapi）说 access_token 不对、过期了的错误码：换一个新的再传一次
+OAPI_TOKEN_INVALID = {40014, 42001}
 
 logger = logging.getLogger("harness.channels.dingtalk")
 
@@ -134,6 +158,28 @@ class OpenAPI:
         data = reply.data if isinstance(reply.data, dict) else {}
         if not reply.ok or data.get("errcode") not in (0, None):
             raise DingTalkError(_explain(reply.status, str(data.get("errcode") or ""), str(data.get("errmsg") or "")), str(data.get("errcode") or ""), reply.status)
+
+    def upload(self, oapi: str, kind: str, file: multipart.File) -> str:
+        """把一个文件传到钉钉（老接口 media/upload，kind 是 image 或 file），返回 media_id。
+
+        access_token 写在网址里（这个老接口只认这种写法）：出错说明里的网址只有主机名（见 net/http.py），
+        钉钉回的说明也先遮住密钥。token 被钉钉提前作废了的话，换一个新的再传一次。"""
+        for attempt in range(2):
+            token = self.token(fresh=attempt > 0)
+            url = f"{oapi.rstrip('/')}/media/upload?access_token={urllib.parse.quote(token, safe='')}"
+            try:
+                reply = multipart.post(url, fields={"type": kind}, files=[file], hide=self.secrets)
+            except http.NetError as exc:
+                raise DingTalkError(t("连不上钉钉（{error}）", error=str(exc))) from None
+            data = reply.data if isinstance(reply.data, dict) else {}
+            errcode = data.get("errcode")
+            if reply.ok and errcode in (0, None) and data.get("media_id"):
+                return str(data["media_id"])
+            if attempt == 0 and (reply.status == 401 or errcode in OAPI_TOKEN_INVALID):
+                continue
+            message = http.scrub(str(data.get("errmsg") or reply.text), self.secrets)
+            raise DingTalkError(_explain(reply.status, str(errcode or ""), message), str(errcode or ""), reply.status)
+        return ""
 
     def download(self, code: str, robot: str) -> bytes:
         data = self.call("/v1.0/robot/messageFiles/download", {"downloadCode": code, "robotCode": robot})
@@ -298,16 +344,19 @@ class StreamListener:
 
 def make(config: Config, store: Any) -> DingTalkChannel:
     credentials = store.get("dingtalk")["credentials"]
-    return DingTalkChannel(credentials.get("client_id", ""), credentials.get("client_secret", ""), config.dingtalk_api)
+    return DingTalkChannel(credentials.get("client_id", ""), credentials.get("client_secret", ""), config.dingtalk_api, oapi=config.dingtalk_oapi)
 
 
 class DingTalkChannel(PushChannel):
     platform = "dingtalk"
-    capabilities = Capabilities(buttons=False, max_chars=SAFE_LIMIT, typing=False, files=True)
+    capabilities = Capabilities(buttons=False, max_chars=SAFE_LIMIT, typing=False, files=True, uploads=UPLOADS)
 
-    def __init__(self, client_id: str, secret: str, base: str = "https://api.dingtalk.com", listener: Listener | None = None):
+    def __init__(
+        self, client_id: str, secret: str, base: str = "https://api.dingtalk.com", listener: Listener | None = None, oapi: str = "https://oapi.dingtalk.com"
+    ):
         super().__init__()
         self.api = OpenAPI(client_id, secret, base)
+        self.oapi = oapi.rstrip("/")  # 老接口的地址：上传图片和文件（见文件开头）
         self.client_id = client_id
         self._real = listener is None
         self.listener: Listener = listener or StreamListener(client_id, secret, base)
@@ -419,9 +468,29 @@ class DingTalkChannel(PushChannel):
                 return
             except DingTalkError as exc:
                 logger.info("dingtalk: sessionWebhook 发不出去，改成主动发（%s）", exc)
-        staff = info.get("staff") or chat
         key, param = ("sampleMarkdown", {"title": title, "text": text}) if markdown else ("sampleText", {"content": text})
+        self._batch(chat, key, param, info)
+
+    def _batch(self, chat: str, key: str, param: dict, info: dict | None = None) -> None:
+        """主动发一条单聊消息（oToMessages/batchSend）：key 是消息的模板（sampleText、sampleImageMsg……），param 是它的内容。
+        发给谁、用哪个机器人，按这个聊天最近一条消息记下的（员工编号、robotCode）。"""
+        if info is None:
+            with self._chats_lock:
+                info = dict(self._chats.get(chat) or {})
+        staff = info.get("staff") or chat
         self.api.call("/v1.0/robot/oToMessages/batchSend", {"robotCode": info.get("robot") or self.client_id, "userIds": [staff], "msgKey": key, "msgParam": json.dumps(param, ensure_ascii=False)})
+
+    def send_file(self, chat: str, outgoing: OutboundFile) -> None:
+        """发一个文件：先传上去换一个 media_id，再主动发一条图片消息或文件消息（sessionWebhook 发不了这两种）。说明另发一条，跟在后面。"""
+        photo = outgoing.kind == "photo"
+        media = self.api.upload(self.oapi, "image" if photo else "file", multipart.File("media", outgoing.name, outgoing.media_type, outgoing.data))
+        if photo:
+            self._batch(chat, "sampleImageMsg", {"photoURL": media})
+        else:
+            extension = PurePath(outgoing.name).suffix.lower().removeprefix(".")
+            self._batch(chat, "sampleFile", {"mediaId": media, "fileName": outgoing.name, "fileType": extension})
+        if outgoing.caption.strip():
+            self.send(chat, outgoing.caption.strip(), markdown=True)
 
     def send(self, chat: str, text: str, markdown: bool = False) -> None:
         for piece in markup.split(text, SAFE_LIMIT):
