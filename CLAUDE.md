@@ -127,7 +127,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）和 JSON-over-HTTPS 帮手 |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
-| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图；整个桌面（computer use）以后接在这里 |
+| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
+| `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -153,10 +154,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
-  `/api/mcp/reveal`、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
+  `/api/mcp/reveal`、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
-  **只有 `/api/media/file` 和 `/api/browser/shot` 会把文件的字节发给浏览器**。`/api/browser/shot` 只收 64 位十六进制编号，固定 `image/jpeg`，
+  **只有 `/api/media/file`、`/api/browser/shot` 和 `/api/computer/shot` 会把文件的字节发给浏览器**。两个 shot 只收 64 位十六进制编号，固定 `image/jpeg`，
   安全头和下面一样。`/api/media/file` 只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
   （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
   `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。
@@ -228,6 +229,18 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **有意的破例**：`i18n.fill` 和页面的 `t()` 填 `{platform}` 时，汉字和中文平台名之间的那个空格去掉（"连接飞书"）；别的值不动。
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
+- **操作整台电脑是进阶选项，默认关着**；打开必须经过页面上的风险确认，服务器要求 `acknowledge: true`；定时任务和聊天通道要另外打开才有。
+  **测试和演示永远不碰真的屏幕、鼠标和键盘**：conftest 把 `desktop.backend.detect` 换成"用不了"，要测的用 `tests/fake_desktop.py` 的 `install`，
+  演示页面用的也是假电脑；真后端只在 Xvfb 上测（`tests/test_desktop_x11.py`，CI 只在 ubuntu 跑）。macOS 上只能调用不弹窗的预检函数
+  （`CGPreflightScreenCaptureAccess`、`AXIsProcessTrusted`），不许调用任何 `Request…`，也不改系统设置。
+  问不问写在 `permissions.review_computer`：除了 `wait` 和 `cursor_position`，每一步都问，`auto_allows` 在任何模式下都说"要问"；
+  唯一能放宽的是截图，记在这段对话自己的 `DesktopSession.trust_screenshots` 上，只能由对话里的确认卡片打开。
+  键盘动作前把问你时最前面的程序换回来（`_focus`），鼠标动作前那一点换了窗口就不做（`_guard`），因为点"允许"会把浏览器换到最前面。
+  屏幕只有一个：`DesktopManager.claim` 让一个运行占着它，这一轮结束 `release` 或 `run.close`；"停止"之后这一轮里一直拒绝。
+  工具包和浏览器同一套写法：Claude 用 `computer_toolset_20260801`，一轮里失败后的结果用 `tools/computer.HALTED`（和浏览器那句不同，文档规定）；
+  看不了图的模型（DeepSeek）靠 `Tool.vision` 拿不到这些工具。
+- **i18n 里的嵌套**：值本身是一句 `t()` 时，`Message.nested` 记着它的原文，页面的 `t()` 递归重译。拼确认文字时让每一段都保持是 Message，
+  不要用 `+` 把它们拼成普通字符串，否则换语言时会半中半英。
 - **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
   用过浏览器的旧会话照样带上。Claude 用 Anthropic 的 `browser_toolset_20260801`（`Tool.toolset` / `member` / `stands_in_for`，
   适配层合成一项），结果写回 `toolset_name`；`browser_state` 不放在出错的结果上；一轮里工具包的一步失败了，后面的结果是
@@ -261,5 +274,5 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   没有密钥、刷新重放、输出到一半往上翻这几种情况每次都要过一遍。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
