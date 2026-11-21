@@ -143,7 +143,9 @@ def test_commands_are_added_edited_and_removed_in_place(page):
     page.type("npm test")
     page.click("#commands-add")
     page.wait("document.querySelector('#commands-list li.cmd-row .cmd-text') && document.querySelector('#commands-list li.cmd-row .cmd-text').textContent === 'npm test'", what="列表里出现这一条")
-    assert "加好了" in page.text("#commands-message") and page.js("document.getElementById('commands-new').value") == ""
+    # 列表跟着状态走，"加好了"跟着接口的回答走：两个谁先到不一定（CI 的 macOS 上状态先到过），等它
+    page.wait("document.getElementById('commands-message').textContent.includes('加好了')", what="窗口里写着加好了")
+    assert page.js("document.getElementById('commands-new').value") == ""
     page.wait("document.getElementById('commands-state').textContent.includes('1')", what="设置里那一节写着有几条")
     try:
         # 在原地改：改了一半按 Esc，先提醒；再按一次才放弃
