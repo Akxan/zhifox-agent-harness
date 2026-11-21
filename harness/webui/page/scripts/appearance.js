@@ -15,8 +15,14 @@ if (!THEMES.includes(theme)) theme = 'light';
 let motion = recall('harness.motion');
 if (!MOTIONS.includes(motion)) motion = 'auto';
 
+// 装成应用（或者做成"在窗口中打开"的快捷方式）以后，窗口的标题栏是 <meta name="theme-color"> 的颜色。
+// 它跟着这里选的外观走，不跟系统走（默认是浅色，系统是深色也一样），所以不用 media 查询，而是每次换外观时改一下：
+// 取的是样式里窗口底色 --bg 的值（颜色只写在 styles/tokens.css 一处）
+const themeColor = document.querySelector('meta[name="theme-color"]');
+
 function applyTheme() {
   root.dataset.theme = theme === 'dark' || (theme === 'auto' && systemDark.matches) ? 'dark' : 'light';
+  if (themeColor) themeColor.content = getComputedStyle(root).getPropertyValue('--bg').trim();
   themeButton.dataset.mode = theme;  // 按钮上显示太阳、月亮还是显示器
   for (const tile of appearance.querySelectorAll('[data-theme-pick]')) {
     tile.setAttribute('aria-pressed', String(tile.dataset.themePick === theme));
@@ -51,37 +57,13 @@ function chooseMotion(name) {
   applyMotion();  // 立刻生效：正在播的动画马上停在结束的样子，或者从现在起开始播
 }
 
-// 面板用浏览器的 popover 显示：它在所有内容的最上层，不会被两边的栏挡住或裁掉。
-// 很旧的浏览器没有 popover，就当一个普通的浮层来显示和隐藏。
-// 用的是 manual 模式：点外面、按 Esc 收起来都由下面自己处理（原因见 root 上的 click）。
-const POPOVER = typeof appearance.showPopover === 'function';
-if (POPOVER) appearance.hidden = false;
-const appearanceOpen = () => (POPOVER ? appearance.matches(':popover-open') : !appearance.hidden);
+// 面板的开、关、位置、点外面收起都是顶栏上几个小面板共用的做法（见 flyouts.js）。外观面板不拦 Tab：Tab 离开它就收起来。
+// 打开时焦点放到当前选中的那一格：用键盘打开的，可以直接用 Tab 和空格来选；用鼠标打开的，浏览器不会画出焦点框
+const appearanceFlyout = flyout(appearance, themeButton, { focus: () => appearance.querySelector('.tile[aria-pressed="true"]') });
+const appearanceOpen = () => appearanceFlyout.isOpen();
+const closeAppearance = (refocus) => appearanceFlyout.close(refocus);
 
-// 放在外观按钮的正下方，右边和按钮对齐；窗口太窄时往左让一让，不超出屏幕
-function placeAppearance() {
-  const box = themeButton.getBoundingClientRect();
-  const width = appearance.offsetWidth;
-  appearance.style.top = Math.round(box.bottom + 8) + 'px';
-  appearance.style.left = Math.round(Math.max(8, Math.min(box.right - width, root.clientWidth - 8 - width))) + 'px';
-}
-
-function openAppearance() {
-  if (POPOVER) appearance.showPopover(); else appearance.hidden = false;
-  placeAppearance();  // 显示出来才量得到宽度。这两步在同一帧里，画出来时已经在对的位置上
-  themeButton.setAttribute('aria-expanded', 'true');
-  // 焦点放到当前选中的那一格：用键盘打开的，可以直接用 Tab 和空格来选；用鼠标打开的，浏览器不会画出焦点框
-  appearance.querySelector('.tile[aria-pressed="true"]').focus();
-}
-
-function closeAppearance(refocus) {
-  if (!appearanceOpen()) return;
-  if (POPOVER) appearance.hidePopover(); else appearance.hidden = true;
-  themeButton.setAttribute('aria-expanded', 'false');
-  if (refocus) themeButton.focus();
-}
-
-themeButton.addEventListener('click', () => (appearanceOpen() ? closeAppearance(false) : openAppearance()));
+themeButton.addEventListener('click', () => appearanceFlyout.toggle());
 for (const tile of appearance.querySelectorAll('[data-theme-pick]')) {
   tile.addEventListener('click', () => chooseTheme(tile.dataset.themePick));
 }
@@ -89,22 +71,7 @@ for (const tile of appearance.querySelectorAll('[data-motion-pick]')) {
   tile.addEventListener('click', () => chooseMotion(tile.dataset.motionPick));
 }
 
-// 点在哪儿，按位置判断，不看"点中的是谁"：换颜色时的交叉淡化那一小会儿（约 0.3 秒），浏览器把所有点击
-// 都算在整个页面（<html>）头上，按钮自己收不到。只看"点中的是谁"的话，点在面板里的那一下会被当成点在外面。
-const inside = (node, point) => {
-  const box = node.getBoundingClientRect();
-  return point.clientX >= box.left && point.clientX <= box.right && point.clientY >= box.top && point.clientY <= box.bottom;
-};
-// 点面板外面的任何地方，面板就收起来（点外观按钮本身除外：那一下由按钮自己来开关）
-document.addEventListener('pointerdown', (press) => {
-  if (appearanceOpen() && !inside(appearance, press) && !inside(themeButton, press)) closeAppearance(false);
-});
-// 焦点去了面板和外观按钮之外（用 Tab 离开、或者打开了别的对话框），也收起来
-document.addEventListener('focusin', (focus) => {
-  if (appearanceOpen() && !appearance.contains(focus.target) && focus.target !== themeButton) closeAppearance(false);
-});
-window.addEventListener('resize', () => { if (appearanceOpen()) placeAppearance(); });
-// 交叉淡化期间点到页面头上的那一下：按位置找出本来点的是哪个按钮，替它点一下，连点两下才不会丢掉一下
+// 交叉淡化期间点到页面头上的那一下（见 flyouts.js 的 inside）：按位置找出本来点的是哪个按钮，替它点一下，连点两下才不会丢掉一下
 root.addEventListener('click', (click) => {
   if (click.target !== root) return;
   const buttons = [themeButton, ...(appearanceOpen() ? appearance.querySelectorAll('.tile') : [])];

@@ -55,12 +55,37 @@ def pending_confirm(page: Page, timeout: float = 20) -> None:
 
 
 def language(page: Page, code: str) -> None:
-    """用右上角的语言按钮换语言，等页面换好（<html lang> 变了）。"""
-    page.click("#language")
-    page.wait("document.getElementById('language-dialog').open", what="语言窗口打开")
+    """用右上角的语言按钮（地球）换语言，等页面换好（<html lang> 变了、语言面板收起来了）。"""
+    open_flyout(page, "#language", "languages")
     lang = {"zh": "zh-CN", "en": "en", "es": "es"}[code]
-    page.click(f"#language-options .option[lang='{lang}']")
-    page.wait(f"document.documentElement.lang === '{lang}' && !document.getElementById('language-dialog').open", what=f"换成 {code}")
+    page.click(f"#language-options .lang-option[lang='{lang}']")
+    page.wait(f"document.documentElement.lang === '{lang}' && !{flyout_open('languages')}", what=f"换成 {code}")
+    idle(page)
+
+
+def flyout_open(panel: str) -> str:
+    """顶栏上的小面板（外观、换模型、语言：popover，见 page/scripts/flyouts.js）开着没有。"""
+    return f"document.getElementById({json.dumps(panel)}).matches(':popover-open')"
+
+
+def open_flyout(page: Page, button: str, panel: str) -> None:
+    """点顶栏上的按钮，等它的小面板弹出来、动画播完。"""
+    page.click(button)
+    page.wait(flyout_open(panel), what=f"{panel} 弹出来")
+    idle(page)
+
+
+def escape_closes_flyout(page: Page, panel: str, button: str) -> None:
+    """按 Esc，等小面板收起来、焦点回到它的按钮上。"""
+    page.key("Escape")
+    page.wait(f"!{flyout_open(panel)} && document.activeElement === document.querySelector({json.dumps(button)})", what=f"{panel} 收起来")
+    idle(page)
+
+
+def open_models(page: Page) -> None:
+    """点顶栏的模型按钮，等换模型的面板弹出来、目录画好。"""
+    open_flyout(page, "#model", "models")
+    page.wait("document.querySelector('#models-menu [role=menuitemradio]')", what="模型列出来")
     idle(page)
 
 

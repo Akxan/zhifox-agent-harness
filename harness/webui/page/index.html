@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>智狐</title>
+<!-- 标签页、书签上的小图标：内嵌的 SVG，和 #i-fox、docs/assets/logo.svg 是同一幅画（tests/test_web_manifest.py 会对一遍），
+     不用另取，页面安全策略的 img-src data: 就放得下。紧接着的三行给"创建快捷方式 / 安装成应用"、Safari 的"添加到程序坞"
+     和应用窗口的标题栏用（见 webui/manifest.py）：清单和图标的地址带着口令（server.py 发页面时填上），
+     theme-color 是浅色外观的底色，换成深色时由 scripts/appearance.js 改 -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='fox-fur' x1='16' y1='2' x2='16' y2='30' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f59e0b'/%3E%3Cstop offset='1' stop-color='%23f0532e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M16 29.5C12.8 29.1 6.4 26.4 2.5 21.6C3.4 19.8 4.2 17.8 4.6 15.8C3.6 11.6 3.5 6.3 4.7 3.3C5 2.5 6 2.3 6.6 2.8C10.2 5.9 12.6 9.4 13.6 12.4Q13.9 13.3 14.8 12.8Q15.4 12.5 16 12.5Q16.6 12.5 17.2 12.8Q18.1 13.3 18.4 12.4C19.4 9.4 21.8 5.9 25.4 2.8C26 2.3 27 2.5 27.3 3.3C28.5 6.3 28.4 11.6 27.4 15.8C27.8 17.8 28.6 19.8 29.5 21.6C25.6 26.4 19.2 29.1 16 29.5Z' fill='url(%23fox-fur)' stroke='url(%23fox-fur)' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M6.6 7.2C8.8 9 10.4 11.2 11.2 13Q8.8 13 6.8 14.4C5.8 12 5.9 9.4 6.6 7.2ZM25.4 7.2C23.2 9 21.6 11.2 20.8 13Q23.2 13 25.2 14.4C26.2 12 26.1 9.4 25.4 7.2Z' fill='%23ffd9a3' stroke='%23ffd9a3' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M16 28.3C11.7 27.5 7.5 25.1 4.4 21.9C6 19.9 10.2 19.4 12.6 20.4C14.2 21.1 15.4 22.6 16 24C16.6 22.6 17.8 21.1 19.4 20.4C21.8 19.4 26 19.9 27.6 21.9C24.5 25.1 20.3 27.5 16 28.3Z' fill='%23ffecd2'/%3E%3Cg fill='%232a1a2e'%3E%3Ccircle cx='10' cy='20' r='2.2'/%3E%3Ccircle cx='22' cy='20' r='2.2'/%3E%3Cpath d='M14.7 24.4H17.3L16 25.8Z' stroke='%232a1a2e' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/g%3E%3Cg fill='%23ffecd2'%3E%3Ccircle cx='10.8' cy='19.1' r='0.7'/%3E%3Ccircle cx='22.8' cy='19.1' r='0.7'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest?token=__TOKEN__">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?token=__TOKEN__">
+<meta name="theme-color" content="#eeece7">
 <!-- 这是页面的骨架：标记都写在这个文件里，样式和脚本在旁边的 styles/ 和 scripts/ 里。助手程序启动时按
      page/__init__.py 里的清单，把它们拼进下面单独占一行的几个占位符，发给浏览器的仍然是这一个自给自足的页面。 -->
 <!-- 页面画出来之前就定好深浅色和动效（first-paint.js）。它单独一段，不和下面的主脚本共用作用域 -->
@@ -197,8 +204,34 @@ __STYLES__
             <button id="computer-live-stop" class="computer-live-stop" type="button"></button>
           </div>
           <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent" aria-label="扩展：Skill、MCP、通道、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
-          <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
-          <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
+          <!-- 换模型：点开是下面那个小面板（scripts/models.js）。设置在旁边的齿轮里 -->
+          <button id="model" class="model-button" type="button" title="换模型" data-i18n-title aria-haspopup="dialog" aria-expanded="false" aria-controls="models"><i class="model-dot"></i><span id="model-label">换模型</span><svg class="icon model-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+          <div id="models" class="flyout models" popover="manual" role="dialog" aria-labelledby="models-title" hidden>
+            <div class="models-top">
+              <h3 id="models-title" data-i18n>换模型</h3>
+              <span class="models-unit" data-i18n>美元 / 每百万 token · 输入 / 输出</span>
+            </div>
+            <label id="models-find" class="models-find" hidden><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="models-search" type="search" placeholder="搜索模型" aria-label="搜索模型" aria-controls="models-menu" autocomplete="off" spellcheck="false" data-i18n-placeholder data-i18n-aria-label></label>
+            <div id="models-menu" class="models-menu" role="menu" aria-labelledby="models-title"></div>
+            <div class="models-foot">
+              <p id="models-persona" class="models-persona" hidden></p>
+              <div id="models-confirm" class="models-confirm" hidden>
+                <p id="models-confirm-text"></p>
+                <div class="models-confirm-actions">
+                  <button id="models-confirm-no" class="button" type="button" data-i18n>取消</button>
+                  <button id="models-confirm-yes" class="button primary" type="button" data-i18n>换过去</button>
+                </div>
+              </div>
+              <p id="models-status" class="models-status" role="status"></p>
+            </div>
+          </div>
+          <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" aria-haspopup="dialog" aria-expanded="false" aria-controls="languages" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
+          <!-- 语言：和外观、换模型一样是锚在按钮上的小面板（scripts/language.js）。标题三种语言都写：选错了也认得出来 -->
+          <div id="languages" class="flyout languages" popover="manual" role="dialog" aria-labelledby="languages-title" hidden>
+            <h3 id="languages-title">语言 · Language · Idioma</h3>
+            <div id="language-options" class="lang-options" role="menu" aria-labelledby="languages-title"></div>
+            <p class="lang-note" data-i18n>换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。</p>
+          </div>
           <button id="settings-open" class="icon-button" type="button" title="设置" aria-label="设置" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
           <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
             <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
@@ -335,12 +368,12 @@ __STYLES__
   <div class="settings-body">
     <section>
       <h3 data-i18n>当前模型</h3>
-      <div class="row">
-        <select id="pick-provider" class="field" aria-label="厂商" data-i18n-aria-label></select>
-        <select id="pick-model" class="field" aria-label="模型" data-i18n-aria-label></select>
-        <button id="apply-model" class="button primary" type="button" data-i18n>使用这个模型</button>
+      <!-- 换模型不在这里：顶上的模型按钮打开专门的面板（scripts/models.js），这里只写现在用的是哪个，给一个去那儿的按钮 -->
+      <div class="settings-model">
+        <span id="settings-model-name" class="settings-model-name"></span>
+        <button id="settings-model-switch" class="button with-icon" type="button"><span data-i18n>换模型</span><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></button>
       </div>
-      <p class="hint" data-i18n>同一家之内换模型，对话可以接着进行；换到另一家会开始新对话。联网搜索只有 Claude 能用。</p>
+      <p class="hint" data-i18n>每个模型能做什么、多少钱，都写在换模型的面板里。</p>
     </section>
     <section>
       <h3 data-i18n>API 密钥</h3>
@@ -665,17 +698,6 @@ __STYLES__
     <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
   </div>
   <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
-</dialog>
-
-<dialog id="language-dialog" class="settings approval-dialog" aria-labelledby="language-title">
-  <div class="settings-head">
-    <h2 id="language-title">语言 · Language · Idioma</h2>
-    <button id="close-language" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
-  </div>
-  <div class="settings-body">
-    <div id="language-options" class="options"></div>
-    <p class="hint" data-i18n>换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。</p>
-  </div>
 </dialog>
 
 <dialog id="viewer" class="viewer" aria-labelledby="viewer-name" aria-describedby="viewer-meta">

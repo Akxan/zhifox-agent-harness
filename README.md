@@ -267,8 +267,10 @@ Each part of the harness has its own file or directory:
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
+| App icon | [harness/webui/manifest.py](harness/webui/manifest.py), [harness/webui/icons/](harness/webui/icons/), [tests/make_icons.py](tests/make_icons.py) | A bookmark, a Chrome shortcut or an installed app needs a large icon and a web app manifest, or it shows a grey letter. The PNGs are drawn once from the logo by headless Chrome and committed; the server hands out only those, behind the token |
 | Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
+| Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
@@ -569,6 +571,23 @@ every refresh). Order matters: in CSS a later rule beats an equally specific ear
 last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses
 (`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
 fails if a file is missing from it or listed twice.
+
+The app icon is the one thing the browser fetches on its own, outside the page's script: when it decides whether the
+page can be installed and when it makes a shortcut, it reads a web app manifest and downloads the icons listed there.
+So these are real addresses, `/manifest.webmanifest` and `/icons/<name>`
+([harness/webui/manifest.py](harness/webui/manifest.py)). Both carry the token and go through the same Host and Origin
+checks as the page. An icon name is looked up in a fixed list of six PNGs that ship with ZhiFox, never joined onto a
+path, so no request reaches any other file. The security policy lets in exactly those addresses: `manifest-src` names
+the manifest's own URL, and `img-src` names each of the six icons next to `data:`. A source with a path matches only
+that path (the token after `?` doesn't count), which is narrower than `'self'`. The icons have to be there because Chrome
+checks manifest icons against the page's `img-src` too: without them it reports that no suitable icon was found and
+won't install the page. The manifest's `start_url` carries the token, so a shortcut opens straight into the page, while
+its `id` is a plain `/`, so the browser still sees the same app when the token changes. The PNGs are drawn once from
+[docs/assets/logo.svg](docs/assets/logo.svg) by headless Chrome (`uv run python tests/make_icons.py`; add
+`--preview <folder>` for a contact sheet) and committed: transparent ones for tabs, bookmarks and taskbars, and a
+maskable one on a cream tile with the fox inside the central safe circle, which Chrome uses for the Dock on macOS Sonoma
+and later. The window's title bar takes `<meta name="theme-color">`, which follows the appearance you chose in the page,
+not the system.
 
 Only content that is happening right now animates. New messages fade in, but content replayed after a refresh or when
 opening an old conversation appears directly, rather than playing hundreds of entrance animations one by one. How does
@@ -1652,14 +1671,34 @@ This starts a small server on your computer and opens the chat page in your brow
   text); for old Office files only the extracted text is left, and the library says so. A single attachment can't be
   deleted, because it is part of the conversation's record; deleting the conversation deletes its originals unless
   another conversation uses the same file.
-- **Settings** (the gear at the top right, or ⌘, / Ctrl+,; the button showing the current model opens it too). Add or delete each provider's API key, sync
-  each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
-  that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
-  and a list of placeholders such as `{name}` and `{workspace}` that are filled in before sending; other braces are left
-  alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
+- **Switch model** (the button in the middle of the top bar that shows the current model, such as
+  "Claude (Anthropic) · claude-opus-5-5", or ⌘. / Ctrl+.). A small panel opens right under the button; on a phone it
+  rises from the bottom of the screen. Models are grouped by provider (Claude, GPT, Gemini, DeepSeek), and each group
+  says whether its API key is set (showing only the last 4 characters). A provider without a key shows **Add API key →**,
+  which opens Settings at that provider's key field. Each model shows its name, what it can do, its price, and a check
+  mark on the one in use. What it can do is worked out by the program: **Web search** (Claude only, and only while web
+  search is on), **Reads images**, **Reads PDFs**, **Text only** (DeepSeek) and **Peak and off-peak prices** (DeepSeek).
+  Prices are US dollars per million tokens, input / output (hover a price for the off-peak one), or **No price**. Each
+  provider has a button that syncs its model list; once there are many models a search box stays at the top, and typing
+  anywhere in the list filters it. A model of the same provider is switched to at once and the conversation goes on, with
+  the result shown inside the panel. Another provider starts a new conversation, and if the current one already has
+  content, the panel first asks in place: "Switching to GPT starts a new conversation. This one is saved, and you can
+  come back to it any time." A conversation started with a custom agent keeps its persona when you switch, and the panel
+  says so. Keyboard: ↑ / ↓ (and Home / End) move, Enter picks, typing filters, Esc closes the panel and puts the focus
+  back on the button (while the in-place question is showing, Esc dismisses just the question first), and Tab stays
+  inside the panel. The shortcut isn't ⌘⇧M / Ctrl+Shift+M because Chrome uses that for its profile menu and Firefox for
+  its responsive design mode.
+- **Settings** (the gear at the top right, or ⌘, / Ctrl+,). Add or delete each provider's API key, sync each provider's
+  model list, enter model prices, and **edit the system prompt** (the text that tells the assistant who it is and how to
+  work). The prompt editor has a preview of exactly what the model receives and a list of placeholders such as `{name}`
+  and `{workspace}` that are filled in before sending; other braces are left alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
   conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
   a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
-  is also the way to pick up a newer built-in version after an upgrade. More sections at the bottom:
+  is also the way to pick up a newer built-in version after an upgrade. Models aren't chosen here: the **Current model**
+  section only shows the one in use, with a **Switch model** button that opens the model switcher. Why they're apart:
+  switching models is something you do in passing while chatting, entering keys or editing the prompt is something you
+  do now and then, and with one entrance for both you had to search a long page of settings just to change models. More
+  sections at the bottom:
   - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
     message on the page, and a system notification if the page is in the background and you allowed notifications).
     It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
@@ -1756,15 +1795,28 @@ This starts a small server on your computer and opens the chat page in your brow
     for reduced motion).
 
   Click outside the panel, press Esc or click the button again to close it.
-- **Language** (the globe button at the top right): 中文, English, Español. Switching doesn't reload the page: the
+- **Language** (the globe button at the top right): 中文, English, Español, in a small panel under the button, the same
+  kind as the appearance panel and the model switcher (on a phone it rises from the bottom). Each language is written
+  large in its own words, so everyone recognizes theirs, with its name in the current interface language underneath
+  (in the Chinese interface, English reads "英语"); the one in use says **Current language** and carries a thin check
+  mark. A note that is always fully visible says that this changes the interface text, and that the assistant replies in
+  whatever language you write to it in. ↑ / ↓ move, Enter picks, Esc closes. Switching doesn't reload the page: the
   conversation in progress, your scroll position and a half-written message all stay as they were, and the interface
   text changes in place. The choice is saved, and the terminal UI uses it too.
 
 Appearance, motion, and whether the two side panels are open are remembered by your browser, not stored in `data/`.
 
 **Switching models.** Within the same provider, the conversation continues. Switching to another provider starts a new
-conversation, because providers' conversation formats aren't compatible. The model you choose is saved, and the next
-launch (terminal included) uses it again.
+conversation, because providers' conversation formats aren't compatible; the one you leave is saved, and you can open
+it from the sidebar to carry on. The model you choose is saved, and the next launch (terminal included) uses it again.
+A conversation started with an agent keeps its persona whichever model you switch to. The switcher can be opened while
+the assistant is replying, so you can look, but picking a model then is turned down with a note to wait for the turn to
+end or press Stop (the panel says so); and while a chat channel is
+running a turn in this conversation, even a switch within the same provider is refused, because the new model has to be
+saved into the same conversation file the channel is writing (see [harness/claims.py](harness/claims.py)). What a switch
+would do (continue, start fresh, or ask first) is worked out by the program in
+[harness/model_catalog.py](harness/model_catalog.py), by the same rule `App.select_model` follows when it actually
+switches; the page only draws the answer.
 
 **Lifecycle.** Refreshing the page doesn't lose the current conversation. Closing the page leaves the program running;
 press Ctrl-C in the terminal to quit. If the assistant is in the middle of a reply, ZhiFox stops it and saves the turn
@@ -1773,7 +1825,7 @@ starting another tells you to use the one that's open.
 
 After a restart you start in a new conversation; earlier ones are in the sidebar. Opening an old conversation switches
 back to the provider and model it used, and from then on that model is your chosen model: new conversations and the next
-launch use it until you change it in Settings. While the assistant is replying, you can't open, rename or delete
+launch use it until you switch models again. While the assistant is replying, you can't open, rename or delete
 conversations; wait for the turn to finish or click **Stop**. Conversation titles keep at most 40 characters.
 
 **Options.** `--port 9000` sets the port. Without it, ZhiFox uses 8765, or lets the system pick a free port if 8765 is
@@ -1782,6 +1834,15 @@ taken; a port you name explicitly must be free. `--no-browser` skips opening the
 The address shown in the terminal contains a `token`, a password for this run that changes on every launch. Don't send
 the address to anyone, and don't post screenshots that show the address bar: whoever has it can use the page to make the
 assistant run commands on your computer. The server only accepts connections from your own machine.
+
+**Bookmark it, or keep it in the Dock.** The page comes with its own icon and a web app manifest, so the tab, a bookmark
+and a shortcut all show the fox. In Chrome, open **⋮ → Cast, save, and share → Create shortcut…** and tick **Open as
+window** (or pick the install item in the same menu): ZhiFox then opens in a window of its own and sits in the Dock
+(macOS) or the taskbar like any other app. On macOS Sonoma and later the Dock shows the fox on a rounded cream tile.
+A bookmark or a shortcut remembers the whole address, token and port included, so make it from the background service
+(see [Run it in the background](#run-it-in-the-background)), whose token stays the same across restarts. A
+`harness --web` started in a terminal gets a new token every time, and an old shortcut then opens to "This link is
+invalid or has expired"; make a new one, or switch to the service.
 
 ### What ZhiFox can do: the capability list
 
@@ -1795,8 +1856,8 @@ chat. Each row says:
   and a button that opens the right place: the Browser or Computer use section of Settings, the Skills / MCP / Agents
   tab of Extensions, or **Start a new conversation**), or *unavailable here* (only Claude can search the web; a model
   that can't see images, like DeepSeek, can't use computer use; this computer has no desktop to control; the persona of
-  this conversation doesn't allow it; sending files only exists in chat channels). Unavailable rows are folded away at
-  the bottom.
+  this conversation doesn't allow it; sending files only exists in chat channels; when another model would do, a
+  **Switch model** button opens the model switcher). Unavailable rows are folded away at the bottom.
 - **whether it asks you first, in the current approval mode**: a small label (*Direct*, *Asks some*, *Asks first*,
   *Asks always*) and, when you open the row, a sentence such as "Reads files in the working folder without asking;
   asks you before editing files" with a line per kind of action. Change the mode from the bar at the top of the list
@@ -2037,7 +2098,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/todos` | Show open to-dos |
 | `/tools` | Show what 智狐 can do: what's in use, whether it asks first, how to turn on what's off (the same list as the web UI's info panel) |
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
-| `/model` | Show the model in use (switch models in the web UI's Settings) |
+| `/model` | Show every provider's models: which one is in use (✓), what each can do, its price, and which providers have no key yet (the same catalog as the web UI's model switcher; switch with its model button, ⌘. / Ctrl+.) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto readonly`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
@@ -2357,7 +2418,10 @@ only the id, and the file comes back as a download (`Content-Disposition: attach
 `X-Content-Type-Options: nosniff`), so a text file that contains HTML is still plain text. A full-size browser screenshot is fetched the same
 way: the page sends only its id (64 hexadecimal characters, which can't spell a path), and the answer is always
 `image/jpeg` with the same headers plus `Content-Security-Policy: default-src 'none'; sandbox`; a full-size computer use
-screenshot comes from `/api/computer/shot` under exactly the same rules. Linux has no standard way to select a file in
+screenshot comes from `/api/computer/shot` under exactly the same rules. The app icons (`/icons/<name>`) are the only
+other file bytes the server sends: six PNGs that ship with ZhiFox, picked by exact name from a fixed list (never a
+path), always `image/png` with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`; none of your data
+is among them. Linux has no standard way to select a file in
 the file manager, so there it opens the folder containing the file. One more button launches a program: on macOS,
 **Open System Settings** in the computer use section runs `open` with one of two fixed `x-apple.systempreferences:`
 addresses (Screen Recording or Accessibility). The page can only say `screen` or `input`; the address is the server's,
@@ -2539,12 +2603,18 @@ start their own demo server and Chrome per worker, so nothing is shared between 
 OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
-where the test code plays the browser. Saving conversations and searching them are covered in
+where the test code plays the browser; the app icon's manifest and PNGs in
+[tests/test_web_manifest.py](tests/test_web_manifest.py) (token, Host and Origin, the fixed list of names with no way to
+reach another file, headers, the security policy, and the maskable fox staying inside its safe circle). Saving conversations and searching them are covered in
 [tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py), and
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
-ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). Scheduled
+ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The model
+catalog is in [tests/test_model_catalog.py](tests/test_model_catalog.py): the JSON the page gets (keys only as their
+last 4 characters, tags, entered and built-in prices, off-peak prices), the switch endpoint agreeing with it (the same
+provider continues, another provider starts anew and keeps the old conversation, refused while a chat channel holds the
+conversation, readable but not switchable during a turn, the persona kept), and the terminal's `/model`. Scheduled
 tasks are covered in [tests/test_tasks.py](tests/test_tasks.py) (schedules, including month ends and daylight saving;
 storage; tools and their permissions) and [tests/test_task_runs.py](tests/test_task_runs.py) (runs through the real
 server with a fake clock, so no test waits for 9 a.m.: a run beside a chat turn, two runs side by side, the queue past
@@ -2663,7 +2733,13 @@ overflow at 390 px wide in all three languages; the Show in Finder / Edit / Dele
 (conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
 in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
 the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
-switching to another provider in Settings; the browser tool's thumbnails; and editing and regenerating the last turn
+the model switcher (what it lists, switching within a provider at once, asking in place before leaving a conversation
+for another provider, the link to a missing key, the keyboard, translating in place, rising from the bottom on a phone,
+just appearing with reduced motion) and saving a key in Settings, then switching to that provider; the language panel
+(each language in its own words, the keyboard, rising from the bottom on a phone); the gear and ⌘, / Ctrl+, opening
+Settings while the model button doesn't; the browser tool's thumbnails; the web app manifest as Chrome itself reads it
+(`Page.getAppManifest` with no errors, `Page.getInstallabilityErrors` empty, every icon fetched at its stated size, the
+security policy still blocking every other image) and the title bar color following the chosen appearance; and editing and regenerating the last turn
 (where the buttons sit, ↑ in the empty input box, Esc warning before throwing away an edit, the confirmation when the
 turn ran a command, a turn that failed getting its own Regenerate, a second tab following along and keeping its
 unsent edit). The demo answers these tests from scripts
@@ -2806,7 +2882,8 @@ The web UI's server accepts connections from your own machine only. See
 ### Which models does it support?
 
 Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-2`) through Anthropic's native API, and GPT, Gemini and
-DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings. Only Claude has
+DeepSeek through the OpenAI-compatible Chat Completions API, using the model lists you sync in Settings or the model
+switcher. Only Claude has
 been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
 Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
 added with one entry in `PROVIDERS`.

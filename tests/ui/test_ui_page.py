@@ -134,21 +134,20 @@ def test_reduced_motion_follows_system_and_the_appearance_panel(page):
 
 
 def test_dropdowns_draw_their_own_chevron(page):
-    # 下拉框一律是 select.field，箭头由页面自己画（两道渐变），颜色跟着主题
-    steps.open_dialog(page, "#model", "settings")
-    assert page.js("document.querySelectorAll('#settings select').length") >= 2
+    # 下拉框一律是 select.field，箭头由页面自己画（两道渐变），颜色跟着主题。
+    # 新建任务的窗口里有一个（每隔几小时 / 几分钟）；设置里以前选模型的两个下拉框换成了换模型的面板（models.js）
+    steps.nav_tab(page, "tasks")
+    steps.open_dialog(page, "#task-new", "task-editor")
     assert checks.native_selects(page) == []
-    light = page.js("getComputedStyle(document.getElementById('pick-provider')).getPropertyValue('--chevron').trim()")
-    steps.escape_closes(page, "settings")
+    light = page.js("getComputedStyle(document.getElementById('task-unit')).getPropertyValue('--chevron').trim()")
+    steps.escape_closes(page, "task-editor")
     page.click("#theme")
     page.click("[data-theme-pick='dark']")
     page.wait("document.documentElement.dataset.theme === 'dark'")
     page.key("Escape")
-    dark = page.js("getComputedStyle(document.getElementById('pick-provider')).getPropertyValue('--chevron').trim()")
+    dark = page.js("getComputedStyle(document.getElementById('task-unit')).getPropertyValue('--chevron').trim()")
     assert light and dark and light != dark
-    # 新建任务的窗口里也有一个（每隔几小时 / 几分钟）
-    steps.nav_tab(page, "tasks")
-    steps.open_dialog(page, "#task-new", "task-editor")
+    steps.open_dialog(page, "#settings-open", "settings")
     assert checks.native_selects(page) == []
 
 

@@ -1,0 +1,76 @@
+/* ---- 换模型 ------------------------------------------------------------------ */
+/* 顶栏中间的模型按钮弹出来的面板（scripts/models.js）：按家分组的模型，每个能做什么、多少钱，换到另一家之前的确认。
+   面板的壳是共用的 .flyout（flyouts.css），类名都带 models- 前缀。
+   一行模型是三列：勾、名字和标签、价格。名字和标签可以缩、价格不缩，所以长的模型名在名字那一列里用省略号收住。 */
+
+/* 顶栏上的按钮：右边是一个朝下的小箭头，面板开着时转成朝上 */
+.model-chev { transform: rotate(90deg); transition: transform .28s var(--ease); }
+.model-button[aria-expanded="true"] { color: var(--ink); border-color: var(--line-2); }
+.model-button[aria-expanded="true"] .model-chev { transform: rotate(-90deg); }
+
+.flyout.models { width: min(420px, calc(100vw - 16px)); padding: 14px 6px 10px; transform-origin: 70% top; }
+.models-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 0 12px 10px; }
+.flyout .models-top h3 { margin: 0; font: 600 18px/1.25 var(--serif); color: var(--ink); }
+.models-unit { min-width: 0; font-size: 11.5px; color: var(--ink-3); }
+
+.models-find { display: flex; align-items: center; gap: 8px; height: 36px; margin: 0 8px 8px; padding: 0 10px; color: var(--ink-3); background: var(--surface); border: 1px solid var(--line-3); border-radius: 10px; }
+.models-find:not([hidden]) { animation: reveal .2s var(--ease); }
+.models-find:focus-within { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }  /* 输入框自己不画焦点框，由外面这一圈来画 */
+.models-find input { flex: 1; min-width: 0; height: 100%; padding: 0; font-size: 13.5px; color: var(--ink); background: none; border: 0; outline: 0; }
+.models-find input::placeholder { color: var(--ink-3); opacity: 1; }
+.models-find input::-webkit-search-cancel-button { display: none; }
+
+.models-menu { max-height: min(56vh, 460px); padding: 0 4px; overflow-y: auto; overscroll-behavior: contain; outline: 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.models-group + .models-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* 一家的抬头：名字、有没有密钥、右边是"同步"（有密钥）或者"填写 API 密钥 →"（没有） */
+.models-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 32px; padding: 2px 4px 2px 10px; }
+.models-label { flex: 0 1 auto; min-width: 0; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.models-key { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px; font-size: 11px; line-height: 1.6; color: var(--ink-3); white-space: nowrap; background: var(--hover); border-radius: 999px; }
+.models-key.set { color: var(--ok); background: var(--ok-soft); }
+.models-key.set::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.models-sync { margin-left: auto; }
+.models-sync:focus-visible, .models-keylink:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.models-sync[aria-busy="true"] .icon, .models-action[aria-busy="true"] .models-check .icon { animation: spin .9s linear infinite; }
+.models-keylink { display: inline-flex; align-items: center; gap: 3px; height: 28px; margin-left: auto; padding: 0 6px 0 10px; font-size: 12.5px; font-weight: 500; white-space: nowrap; color: var(--accent); background: none; border: 0; border-radius: 8px; }
+.models-keylink:hover { background: var(--accent-soft); }
+.models-keylink .icon { width: 13px; height: 13px; transition: transform .2s var(--ease); }
+.models-keylink:hover .icon, .models-keylink:focus-visible .icon { transform: translateX(2px); }
+
+/* 一个模型 */
+.models-item { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; width: 100%; min-width: 0; padding: 8px 10px 8px 8px; text-align: left; color: var(--ink); background: none; border: 0; border-radius: 10px; transition: transform .15s var(--ease); }
+.models-item:hover, .models-item.models-next { background: var(--hover); }
+.models-item:focus-visible { outline: none; background: var(--hover); box-shadow: inset 0 0 0 2px var(--accent); }
+.models-item:active { transform: scale(.985); }
+.models-item.models-asking { background: var(--accent-soft); }
+.models-check { display: grid; place-items: center; width: 18px; height: 18px; color: var(--accent); }
+.models-check .icon { width: 15px; height: 15px; stroke-width: 2.2; opacity: 0; }
+.models-item[aria-checked="true"] .models-check .icon, .models-action .models-check .icon { opacity: 1; }
+.models-action .models-check { color: var(--ink-3); }
+.models-item[aria-busy="true"]:not(.models-action) .models-check::after { content: ""; width: 12px; height: 12px; border: 1.6px solid var(--line-2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.models-item[aria-busy="true"]:not(.models-action) .models-check .icon { display: none; }
+.models-words { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.models-name { min-width: 0; font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.models-tags { display: flex; flex-wrap: wrap; min-width: 0; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); overflow-wrap: anywhere; }
+.models-tags span + span::before { content: "·"; margin: 0 5px; }
+.models-price { justify-self: end; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
+.models-price b { font-weight: 500; }
+.models-price i { margin: 0 3px; font-style: normal; color: var(--ink-3); }
+.models-price.none { max-width: 7.5em; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.models-empty { margin: 8px 12px 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+
+/* 底下：角色的说明、换到另一家之前的确认、结果 */
+.models-foot { padding: 0 10px; }
+.models-persona { margin: 10px 0 0; padding: 9px 11px; font-size: 12px; line-height: 1.6; color: var(--ink-2); background: var(--hover); border-radius: 10px; overflow-wrap: anywhere; }
+.models-confirm { margin: 10px 0 0; padding: 12px 12px 12px 14px; font-size: 13px; line-height: 1.6; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; animation: reveal .24s var(--ease); }
+.models-confirm p { margin: 0 0 10px; overflow-wrap: anywhere; text-wrap: pretty; }
+.models-confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.models-confirm .button { height: 32px; padding: 0 14px; font-size: 13px; }
+.models-status { margin: 8px 2px 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.models-status:empty { margin: 0; }
+.models-status.good { color: var(--ok); }
+.models-status.bad { color: var(--err); }
+
+/* 窄屏上从底下升起来（flyouts.css）：列表矮一点，留出底下确认的地方 */
+.flyout.models.as-sheet { width: 100%; padding: 12px 8px calc(10px + env(safe-area-inset-bottom)); }
+.as-sheet .models-menu { max-height: 52dvh; }

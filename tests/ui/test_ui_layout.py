@@ -17,7 +17,7 @@ LONG_TASK = "每周五下午把这一周所有项目的进展、遇到的问题�
 
 
 def _surfaces(page):
-    """(名字, 打开它, 要查的范围, 查完要关上的窗口)。"""
+    """(名字, 打开它, 要查的范围, 查完要关上的窗口：窗口的 id，或者一个收起它的函数)。"""
     return [
         ("对话", lambda: None, [".stage"], None),
         ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
@@ -25,7 +25,10 @@ def _surfaces(page):
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
-        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#model", "settings")), ["#settings"], "settings"),
+        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], "settings"),
+        # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
+        ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
+        ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),

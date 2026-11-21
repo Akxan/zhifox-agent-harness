@@ -15,5 +15,6 @@
 @media (max-width: 760px) {
   .column, .hero, .composer, .starters { padding-left: 14px; padding-right: 14px; }
   .foot .keys { display: none; }
-  #model-label { display: none; }  /* 窄屏上模型按钮只留圆点和图标，把地方让给标题；完整的说明在它的 title 里 */
+  #model-label, .model-chev { display: none; }  /* 窄屏上模型按钮只留一个圆点（和旁边的图标按钮一样大），把地方让给标题；完整的说明在它的 title 里 */
+  .model-button { flex: none; justify-content: center; width: 32px; padding: 0; }
 }

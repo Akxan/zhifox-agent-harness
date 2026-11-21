@@ -43,8 +43,8 @@
     note      补充的一句（"子 Agent 的每一步照样按这里的规矩问你"），没有是空的
 
   Rule        text 这类操作、outcome：free 直接做 / ask 先问你 / always 哪一档都问 / never 根本不做（比如只许读文件的角色去改文件）
-  Action      kind：settings（target 是 browser / computer / model）/ extensions（skills / mcp / agents / channels）/
-              approval / commands / memory / tasks / new（开始新对话）；label 是按钮上的话
+  Action      kind：settings（target 是 browser / computer）/ extensions（skills / mcp / agents / channels）/
+              models（打开换模型的面板）/ approval / commands / memory / tasks / new（开始新对话）；label 是按钮上的话
 """
 
 from __future__ import annotations
@@ -460,7 +460,7 @@ def _web(context: _Context) -> Capability:
         return _item("web", "unavailable", t("联网搜索在启动时关掉了（HARNESS_WEB=0）。"), **where)
     if not provider.web:
         reason = t("只有 Claude 能联网搜索、读网页，现在用的是 {provider}。", provider=provider.label)
-        return _item("web", "unavailable", reason, actions=[Action("settings", "model", t("换模型"))], **where)
+        return _item("web", "unavailable", reason, actions=[Action("models", "", t("换模型"))], **where)
     return _missing(context, "web", _sample("web_search"), _sample("web_fetch"))
 
 
@@ -557,7 +557,7 @@ def _computer(context: _Context) -> Capability:
         return _item("computer", "unavailable", t(_NO_DESKTOP.get(why, _NO_DESKTOP[desktop_backend.PLATFORM])), tools=technical_names(here))
     if provider.kind != "anthropic" and not provider.vision:
         reason = t("{provider} 看不了图片，用不了这个功能。", provider=provider.label)
-        return _item("computer", "unavailable", reason, actions=[Action("settings", "model", t("换模型"))])
+        return _item("computer", "unavailable", reason, actions=[Action("models", "", t("换模型"))])
     sample = DesktopTool(spec={"name": "computer_probe"}, stands_in_for=COMPUTER)
     if not here and context.blocked(sample):
         return _item("computer", "unavailable", context.persona_reason())
