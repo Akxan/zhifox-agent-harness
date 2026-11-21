@@ -232,3 +232,25 @@ def test_memory_editor_asks_before_dropping_edits(page):
     page.wait("document.getElementById('memory-dialog').open && !document.getElementById('memory-editor').hidden")
     page.click("#close-memory")
     page.wait("!document.getElementById('memory-dialog').open", what="第二次 × 关上")
+
+
+def test_a_memory_written_with_windows_line_endings_is_not_edited_by_opening_it(page):
+    """记事本写的文件换行是 \\r\\n，文本框读出来的永远是 \\n：打开编辑、什么都没改，Esc 直接回到"看"，不提醒"没保存"。"""
+    memory = page.demo.root / "data" / "memories" / "windows-notes.md"
+    memory.write_bytes("# 用记事本写的\r\n第二行\r\n".encode())
+    try:
+        assert page.demo.api("/api/memory/refresh")[0] == 200  # 像切回这个窗口时那样：请它重新看一眼文件夹
+        steps.open_nav(page)
+        steps.open_dialog(page, "#memory-open", "memory-dialog")
+        row = "[...document.querySelectorAll('#memories > li')].find((li) => li.textContent.includes('windows-notes'))"
+        page.wait(row, what="新写的那条记忆列出来")
+        page.js(f"{row}.querySelector('.memory-open').click()")
+        page.wait("document.getElementById('memory-edit') && !document.getElementById('memory-edit').disabled", what="记忆读出来、编辑按钮能点")
+        page.click("#memory-edit")
+        page.wait("!document.getElementById('memory-editor').hidden")
+        page.key("Escape")
+        page.wait("document.getElementById('memory-editor').hidden && document.getElementById('memory-dialog').open", what="没改过：直接回到看的样子")
+        assert WARNING not in page.text("#memory-foot")
+        steps.escape_closes(page, "memory-dialog")
+    finally:
+        memory.unlink(missing_ok=True)
