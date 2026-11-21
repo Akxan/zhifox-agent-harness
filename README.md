@@ -263,6 +263,7 @@ Each part of the harness has its own file or directory:
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
+| App icon | [harness/webui/manifest.py](harness/webui/manifest.py), [harness/webui/icons/](harness/webui/icons/), [tests/make_icons.py](tests/make_icons.py) | A bookmark, a Chrome shortcut or an installed app needs a large icon and a web app manifest, or it shows a grey letter. The PNGs are drawn once from the logo by headless Chrome and committed; the server hands out only those, behind the token |
 | Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
@@ -565,6 +566,23 @@ every refresh). Order matters: in CSS a later rule beats an equally specific ear
 last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses
 (`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
 fails if a file is missing from it or listed twice.
+
+The app icon is the one thing the browser fetches on its own, outside the page's script: when it decides whether the
+page can be installed and when it makes a shortcut, it reads a web app manifest and downloads the icons listed there.
+So these are real addresses, `/manifest.webmanifest` and `/icons/<name>`
+([harness/webui/manifest.py](harness/webui/manifest.py)). Both carry the token and go through the same Host and Origin
+checks as the page. An icon name is looked up in a fixed list of six PNGs that ship with ZhiFox, never joined onto a
+path, so no request reaches any other file. The security policy lets in exactly those addresses: `manifest-src` names
+the manifest's own URL, and `img-src` names each of the six icons next to `data:`. A source with a path matches only
+that path (the token after `?` doesn't count), which is narrower than `'self'`. The icons have to be there because Chrome
+checks manifest icons against the page's `img-src` too: without them it reports that no suitable icon was found and
+won't install the page. The manifest's `start_url` carries the token, so a shortcut opens straight into the page, while
+its `id` is a plain `/`, so the browser still sees the same app when the token changes. The PNGs are drawn once from
+[docs/assets/logo.svg](docs/assets/logo.svg) by headless Chrome (`uv run python tests/make_icons.py`; add
+`--preview <folder>` for a contact sheet) and committed: transparent ones for tabs, bookmarks and taskbars, and a
+maskable one on a cream tile with the fox inside the central safe circle, which Chrome uses for the Dock on macOS Sonoma
+and later. The window's title bar takes `<meta name="theme-color">`, which follows the appearance you chose in the page,
+not the system.
 
 Only content that is happening right now animates. New messages fade in, but content replayed after a refresh or when
 opening an old conversation appears directly, rather than playing hundreds of entrance animations one by one. How does
@@ -1706,6 +1724,15 @@ The address shown in the terminal contains a `token`, a password for this run th
 the address to anyone, and don't post screenshots that show the address bar: whoever has it can use the page to make the
 assistant run commands on your computer. The server only accepts connections from your own machine.
 
+**Bookmark it, or keep it in the Dock.** The page comes with its own icon and a web app manifest, so the tab, a bookmark
+and a shortcut all show the fox. In Chrome, open **⋮ → Cast, save, and share → Create shortcut…** and tick **Open as
+window** (or pick the install item in the same menu): ZhiFox then opens in a window of its own and sits in the Dock
+(macOS) or the taskbar like any other app. On macOS Sonoma and later the Dock shows the fox on a rounded cream tile.
+A bookmark or a shortcut remembers the whole address, token and port included, so make it from the background service
+(see [Run it in the background](#run-it-in-the-background)), whose token stays the same across restarts. A
+`harness --web` started in a terminal gets a new token every time, and an old shortcut then opens to "This link is
+invalid or has expired"; make a new one, or switch to the service.
+
 ### Scheduled and recurring tasks
 
 Tell the assistant "remind me to drink water every morning at 9" or "every weekday at 9, look at my to-dos and write a
@@ -2248,7 +2275,10 @@ only the id, and the file comes back as a download (`Content-Disposition: attach
 `X-Content-Type-Options: nosniff`), so a text file that contains HTML is still plain text. A full-size browser screenshot is fetched the same
 way: the page sends only its id (64 hexadecimal characters, which can't spell a path), and the answer is always
 `image/jpeg` with the same headers plus `Content-Security-Policy: default-src 'none'; sandbox`; a full-size computer use
-screenshot comes from `/api/computer/shot` under exactly the same rules. Linux has no standard way to select a file in
+screenshot comes from `/api/computer/shot` under exactly the same rules. The app icons (`/icons/<name>`) are the only
+other file bytes the server sends: six PNGs that ship with ZhiFox, picked by exact name from a fixed list (never a
+path), always `image/png` with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`; none of your data
+is among them. Linux has no standard way to select a file in
 the file manager, so there it opens the folder containing the file. One more button launches a program: on macOS,
 **Open System Settings** in the computer use section runs `open` with one of two fixed `x-apple.systempreferences:`
 addresses (Screen Recording or Accessibility). The page can only say `screen` or `input`; the address is the server's,
@@ -2430,7 +2460,9 @@ start their own demo server and Chrome per worker, so nothing is shared between 
 OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/test_webui.py](tests/test_webui.py),
-where the test code plays the browser. Saving conversations and searching them are covered in
+where the test code plays the browser; the app icon's manifest and PNGs in
+[tests/test_web_manifest.py](tests/test_web_manifest.py) (token, Host and Origin, the fixed list of names with no way to
+reach another file, headers, the security policy, and the maskable fox staying inside its safe circle). Saving conversations and searching them are covered in
 [tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py), and
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
@@ -2548,7 +2580,9 @@ overflow at 390 px wide in all three languages; the Show in Finder / Edit / Dele
 (conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
 in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
 the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
-switching to another provider in Settings; the browser tool's thumbnails; and editing and regenerating the last turn
+switching to another provider in Settings; the browser tool's thumbnails; the web app manifest as Chrome itself reads it
+(`Page.getAppManifest` with no errors, `Page.getInstallabilityErrors` empty, every icon fetched at its stated size, the
+security policy still blocking every other image) and the title bar color following the chosen appearance; and editing and regenerating the last turn
 (where the buttons sit, ↑ in the empty input box, Esc warning before throwing away an edit, the confirmation when the
 turn ran a command, a turn that failed getting its own Regenerate, a second tab following along and keeping its
 unsent edit). The demo answers these tests from scripts
