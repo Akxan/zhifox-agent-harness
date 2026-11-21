@@ -5,18 +5,24 @@
 所以执行部分要我们自己实现：模型发来 view / create / str_replace / insert 四种命令，
 这个文件负责真正去读写磁盘。
 
+view 一张图片（PNG、JPEG、GIF、WebP）时，交回去的不是文字，而是图片本身：工具的结果里可以带图片
+（MCP、浏览器、操作电脑的截图都是这么交给模型的），看得懂图片的模型会直接看到它；看不懂的（DeepSeek）
+由适配层换成一句说明（见 providers/openai_compat.py）。是不是图片看文件开头的几个字节，不看扩展名。
+
 哪些操作要先问用户，由 permissions.py 决定，不在这里。
 """
 
 from __future__ import annotations
 
+import base64
 import shutil
 import threading
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
-from .base import Tool, ToolError
+from ..attachments import MAX_IMAGE_BYTES, sniff_image
+from .base import Tool, ToolError, ToolImage, ToolOutput
 
 TOOL_NAME = "str_replace_based_edit_tool"
 WRITE_COMMANDS = {"create", "str_replace", "insert"}
@@ -62,7 +68,7 @@ class FileEditor:
 
     # ---- 入口 -------------------------------------------------------------
 
-    def run(self, tool_input: dict) -> str:
+    def run(self, tool_input: dict) -> str | ToolOutput:
         if not isinstance(tool_input, dict):
             raise ToolError("参数必须是一个 JSON 对象。")
         command = tool_input.get("command")
@@ -85,7 +91,7 @@ class FileEditor:
 
     # ---- 四种命令 ---------------------------------------------------------
 
-    def _view(self, path: Path, view_range: object) -> str:
+    def _view(self, path: Path, view_range: object) -> str | ToolOutput:
         if path.is_dir():
             entries = sorted(p for p in path.iterdir() if not p.name.startswith("."))
             lines = [f"{p.name}/" if p.is_dir() else p.name for p in entries[:MAX_DIR_ENTRIES]]
@@ -93,6 +99,9 @@ class FileEditor:
                 lines.append(f"……还有 {len(entries) - MAX_DIR_ENTRIES} 项没有列出")
             return f"目录 {path} 的内容（不含隐藏项）：\n" + "\n".join(lines or ["（空目录）"])
 
+        picture = self._picture(path)
+        if picture is not None:
+            return picture
         lines = self._read(path).split("\n")
         start, end = 1, len(lines)
         if view_range is not None:
@@ -141,6 +150,25 @@ class FileEditor:
 
     # ---- 辅助 -------------------------------------------------------------
 
+    def _picture(self, path: Path) -> ToolOutput | None:
+        """path 是一张图片的话，把图片本身交回去（见文件开头的说明）；不是图片（或者读不了）返回 None，照文字读。"""
+        try:
+            with path.open("rb") as file:
+                media_type = sniff_image(file.read(16))
+        except OSError:
+            return None  # 不存在、没有权限……交给 _read 去说清楚
+        if not media_type:
+            return None
+        size = path.stat().st_size
+        if size > MAX_IMAGE_BYTES:
+            raise ToolError(
+                f"{path} 是一张图片，但太大了（{_size(size)}），一次最多交给模型 {_size(MAX_IMAGE_BYTES)}。"
+                "可以先缩小一份再看，比如 macOS 上 sips -Z 1568 原图 --out 小图.png，Linux 上 convert 原图 -resize 1568x1568 小图.png。"
+            )
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        kind = media_type.split("/", 1)[1].upper()
+        return ToolOutput(f"图片 {path}（{kind}，{_size(size)}）。图片本身附在这条结果里。", images=(ToolImage(media_type, data),))
+
     def _read(self, path: Path) -> str:
         if not path.exists():
             raise ToolError(f"{path} 不存在。")
@@ -162,6 +190,11 @@ class FileEditor:
         shutil.copy2(path, target)
 
 
+def _size(size: int) -> str:
+    """给模型看的文件大小：1.2 MB、350 KB。"""
+    return f"{size / 1_000_000:.1f} MB" if size >= 1_000_000 else f"{max(1, round(size / 1000))} KB"
+
+
 def _text(tool_input: dict, key: str) -> str:
     value = tool_input.get(key)
     if not isinstance(value, str):
@@ -175,7 +208,8 @@ PORTABLE = {
     "name": TOOL_NAME,
     "description": (
         "查看、创建和修改文本文件。command 决定做什么："
-        "view 查看文件内容（带行号）或列出目录；create 创建文件，或整个覆盖已有文件；"
+        "view 查看文件内容（带行号）或列出目录，图片（PNG、JPEG、GIF、WebP）用 view 会直接看到图片本身；"
+        "create 创建文件，或整个覆盖已有文件；"
         "str_replace 把文件里的一段文字替换成另一段（old_str 必须在文件中恰好出现一次）；"
         "insert 在指定行之后插入文字。相对路径以工作目录为起点。"
         "创建和修改文件前会请用户确认。"

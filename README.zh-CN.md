@@ -37,6 +37,7 @@
 助手能做这些事：管理待办、跨会话记住事情、读写文件和执行命令、联网搜索（只有 Claude 能用）、
 在它自己的浏览器里打开和操作网页、到了时间提醒你或者定时替你做一件事（定时任务），还能看懂你发来的截图、图片、PDF 和 Word、Excel、PowerPoint 文件
 （模型收不了的格式先转换，比如 SVG 画成图片、Office 文件取出文字；转不了的会说明可以怎么办）。
+它用文件工具打开电脑上的图片（PNG、JPEG、GIF、WebP）时，交给模型的是图片本身，所以它能看自己刚存下的截图。
 记忆、待办、定时任务、系统提示词都可以在网页里直接查看和修改，每一样也都能在访达里找到对应的文件。
 费用随时看得到：每调用一次模型就更新估算，Claude 和 DeepSeek 的价格是内置的（对照两家官方核对过，
 包括 DeepSeek 闲时的半价），各家的长对话都会自动压缩。
@@ -884,7 +885,7 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 | 类别 | 说明书 | 执行 | 这个项目里的例子 |
 |---|---|---|---|
 | 自定义工具 | 我们写 | 我们的电脑 | 待办（[todo.py](harness/tools/todo.py)）、定时任务（[tasks.py](harness/tools/tasks.py)）、执行命令（[shell.py](harness/tools/shell.py)）、读 Skill（[skill.py](harness/tools/skill.py)） |
-| Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)）、记忆（[memory.py](harness/tools/memory.py)）、给 Claude 用的浏览器和操作电脑（[browser.py](harness/tools/browser.py)、[computer.py](harness/tools/computer.py)） |
+| Anthropic 定义的工具 | Anthropic | 我们的电脑 | 读写文件（[files.py](harness/tools/files.py)；查看图片时交回图片本身，是不是图片看文件开头的几个字节、不看扩展名；看不了图片的模型（DeepSeek）收到一句说明）、记忆（[memory.py](harness/tools/memory.py)）、给 Claude 用的浏览器和操作电脑（[browser.py](harness/tools/browser.py)、[computer.py](harness/tools/computer.py)） |
 | 服务器工具 | Anthropic | Anthropic 的服务器 | 联网搜索（[web.py](harness/tools/web.py)） |
 
 第二类工具的说明书 Claude 在训练时就学过，所以给 Claude 只需要一行声明。别家的模型没学过，
