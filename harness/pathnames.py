@@ -49,6 +49,8 @@ DEVICES = frozenset(
 )
 # Windows 不许出现在文件名里的字符（* ? 还是通配符，< > " 在找文件时也是通配符）。冒号另外看（盘符、数据流）
 FORBIDDEN = frozenset('<>"|?*')
+# 一段名字最长多少个字符（NTFS 的上限）
+MAX_NAME = 255
 # 这样开头的（/ 先换成 \ 再看）是网络上的位置或者设备路径：\\服务器\共享、\\?\…、\\.\…，以及 NT 内部的 \??\…
 _ELSEWHERE = ("\\\\", "\\??\\")
 # 8.3 短名字的样子：~ 加数字，后面要么结束，要么是一个扩展名（PROGRA~1、ENV~1、CHANNE~1.JSO）
@@ -122,7 +124,7 @@ def trick(raw: str, windows: bool | None = None) -> str | None:
 def word_trick(raw: str, windows: bool | None = None) -> str | None:
     """命令里的一个词（不一定是路径），当作路径时是不是一碰就有事、或者看不清指向哪里。不在 Windows 上永远是 None。
 
-    只挑这几种：网络和设备路径、设备名（一碰就有事）；盘符加相对路径（看不清指向哪里）。
+    只挑这几种：网络和设备路径、设备名（一碰就有事）；盘符加相对路径、太长的名字（看不清指向哪里）。
     大小写、尾巴上的点和空格、数据流不算：key 会把它们统一成同一个文件再比。
     短名字也不在这里算：HEAD~1 这种普通的写法长得和它一样，要看磁盘上有没有这个名字（见 short_name）。
     """
@@ -134,8 +136,13 @@ def word_trick(raw: str, windows: bool | None = None) -> str | None:
     drive = ntpath.splitdrive(raw)[0]
     if len(drive) == 2 and flat[2:3] != "\\":
         return f"{raw} 是盘符加相对路径（C:x），看不清是哪里"
-    if any(_device(name) for name in names(raw, windows=True)):
+    parts = names(raw, windows=True)
+    if any(_device(name) for name in parts):
         return f"{raw} 里有 Windows 的设备名"
+    # NTFS 上一段名字最多 255 个字符。更长的根本不会有，可 Windows 上展开、stat 它都不报错（只当作"不存在"），
+    # 看不出它是什么；macOS、Linux 上会报"名字太长"。两边都当作看不清
+    if any(len(name) > MAX_NAME for name in parts):
+        return f"{raw[:80]}… 里有一段名字太长了，看不清是什么"
     return None
 
 

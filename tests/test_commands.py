@@ -101,6 +101,16 @@ def no(command: str, why: str):
     return pytest.param(command, False, id=why)
 
 
+# 只在 macOS、Linux 上成立的几行（Places 在 Windows 上按 Windows 的规矩看路径，见 harness/pathnames.py）
+POSIX_DEVICES = "Windows 上没有 /dev、/proc：这些路径在那里只是当前盘上的普通文件夹，读它们不碰设备"
+AUX_DEVICE = "Windows 上 aux 是设备名（AUX）：当作路径时看不清是什么，要问"
+
+
+def posix(param, reason: str):
+    """这一行只在 macOS、Linux 上成立：Windows 上跳过，写明为什么。"""
+    return pytest.param(*param.values, id=param.id, marks=pytest.mark.skipif(os.name == "nt", reason=reason))
+
+
 def strict(command: str, why: str):
     return pytest.param(command, False, id="保守：" + why)
 
@@ -250,9 +260,9 @@ PIPELINES = [
     ok("cat src/a.txt | grep a | wc -l", "三段都只读"),
     ok("ls | sort | uniq -c", "ls 排序计数"),
     ok("git log --oneline | head -5", "git 接 head"),
-    ok("ps aux | grep python", "ps 接 grep"),
+    posix(ok("ps aux | grep python", "ps 接 grep"), AUX_DEVICE),
     ok("journalctl -u nginx | tail -n 20", "journalctl 接 tail"),
-    ok("ps aux | awk '{print $2}'", "接 awk"),
+    posix(ok("ps aux | awk '{print $2}'", "接 awk"), AUX_DEVICE),
     ok("cat src/config.json | jq .", "接 jq"),
     ok("cat src/a.txt | sed -n 2p", "接 sed"),
     no("cat src/a.txt | sh", "接 sh"),
@@ -299,7 +309,7 @@ SYSTEM = [
     ok("vmstat", "vmstat"),
     ok("vm_stat", "vm_stat"),
     ok("iostat", "iostat"),
-    ok("ps aux", "ps aux"),
+    posix(ok("ps aux", "ps aux"), AUX_DEVICE),
     ok("ps -ef", "ps -ef"),
     ok("pgrep -l python", "pgrep"),
     ok("pidof nginx", "pidof"),
@@ -505,11 +515,11 @@ PATHS = [
     no("cat /etc/shadow", "/etc/shadow"),
     no("cat /proc/self/environ", "自己的环境变量"),
     no("cat /proc/1/environ", "别的进程的环境变量"),
-    no("cat /proc/self/mem", "进程的内存"),
-    no("cat /dev/sda", "设备文件"),
-    no("cat /dev/stdin", "/dev/stdin"),
-    no("head -c 10 /dev/urandom", "/dev/urandom"),
-    no("cat /dev/tcp/example.com/80", "/dev/tcp"),
+    posix(no("cat /proc/self/mem", "进程的内存"), POSIX_DEVICES),
+    posix(no("cat /dev/sda", "设备文件"), POSIX_DEVICES),
+    posix(no("cat /dev/stdin", "/dev/stdin"), POSIX_DEVICES),
+    posix(no("head -c 10 /dev/urandom", "/dev/urandom"), POSIX_DEVICES),
+    posix(no("cat /dev/tcp/example.com/80", "/dev/tcp"), POSIX_DEVICES),
     no("cat envlink", "指向 .env 的符号链接"),
     no("cat innocent.txt", "名字无害、指向数据目录的符号链接"),
     no("cat datalink/notes.md", "指向数据目录的文件夹链接"),

@@ -83,14 +83,15 @@ def make_skill(store: SkillStore, name: str = "pdf-tools", text_: str | None = N
     """直接在磁盘上放一个 Skill（不经过 store.install），用来模拟"用户自己拷进来的"。"""
     folder = store.root / name
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "SKILL.md").write_text(text_ if text_ is not None else skill_md(name), encoding="utf-8")
+    # newline=""：原样写下去。不然 Windows 上 \n 会变成 \r\n，文件的大小、读出来的内容都和这里写的对不上
+    (folder / "SKILL.md").write_text(text_ if text_ is not None else skill_md(name), encoding="utf-8", newline="")
     for relative, content in (files or {}).items():
         path = folder / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, bytes):
             path.write_bytes(content)
         else:
-            path.write_text(content, encoding="utf-8")
+            path.write_text(content, encoding="utf-8", newline="")
     return folder
 
 
@@ -378,7 +379,7 @@ def test_create_list_and_read(store):
     folder = store.root / "pdf-tools"
     write = folder / "scripts" / "fill.py"
     write.parent.mkdir()
-    write.write_text("print('hi')\n", encoding="utf-8")
+    write.write_text("print('hi')\n", encoding="utf-8", newline="")
 
     (skill,) = store.list()
     summary = skill.summary()
@@ -602,13 +603,15 @@ def test_locate_refuses_links_at_any_level_and_special_files(symlinks, store, tm
     os.symlink(outside / "secret.txt", folder / "link.txt")
     os.symlink(outside, folder / "linkdir")
     os.symlink(outside, folder / "scripts" / "deeper")
-    os.mkfifo(folder / "pipe")
+    if hasattr(os, "mkfifo"):  # Windows 没有命名管道这种文件：管道那一半只在 macOS、Linux 上测
+        os.mkfifo(folder / "pipe")
     for relative in ("link.txt", "linkdir/secret.txt", "scripts/deeper/secret.txt"):
         with pytest.raises(SkillError) as caught:
             locate(folder, relative)
         assert "链接" in str(caught.value), relative
-    with pytest.raises(SkillError):
-        locate(folder, "pipe")  # 管道不是普通文件：读它会一直卡着
+    if hasattr(os, "mkfifo"):
+        with pytest.raises(SkillError):
+            locate(folder, "pipe")  # 管道不是普通文件：读它会一直卡着
     assert locate(folder, "scripts/fill.py") == (folder / "scripts" / "fill.py").resolve()
     # 列文件时链接和管道都不列
     assert [path for path, _ in walk(folder)] == ["SKILL.md", "scripts/fill.py"]
@@ -1423,7 +1426,7 @@ def test_the_model_reads_a_skill_without_asking(start):
     h.app.skills.create("pdf-tools", DESCRIPTION, "# PDF\n\nRun `python3 ${CLAUDE_SKILL_DIR}/scripts/fill.py`.\n")
     folder = (h.app.skills.root / "pdf-tools").resolve()
     (folder / "scripts").mkdir()
-    (folder / "scripts" / "fill.py").write_text("print('fill')\n", encoding="utf-8")
+    (folder / "scripts" / "fill.py").write_text("print('fill')\n", encoding="utf-8", newline="")
     h.agent.run_turn("帮我填一下这个 PDF 表单")
 
     assert h.ui.confirmations == []  # 只是读，不用问
