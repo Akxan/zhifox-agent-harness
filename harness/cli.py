@@ -6,6 +6,7 @@
     harness channels ...          设置聊天通道（见 channels/cli.py）
     harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
+    harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -23,6 +24,7 @@ from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
+from .evals import cli as eval_cli
 from .i18n import k, t
 from .permissions import MODES
 from .pricing import estimate
@@ -299,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
     service_cli.add_parser(commands)
+    eval_cli.add_parser(commands)
     args = parser.parse_args(argv)
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
@@ -316,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         return commands_cli.run(args, config)
     if args.command == "service":
         return service_cli.run(args, config)
+    if args.command == "eval":
+        return eval_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

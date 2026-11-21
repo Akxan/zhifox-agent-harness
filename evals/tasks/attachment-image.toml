@@ -1,0 +1,20 @@
+# 图片附件：一张纯红色的小图。看不了图的模型（DeepSeek）会跳过这个任务（requires = vision）。
+title = "看图回答"
+tags = ["attachments"]
+requires = ["vision"]
+messages = ["这张图是什么颜色？一个词回答。"]
+
+[[attachments]]
+path = "色块.png"
+base64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mO4I2JDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULADahsD3KIXWxAAAAAElFTkSuQmCC"
+
+[budget]
+requests = 1
+context = 12000
+
+[[graders]]
+type = "reply_contains"
+any = ["红", "red"]
+
+[[dry_run]]
+say = "红色。"
