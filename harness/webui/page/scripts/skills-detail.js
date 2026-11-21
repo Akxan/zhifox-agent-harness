@@ -158,7 +158,7 @@ function buildSkillEditor(view) {
   said.setAttribute('role', 'status');
   foot.appendChild(skillButton('', k('取消'), '', 'cancel', () => leaveSkillView()));
   const save = foot.appendChild(skillButton('', k('保存'), 'primary', 'save', () => saveSkillEdit(view)));
-  view.dirty = () => area.value !== view.base;
+  view.dirty = () => !sameText(area.value, view.base);
   view.save = () => saveSkillEdit(view);
   view.area = area;
   area.addEventListener('input', () => {

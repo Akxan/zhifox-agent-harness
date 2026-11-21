@@ -395,7 +395,7 @@ function startEdit() {
 }
 
 const editChanged = () => Boolean(viewing && viewing.edit) && (
-  $('memory-edit-name').value.trim() !== viewing.edit.base.name || $('memory-edit-text').value !== viewing.edit.base.text);
+  $('memory-edit-name').value.trim() !== viewing.edit.base.name || !sameText($('memory-edit-text').value, viewing.edit.base.text));
 
 // 离开编辑（取消、Esc、关掉对话框）。改过还没保存的，先提醒一次，再来一次才真的放弃。
 // 返回 true 表示已经离开了编辑

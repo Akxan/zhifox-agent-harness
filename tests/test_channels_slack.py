@@ -40,6 +40,7 @@ from fake_slack import (
     unescape,
     unescaped,
 )
+from oscmd import mark_then_sleep
 from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import result_text, run, stop_later, tool_results, until
 from test_send_file import result_of, send
@@ -559,7 +560,7 @@ def test_slash_commands_in_the_dm(bot):
 
 
 def test_stop_from_slack_stops_a_running_command(bot):
-    s = bot(run("toolu_1", "touch started && sleep 30"), approval="all")
+    s = bot(run("toolu_1", mark_then_sleep("started", 30)), approval="all")
     start = s.say("跑一个很久的命令")
     s.wait_reply(start, "已自动允许")
     until(lambda: (s.config.workspace / "started").exists(), what="命令开始运行")

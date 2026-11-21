@@ -1173,7 +1173,7 @@ def test_importing_copies_and_skips_inner_links(symlinks, store, claude_dirs):
     ])
     assert [result["ok"] for result in results] == [True, True, True]
     alpha = store.root / "alpha"
-    assert sorted(str(path.relative_to(alpha)) for path in alpha.rglob("*") if path.is_file()) == ["SKILL.md", "scripts/run.sh"]
+    assert sorted(path.relative_to(alpha).as_posix() for path in alpha.rglob("*") if path.is_file()) == ["SKILL.md", "scripts/run.sh"]
     assert not (alpha / "leak.txt").exists() and not (alpha / ".hidden").exists()
     assert has_mode((alpha / "scripts" / "run.sh"), 0o700)
     assert not (store.root / "gamma").is_symlink()  # 复制的是内容，不是链接

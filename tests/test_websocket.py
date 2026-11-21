@@ -623,7 +623,7 @@ def test_last_seen_moves_when_a_pong_arrives(server):
     client.ping(b"alive?")
     assert peer.recv_frame(2) == (True, OP_PING, b"alive?")
     sent = time.monotonic()
-    assert client.last_seen < sent
+    assert client.last_seen <= sent  # 不是 <：Windows 上 Python 3.12 以前的时钟一格是 15.6 毫秒，两次读到的可能是同一格
     peer.send_frame(OP_PONG, b"alive?")
     until(lambda: client.recv(0.01) is None and client.last_seen >= sent, what="last_seen 跟着 pong 更新")
 

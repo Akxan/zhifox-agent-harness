@@ -53,7 +53,11 @@ def test_the_three_selectors_list_the_same_modes_in_the_same_order(page):
 
         assert [mode for mode, _, _ in chat] == MODES, chat
         assert chat == task == channel, "三处列的几档要一模一样"
-        assert chat[1][1] == "自动允许只读命令" and "ls" in chat[1][2] and "仍然每次问" in chat[1][2]
+        assert chat[1][1] == "自动允许只读命令"
+        if os.name == "nt":  # 演示服务器真的在 Windows 上：这一档照实说命令每条都问（见 approval-modes.js）
+            assert "PowerShell" in chat[1][2] and "每条命令仍然都问" in chat[1][2]
+        else:
+            assert "ls" in chat[1][2] and "仍然每次问" in chat[1][2]
 
         # 在向导里选它、点"完成"：通道那一行写着这一档
         page.click("#panel-channels .chan-mode[data-mode='readonly']")

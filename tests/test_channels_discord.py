@@ -37,6 +37,7 @@ from fake_discord import (
     FakeDiscord,
     utf16,
 )
+from oscmd import mark_then_sleep
 from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import (
     fences_balanced,
@@ -501,7 +502,7 @@ def test_stop_while_waiting_for_a_confirmation(bot):
 
 
 def test_stop_from_the_command_menu_kills_a_running_command(bot):
-    s = bot(run("toolu_1", "touch started && sleep 30"), approval="all")
+    s = bot(run("toolu_1", mark_then_sleep("started", 30)), approval="all")
     until(lambda: s.fake.commands, what="登记斜杠命令")
     start = s.say("跑一个很久的命令")
     s.wait_reply(start, "已自动允许")  # 全部自动允许：没问就执行了，聊天里照样看得到它做了什么

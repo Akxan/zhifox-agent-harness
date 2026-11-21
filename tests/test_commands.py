@@ -214,7 +214,7 @@ INVISIBLE = [
     no("ls\x0b", "垂直制表符"),
     no("ls\x00", "NUL"),
     no("ls\x1b[2J", "终端的转义序列"),
-    ok("echo " + "a" * (READONLY_MAX_CHARS - 5), "正好是长度上限"),
+    posix(ok("echo " + "a" * (READONLY_MAX_CHARS - 5), "正好是长度上限"), "Windows 上一段超过 255 个字符的词当作看不清的路径（pathnames.word_trick）；那里的命令本来也一律要问"),
     no("echo " + "a" * (READONLY_MAX_CHARS - 4), "超过长度上限"),
 ]
 

@@ -69,7 +69,7 @@ function promptEdited() {
   if (promptArmed) { promptArmed = ''; promptSay(''); }
 }
 
-const promptChanged = () => Boolean(promptBase) && $('prompt-text').value !== promptBase.text;
+const promptChanged = () => Boolean(promptBase) && !sameText($('prompt-text').value, promptBase.text);
 
 function requestClosePrompt() {
   if (promptChanged() && promptArmed !== 'close') {

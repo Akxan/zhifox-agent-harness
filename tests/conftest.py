@@ -179,7 +179,9 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     # Windows 上 os.path.expanduser 看的是 USERPROFILE（不是 HOME，也不经过 Path.home）：一起换掉，免得读到这台电脑真正的家目录
+    # 文件夹也先建好：真的 Windows 上 USERPROFILE 总是一个在的文件夹，指着不存在的地方时，有的程序（Chrome）启动就卡住
     if os.name == "nt":
+        (tmp_path / "home").mkdir(exist_ok=True)
         monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     # "从其他工具导入"会看这几个环境变量（CODEX_HOME 这些）找别的工具的配置：清掉，只看假的家目录
     for name in import_places.VARIABLES:
