@@ -1,5 +1,5 @@
 // ---- 要不要先问你：几档的名字和说明 ------------------------------------------------
-// 对话里的开关（approval.js）、定时任务的编辑器（tasks.js）、聊天通道的向导（channels.js）三处选的是同一套，
+// 对话里的开关（approval.js）、定时任务的编辑器（tasks-editor.js）、聊天通道向导的最后一步（channels-steps.js）三处选的是同一套，
 // 名字和说明只写在这里一处，三处都照着它画。几档是什么意思由助手程序定（harness/permissions.py 的 MODES），
 // 顺序也一样：从严到松。只读的命令怎么判断见 harness/commands/。
 

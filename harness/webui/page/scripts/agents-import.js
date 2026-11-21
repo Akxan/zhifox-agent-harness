@@ -156,7 +156,7 @@ extensionTabs.agents = {
     ensureAgentOptions();
     if (agentView.kind === 'list') { agentsDrawn = ''; drawAgentList(); }
   },
-  // 关窗之前问一声（见 closeBlocker）：正在编辑、新建，还有没保存的修改，就先提醒一次、不关
+  // 关窗之前问一声（见 extensions.js 的 closeBlocker）：正在编辑、新建，还有没保存的修改，就先提醒一次、不关
   beforeClose() {
     if (agentMayLeave()) return true;
     requestAnimationFrame(() => focusAgent(agentView.mode === 'raw' ? 'raw' : 'name'));

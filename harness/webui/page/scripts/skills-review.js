@@ -222,7 +222,7 @@ extensionTabs.skills = {
     if (token) call('/api/skill/refresh');
     if (skillView.kind === 'list') { skillsDrawn = ''; drawSkillList(); }
   },
-  // 关窗之前问一声（见上面的 closeBlocker）：正在编辑、新建，还有没保存的修改，就先提醒一次、不关。
+  // 关窗之前问一声（见 extensions.js 的 closeBlocker）：正在编辑、新建，还有没保存的修改，就先提醒一次、不关。
   // 这一页不在眼前的话，closeBlocker 会切过来；焦点等切过来之后再放回输入框
   beforeClose() {
     if (skillMayLeave()) return true;
