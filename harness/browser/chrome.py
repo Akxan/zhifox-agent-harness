@@ -21,7 +21,6 @@ Chrome 是一个"进程树"：一个主进程，加上每个标签页、显卡�
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import os
 import platform
 import shutil
@@ -172,6 +171,8 @@ def _high(fd: int) -> int:
     后面要在子进程里把它放到 3、4 号上（dup2）。要是它本来就是 3 号，dup2(3, 3) 什么都不做，
     "不继承"的标记还在，Chrome 就拿不到它了。挪开了就没有这个问题。
     """
+    import fcntl  # 只有 macOS、Linux 有；Windows 走 _launch_windows
+
     moved = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 10)
     os.close(fd)
     return moved

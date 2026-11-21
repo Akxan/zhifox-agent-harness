@@ -4,8 +4,9 @@
 先存的那一轮盖掉；一边删掉的会话，另一边一存盘又冒出来。聊天通道也一样：同一个机器人两处同时收消息，
 一条消息会被回两次。
 
-怎么占：数据目录里有一个 .lock 文件，谁用操作系统的文件锁（flock）锁住它，谁就占着。锁由操作系统管着，
-程序退出时（哪怕是崩溃、被 kill -9）自动放开，不会出现"程序没了、锁还在"的情况。
+怎么占：数据目录里有一个 .lock 文件，谁用操作系统的文件锁锁住它，谁就占着（macOS、Linux 是 flock，Windows 是
+LockFile，见 filelock.py）。锁由操作系统管着，程序退出时（哪怕是崩溃、被 kill -9、被任务管理器结束）自动放开，
+不会出现"程序没了、锁还在"的情况。
 
 是谁占着：占到以后，往 .lock 里写一行 {"pid": 进程编号, "kind": 哪一种}。别人占不到的时候读它，
 就能说清楚是谁占着、该怎么办（"智狐正作为后台服务运行：打开它的网页用 harness service open"），
@@ -21,13 +22,13 @@ kind 有这几种：
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
+from . import filelock
 from .config import APP_NAME
 from .i18n import t
 
@@ -48,8 +49,8 @@ def claim(data_dir: Path, kind: str = "web") -> IO | None:
     data_dir.mkdir(parents=True, exist_ok=True)
     handle = open(data_dir / LOCK_NAME, "a+")  # noqa: SIM115 —— 故意不用 with：这个文件要开着直到程序退出
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        filelock.lock(handle, wait=False)
+    except filelock.Busy:
         handle.close()
         return None
     except OSError:
@@ -64,19 +65,15 @@ def claim(data_dir: Path, kind: str = "web") -> IO | None:
 
 
 def in_use(data_dir: Path) -> bool:
-    """有没有别的程序占着这个数据目录。只是看一眼：试着加一下共享锁，马上放开，不改文件里的内容。"""
+    """有没有别的程序占着这个数据目录。只是看一眼：试着锁一下，马上放开，不改文件里的内容。"""
     path = data_dir / LOCK_NAME
     if not path.is_file():
         return False
     try:
-        with open(path) as handle:
-            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            fcntl.flock(handle, fcntl.LOCK_UN)
-    except BlockingIOError:
-        return True
+        with open(path, "a") as handle:  # 追加着打开：不会清掉里面"是谁占着"的那一行（Windows 上加锁要能写的打开方式）
+            return filelock.held_elsewhere(handle)
     except OSError:
         return False
-    return False
 
 
 def holder(data_dir: Path) -> Holder | None:

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import fcntl
 import io
 import json
 import logging
@@ -34,7 +33,7 @@ from pathlib import Path
 import pytest
 from test_channels import until
 
-from harness import cli, instance, log
+from harness import cli, filelock, instance, log
 from harness import config as config_module
 from harness.channels import cli as channels_cli
 from harness.config import SERVICE_LOG_BACKUPS, SERVICE_RESTART_SECONDS
@@ -61,7 +60,7 @@ def hold(data_dir: Path, pid: int | None = None, kind: str = "service", note: bo
     note=False 是旧版本的智狐：只锁住，不写是谁。返回打开着的文件，关掉就放开了。"""
     data_dir.mkdir(parents=True, exist_ok=True)
     handle = open(data_dir / instance.LOCK_NAME, "a+")  # noqa: SIM115 —— 测试结束时关
-    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    filelock.lock(handle, wait=False)
     handle.truncate(0)
     if note:
         handle.write(json.dumps({"pid": os.getpid() if pid is None else pid, "kind": kind}) + "\n")

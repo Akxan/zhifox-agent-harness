@@ -28,7 +28,6 @@
 from __future__ import annotations
 
 import copy
-import fcntl
 import json
 import math
 import os
@@ -39,6 +38,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .. import filelock
 from ..config import PAIRING_ATTEMPTS, PAIRING_SECONDS
 from ..i18n import t
 from ..permissions import MODES
@@ -211,7 +211,7 @@ class ChannelStore:
         handle = open(self.path.with_name(self.path.name + ".lock"), "a")  # noqa: SIM115 —— 下面的 finally 里关
         try:
             try:
-                fcntl.flock(handle, fcntl.LOCK_EX)
+                filelock.lock(handle)
             except OSError:
                 pass  # 少数文件系统不支持这种锁：那就只靠线程锁，照常改
             yield
