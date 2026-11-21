@@ -139,6 +139,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
 | `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
 | `harness/capabilities.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开 |
+| `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -187,6 +188,10 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   安全头和下面一样。`/api/media/file` 只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
   （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
   `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。
+  另外 `GET /icons/<名字>` 发智狐自带的几张图标：名字只认 `manifest.ICONS` 里一字不差的文件名（查表，不解码、不拼路径），固定 `image/png`、
+  `nosniff`、`default-src 'none'; sandbox`、`private, max-age=86400`；`GET /manifest.webmanifest` 里的地址带着口令，所以 `no-store`。两样都要口令、查 Host 和 Origin。
+  页面的 CSP 只为装成应用放宽了两处，都是写死的完整地址（`manifest.policy`）：`manifest-src` 只有清单，`img-src` 在 `data:` 之外只有那几张图标，
+  不是 `'self'`。Chrome 下载清单里的图标时也按页面的 `img-src` 检查，去掉它们就装不成应用（`tests/ui/test_ui_install.py` 会失败）。
   在没有文件管理器的机器上（服务器），状态里的 `file_manager` 为假，这些按钮改成告诉你文件的完整路径。
   页面最多只能给编号、列表里的名字或固定的几个词，路径由服务器算，命令用参数列表、不经过 shell。
   另一类是保存、启用、重启、导入一个 stdio 的 MCP 服务器，这会让电脑运行用户配置的命令：只有带口令的页面能做；
