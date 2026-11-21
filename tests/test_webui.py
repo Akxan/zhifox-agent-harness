@@ -1748,7 +1748,7 @@ def shown_memories(s, expected: list[str]) -> list[str]:
 def write(path, text: str = "记着", data: bytes | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     if data is None:
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="")  # 原样写：Windows 上不把 \n 换成 \r\n
     else:
         path.write_bytes(data)
     return path

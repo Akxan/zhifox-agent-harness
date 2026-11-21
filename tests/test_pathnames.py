@@ -13,7 +13,7 @@ import io
 import os
 import stat
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -22,11 +22,13 @@ from harness import memories, pathnames
 from harness.agents.spec import name_problem as agent_name_problem
 from harness.agents.store import AgentError, AgentStore
 from harness.commands import Places, Unclear
+from harness.imports.places import Env
 from harness.media import ID
 from harness.permissions import Permissions
 from harness.skills import bundle
 from harness.skills.spec import name_problem as skill_name_problem
 from harness.skills.store import SkillError, SkillStore, locate
+from harness.tools import memory as memory_tool
 from harness.tools.base import ToolError
 from harness.tools.files import TOOL_NAME as FILE_TOOL
 from harness.tools.files import FileEditor
@@ -141,8 +143,9 @@ def test_inside_and_within():
     assert pathnames.inside("/w/data", "/w/data")
     assert not pathnames.inside("/w/database", "/w/data")
     assert pathnames.inside("c:/x", "c:/")
-    assert pathnames.within(Path("/w/DATA/tasks.json"), Path("/w/data"), windows=False)
-    assert pathnames.within(Path(r"C:\w\Data.\tasks.json"), Path(r"C:\w\data"), windows=True)
+    # 按哪种规矩比，就给哪种系统的路径（Windows 上 Path("/w/x") 写出来是 \w\x）
+    assert pathnames.within(PurePosixPath("/w/DATA/tasks.json"), PurePosixPath("/w/data"), windows=False)
+    assert pathnames.within(PureWindowsPath(r"C:\w\Data.\tasks.json"), PureWindowsPath(r"C:\w\data"), windows=True)
 
 
 def test_names_are_what_windows_opens():
@@ -344,11 +347,26 @@ def test_commands_never_touch_network_or_device_paths(places, monkeypatch, word)
 
 
 def test_short_names_on_disk_are_unclear(places):
-    (places.workspace / "ENV~1").write_text("其实可能就是 .env\n", encoding="utf-8")
+    # 不用 ENV~1：真的 Windows 上它多半就是 .env 的短名字（写它就是写 .env），那样查出来的是"保存密钥的文件"
+    (places.workspace / "NOTES~1.TXT").write_text("可能是别的文件的另一个名字\n", encoding="utf-8")
     with pytest.raises(Unclear, match="短名字"):
-        places.check("ENV~1")
+        places.check("NOTES~1.TXT")
     places.check("HEAD~1")  # 磁盘上没有这个名字：git 的写法，什么都读不到
     places.check("src/a.txt")
+
+
+def test_a_link_that_resolve_cannot_follow_is_unclear(places, monkeypatch, symlinks):
+    """Windows 上 resolve 碰到绕成圈的链接不报错，原样交回来：交回来的还是链接，就当作看不清。"""
+    (places.workspace / "loop").symlink_to(places.workspace / "loop")
+    monkeypatch.setattr(Path, "resolve", lambda self, strict=False: self)  # 像 Windows 那样不报错
+    with pytest.raises(Unclear, match="链接没能走到头"):
+        places.check("loop")
+
+
+def test_names_too_long_for_windows_are_unclear():
+    assert pathnames.word_trick("a" * 256, windows=True)
+    assert pathnames.word_trick("x/" + "a" * 255, windows=True) is None
+    assert pathnames.word_trick("a" * 300, windows=False) is None
 
 
 @pytest.mark.parametrize("word", [r"~\AppData\Roaming\gcloud\credentials.db", "AppData/Roaming/GitHub CLI/hosts.yml", r"C:\Users\me\AppData\Local\Microsoft\Credentials\x", r"x\PSReadLine\ConsoleHost_history.txt"])
@@ -377,7 +395,7 @@ def test_a_folder_scan_finds_a_hard_link_with_a_real_lstat(places):
 def memory_root(tmp_path):
     root = tmp_path / "memories"
     root.mkdir()
-    (root / "notes.md").write_text("记住的东西\n", encoding="utf-8")
+    (root / "notes.md").write_bytes("记住的东西\n".encode())  # 按字节写：Windows 上 write_text 会写成 \r\n
     return root
 
 
@@ -485,6 +503,25 @@ def test_the_memory_tool_refuses_windows_tricks_before_the_sdk_sees_them(tmp_pat
     assert (tmp_path / "data" / "memories" / "notes.md").read_text(encoding="utf-8") == "x"
 
 
+def test_the_sdk_memory_writes_always_ask_for_binary_mode(monkeypatch):
+    """Windows 上 SDK 的 os.open 被换成 _BinaryOs.open：每次都带上 O_BINARY，别的照旧交给 os。"""
+    calls = []
+    monkeypatch.setattr(pathnames, "BINARY", 0x8000)
+    monkeypatch.setattr(os, "open", lambda path, flags, mode=0o777, *, dir_fd=None: calls.append((path, flags, mode)) or 7)
+    shim = memory_tool._BinaryOs()
+    assert shim.open("x", os.O_WRONLY, 0o600) == 7
+    assert calls == [("x", os.O_WRONLY | 0x8000, 0o600)]
+    assert shim.O_CREAT == os.O_CREAT and shim.path is os.path  # 别的都是 os 自己的
+
+
+def test_import_places_are_shown_with_slashes_on_every_system():
+    """给人看、页面送回来的位置一律用 /（Windows 上也是），查的时候才对得上。"""
+    env = Env(home=PureWindowsPath(r"C:\Users\me"), workspace=PureWindowsPath(r"C:\work"), platform="win32")
+    assert env.shown(PureWindowsPath(r"C:\Users\me\.claude\skills")) == "~/.claude/skills"
+    assert env.shown(PureWindowsPath(r"C:\work\.claude\agents\tester.md")) == ".claude/agents/tester.md"
+    assert env.shown(PureWindowsPath(r"D:\elsewhere\x")) == "D:/elsewhere/x"
+
+
 # ---- 真的 Windows -------------------------------------------------------------------
 
 
@@ -497,7 +534,7 @@ def _junction(target: Path, link: Path) -> None:
 @WINDOWS_ONLY
 def test_real_junctions_are_links(tmp_path):
     (tmp_path / "outside").mkdir()
-    (tmp_path / "outside" / "secret.md").write_text("外面\n")
+    (tmp_path / "outside" / "secret.md").write_text("外面\n", encoding="utf-8")
     root = tmp_path / "memories"
     root.mkdir()
     _junction(tmp_path / "outside", root / "door")
@@ -515,7 +552,7 @@ def test_export_does_not_walk_into_a_junction(tmp_path):
     data, outside = tmp_path / "data", tmp_path / "outside"
     data.mkdir()
     outside.mkdir()
-    (outside / "id_rsa").write_text("PRIVATE KEY\n")
+    (outside / "id_rsa").write_text("PRIVATE KEY\n", encoding="utf-8")
     _junction(outside, data / "door")
     work = plan(data)
     assert ("door/" in [name for name, _ in work.skipped]) and not any("id_rsa" in name for _, name in work.files)
@@ -525,7 +562,7 @@ def test_export_does_not_walk_into_a_junction(tmp_path):
 def test_a_junction_to_the_data_folder_is_caught_by_a_folder_scan(tmp_path):
     ws = tmp_path / "ws"
     (ws / "data").mkdir(parents=True)
-    (ws / "data" / "c1.json").write_text("{}\n")
+    (ws / "data" / "c1.json").write_text("{}\n", encoding="utf-8")
     (ws / "src").mkdir()
     _junction(ws / "data", ws / "src" / "door")
     places = Places(ws.resolve(), private=[ws / "data"], home=tmp_path / "home")
@@ -537,7 +574,7 @@ def test_a_junction_to_the_data_folder_is_caught_by_a_folder_scan(tmp_path):
 def test_real_windows_spellings_of_a_secret_file(tmp_path):
     workspace = tmp_path / "work"
     workspace.mkdir()
-    (workspace / ".env").write_text("K=1\n")
+    (workspace / ".env").write_text("K=1\n", encoding="utf-8")
     editor = FileEditor(workspace, tmp_path / "backups", protected=[workspace / ".env"])
     assert os.path.samestat(os.stat(workspace / ".env::$DATA"), os.stat(workspace / ".env"))  # 数据流就是这个文件
     assert os.path.samestat(os.stat(str(workspace / ".env") + "."), os.stat(workspace / ".env"))  # 尾巴上的点被去掉了
@@ -552,7 +589,7 @@ def test_a_real_short_name_is_refused(tmp_path):
 
     workspace = tmp_path / "work"
     workspace.mkdir()
-    (workspace / ".env").write_text("K=1\n")
+    (workspace / ".env").write_text("K=1\n", encoding="utf-8")
     buffer = ctypes.create_unicode_buffer(1024)
     ctypes.windll.kernel32.GetShortPathNameW(str(workspace / ".env"), buffer, 1024)
     short = Path(buffer.value).name
@@ -564,6 +601,16 @@ def test_a_real_short_name_is_refused(tmp_path):
     places = Places(workspace.resolve(), protected=[workspace / ".env"], home=tmp_path / "home")
     with pytest.raises(Unclear):
         places.check(short)
+
+
+@WINDOWS_ONLY
+def test_the_memory_tool_keeps_lf_on_windows(tmp_path):
+    tool = make_memory_tool(tmp_path / "data")
+    target = tmp_path / "data" / "memories" / "notes.md"
+    tool.run({"command": "create", "path": "/memories/notes.md", "file_text": "# 记住的事\n- 一\n"})
+    tool.run({"command": "insert", "path": "/memories/notes.md", "insert_line": 1, "insert_text": "- 二"})
+    tool.run({"command": "str_replace", "path": "/memories/notes.md", "old_str": "- 一", "new_str": "- 三"})
+    assert target.read_bytes() == "# 记住的事\n- 二\n- 三\n".encode()
 
 
 @WINDOWS_ONLY

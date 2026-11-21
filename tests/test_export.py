@@ -72,7 +72,7 @@ def make_data(root):
     }.items():
         path = data / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="")  # 原样写：Windows 上不把 \n 换成 \r\n
     outside = root / "outside"
     outside.mkdir()
     (outside / "id_rsa").write_text("PRIVATE KEY hunter2-db-password", encoding="utf-8")

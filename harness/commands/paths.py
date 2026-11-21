@@ -114,9 +114,14 @@ class Places:
         if _untouchable(self._folded(os.path.normpath(path)), self.windows):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         try:
-            return path.resolve()
+            resolved = path.resolve()
         except (OSError, RuntimeError, ValueError) as exc:  # 符号链接绕成了圈、名字太长、有不能用的字符……
             raise Unclear(f"看不清 {raw} 指的是哪里") from exc
+        # 展开之后还是一个链接：没能顺着它走到头（绕成了圈、指向的地方看不了）。Windows 上 resolve 碰到这种情况
+        # 不报错，原样交回来（macOS、Linux 上会报错，走上面那一支）
+        if pathnames.is_link(resolved):
+            raise Unclear(f"看不清 {raw} 指的是哪里（链接没能走到头）")
+        return resolved
 
     def check(self, raw: str) -> None:
         """命令里的一个词。当作路径时，它指向不该不问就读的地方，就抛出 Unclear。"""
