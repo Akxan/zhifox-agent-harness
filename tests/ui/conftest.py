@@ -124,6 +124,9 @@ class Demo:
         # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
         # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）
         (self.root / "data" / "commands.json").unlink(missing_ok=True)
+        # 待办也一样：让模型记过待办的测试没删干净，排在它后面的测试就看到一条多出来的（真出过：test_ui_capabilities 记的那一条
+        # 留下来，同一个进程里后跑的 test_empty_states 找不到"没有未完成的待办"）。待办每次都从文件读（tools/todo.py），删掉就一条都没有
+        (self.root / "data" / "todos.json").unlink(missing_ok=True)
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 
