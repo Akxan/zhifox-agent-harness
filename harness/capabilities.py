@@ -169,6 +169,7 @@ LOCAL = k("在这台电脑上执行")
 _NO_DESKTOP = {
     desktop_backend.WAYLAND: k("这台电脑用的是 Wayland 桌面：Wayland 不允许一个程序截别的程序的图、替别人点鼠标，所以用不了。登录时换成 X11（Xorg）桌面就可以。"),
     desktop_backend.NO_DISPLAY: k("这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。"),
+    desktop_backend.WINDOWS: k("Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。"),
     desktop_backend.PLATFORM: k("只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。"),
 }
 

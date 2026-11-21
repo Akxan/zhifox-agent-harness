@@ -22,6 +22,7 @@ import pytest
 from fake_desktop import FULL, FakeDesktop, install
 
 from harness.browser.shots import ShotStore
+from harness.desktop import backend as desktop_backend
 from harness.desktop import keys
 from harness.desktop import session as session_module
 from harness.desktop.backend import Shot
@@ -202,6 +203,24 @@ def test_ready_checks_the_switch_the_platform_and_the_permissions(tmp_path):
     with pytest.raises(ToolError) as wayland:
         manager.ready("wait")
     assert str(wayland.value) == UNSUPPORTED["wayland"]
+
+
+# 真的 detect（conftest 在每个测试开始前把它换成"用不了"，这里在那之前先留一份）
+REAL_DETECT = desktop_backend.detect
+
+
+def test_windows_says_plainly_that_it_is_not_supported_yet(tmp_path, monkeypatch):
+    """Windows 上还没有后端：原因是专门的 windows（页面和信息栏照它说"Windows 上暂时不支持"），不是笼统的"系统不支持"。
+    Windows 那一支在导入任何后端之前就回答了，所以在 Mac、Linux 上假装成 Windows 跑它也碰不到真的屏幕。"""
+    monkeypatch.setattr(desktop_backend.sys, "platform", "win32")
+    assert REAL_DETECT() == (None, desktop_backend.WINDOWS)
+    manager = DesktopManager(tmp_path, SimpleNamespace(computer={**COMPUTER_DEFAULTS, "enabled": True}))
+    manager._backend, manager._reason, manager._detected = None, desktop_backend.WINDOWS, True
+    with pytest.raises(ToolError) as refused:
+        manager.ready("look")
+    assert str(refused.value) == UNSUPPORTED[desktop_backend.WINDOWS] and "Windows" in str(refused.value)
+    status = manager.status()
+    assert status["supported"] is False and status["reason"] == "windows"
 
 
 def test_the_real_backend_is_never_found_in_tests(tmp_path):

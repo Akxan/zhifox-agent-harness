@@ -37,7 +37,7 @@ from sample_files import (
 )
 
 import harness.webui.server as server_module
-from harness import memories, prompt
+from harness import machine, memories, prompt
 from harness.app import build_app
 from harness.attachments import (
     MAX_IMAGE_BYTES,
@@ -1628,6 +1628,19 @@ def test_reveal_explains_when_there_is_nothing_to_show(serve, monkeypatch):
     assert status == 409 and "找不到 open 这个命令" in body["error"] and f"{current}.json" in body["error"]
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
     s.browser.wait_for("turn_end")
+
+
+def test_the_state_says_which_kind_of_computer_the_assistant_runs_on(serve, monkeypatch):
+    """页面上写"访达""文件资源管理器"还是"文件管理器"，看的是助手程序所在的电脑，不是浏览器那台（见 machine.py）。
+    所以状态里带着它；每次发状态都现问一次，测试里换掉 machine.system 就能看到页面会收到什么。"""
+    s = serve()
+    assert latest_state(s.browser)["platform"] == machine.system()
+    monkeypatch.setattr(machine, "system", lambda: "windows")
+    s.browser.post("/api/language", {"language": "en"})  # 随便做一件会发新状态的事
+    deadline = time.monotonic() + 5
+    while latest_state(s.browser)["platform"] != "windows":
+        assert time.monotonic() < deadline, "新的状态里没有换成 windows"
+        time.sleep(0.01)
 
 
 def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_path):

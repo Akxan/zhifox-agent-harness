@@ -3,6 +3,8 @@
 // 存着的密钥不会到页面上来：编辑时没有重填的那一项，交回去的是 keep，值由助手程序自己从配置文件里拿。
 // 改过还没保存就想离开，先提醒一次，再来一次才放弃。
 
+const MCP_FORM_HINT = forKeys(k('⌘Enter 保存，Esc 返回'), k('Ctrl+Enter 保存，Esc 返回'));  // 表单下面那一行平时的话
+
 function mcpInput(id, value, placeholder, extra) {
   const input = el('input', 'field' + (extra ? ' ' + extra : ''));
   input.id = id;
@@ -161,7 +163,7 @@ function openMcpForm(original) {
   const message = foot.appendChild(el('p', 'mcp-help'));
   message.id = 'mcp-f-message';
   message.setAttribute('role', 'status');
-  retext(message, ON_MAC ? k('⌘Enter 保存，Esc 返回') : k('Ctrl+Enter 保存，Esc 返回'));
+  retext(message, MCP_FORM_HINT);
   const cancel = foot.appendChild(tel('button', 'button', k('取消')));
   cancel.type = 'button';
   cancel.addEventListener('click', mcpBack);
@@ -171,7 +173,7 @@ function openMcpForm(original) {
 
   form.addEventListener('input', mcpDirty);
   form.addEventListener('keydown', (key) => {
-    if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && !key.isComposing) { key.preventDefault(); saveMcpForm(); }
+    if (key.key === 'Enter' && commandHeld(key) && !key.isComposing) { key.preventDefault(); saveMcpForm(); }
   });
   mcpShow([head, form], 'form', 'name');
   setMcpTransport(view.transport, false);
@@ -197,7 +199,7 @@ function mcpDirty() {
   const view = mcpView;
   if (view.kind !== 'form') return;
   view.dirty = true;
-  if (view.armed) { view.armed = false; mcpFormSay(ON_MAC ? k('⌘Enter 保存，Esc 返回') : k('Ctrl+Enter 保存，Esc 返回')); }
+  if (view.armed) { view.armed = false; mcpFormSay(MCP_FORM_HINT); }
 }
 
 function mcpFormSay(key, values, bad) {

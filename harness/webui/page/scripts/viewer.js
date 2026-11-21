@@ -31,8 +31,6 @@ function notify(text) {
   clearTimeout(viewerSayTimer);
   viewerSayTimer = setTimeout(() => { box.hidden = true; }, Math.min(9000, Math.max(3500, text.length * 120)));
 }
-const onMac = () => /Mac|iPhone|iPad/.test(navigator.platform);
-const revealLabel = () => (onMac() ? k('在访达中显示') : k('在文件夹中显示'));
 
 // 这一项在查看器里怎么显示：图片、文字，还是一张说明卡片
 function viewKind(item) {
@@ -68,7 +66,7 @@ function kindLabel(item) {
 const sizeText = (item) => (item.chars ? t('{n} 字', { n: Number(item.size).toLocaleString(LOCALES[language]) }) : formatSize(Number(item.size) || 0));
 
 function labelViewer() {
-  const mod = onMac() ? '⌘' : 'Ctrl+';
+  const mod = forKeys('⌘', 'Ctrl+');
   for (const [id, label, keys] of [['viewer-out', k('缩小'), mod + '−'], ['viewer-in', k('放大'), mod + '+'], ['viewer-level', k('在适合屏幕和原始大小之间切换'), mod + '0'],
                                      ['viewer-prev', k('上一个'), '←'], ['viewer-next', k('下一个'), '→'], ['close-viewer', k('关闭'), 'Esc']]) {
     $(id).title = t(label) + ' (' + keys + ')';
@@ -103,8 +101,8 @@ function drawViewerChrome() {
   const reveal = $('viewer-reveal');
   reveal.hidden = !item.id;
   reveal.disabled = !item.original;
-  tattr(reveal, 'title', item.original ? revealLabel() : k('这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。'));
-  tattr(reveal, 'aria-label', revealLabel());
+  tattr(reveal, 'title', item.original ? showLabel() : k('这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。'));
+  tattr(reveal, 'aria-label', showLabel());
   $('viewer-locate').hidden = !item.conversation;
   $('viewer-download').disabled = item.available === false;
   const total = looking.list.length, more = Boolean(looking.more && looking.more.ready());

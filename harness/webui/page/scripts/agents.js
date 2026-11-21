@@ -7,7 +7,7 @@
 // 一个文件合不合格、表单怎么写成文件，都由助手程序来算（/api/agent/parse、/api/agent/compose），页面不另写一份规矩：
 // 页面上的检查只是"有没有填"这种马上能看出来的，真正的问题列表都是程序给的。
 // 这一页有几种样子（view.kind）：list 列表、detail 打开的一个、edit 编辑、create 新建、examples 示例、review 从 Claude Code 导入。
-// 版式和 Skill 一页一样，借用它的几个小工具（skillButton、skillSaid、skillWaiting、problemText、shortPath，都在 skills.js）。
+// 版式和 Skill 一页一样，借用它的几个小工具（skillButton、skillSaid、skillWaiting、problemText，都在 skills.js）。
 // 改 Agent 不用等这一轮对话结束（服务器也不拦）：正在进行的对话和子 Agent 用的是开始时读到的那一份。
 //
 // 这一页分成五个文件，这个是第一个：总说明、共用的状态和小工具。后面依次是 agents-list.js 列表和示例、

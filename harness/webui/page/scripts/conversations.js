@@ -89,18 +89,6 @@ function placePill(jump) {
 }
 
 const KINDS = { user: k('你'), assistant: k('助手'), tool: k('工具'), thinking: k('思考'), result: k('结果') };
-const ON_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-const SHOW_FILE = ON_MAC ? k('在访达中显示') : k('在文件夹中显示');
-
-// 在文件管理器里显示了一个文件之后说的那句话。助手程序所在的电脑没有文件管理器时（服务器上，状态里的 file_manager
-// 是 false），什么都打不开，就改成告诉你文件在哪儿，给完整的路径
-function revealedText(path) {
-  const full = String(path || '');
-  if (state && state.file_manager === false) return t('这台电脑上没有文件管理器。文件在：{path}', { path: full });
-  const parts = full.split('/');
-  const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-  return ON_MAC ? t('已在访达中显示：{path}', { path: shown }) : t('已在文件夹中显示：{path}', { path: shown });
-}
 
 // 会话列表里，在聊天通道里聊的那几段标着平台的名字（名字由助手程序给，见 channels.js）
 const channelLabel = (id) => { const item = chanFind(id); return item ? item.label : id; };
@@ -266,7 +254,7 @@ function conversationRow(item) {
   });
 
   const actions = row.appendChild(el('div', 'conv-actions'));
-  const locate = actions.appendChild(iconButton('folder', SHOW_FILE));
+  const locate = actions.appendChild(iconButton('folder', showLabel()));
   locate.addEventListener('click', () => showFile(item.id));
   const rename = actions.appendChild(iconButton('edit', k('重命名')));
   const remove = actions.appendChild(iconButton('trash', k('删除')));
@@ -294,6 +282,6 @@ search.addEventListener('keydown', (key) => {
     if (first) first.click();
   }
 });
-$('search-key').textContent = ON_MAC ? '⌘F' : 'Ctrl F';
+$('search-key').textContent = forKeys('⌘F', 'Ctrl F');
 tattr($('open-folder'), 'title', k('打开保存会话的文件夹'));
 $('open-folder').addEventListener('click', () => showFile(''));

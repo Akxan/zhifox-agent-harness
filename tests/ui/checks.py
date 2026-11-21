@@ -7,6 +7,8 @@
   overflow(page, ...)  文字冲出了容器、冲出了窗口，或者被截断了却没有省略号
   row_trio(page, sel)  一行本地存着的东西右边是不是"在访达中显示 / 编辑 / 删除"三个按钮
   native_selects(page) 用了浏览器自带箭头的下拉框
+  containing(page, words)  整个页面里（看不见的也算）还写着这些字的地方，比如 Windows 上的"⌘""访达"
+  reveal_labels(page)  画出来的每个"在访达中显示"这类按钮（带文件夹图标的）上写的话
 
 这几个检查是"启发式"的：它们按规则去找可疑的地方，找到了不一定都是错，但每一条都值得看一眼。
 真的是用户的内容（会话的标题、记忆的名字……），就把它的选择器加进 USER_CONTENT 或 NAMES。
@@ -196,3 +198,63 @@ _SELECTS = r"""
 def native_selects(page: Page) -> list[str]:
     """页面上（包括还没打开的窗口里）用了浏览器自带箭头的下拉框：应该是 select.field，箭头由页面自己画。"""
     return page.js(_SELECTS)
+
+
+_DESCRIBE = r"""
+(node) => {
+  const path = [];
+  for (let at = node; at && at !== document.body && path.length < 4; at = at.parentElement) {
+    path.unshift(at.tagName.toLowerCase() + (at.id ? '#' + at.id : '') + (typeof at.className === 'string' && at.className.trim() ? '.' + at.className.trim().split(/\s+/).join('.') : ''));
+  }
+  return path.join(' > ');
+}
+"""
+
+_CONTAINING = r"""
+(({ words, skip }) => {
+  const describe = __DESCRIBE__;
+  const skipped = (node) => node.closest(skip.join(','));
+  const problems = [];
+  const report = (node, where, text) => {
+    if (words.some((word) => text.includes(word))) problems.push(describe(node) + where + ': ' + JSON.stringify(text.trim().slice(0, 120)));
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const parent = text.parentElement;
+    if (!parent || parent.closest('script, style') || skipped(parent)) continue;
+    report(parent, '', text.data);
+  }
+  for (const node of document.body.querySelectorAll('[title], [placeholder], [aria-label]')) {
+    if (skipped(node)) continue;
+    for (const name of ['title', 'placeholder', 'aria-label']) {
+      if (node.hasAttribute(name)) report(node, ' [' + name + ']', node.getAttribute(name));
+    }
+  }
+  return [...new Set(problems)];
+})
+""".replace("__DESCRIBE__", _DESCRIBE.strip())
+
+
+def containing(page: Page, words: list[str]) -> list[str]:
+    """整个页面里还写着 words 里任何一个的文字，以及 title、placeholder、aria-label。看不见的也算：关着的窗口、
+    悬停才出现的按钮、没打开的那一栏里的话，换个时候就会被看到。用户自己的内容（USER_CONTENT、NAMES）不算。"""
+    options = {"words": words, "skip": USER_CONTENT + NAMES}
+    return page.js(f"({_CONTAINING})({json.dumps(options, ensure_ascii=False)})")
+
+
+_REVEALS = r"""
+(() => {
+  const describe = __DESCRIBE__;
+  const shown = (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden';
+  return [...document.querySelectorAll('button')]
+    .filter((button) => button.querySelector('use[href="#i-folder"]') && !button.closest('.starter') && button.dataset.key !== 'pick-folder' && shown(button))
+    .map((button) => ({ where: describe(button), label: button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent.trim() }));
+})()
+""".replace("__DESCRIBE__", _DESCRIBE.strip())
+
+
+def reveal_labels(page: Page) -> list[dict]:
+    """页面上画出来的每个"在文件管理器里显示、打开"的按钮：带文件夹图标的那些，除了建议卡片和"选择文件夹"。
+    只看画出来的（悬停才淡入的也算）：关着的窗口里的按钮，打开的时候才按当前的语言重画。
+    返回 [{where, label}]，label 是读屏软件读的那句（aria-label，没有的话 title，再没有就是按钮上的字）。"""
+    return page.js(_REVEALS)

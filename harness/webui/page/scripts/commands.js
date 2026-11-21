@@ -101,7 +101,7 @@ function commandRow(entry) {
   }
   row.appendChild(el('code', 'cmd-text', entry));
   const actions = row.appendChild(el('div', 'cmd-actions'));
-  const reveal = actions.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示 commands.json') : k('在文件夹中显示 commands.json')));
+  const reveal = actions.appendChild(iconButton('folder', byServer(k('在访达中显示 commands.json'), k('在文件资源管理器中显示 commands.json'), k('在文件管理器中显示 commands.json'))));
   const edit = actions.appendChild(iconButton('edit', k('编辑')));
   const trash = actions.appendChild(iconButton('trash', k('删除')));
   trash.classList.add('danger-hover');

@@ -270,7 +270,7 @@ function mediaRow(item) {
 // 一项右边（方格是下沿）的三个按钮：在访达中显示、定位到会话、下载。没有原件的（旧会话里的）不能在访达中显示
 function mediaActions(item, className) {
   const box = el('div', className);
-  const reveal = box.appendChild(iconButton('folder', revealLabel()));
+  const reveal = box.appendChild(iconButton('folder', showLabel()));
   if (!item.original) {
     reveal.disabled = true;
     tattr(reveal, 'title', k('这个附件没有单独存下原件：它是在有多媒体库之前发的，内容保存在它所在的会话的文件里。'));

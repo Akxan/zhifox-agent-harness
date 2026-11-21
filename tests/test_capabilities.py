@@ -299,6 +299,11 @@ def test_the_computer_is_unavailable_where_there_is_no_desktop(start):
     computer = item(overview(s), "computer")
     assert computer.status == "unavailable" and "Wayland" in computer.reason
 
+    # Windows 上：直说"Windows 上暂时不支持"，不写 macOS 的权限、Linux 要装的程序
+    s.app.desktop._backend, s.app.desktop._reason, s.app.desktop._detected = None, desktop_backend.WINDOWS, True
+    computer = item(overview(s), "computer")
+    assert computer.status == "unavailable" and computer.reason.startswith("Windows 上暂时不支持") and computer.actions == []
+
 
 @pytest.mark.parametrize("mode", list(MODES))
 def test_the_computer_asks_every_step_in_every_mode(start, mode):

@@ -84,7 +84,7 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, quote, urlsplit
 
-from .. import export, i18n, instance, media, memories, rewind
+from .. import export, i18n, instance, machine, media, memories, rewind
 from .. import prompt as prompts
 from ..agents import AgentError
 from ..app import App, build_app, retry_turn, run_turn
@@ -320,6 +320,7 @@ class WebApp:
             channels=self.channels.snapshot(),
             # 这台电脑能不能打开文件管理器。服务器上不能：页面上"在访达中显示"之后改成告诉你文件在哪儿
             file_manager=has_file_manager(),
+            platform=machine.system(),  # 这台电脑是 mac / windows / linux：页面照着它说"访达""文件资源管理器"还是"文件管理器"（见 machine.py）
             service=self.service,  # 智狐是作为后台服务开着的，还是跟着终端（见 __init__ 里的说明）
             # 浏览器：开没开、在不在运行、正在操作没有、找到的 Chrome、配置文件夹（见 browser_api.py）
             browser=self.browser.state(),

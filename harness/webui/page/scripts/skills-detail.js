@@ -103,7 +103,7 @@ function buildSkillDetail(view) {
   } else {
     const edit = foot.appendChild(skillButton('edit', k('编辑'), 'idle-only', 'edit', () => startSkillEdit(view)));
     edit.disabled = view.gone || (!data.editable && !data.missing);
-    foot.appendChild(skillButton('folder', SHOW_FILE, '', 'reveal', () => revealSkill(view.name, view))).disabled = view.gone;
+    foot.appendChild(skillButton('folder', showLabel(), '', 'reveal', () => revealSkill(view.name, view))).disabled = view.gone;
     const remove = foot.appendChild(skillButton('trash', k('删除'), 'idle-only', 'delete', () => {
       if (busy) { view.said = { key: BUSY_HINT, bad: true }; paintSkill(); return; }
       view.confirm = true;

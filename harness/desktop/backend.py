@@ -81,6 +81,7 @@ class Backend(Protocol):
 # 为什么这台电脑上用不了（给页面的固定的词，页面按它显示说明）
 WAYLAND = "wayland"
 NO_DISPLAY = "no_display"
+WINDOWS = "windows"  # Windows 上还没有后端（截图、鼠标键盘要另写一套），先明确地说"暂时不支持"
 PLATFORM = "platform"
 
 
@@ -99,4 +100,6 @@ def detect() -> tuple[Backend | None, str]:
         from .x11 import X11Backend
 
         return X11Backend(os.environ["DISPLAY"]), ""
+    if sys.platform == "win32":
+        return None, WINDOWS
     return None, PLATFORM
