@@ -122,11 +122,11 @@ def test_x11_mouse_and_keys_become_xdotool_commands():
     backend.key(parse("ctrl+minus")[0])
     assert xdotool_calls(run) == [
         ["keydown", "ctrl", "shift"],
-        ["mousemove", "--sync", "10", "20", "click", "--repeat", "2", "--delay", "80", "1"],
+        ["mousemove", "10", "20", "click", "--repeat", "2", "--delay", "80", "1"],  # 不带 --sync（为什么见 x11.py）
         ["keyup", "shift", "ctrl"],  # 修饰键反过来松开
-        ["mousemove", "--sync", "5", "6", "mousedown", "3"],
-        ["mousemove", "--sync", "7", "8"],
-        ["mousemove", "--sync", "1", "2", "click", "--repeat", "3", "--delay", "30", "5"],
+        ["mousemove", "5", "6", "mousedown", "3"],
+        ["mousemove", "7", "8"],
+        ["mousemove", "1", "2", "click", "--repeat", "3", "--delay", "30", "5"],
         ["key", "--clearmodifiers", "ctrl+Return"],
         ["keydown", "super", "l"],
         ["keyup", "l", "super"],

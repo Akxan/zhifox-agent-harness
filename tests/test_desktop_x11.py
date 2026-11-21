@@ -57,8 +57,13 @@ def display():
             pytest.fail(reason)
         pytest.skip(reason)
     number = _free_display()
+    # -noreset 不能少。X 服务器默认在"最后一个客户端断开"时把自己重置一遍（重新初始化输入设备，指针回到屏幕正中间）。
+    # 真的桌面上窗口管理器、面板、各个程序一直连着，永远走不到这一步；这块虚拟屏幕上却没有别人，
+    # 后端的每个 xdotool 都是连上、做完、断开，于是每做完一步服务器就重置一次，
+    # 下一个命令问到的指针永远是 (960, 540)：移动、点击都"没有效果"，截图却照样正常（黑屏重置了还是黑屏）。
+    # 加上 -noreset，它就和真的桌面一样，状态一直留着。（在服务器上让智狐操作一块光秃秃的 Xvfb，也要这样开。）
     process = subprocess.Popen(
-        ["Xvfb", f":{number}", "-screen", "0", f"{WIDTH}x{HEIGHT}x24", "-nolisten", "tcp"],
+        ["Xvfb", f":{number}", "-screen", "0", f"{WIDTH}x{HEIGHT}x24", "-nolisten", "tcp", "-noreset"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -111,6 +116,19 @@ def test_the_pointer_moves_where_it_is_told(backend):
     backend.mouse("drag", 400, 260)
     backend.mouse("up", 400, 260)
     assert backend.cursor() == (400.0, 260.0)
+
+
+def test_acting_where_the_pointer_already_is_does_not_wait(backend):
+    # 先移过去再按下、同一点再点一下、在原地滚动：指针一步都不用动。
+    # 带 --sync 的 xdotool 3.20160805.1 在这里会干等 15 秒然后超时（见 x11.py 的 mouse）
+    backend.mouse("move", 500, 400)
+    started = time.monotonic()
+    backend.mouse("down", 500, 400)
+    backend.mouse("up", 500, 400)
+    backend.click(500, 400, "left", 2)
+    backend.scroll(500, 400, "down", 1)
+    assert time.monotonic() - started < 5
+    assert backend.cursor() == (500.0, 400.0)
 
 
 def test_a_session_maps_screenshot_coordinates_onto_the_real_screen(backend, tmp_path):

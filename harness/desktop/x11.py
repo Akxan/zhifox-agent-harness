@@ -145,20 +145,29 @@ class X11Backend:
             if keys:
                 self._xdotool("keyup", *reversed(keys))
 
-    # mousemove 都带 --sync：不带的话 xdotool 发出"移过去"就返回了，X 服务器还没处理完，紧接着的点击、
-    # 查位置（getmouselocation）可能还在原来的地方（GitHub 上的 Xvfb 测试就是这样失败的）。
-    # 带了它，xdotool 等指针真的到了才返回；已经在那儿的话不用等（xdotool 的说明里写着）
+    # mousemove 故意不带 --sync。
+    #
+    # 不需要它：一次 xdotool 里的"移过去、再按下"走的是同一条连接，X 服务器按顺序处理，点击一定落在移过去之后；
+    # xdotool 退出前（XCloseDisplay）会和服务器来回一次（XSync），等这条连接上的请求都处理完才走，
+    # 所以下一个命令（下一次点击、getmouselocation）看到的已经是新的位置。
+    #
+    # 也不能带：Debian、Ubuntu 装的 xdotool 是 3.20160805.1，它的 --sync 等的是"指针离开原来的地方"。
+    # 指针本来就在目标点上时（同一点再点一下、先移过去再按下、拖完在原地松开、在当前位置滚动），
+    # 它会干等 500 × 30 毫秒 = 15 秒，正好撞上 DESKTOP_COMMAND_TIMEOUT，这一步就算失败了。
+    # 说明书写着"不用移就不等"，但代码里要到上游 2024 年的修复（#463）才是这样。
+    #
+    # （GitHub 上的 Xvfb 测试里"指针总在屏幕正中间"，原因不在这里，在测试怎么开 Xvfb：见 tests/test_desktop_x11.py 的 display。）
     def mouse(self, kind: str, x: int, y: int, button: str = "left", modifiers: tuple[str, ...] = ()) -> None:
         if kind in ("move", "drag"):
-            self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y))
+            self._with_modifiers(modifiers, "mousemove", str(x), str(y))
         else:
-            self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "mousedown" if kind == "down" else "mouseup", BUTTONS[button])
+            self._with_modifiers(modifiers, "mousemove", str(x), str(y), "mousedown" if kind == "down" else "mouseup", BUTTONS[button])
 
     def click(self, x: int, y: int, button: str, count: int, modifiers: tuple[str, ...] = ()) -> None:
-        self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "click", "--repeat", str(count), "--delay", "80", BUTTONS[button])
+        self._with_modifiers(modifiers, "mousemove", str(x), str(y), "click", "--repeat", str(count), "--delay", "80", BUTTONS[button])
 
     def scroll(self, x: int, y: int, direction: str, amount: int, modifiers: tuple[str, ...] = ()) -> None:
-        self._with_modifiers(modifiers, "mousemove", "--sync", str(x), str(y), "click", "--repeat", str(amount), "--delay", "30", WHEEL[direction])
+        self._with_modifiers(modifiers, "mousemove", str(x), str(y), "click", "--repeat", str(amount), "--delay", "30", WHEEL[direction])
 
     def cursor(self) -> tuple[float, float]:
         found = dict(re.findall(r"(\w+)=(\d+)", self._xdotool("getmouselocation", "--shell")))
