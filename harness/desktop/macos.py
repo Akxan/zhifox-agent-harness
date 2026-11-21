@@ -31,6 +31,7 @@ from __future__ import annotations
 import ctypes
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -224,8 +225,13 @@ class MacBackend:
         return ""
 
     def host(self) -> str:
+        """权限要给哪个程序。从终端、VS Code 这类程序里启动的，系统给进程带着那个程序的 __CFBundleIdentifier；
+        作为后台服务（launchd）运行时没有任何程序启动它，权限要给的就是智狐用的那个 Python 本身，写出它的完整路径
+        （是符号链接的话写真正的那个文件：系统设置里加的是它）。"""
         bundle = os.environ.get("__CFBundleIdentifier", "")
-        return HOSTS.get(bundle, bundle)
+        if bundle:
+            return HOSTS.get(bundle, bundle)
+        return os.path.realpath(sys.executable)
 
     def checks(self) -> dict:
         """screen：能不能截图；input：能不能发鼠标键盘事件；host：权限要给哪个程序（看不出来是空的）。"""

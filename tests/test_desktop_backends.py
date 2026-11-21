@@ -324,6 +324,13 @@ def test_macos_says_where_to_grant_the_permissions(monkeypatch):
     assert backend.checks() == {"screen": False, "input": False, "host": "终端"}
     monkeypatch.setenv("__CFBundleIdentifier", "org.example.Unknown")
     assert backend.host() == "org.example.Unknown"
+    # 作为后台服务（launchd）运行时没有程序启动它：权限要给智狐用的那个 Python，写出它真正的路径。
+    # 以前这时写的是"启动智狐的那个程序（终端、iTerm、VS Code……）"，用户照着去给了终端，后台服务照样没有权限
+    monkeypatch.delenv("__CFBundleIdentifier")
+    monkeypatch.setattr(macos.sys, "executable", "/tmp/venv/bin/python")
+    monkeypatch.setattr(macos.os.path, "realpath", lambda path: "/Users/x/.local/share/uv/python/cpython-3.11/bin/python3.11")
+    assert backend.host() == "/Users/x/.local/share/uv/python/cpython-3.11/bin/python3.11"
+    assert "“/Users/x/.local/share/uv/python/cpython-3.11/bin/python3.11”" in backend.problem("input")
 
 
 def test_macos_activation_goes_through_the_app_bundle():
