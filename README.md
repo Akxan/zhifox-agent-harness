@@ -2098,10 +2098,13 @@ A few notes:
 ## Testing
 
 ```bash
-uv run pytest
+uv run pytest          # in parallel, one process per CPU core (pytest-xdist): about a minute for everything
+uv run pytest -n 0     # one test at a time, e.g. while debugging or to see print output
 ```
 
-The tests need no API key and cost nothing. [tests/fake_api.py](tests/fake_api.py) and
+The tests need no API key and cost nothing. They run in parallel by default (`addopts` in
+[pyproject.toml](pyproject.toml)); each worker process gets its own fake servers and temporary folders, and the page tests
+start their own demo server and Chrome per worker, so nothing is shared between them. [tests/fake_api.py](tests/fake_api.py) and
 [tests/fake_openai.py](tests/fake_openai.py) are two local fake servers that replay prepared replies in Claude's and
 OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),

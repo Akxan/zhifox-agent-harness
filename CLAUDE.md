@@ -90,7 +90,8 @@
 
 ```bash
 uv sync                          # 安装依赖
-uv run pytest -q                 # 跑全部测试，不需要 API key，不花钱
+uv run pytest -q                 # 跑全部测试（默认并行，一分钟左右），不需要 API key，不花钱
+uv run pytest -q -n 0            # 一个一个跑（调试、看 print 的输出）
 uvx ruff check harness tests     # 代码检查（可以加 --fix，不要加 --unsafe-fixes）
 uv run harness                   # 终端界面
 uv run harness --web             # 网页界面
@@ -284,6 +285,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 ## 怎么验证
 
 - 测试用真实的 SDK 连本地的假服务器，这样发出去的请求和收到的流式数据走的都是真实代码路径。
+- **测试默认并行跑**（pytest-xdist，`pyproject.toml` 的 `addopts = ["-n", "auto"]`），所以写测试时：每个测试自己准备好
+  要用的东西（`tmp_path`、端口给 0 让系统挑），不依赖别的测试先跑、不改全局的东西不还原；`parametrize` 的名字要固定
+  （内容里带着时刻、随机数的，比如现打的 zip，要给 `ids=`，否则各个进程收集到的测试对不上，整轮跑不起来）；线程里要认出
+  "是不是那个线程"时按名字认，不要拿启动后才赋值的变量去比（机器忙时线程可能先跑到）。会抢同一样系统资源的
+  （比如 Xvfb 的屏幕编号）在 CI 里单独用 `-n 0` 跑。
 - 改了页面：先跑 `uv run pytest tests/test_page.py`（清单、能不能内联、每一块和拼好的整段脚本的 `node --check`；单查一块用
   `node --check harness/webui/page/scripts/xxx.js`），再跑页面测试 `uv run pytest -m ui`（`tests/ui/`，一分钟左右；默认的 `uv run pytest`
   也会跑，没有 Chrome 时跳过；CI 里 `HARNESS_UI_REQUIRED=1`，找不到 Chrome 算失败）。它用无界面的 Chrome（我们自己的 CDP 客户端）
