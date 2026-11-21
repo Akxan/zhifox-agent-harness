@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Protocol
 
@@ -29,16 +30,20 @@ from .pricing import usage_key
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
-from .tools.base import ToolImage, ToolOutput
+from .tools.base import ToolOutput
 
 WEEKDAYS = "一二三四五六日"
+# 同一轮里一串工具包的调用（"点这里、输入、按回车"），前面一个失败了，后面的都不执行，结果写这句话。
+# 原文是 Anthropic 的文档规定的（https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool 的 Batch actions），一字不改
+HALTED = "Not executed: an earlier action in this turn failed."
 
 
 class UI(StreamUI, Protocol):
     """循环需要界面做的事。终端界面的实现在 ui.py，网页界面的在 webui/ui.py。"""
 
     def tool_call(self, name: str, tool_input: object) -> None: ...
-    def tool_result(self, text: str, is_error: bool) -> None: ...
+    # preview：只给人看的东西（浏览器截图的小图和大图编号，见 ToolOutput.preview）；大多数工具没有，是 None
+    def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None: ...
     # agent：是哪个子 Agent 在问（见 agents/runner.py）；主助手自己问的时候是空的
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]: ...
     def auto_allowed(self) -> None: ...  # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许
@@ -165,20 +170,29 @@ class Agent:
     # ---- 执行工具 ---------------------------------------------------------
 
     def _run_tools(self, step: Step) -> None:
-        """依次执行模型要求的工具，并把所有结果追加进历史。"""
+        """依次执行模型要求的工具，并把所有结果追加进历史。
+
+        工具包的调用（Claude 的浏览器工具包）常常是一串连着的动作："点搜索框、输入、按回车"，后一个依赖前一个。
+        所以按顺序做，其中一个失败了（包括你拒绝了），这一轮后面的调用都不做，结果写 HALTED 那句话（文档的规定）。
+        """
         results: list[ToolResult] = []
+        halted = False
         try:
             for call in step.tool_calls:
-                self.ui.tool_call(call.name, call.input)
-                images: tuple[ToolImage, ...] = ()
+                self.ui.tool_call(call.shown, call.input)
                 if step.truncated:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
-                    text, is_error = "这次调用的参数在生成中途被截断，没有执行。请重新调用。", True
+                    output = ToolOutput("这次调用的参数在生成中途被截断，没有执行。请重新调用。", is_error=True)
+                elif halted:
+                    output = ToolOutput(HALTED, is_error=True)
                 else:
-                    text, is_error, images = self._run_one(call)
-                text = clean_text(text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
-                results.append(ToolResult(call.id, text, is_error, images))
-                self.ui.tool_result(text, is_error)
+                    output = self._run_one(call)
+                    halted = output.is_error and bool(call.toolset)
+                text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
+                results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
+                # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言
+                shown = t("没有执行：这一轮里前面的一步失败了。") if text == HALTED else text
+                self.ui.tool_result(shown, output.is_error, output.preview)
         finally:
             # 每个工具调用都必须有对应的结果，否则下一次请求会被 API 拒绝。
             # 所以即使中途被打断（Ctrl-C 或界面上的"停止"），也要给没做完的调用补上一条结果，
@@ -189,16 +203,16 @@ class Agent:
                     results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
             self.backend.add_tool_results(results)
 
-    def _run_one(self, call: ToolCall) -> tuple[str, bool, tuple[ToolImage, ...]]:
-        """执行一次工具调用，返回（给模型看的结果，是否出错，结果里的图片）。只有 MCP 的工具会返回图片。"""
+    def _run_one(self, call: ToolCall) -> ToolOutput:
+        """执行一次工具调用，返回结果（给模型看的文字、是否出错、结果里的图片……）。"""
         if call.error:
-            return call.error, True, ()  # 模型给的参数没法解析，把问题告诉它
-        tool = self.tools.get(call.name)
+            return ToolOutput(call.error, is_error=True)  # 模型给的参数没法解析，把问题告诉它
+        tool = self.tools.get(call.name, call.toolset)
         if tool is None or tool.run is None:
-            return f"没有可以在本地执行的工具 {call.name}。", True, ()
+            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True)
         refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
         if refusal:
-            return refusal, True, ()  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
+            return ToolOutput(refusal, is_error=True)  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
 
         # 先过权限这一关
         question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
@@ -208,15 +222,15 @@ class Agent:
             else:
                 allowed, feedback = self.ui.confirm(question)
                 if not allowed:
-                    return "用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), True, ()
+                    return ToolOutput("用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), is_error=True)
 
         # 工具出错不会让程序崩溃：错误信息作为结果返回给模型，由它决定怎么办
         try:
             output = tool.run(call.input)
         except ToolError as exc:
-            return str(exc), True, ()
+            return ToolOutput(str(exc), is_error=True)
         except Exception as exc:  # noqa: BLE001 —— 故意捕获所有异常：工具里的 bug 不应该让整个程序退出
-            return f"工具内部出错：{type(exc).__name__}: {exc}", True, ()
+            return ToolOutput(f"工具内部出错：{type(exc).__name__}: {exc}", is_error=True)
         if isinstance(output, ToolOutput):
-            return output.text or "（没有输出）", output.is_error, output.images
-        return output or "（没有输出）", False, ()
+            return output if output.text or output.state_only else replace(output, text="（没有输出）")
+        return ToolOutput(output or "（没有输出）")

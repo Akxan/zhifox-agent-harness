@@ -44,6 +44,8 @@
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
   POST /api/channel/connect、pair、cancel、approval、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
+  POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
+  POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -85,7 +87,13 @@ from ..budget import valid_budget
 from ..channels.base import ChannelError
 from ..channels.hub import ChannelHub
 from ..claims import Claims
-from ..config import APP_NAME, LEDGER_CHART_DAYS, MAX_PROMPT_CHARS, Config
+from ..config import (
+    APP_NAME,
+    BROWSER_SHOT_DAYS,
+    LEDGER_CHART_DAYS,
+    MAX_PROMPT_CHARS,
+    Config,
+)
 from ..conversations import ConversationError
 from ..i18n import k, t
 from ..mcp import ConfigError
@@ -103,6 +111,7 @@ from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
 from . import lifecycle
 from .agents_api import AgentsAPI
+from .browser_api import BrowserAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -182,6 +191,7 @@ class WebApp:
         # Skill 一页的接口。"在文件管理器里显示"每次都按名字现找这个函数（测试会把它换掉）
         self.skills = SkillsAPI(self, lambda path: reveal_in_file_manager(path))
         self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
+        self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -191,6 +201,9 @@ class WebApp:
         self.channels = ChannelHub(app, self.claims, changed=self.publish_state, saved=self.conversation_saved_elsewhere)
         ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
         ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用：只是对话自己的，任务的各自管各自的（见 McpManager.call）
+        # 还有正在做的浏览器动作：只是这段对话自己的（换一段对话就换一个，所以每次现找）
+        ui.on_stop(lambda: app.chat_browser.stop())
+        app.browser.on_change = self.publish_state  # 浏览器开了、关了、忙起来了：页面顶上的提示跟着变
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         app.mcp.on_change = self.publish_state  # MCP 服务器连上了、断开了、工具变了，页面上跟着变
         if app.tasks.problem:
@@ -280,6 +293,8 @@ class WebApp:
             channels=self.channels.snapshot(),
             # 这台电脑能不能打开文件管理器。服务器上不能：页面上"在访达中显示"之后改成告诉你文件在哪儿
             file_manager=has_file_manager(),
+            # 浏览器：开没开、在不在运行、正在操作没有、找到的 Chrome、配置文件夹（见 browser_api.py）
+            browser=self.browser.state(),
         )
 
     def _mcp_state(self) -> dict:
@@ -872,6 +887,18 @@ class WebApp:
             return t("没能打开文件管理器（{error}）。文件在：{path}", error=exc, path=target), ""
         return "", str(target)
 
+    def refresh_tools(self) -> bool:
+        """浏览器开、关了：还没开始的这段对话马上换上新的工具。返回 True 表示这段对话已经开始了，工具不变。"""
+        if not self._turn.acquire(blocking=False):
+            return True  # 正在进行一轮：这段对话当然已经开始了
+        try:
+            started = bool(self.app.agent.backend.export())
+            if not started:
+                self.app.refresh_tools()
+            return started
+        finally:
+            self._turn.release()
+
     # ---- 设置 --------------------------------------------------------------
     # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
@@ -1281,6 +1308,17 @@ class Handler(BaseHTTPRequestHandler):
             self._route_task(web, path.removeprefix("/api/task/"), body)
         elif path.startswith("/api/channel/"):
             self._route_channel(web, path.removeprefix("/api/channel/"), body)
+        elif path == "/api/browser/shot":
+            content = web.browser.shot(body.get("id"))
+            if content is None:
+                self._send_json(409, {"error": t("这张截图的大图已经过期删掉了（只留 {days} 天），对话里还看得到小图。", days=BROWSER_SHOT_DAYS)})
+                return
+            # 和 /api/media/file 一样：当成下载的文件、不按内容猜类型、万一被直接打开也什么都不运行
+            headers = {"Content-Disposition": 'attachment; filename="screenshot.jpg"', "Content-Security-Policy": "default-src 'none'; sandbox"}
+            self._send(200, "image/jpeg", content, headers)
+        elif path.startswith("/api/browser/"):
+            status, payload = web.browser.route(path.removeprefix("/api/browser/"), body)
+            self._send_json(status, payload)
         else:
             self._send_json(404, {"error": "not found"})
 

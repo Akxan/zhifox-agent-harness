@@ -2,7 +2,7 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器的开关。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -45,6 +45,8 @@ class Settings:
         self.budget: float | None = float(budget) if budget is not None and valid_budget(budget) else None
         valid_alert = isinstance(alert, dict) and isinstance(alert.get("month"), str) and valid_budget(alert.get("amount"))
         self.budget_alert: dict | None = alert if valid_alert else None
+        # 浏览器（见 browser/）：开没开、要不要窗口、Chrome 在哪儿。默认关着：要你自己打开
+        self.browser: dict = browser_settings(saved.get("browser"))
 
     def save(self) -> None:
         with self._lock:
@@ -92,6 +94,12 @@ class Settings:
             self.budget_alert = alert
             self._write()
 
+    def set_browser(self, changes: dict) -> None:
+        """改浏览器的设置（只改给了的那几项，见 browser_settings）。"""
+        with self._lock:
+            self.browser = browser_settings({**self.browser, **changes})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -107,7 +115,23 @@ class Settings:
             data["budget"] = self.budget
         if self.budget_alert is not None:
             data["budget_alert"] = self.budget_alert
+        if self.browser != BROWSER_DEFAULTS:  # 和预算一样：没动过的人，设置文件和以前一模一样
+            data["browser"] = self.browser
         write_file(self.path, to_json(data, readable=True, indent=2))
+
+
+BROWSER_DEFAULTS = {"enabled": False, "headless": False, "path": ""}
+
+
+def browser_settings(saved: object) -> dict:
+    """浏览器的设置，只认这三项、这几种类型；不认识的、类型不对的按默认的来（文件被改坏了也不出错）。"""
+    saved = saved if isinstance(saved, dict) else {}
+    path = saved.get("path")
+    return {
+        "enabled": saved.get("enabled") is True,
+        "headless": saved.get("headless") is True,
+        "path": path.strip()[:1000] if isinstance(path, str) else "",
+    }
 
 
 # ---- API key -------------------------------------------------------------------

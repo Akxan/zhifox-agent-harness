@@ -40,6 +40,13 @@ class ToolOutput:
     text: str
     images: tuple[ToolImage, ...] = ()
     is_error: bool = False
+    # 下面三样只有浏览器的工具会用到（见 tools/browser.py）。
+    # state：标签页的情况（Anthropic 浏览器工具包的 browser_state 块）。Claude 的适配层把它原样放进结果里
+    state: dict | None = None
+    # state_only：结果只有 state、没有文字（工具包规定：开、关、换、列出标签页这四个动作的结果就是这样）
+    state_only: bool = False
+    # preview：只给界面看的东西（截图的小图和大图的编号），不发给模型
+    preview: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -56,10 +63,23 @@ class Tool:
     # 不问用户）；返回 None 表示照常。比如只许读文件的 Agent 拿到的文件工具，遇到"改文件"就直接退回
     # （见 agents/tools.py）：明知不会做的事，不该先弹一张确认卡片让你点
     check: Callable[[dict], str | None] | None = None
+    # 这个工具是 Anthropic 的哪个"工具包"（client toolset）里的一员，比如 "browser"；空的是普通的工具。
+    # 工具包的成员不各发各的说明书：spec 是整个工具包的那一项（同一个包的成员共用同一份），Claude 的适配层只发一次。
+    # 模型调用时用成员的名字（member），并带上 toolset_name（见 providers/claude.py）
+    toolset: str = ""
+    member: str = ""
+    # 这个工具是哪个工具包的"替身"：模型用不了那个工具包时（别家的模型、不支持它的 Claude 模型）才用它，
+    # 用得了的时候不发。比如浏览器：Claude 用工具包，GPT 用我们自己写的 browser_* 函数工具
+    stands_in_for: str = ""
 
     @property
     def name(self) -> str:
-        return self.spec["name"]
+        return self.member or self.spec["name"]
+
+    @property
+    def key(self) -> str:
+        """在工具箱里的编号。工具包的成员前面加上包名：成员的名字（navigate、find……）可能和普通工具重名"""
+        return f"{self.toolset}:{self.member}" if self.toolset else self.spec["name"]
 
 
 # 参数的类型。对象和数组只检查最外面这一层，里面的内容由工具自己检查（比如定时任务的时间表，见 tasks.py）

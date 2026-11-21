@@ -1951,6 +1951,83 @@ a.chan-button.primary { color: var(--on-ink); }
 @keyframes found { 12%, 55% { opacity: 1; } }
 @keyframes dot { 30% { opacity: 1; transform: translateY(-2px); } 60% { opacity: .3; transform: none; } }
 @keyframes ring { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.03, 1.16); } }
+/* ---- 浏览器（智狐自己的那个 Chrome） -------------------------------------------
+   顶栏上的提示：浏览器开着的时候才出现。正在操作时圆点外面有一圈光荡开（只改 transform 和 opacity），
+   一停下来就静止。窄窗口里只留圆点和按钮，文字让出位置给标题 */
+.browser-live { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 4px 0 11px; font-size: 12.5px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; animation: reveal .3s var(--ease); }
+.browser-live .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.browser-live-dot { position: relative; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--ink-3); transition: background-color .25s ease; }
+.browser-live.busy .browser-live-dot { background: var(--accent); }
+.browser-live.busy .browser-live-dot::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--accent); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.browser-live.busy { color: var(--ink); border-color: var(--line-2); }
+.browser-live-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.browser-live-stop { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px 0 8px; font-size: 12px; font-weight: 500; color: var(--ink); background: var(--hover); border: 0; border-radius: 999px; transition: transform .15s var(--ease); }
+.browser-live-stop .icon { width: 11px; height: 11px; stroke-width: 2.4; color: currentColor; }
+.browser-live-stop:hover { color: var(--on-ink); background: var(--ink); }
+.browser-live-stop:active { transform: scale(.94); }
+:root[data-motion="reduce"] .browser-live.busy .browser-live-dot::after { animation: none; opacity: .5; }
+@media (max-width: 760px) {
+  /* 窄窗口：顶栏里放不下了（标题、模型、几个按钮已经挤满），改成浮在顶栏下面正中间的一条，和"任务在跑"的提示一样。
+     居中用 translate 属性，不用 transform：入场动画改的是 transform，两样不会互相盖掉 */
+  .browser-live { position: absolute; z-index: 6; top: 58px; left: 50%; translate: -50% 0; max-width: calc(100% - 32px); box-shadow: var(--shadow-2); }
+  .browser-live > .icon { display: none; }
+}
+
+/* 对话里浏览器的一步：工具卡片下面一张小截图，点开看大图（查看器）。小图先按 16:10 占好位置，图到了也不挤动下面的内容 */
+.browser-step { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.browser-step > .call { align-self: stretch; }
+.browser-thumb { position: relative; display: block; width: 168px; max-width: 46%; aspect-ratio: 16 / 10; margin-left: 40px; padding: 0; overflow: hidden; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-1); transition: transform .2s var(--ease), border-color .2s ease; }
+.browser-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.browser-thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); pointer-events: none; }
+.browser-thumb:hover { border-color: var(--line-2); transform: translateY(-1px) scale(1.02); }
+.browser-thumb:active { transform: scale(.98); }
+.call.browser-call .tool-name { color: var(--accent); }
+
+/* 设置里的"浏览器"一节 */
+.browser-card { position: relative; overflow: hidden; padding: 16px 16px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.browser-card::before { content: ""; position: absolute; right: -70px; top: -90px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(closest-side, var(--a1), transparent); opacity: .12; pointer-events: none; transition: opacity .4s ease; }
+.browser-card.on::before { opacity: .22; }
+.browser-top { position: relative; display: flex; align-items: flex-start; gap: 12px; }
+.browser-glyph { width: 36px; height: 36px; flex: none; display: grid; place-items: center; color: var(--ink-3); background: var(--hover); border-radius: 11px; transition: color .25s ease, background-color .25s ease; }
+.browser-card.on .browser-glyph { color: #fff; background: var(--aurora-solid); }
+.browser-glyph .icon { width: 18px; height: 18px; }
+.browser-words { flex: 1; min-width: 0; }
+.browser-words b { display: block; font-size: 14px; font-weight: 600; line-height: 1.45; }
+.browser-words p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); text-wrap: pretty; }
+.browser-switch { position: relative; flex: none; width: 38px; height: 22px; margin-top: 4px; padding: 0; overflow: hidden; background: var(--line-3); border: 0; border-radius: 999px; }
+.browser-switch::before { content: ""; position: absolute; inset: 0; background: var(--accent); opacity: 0; transition: opacity .2s ease; }
+.browser-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .3s var(--spring); }
+.browser-switch[aria-checked="true"]::before { opacity: 1; }
+.browser-switch[aria-checked="true"]::after { transform: translateX(16px); }
+.browser-switch:disabled { opacity: .45; cursor: default; }
+.browser-rules { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; margin: 12px 0 0 48px; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
+.browser-rules li { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.browser-rules .icon { width: 14px; height: 14px; margin-top: 3px; color: var(--ink-3); }
+.browser-rules li span { min-width: 0; overflow-wrap: anywhere; }
+.browser-option { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 0 2px; }
+.browser-option-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.browser-option-words b { font-size: 13px; font-weight: 600; }
+.browser-note { font-size: 12px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.browser-note.bad { color: var(--err); }
+.browser-option .browser-switch { margin-top: 0; }
+.browser-path-row { margin-top: 8px; }
+.browser-path-row .field { flex: 1 1 220px; font-family: var(--mono); font-size: 12.5px; }
+@media (max-width: 520px) { .browser-rules { margin-left: 0; } }
+/* 配置文件夹：和会话、记忆、Skill 一样的一行——悬停时右边浮出"在访达中显示 / 清除"，清除先在原地确认 */
+.browser-profile { position: relative; display: flex; align-items: center; min-height: 56px; margin: 12px -10px 0; border-radius: 14px; transition: background-color .15s ease, box-shadow .15s ease; }
+.browser-profile:hover, .browser-profile:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.browser-profile-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 8px 12px; }
+.browser-profile-glyph { width: 32px; height: 32px; flex: none; display: grid; place-items: center; color: var(--ink-3); background: var(--hover); border-radius: 10px; }
+.browser-profile-words { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.browser-profile-name { font-size: 13px; font-weight: 600; }
+.browser-profile-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11.5px/1.5 var(--mono); color: var(--ink-3); }
+.browser-profile-actions { position: absolute; z-index: 1; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 60px; background: linear-gradient(90deg, transparent, var(--surface) 24px); border-radius: 0 14px 14px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.browser-profile:hover .browser-profile-actions, .browser-profile:focus-within .browser-profile-actions { opacity: 1; pointer-events: auto; }
+.browser-profile-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+@media (hover: none) { .browser-profile-main { padding-right: 76px; } .browser-profile-actions { opacity: 1; pointer-events: auto; background: none; } }
+.browser-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 10px 12px; font-size: 13px; }
+.browser-confirm span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+
 /* 换外观时的交叉淡化（浏览器对新旧两张画面做合成，不重新排版） */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
 ::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
@@ -2121,6 +2198,12 @@ a.chan-button.primary { color: var(--on-ink); }
         <button id="persona" class="persona-chip" type="button" hidden><span class="agents-dot" aria-hidden="true"></span><span id="persona-name"></span></button>
         <h1 id="title" class="title">新对话</h1>
         <div id="bar-actions" class="bar-actions">
+          <div id="browser-live" class="browser-live" role="group" aria-label="智狐的浏览器" data-i18n-aria-label hidden>
+            <span class="browser-live-dot" aria-hidden="true"></span>
+            <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
+            <span id="browser-live-text" class="browser-live-text" role="status"></span>
+            <button id="browser-live-stop" class="browser-live-stop" type="button"></button>
+          </div>
           <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent" aria-label="扩展：Skill、MCP、通道、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <button id="model" class="model-button" type="button" title="设置：换模型、填写 API 密钥" data-i18n-title><i class="model-dot"></i><span id="model-label">设置</span><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
           <button id="language" class="icon-button" type="button" title="语言 · Language · Idioma" aria-label="语言 · Language · Idioma" hidden><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></button>
@@ -2284,6 +2367,37 @@ a.chan-button.primary { color: var(--on-ink); }
         <button id="budget-clear" class="button" type="button" data-i18n>不设预算</button>
       </div>
       <p class="hint" data-i18n>这个月的花费超过它时提醒你一次，不会拦住任何操作。调高以后又超过了，会再提醒一次。</p>
+    </section>
+    <section id="browser-section">
+      <h3><span data-i18n>浏览器</span> <small id="browser-state"></small></h3>
+      <div id="browser-card" class="browser-card">
+        <div class="browser-top">
+          <span class="browser-glyph" aria-hidden="true"><svg class="icon"><use href="#i-globe"/></svg></span>
+          <div class="browser-words">
+            <b id="browser-title" data-i18n>让助手使用浏览器</b>
+            <p data-i18n>助手会用一个智狐自己打开的 Chrome 看网页、点按钮、填表单。它和你平时用的浏览器完全分开：看不到你的登录、书签和保存的密码。</p>
+          </div>
+          <button id="browser-enabled" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="browser-title"></button>
+        </div>
+        <ul class="browser-rules">
+          <li><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg><span data-i18n>看网页、截图、滚动：直接做</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>输入文字、提交表单、去一个新的网站：先问你</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n>往密码框、银行卡里输入：不管选了哪一档都要问；网页想下载的文件一律不下载</span></li>
+        </ul>
+      </div>
+      <div class="browser-option">
+        <div class="browser-option-words"><b id="browser-headless-title" data-i18n>不显示浏览器窗口</b><span id="browser-headless-note" class="browser-note"></span></div>
+        <button id="browser-headless" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="browser-headless-title"></button>
+      </div>
+      <div class="browser-option">
+        <div class="browser-option-words"><b>Chrome</b><span id="browser-chrome" class="browser-note"></span></div>
+      </div>
+      <div class="row browser-path-row">
+        <input id="browser-path" class="field" type="text" spellcheck="false" autocomplete="off" maxlength="1000" placeholder="不填就自动查找；要用别的 Chrome 时填它的完整路径" aria-label="Chrome 的路径" data-i18n-placeholder data-i18n-aria-label data-keep="browser-path">
+        <button id="browser-path-save" class="button" type="button" data-i18n>保存路径</button>
+      </div>
+      <div id="browser-profile" class="browser-profile"></div>
+      <p id="browser-cost" class="hint"></p>
     </section>
     <section>
       <h3 data-i18n>导出全部数据</h3>
@@ -3325,6 +3439,7 @@ a.chan-button.primary { color: var(--on-ink); }
       renderTools(event.tools);
       renderMcpState(event.mcp);
       renderChannelsState(event.channels);
+      renderBrowser(event.browser);
       if (settings.open) renderSettings();
       renderApproval(event.approval);
 
@@ -3370,7 +3485,8 @@ a.chan-button.primary { color: var(--on-ink); }
       endBlock();
       if (toolCard) finishTool('stopped', '');
       if (event.name === 'agent') { toolCard = subagentCard(event); return; }  // 交给子 Agent：画成一张专门的卡片（见下面"交给子 Agent 的卡片"）
-      const card = el('details', 'call');
+      const browserStep = isBrowserCall(event.name);  // 浏览器的一步：卡片下面还要放一张小截图（见"浏览器"一节）
+      const card = el('details', browserStep ? 'call browser-call' : 'call');
       const summary = card.appendChild(el('summary'));
       const status = summary.appendChild(el('span', 'status pending'));
       status.appendChild(tel('span', 'sr-only', k('正在执行')));
@@ -3383,8 +3499,10 @@ a.chan-button.primary { color: var(--on-ink); }
       const details = card.appendChild(el('div', 'tool-body'));
       details.appendChild(tel('div', 'label', k('参数')));
       details.appendChild(el('pre', null, JSON.stringify(event.input, null, 2)));
-      add(card);
-      toolCard = { card, status, outcome, details, summary };
+      const holder = browserStep ? el('div', 'browser-step') : null;
+      if (holder) holder.appendChild(card);
+      add(holder || card);
+      toolCard = { card, status, outcome, details, summary, holder };
     },
 
     // 这次调用本来要问用户，但用户打开了"自动允许"，所以没有问。在卡片上标出来，记录里看得出
@@ -3401,6 +3519,7 @@ a.chan-button.primary { color: var(--on-ink); }
         toolCard.details.appendChild(tel('div', 'label', k('结果')));
         toolCard.details.appendChild(el('pre', null, event.text));
       }
+      if (toolCard.holder && typeof event.thumb === 'string' && THUMB_URL.test(event.thumb)) toolCard.holder.appendChild(browserThumb(event));
       finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
     },
 
@@ -3930,6 +4049,7 @@ a.chan-button.primary { color: var(--on-ink); }
 
   // 种类的说法：PDF、Word…；旧会话里的 Word 只剩文字，说明一下
   function kindLabel(item) {
+    if (item.shot !== undefined) return t('浏览器截图');
     if (item.kind === 'pdf') return 'PDF';
     if (item.kind === 'document') {
       const office = OFFICE_LABEL[extension(item.name)] || 'Office';
@@ -3965,7 +4085,7 @@ a.chan-button.primary { color: var(--on-ink); }
     const shown = viewKind(item);
     $('viewer-name').textContent = item.name;
     const dimensions = shown === 'image' && view.original && view.width ? view.width + ' × ' + view.height : '';
-    const parts = [kindLabel(item), sizeText(item), dimensions, item.conversation_title || '', item.at ? momentText(item.at) : ''];
+    const parts = [kindLabel(item), item.shot !== undefined ? '' : sizeText(item), dimensions, item.conversation_title || '', item.at ? momentText(item.at) : ''];
     $('viewer-meta').textContent = parts.filter(Boolean).join(' · ');
     $('viewer-zoom').hidden = shown !== 'image';
     const copy = $('viewer-copy');
@@ -3986,7 +4106,8 @@ a.chan-button.primary { color: var(--on-ink); }
     $('viewer-prev').disabled = looking.at <= 0;
     $('viewer-next').disabled = looking.at >= total - 1 && !more;
     // 附件是对话记录的一部分（对话历史只往后加，不改前面的），所以没有"删除这一个"的按钮，在这里说清楚
-    retext($('viewer-note'), item.id ? k('附件不能单独删除：它是对话记录的一部分。删除它所在的会话时，原件会一起删除（别的会话也用到的除外）。')
+    if (item.shot !== undefined) retext($('viewer-note'), k('大图在这台电脑上保留 {days} 天，之后对话里还看得到小图。'), { days: browserShotDays() });
+    else retext($('viewer-note'), item.id ? k('附件不能单独删除：它是对话记录的一部分。删除它所在的会话时，原件会一起删除（别的会话也用到的除外）。')
       : k('还没有发出去。发出去以后，它会存进多媒体库。'));
   }
 
@@ -4019,7 +4140,7 @@ a.chan-button.primary { color: var(--on-ink); }
     viewerImage.alt = item.name;
     viewerImage.hidden = false;
     if (quick) await placeImage(quick, Boolean(item.local), mine);
-    if (item.local || !item.id) {
+    if (item.local || !(item.id || item.shot)) {
       if (!quick) showCard(item, t('这个文件的内容没有保存下来。'));
       return;
     }
@@ -4264,13 +4385,14 @@ a.chan-button.primary { color: var(--on-ink); }
       if (typeof item.local.text === 'string') return { blob: new Blob([item.local.text], { type: 'text/plain' }), name: item.name };
       return { blob: blobFrom(item.local.data, item.media_type), name: item.download || item.name };
     }
-    if (fetched.has(item.id)) return fetched.get(item.id);
+    const key = item.shot ? 'shot:' + item.shot : item.id;  // 浏览器截图的大图另有一个接口（见"浏览器"一节）
+    if (fetched.has(key)) return fetched.get(key);
     let response;
     try {
-      response = await fetch('/api/media/file', {
+      response = await fetch(item.shot ? '/api/browser/shot' : '/api/media/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
-        body: JSON.stringify({ id: item.id }),
+        body: JSON.stringify({ id: item.shot || item.id }),
       });
     } catch (_) {
       throw new Error(t('连接不上助手程序'));
@@ -4286,7 +4408,7 @@ a.chan-button.primary { color: var(--on-ink); }
     const given = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') || '');
     if (given) { try { name = decodeURIComponent(given[1]); } catch (_) { /* 编码不对就用原来的名字 */ } }
     const got = { blob, name };
-    fetched.set(item.id, got);
+    fetched.set(key, got);
     while (fetched.size > 6) fetched.delete(fetched.keys().next().value);  // 只留最近的几个，大图很占内存
     return got;
   }
@@ -9688,6 +9810,7 @@ a.chan-button.primary { color: var(--on-ink); }
   const AGENT_TOOL_LABELS = {
     Read: k('读文件'), Edit: k('读写文件'), Bash: k('执行命令'), WebSearch: k('联网搜索'), WebFetch: k('读网页'),
     Memory: k('长期记忆'), TodoWrite: k('待办'), Schedule: k('定时任务'), Skill: k('读取你装的 Skill'), Agent: k('交给别的 Agent'),
+    Browser: k('用智狐的浏览器'),
   };
   const AGENT_COLOR_NAMES = {
     red: k('红色'), orange: k('橙色'), yellow: k('黄色'), green: k('绿色'), cyan: k('青色'), blue: k('蓝色'), purple: k('紫色'), pink: k('粉色'),
@@ -11697,6 +11820,7 @@ a.chan-button.primary { color: var(--on-ink); }
     drawMedia();
     if (viewer.open) { labelViewer(); drawViewerChrome(); }  // 查看器：按钮的说明（带着快捷键）、上面的信息
     if (taskEditor.open) { drawEditor(); previewSoon(); }  // 编辑任务的窗口：星期几的按钮、接下来几次的时间
+    renderBrowser(browserStatus, true);  // 顶上的提示、设置里的"浏览器"一节
   }
 
   $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮
@@ -11910,6 +12034,8 @@ a.chan-button.primary { color: var(--on-ink); }
     say('');
     renderSettings();
     fillDataSettings();
+    browserConfirming = false;
+    drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）
     settings.showModal();
   }
 
@@ -11930,6 +12056,178 @@ a.chan-button.primary { color: var(--on-ink); }
     if (!pickModel.value) return;
     const result = await call('/api/model', { provider: pickProvider.value, model: pickModel.value });
     if (result.ok) settings.close(); else say(result.error, 'bad');
+  });
+
+  // ---- 浏览器 --------------------------------------------------------------
+  // 助手可以操作一个智狐自己打开的 Chrome（见 harness/browser/）。这一节管页面上和它有关的三样东西：
+  //   顶栏上的提示   浏览器开着时出现："浏览器正在被智狐控制"（正在操作）或"智狐的浏览器开着"，旁边一个按钮停下并关掉它
+  //   对话里的一步   浏览器的工具卡片下面一张小截图（事件里带着的 thumb），点开在查看器里看大图（按 shot 编号去取）
+  //   设置里的一节   开关、要不要窗口、Chrome 在哪儿、配置文件夹（在访达中显示 / 清除，清除先在原地确认）
+  // 开没开、在不在运行、找没找到 Chrome、截图留几天……都由助手程序在状态里给（state.browser），页面不另算一份。
+
+  let browserStatus = null;      // 状态里最新的那一份
+  let browserDrawn = '';         // 设置里那一节上一次按什么画的（没变就不重画，保留焦点和输入框里写了一半的路径）
+  let browserConfirming = false; // 配置文件夹那一行正在原地确认"清除"
+
+  const isBrowserCall = (name) => typeof name === 'string' && /^browser[._]/.test(name);
+  const browserShotDays = () => (browserStatus && browserStatus.shot_days) || 30;
+
+  function browserThumb(event) {
+    // 查看器顶上写的是这一步做了什么（browser.navigate https://…），翻看几张截图时分得清是哪一步
+    const step = toolCard && toolCard.summary ? toolCard.summary.querySelector('.tool-name').textContent + ' ' + toolCard.summary.querySelector('.tool-args').textContent : '';
+    const button = el('button', 'browser-thumb');
+    button.type = 'button';
+    tattr(button, 'title', k('看大图'));
+    tattr(button, 'aria-label', k('看这一步的截图'));
+    const image = button.appendChild(el('img'));
+    image.alt = '';
+    image.decoding = 'async';
+    image.src = event.thumb;
+    const shot = typeof event.shot === 'string' && /^[0-9a-f]{64}$/.test(event.shot) ? event.shot : '';
+    button.addEventListener('click', () => openViewer([{ kind: 'image', name: step.trim() || t('浏览器截图'), thumb: event.thumb, shot, download: 'screenshot.jpg' }], 0, button));
+    if (isLive()) play(button, [{ opacity: 0, transform: 'translateY(6px) scale(.97)' }, { opacity: 1, transform: 'none' }], 280);
+    return button;
+  }
+
+  function renderBrowser(status, force) {
+    if (!status) return;
+    browserStatus = status;
+    // 顶栏上的提示
+    const live = $('browser-live');
+    const wasHidden = live.hidden;
+    live.hidden = !status.running;
+    live.classList.toggle('busy', Boolean(status.busy));
+    retext($('browser-live-text'), status.busy ? k('浏览器正在被智狐控制') : k('智狐的浏览器开着'));
+    const stop = $('browser-live-stop');
+    // 按钮里一个图标、一句话；窄窗口里只留图标（说明在 title 和 aria-label 里）
+    stop.replaceChildren(icon(status.busy ? 'stop' : 'x'), tel('span', 'browser-live-label', status.busy ? k('停止') : k('关闭')));
+    tattr(stop, 'title', status.busy ? k('停下浏览器正在做的事，并关掉它') : k('关掉智狐的浏览器（下次要用时会自动打开）'));
+    tattr(stop, 'aria-label', status.busy ? k('停下浏览器正在做的事，并关掉它') : k('关掉智狐的浏览器（下次要用时会自动打开）'));
+    if (wasHidden && !live.hidden && !isLive()) live.style.animation = 'none';  // 重放旧内容时不播入场动画
+    else if (!live.hidden) live.style.animation = '';
+    if (settings.open) drawBrowserSettings(force);
+  }
+
+  $('browser-live-stop').addEventListener('click', async () => {
+    const button = $('browser-live-stop');
+    button.disabled = true;
+    const reply = await call('/api/browser/stop', {});
+    button.disabled = false;
+    toast(reply.ok ? t('已经停下并关掉了浏览器。') : reply.error);
+  });
+
+  function browserSay(text, kind) { say(text, kind); }  // 设置窗口开着：提示写在窗口里（浮在页面上的会被暗底挡住）
+
+  async function setBrowser(changes, done) {
+    const reply = await call('/api/browser/settings', changes);
+    if (!reply.ok) { browserSay(reply.error, 'bad'); return false; }
+    browserSay(reply.warning || done, reply.warning ? 'bad' : 'good');
+    return true;
+  }
+
+  function drawBrowserSettings(force) {
+    const status = browserStatus;
+    if (!status) return;
+    const print = JSON.stringify([status, language, browserConfirming]);
+    if (!force && print === browserDrawn) return;
+    browserDrawn = print;
+
+    const enabled = $('browser-enabled');
+    enabled.setAttribute('aria-checked', String(Boolean(status.enabled)));
+    $('browser-card').classList.toggle('on', Boolean(status.enabled));
+    retext($('browser-state'), !status.enabled ? k('（关着）') : status.running ? (status.busy ? k('（正在操作）') : k('（开着，正在运行）')) : k('（开着，用到时才启动）'));
+
+    const headless = $('browser-headless');
+    headless.setAttribute('aria-checked', String(Boolean(status.headless)));
+    headless.disabled = Boolean(status.headless_forced);
+    retext($('browser-headless-note'), status.headless_forced ? k('这台电脑没有屏幕（比如在服务器上），只能不显示窗口。')
+      : status.headless_setting ? k('浏览器在后台运行，你看不到它，截图照样有。') : k('会弹出一个单独的浏览器窗口，你可以看着它操作。'));
+
+    const found = $('browser-chrome');
+    found.classList.toggle('bad', !status.chrome);
+    if (status.chrome) { delete found.dataset.i18n; found.textContent = status.chrome; }
+    else retext(found, status.path ? k('设置里填的路径不对：找不到这个 Chrome。') : k('没有找到 Chrome。装一个 Chrome，或者在下面填上它的路径。'));
+    const path = $('browser-path');
+    if (document.activeElement !== path && path.dataset.saved !== status.path) { path.value = status.path || ''; path.dataset.saved = status.path || ''; }
+
+    const error = status.error;
+    if (error && status.enabled) {
+      // 上一次打开失败的原因（程序给了原文的话，换语言时跟着换）
+      found.classList.add('bad');
+      if (error.key) retext(found, error.key, error.values); else found.textContent = String(error.text || '');
+    }
+    retext($('browser-cost'), k('用 Claude 时，浏览器的工具每次请求要多发六千多个 token 的说明书（命中缓存时很便宜）；每张截图大约 {tokens} 个 token。浏览器闲置 {minutes} 分钟会自动关掉，登录状态留在配置文件夹里。'),
+      { tokens: Number(status.shot_tokens || 0).toLocaleString(LOCALES[language]), minutes: status.idle_minutes || 10 });
+    drawBrowserProfile(status);
+  }
+
+  // 配置文件夹那一行：和会话、记忆、Skill 的行一样，悬停时右边浮出按钮（在访达中显示、清除），清除先在原地确认
+  function drawBrowserProfile(status) {
+    const row = $('browser-profile');
+    const hadFocus = row.contains(document.activeElement) ? document.activeElement.dataset.focus : '';
+    if (browserConfirming) {
+      const confirm = el('div', 'browser-confirm');
+      confirm.appendChild(tel('span', null, k('清除以后，在这个浏览器里登录过的网站都要重新登录，缓存和历史记录也没有了。浏览器开着的话会先关掉。')));
+      const yes = confirm.appendChild(tel('button', 'mini danger', k('清除')));
+      const no = confirm.appendChild(tel('button', 'mini', k('取消')));
+      yes.type = no.type = 'button';
+      yes.dataset.focus = 'yes';
+      no.dataset.focus = 'no';
+      const back = () => { browserConfirming = false; drawBrowserSettings(true); const trash = row.querySelector('[data-focus="trash"]'); if (trash) trash.focus(); };
+      no.addEventListener('click', back);
+      confirm.addEventListener('keydown', (key) => { if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); back(); } });
+      yes.addEventListener('click', async () => {
+        yes.disabled = no.disabled = true;
+        const reply = await call('/api/browser/clear', {});
+        browserConfirming = false;
+        browserSay(reply.ok ? t('配置文件夹已经清除。') : reply.error, reply.ok ? 'good' : 'bad');
+        drawBrowserSettings(true);
+      });
+      row.replaceChildren(confirm);
+      (row.querySelector('[data-focus="' + (hadFocus || 'no') + '"]') || no).focus();
+      return;
+    }
+    const main = el('div', 'browser-profile-main');
+    const glyph = main.appendChild(el('span', 'browser-profile-glyph'));
+    glyph.appendChild(icon('folder'));
+    const words = main.appendChild(el('div', 'browser-profile-words'));
+    words.appendChild(tel('span', 'browser-profile-name', k('配置文件夹')));
+    const where = words.appendChild(el('span', 'browser-profile-path', status.profile));
+    where.title = status.profile;
+    const actions = el('div', 'browser-profile-actions');
+    const reveal = actions.appendChild(iconButton('folder', revealLabel()));
+    reveal.dataset.focus = 'reveal';
+    reveal.addEventListener('click', async () => {
+      const reply = await call('/api/browser/reveal', {});
+      if (!reply.ok) browserSay(reply.error, 'bad');
+      else if (state && state.file_manager === false) browserSay(t('文件在：{path}', { path: reply.data.path || status.profile }), 'good');
+    });
+    const trash = actions.appendChild(iconButton('trash', k('清除配置文件夹')));
+    trash.classList.add('danger-hover');
+    trash.dataset.focus = 'trash';
+    trash.disabled = !status.profile_exists;
+    if (!status.profile_exists) tattr(trash, 'title', k('还没有用过浏览器，没有可以清除的'));
+    trash.addEventListener('click', () => { browserConfirming = true; drawBrowserSettings(true); });
+    row.replaceChildren(main, actions);
+    if (hadFocus) { const again = row.querySelector('[data-focus="' + hadFocus + '"]'); if (again && !again.disabled) again.focus(); }
+  }
+
+  $('browser-enabled').addEventListener('click', async () => {
+    const on = $('browser-enabled').getAttribute('aria-checked') !== 'true';
+    await setBrowser({ enabled: on }, on ? t('浏览器已打开：助手用到它的时候才会启动。') : t('浏览器已关闭。'));
+  });
+  $('browser-headless').addEventListener('click', async () => {
+    const on = $('browser-headless').getAttribute('aria-checked') !== 'true';
+    await setBrowser({ headless: on }, on ? t('以后浏览器在后台运行，不显示窗口。') : t('以后浏览器会显示窗口。'));
+  });
+  async function saveBrowserPath() {
+    const path = $('browser-path');
+    const saved = await setBrowser({ path: path.value.trim() }, path.value.trim() ? t('Chrome 的路径已保存。') : t('已改回自动查找 Chrome。'));
+    if (saved) path.dataset.saved = path.value.trim();
+  }
+  $('browser-path-save').addEventListener('click', saveBrowserPath);
+  $('browser-path').addEventListener('keydown', (key) => {
+    if (key.key === 'Enter' && !key.isComposing) { key.preventDefault(); saveBrowserPath(); }
   });
 
   // ---- 键盘 ----------------------------------------------------------------

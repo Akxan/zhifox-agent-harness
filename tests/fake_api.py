@@ -24,9 +24,10 @@ def thinking(value: str, signature: str = "sig-1") -> dict:
     return {"type": "thinking", "thinking": value, "signature": signature}
 
 
-def tool_use(id: str, name: str, input: dict, raw: str | None = None) -> dict:
-    """一次工具调用。raw 是参数的原始 JSON 文本：想发 Python 自己写不出来的东西（比如 1e999）时用。"""
-    return {"type": "tool_use", "id": id, "name": name, "input": input, "raw": raw}
+def tool_use(id: str, name: str, input: dict, raw: str | None = None, toolset: str | None = None) -> dict:
+    """一次工具调用。raw 是参数的原始 JSON 文本：想发 Python 自己写不出来的东西（比如 1e999）时用。
+    toolset：调用的是工具包的成员（浏览器工具包是 "browser"），真实的 API 会在块上带着 toolset_name。"""
+    return {"type": "tool_use", "id": id, "name": name, "input": input, "raw": raw, "toolset": toolset}
 
 
 def reply(
@@ -75,6 +76,8 @@ def _events(scripted: dict) -> list[dict]:
             ]
         elif block["type"] == "tool_use":
             start = {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}
+            if block.get("toolset"):
+                start["toolset_name"] = block["toolset"]
             deltas = [{"type": "input_json_delta", "partial_json": block.get("raw") or json.dumps(block["input"])}]
         else:  # 其他类型的块没有增量，整块一次发完
             start, deltas = block, []

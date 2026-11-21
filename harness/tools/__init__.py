@@ -32,14 +32,15 @@ __all__ = ["Tool", "ToolError", "ToolRegistry", "build_registry"]
 
 class ToolRegistry:
     def __init__(self, tools: list[Tool]):
-        self._tools = {tool.name: tool for tool in tools}
+        self._tools = {tool.key: tool for tool in tools}
 
     def specs(self) -> list[dict]:
         """所有工具的说明书，每次请求都会发给模型。"""
         return [tool.spec for tool in self._tools.values()]
 
-    def get(self, name: str) -> Tool | None:
-        return self._tools.get(name)
+    def get(self, name: str, toolset: str = "") -> Tool | None:
+        """按名字找一个工具。toolset：模型调用的是哪个工具包的成员（见 Tool.toolset）；普通的工具是空的。"""
+        return self._tools.get(f"{toolset}:{name}" if toolset else name)
 
     def __iter__(self) -> Iterator[Tool]:
         return iter(self._tools.values())
@@ -50,8 +51,8 @@ class ToolRegistry:
         定时任务的每次运行、聊天通道里的每个聊天都用它换上自己的 shell（见 App.unattended_agent）：别的工具照旧共用，
         背后是同一份待办、任务、记忆和文件，各自有锁，几边同时用也不会互相冲掉。
         """
-        swap = {tool.name: tool for tool in tools}
-        return ToolRegistry([swap.get(tool.name, tool) for tool in self])
+        swap = {tool.key: tool for tool in tools}
+        return ToolRegistry([swap.get(tool.key, tool) for tool in self])
 
 
 def build_registry(

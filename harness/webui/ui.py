@@ -279,10 +279,12 @@ class WebUI:
         """刚才那次工具调用本来要问用户，但用户设置了自动允许。页面会在那张工具卡片上标出来。"""
         self.publish("auto_allowed")
 
-    def tool_result(self, text: str, is_error: bool) -> None:
+    def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
         if len(text) > MAX_RESULT_CHARS:
             text = text[:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(text))
-        self.publish("tool_result", text=text, is_error=is_error)
+        # 浏览器的截图：小图（几 KB 的 data: 地址）放进事件，画在工具卡片上；大图只给编号，点开时再要（见 browser/shots.py）
+        shot = shot_fields(preview)
+        self.publish("tool_result", text=text, is_error=is_error, **shot)
         self._check_stop()
 
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
@@ -346,6 +348,23 @@ class WebUI:
     def error(self, text: str) -> None:
         self.end_stream()
         self.publish("notice", level="error", **said(text))
+
+
+THUMB_PREFIX = "data:image/jpeg;base64,"
+MAX_THUMB_CHARS = 60_000  # 小图最多这么大（正常的只有几 KB）。再大的不放进事件：每次刷新页面都要重发
+
+
+def shot_fields(preview: dict | None) -> dict:
+    """工具结果里给页面看的截图：{"thumb": 小图, "shot": 大图的编号}。格式不对的一律不要。"""
+    if not preview:
+        return {}
+    thumb, shot = preview.get("thumb"), preview.get("shot")
+    if not isinstance(thumb, str) or not thumb.startswith(THUMB_PREFIX) or len(thumb) > MAX_THUMB_CHARS:
+        return {}
+    fields = {"thumb": thumb}
+    if isinstance(shot, str) and len(shot) == 64 and all(char in "0123456789abcdef" for char in shot):
+        fields["shot"] = shot
+    return fields
 
 
 def said(text: str) -> dict:

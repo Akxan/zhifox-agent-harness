@@ -88,6 +88,12 @@ class ToolCall:
     name: str
     input: Any  # 解析好的参数
     error: str = ""  # 参数没法解析时的说明；这种调用不会被执行
+    toolset: str = ""  # 调用的是哪个工具包的成员（Claude 的浏览器工具包是 "browser"，见 Tool.toolset）；普通的工具是空的
+
+    @property
+    def shown(self) -> str:
+        """给人看的名字：工具包的成员写成"包名.成员"（browser.left_click），一看就知道是哪儿的"""
+        return f"{self.toolset}.{self.name}" if self.toolset else self.name
 
 
 @dataclass
@@ -97,7 +103,9 @@ class ToolResult:
     id: str  # 对应 ToolCall 的 id
     text: str
     is_error: bool = False
-    images: tuple[ToolImage, ...] = ()  # 结果里的图片（MCP 的工具可能返回截图）。各家怎么交给模型见各自的 add_tool_results
+    images: tuple[ToolImage, ...] = ()  # 结果里的图片（MCP 的工具、浏览器的截图）。各家怎么交给模型见各自的 add_tool_results
+    state: dict | None = None  # 浏览器的标签页情况（见 ToolOutput.state），只有 Claude 的浏览器工具包用
+    state_only: bool = False
 
 
 @dataclass

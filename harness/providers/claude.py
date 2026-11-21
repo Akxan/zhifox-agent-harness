@@ -18,6 +18,7 @@ except ImportError:  # 旧一些的 SDK 用的是它的前身
 
 from ..attachments import Attachment, wrap_text
 from ..config import (
+    BROWSER_TOOLSET_MODELS,
     ENABLE_COMPACTION,
     ENABLE_FALLBACKS,
     ENABLE_THINKING_DROP,
@@ -38,6 +39,9 @@ from .base import (
     brief,
     too_large,
 )
+
+# 每个工具包有哪些模型用得了（见 use_tools）
+TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS}
 
 
 class AnthropicBackend:
@@ -64,9 +68,26 @@ class AnthropicBackend:
         self._messages: list[dict] = []
 
     def use_tools(self, tools: ToolRegistry) -> None:
-        """换一套工具。按上面的规矩，只能在一段对话开始之前换（见 agent.py 的 on_start）。"""
+        """换一套工具。按上面的规矩，只能在一段对话开始之前换（见 agent.py 的 on_start）。
+
+        工具包（Anthropic 定义的一组工具，比如浏览器的 browser_toolset_20260801）在请求里只占一项：
+        同一个包的成员共用一份说明书（Tool.spec），只发一次。这个模型用得了这个包的话，它的"替身"
+        （我们自己写的 browser_* 函数工具，见 Tool.stands_in_for）就不发；用不了的话反过来，发替身、不发这个包。
+        用不用得了是在这里定下的，一段对话里不再变：这段对话中途换成同一家的另一个模型，说明书也照旧
+        （智狐能选的 Claude 模型都支持浏览器工具包，见 config.BROWSER_TOOLSET_MODELS）。
+        """
         self._tools = tools
-        self.tool_specs = tools.specs()
+        usable = {name for name, models in TOOLSET_MODELS.items() if self.model in models}
+        self.toolsets: set[str] = set()
+        specs: list[dict] = []
+        for tool in tools:
+            if tool.toolset:
+                if tool.toolset in usable and tool.toolset not in self.toolsets:
+                    self.toolsets.add(tool.toolset)
+                    specs.append(tool.spec)
+            elif not (tool.stands_in_for and tool.stands_in_for in usable):
+                specs.append(tool.spec)
+        self.tool_specs = specs
 
     # ---- 对话历史 ---------------------------------------------------------
 
@@ -112,22 +133,42 @@ class AnthropicBackend:
     def add_tool_results(self, results: list[ToolResult]) -> None:
         # 所有结果必须放在同一条消息里，并且这条消息里只有结果。
         # （API 靠"最后一条消息只有工具结果"来判断这是同一轮对话的延续，联网搜索的次数上限按轮累计。）
+        # 工具包成员的调用，结果上要写回同一个 toolset_name（API 的规定）。是不是成员，看历史里模型的那次调用
+        toolsets = _toolset_names(self._messages[-1] if self._messages else None)
         content = []
         for result in results:
             block: dict[str, Any] = {"type": "tool_result", "tool_use_id": result.id, "content": result.text}
-            if result.images:
-                # 结果里有图片（MCP 的工具返回的截图之类）：内容写成一串块，文字在前，图片跟在后面。Claude 看得懂图片
-                block["content"] = [{"type": "text", "text": result.text}] + [
+            toolset = toolsets.get(result.id, "")
+            parts: list[dict] = []
+            if result.images or (toolset and result.state and not result.is_error):
+                # 结果里有图片（MCP 的工具、浏览器的截图）：内容写成一串块，文字在前，图片跟在后面。Claude 看得懂图片
+                if result.text and not (toolset and result.state_only):
+                    parts.append({"type": "text", "text": result.text})
+                parts += [
                     {"type": "image", "source": {"type": "base64", "media_type": image.media_type, "data": image.data}}
                     for image in result.images
                 ]
+                if toolset and result.state and not result.is_error:
+                    # 标签页的情况：API 会把它写成一段文字给模型看（Tab Context）。出错的结果上不能带（API 的规定）
+                    parts.append({"type": "browser_state", **result.state})
+                block["content"] = parts
+            if toolset:
+                block["toolset_name"] = toolset
             if result.is_error:
                 block["is_error"] = True
             content.append(block)
         self._messages.append({"role": "user", "content": content})
 
     def tool_names(self) -> list[tuple[str, bool]]:
-        return [(tool.name, tool.run is not None) for tool in self._tools]
+        """真正发给模型的那些：工具包只算一个（用包名），用得了工具包时它的替身不算。"""
+        names: list[tuple[str, bool]] = []
+        for tool in self._tools:
+            if tool.toolset:
+                if tool.toolset in self.toolsets and (tool.toolset, True) not in names:
+                    names.append((tool.toolset, True))
+            elif not (tool.stands_in_for and tool.stands_in_for in self.toolsets):
+                names.append((tool.name, tool.run is not None))
+        return names
 
     # ---- 调用模型 ---------------------------------------------------------
 
@@ -238,14 +279,26 @@ def _tool_call(block: Any, data: dict) -> ToolCall:
         bad = has_bad_number(block.input)
     except RecursionError:  # 嵌套深得不正常：同样不执行
         bad = True
+    toolset = getattr(block, "toolset_name", None) or ""
     if not bad:
-        return ToolCall(block.id, block.name, clean(block.input))
+        return ToolCall(block.id, block.name, clean(block.input), toolset=toolset)
     try:
         data["input"] = tame(block.input)
     except RecursionError:
         data["input"] = {}
     problem = "参数里有 NaN、无穷大这样不是数的数，或者嵌套得太深，这次调用没有执行。请用正常的参数重新调用。"
-    return ToolCall(block.id, block.name, data["input"], error=problem)
+    return ToolCall(block.id, block.name, data["input"], error=problem, toolset=toolset)
+
+
+def _toolset_names(message: dict | None) -> dict[str, str]:
+    """一条模型的回复里，哪些工具调用是工具包的成员：{调用的 id: 工具包的名字}。"""
+    if not message or message.get("role") != "assistant" or not isinstance(message.get("content"), list):
+        return {}
+    return {
+        block["id"]: block["toolset_name"]
+        for block in message["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("toolset_name")
+    }
 
 
 def _plain(block: Any) -> dict:

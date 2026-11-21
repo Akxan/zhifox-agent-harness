@@ -28,6 +28,7 @@ class RecordingUI:
         self.streamed: list[tuple[str, str]] = []
         self.calls: list[str] = []
         self.results: list[tuple[str, bool]] = []
+        self.previews: list[dict | None] = []  # 每个结果带的预览（浏览器的截图），大多数是 None
         self.confirmations: list[str] = []
         self.auto_allowed_count = 0  # 有几次是没问用户、自动放行的
         self.infos: list[str] = []
@@ -52,8 +53,9 @@ class RecordingUI:
     def tool_call(self, name: str, tool_input: object) -> None:
         self.calls.append(name)
 
-    def tool_result(self, text: str, is_error: bool) -> None:
+    def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
         self.results.append((text, is_error))
+        self.previews.append(preview)
 
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
         self.confirmations.append(description)

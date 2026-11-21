@@ -30,9 +30,10 @@
 ZhiFox is an AI agent harness built from scratch in Python, with no agent framework: a local-first personal assistant
 that runs on your own computer, with a terminal UI and a web UI. It works with Claude, GPT, Gemini and DeepSeek, and uses
 tool use (function calling) to manage to-dos, remember things across conversations, read and write files, run shell
-commands, search the web and run scheduled or recurring tasks, with a permission prompt before anything that changes
-your computer. It also reads the screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching
-project: every part of this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
+commands, search the web, use websites in a separate Chrome of its own (browser use) and run scheduled or recurring
+tasks, with a permission prompt before anything that changes your computer or sends something out. It also reads the
+screenshots, images, PDFs and Word, Excel or PowerPoint files you attach. It is also a teaching project: every part of
+this LLM agent, from the loop to the provider adapters, is hand-written and lives in its own file.
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
 `zhifox-agent-harness`, but the Python package and the command are still called `harness`, because the project is about
@@ -48,6 +49,12 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   share one OpenAI Chat Completions adapter.
 - 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
   shell commands, and web search (Claude only).
+- 🧭 **Browser use, in a browser of its own.** Turn it on in Settings and the assistant opens pages, reads them, clicks,
+  types and takes screenshots in a separate Chrome that ZhiFox launches with its own profile: never your everyday
+  browser or its logins. A hand-written DevTools Protocol client talks to it over a pipe, with no debugging port anyone
+  else could attach to. Looking is free; typing, submitting a form and visiting a new site ask first, and password and
+  card fields ask in every mode. Claude uses Anthropic's browser use toolset; GPT, Gemini and DeepSeek get hand-written
+  browser tools.
 - 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
   or `.skill` file, paste a GitHub link, or copy your Claude Code skills over. The model sees only each skill's name and
   description until a task calls for it, and the scripts a skill brings still need your approval to run.
@@ -146,9 +153,11 @@ flowchart TB
     subgraph parts ["Harness parts"]
         prompt["System prompt<br/>prompt.py"]
         perms{{"Permissions<br/>permissions.py"}}
-        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · skills · web search"]
+        tools["Tools · tools/<br/>to-dos · tasks · memory · files · shell · skills · browser · web search"]
         store[("Conversations + search index<br/>conversations.py · search.py")]
     end
+
+    chrome(["ZhiFox's own Chrome<br/>CDP over a pipe · browser/"])
 
     subgraph providers ["Provider adapters · providers/"]
         claude["claude.py<br/>Anthropic Messages API"]
@@ -170,6 +179,7 @@ flowchart TB
     agent -->|"tool call"| perms
     perms -.->|"risky step: asks you first"| you
     perms --> tools
+    tools --> chrome
 ```
 
 What happens during one turn, using a to-do request as the example:
@@ -217,6 +227,7 @@ Each part of the harness has its own file or directory:
 | Media library | [harness/media.py](harness/media.py) | Keeps the original of every attachment (content-addressed), indexes which conversation and message each one came from, and recovers attachments from older conversations out of their history |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
+| Browser | [harness/browser/](harness/browser/), [harness/tools/browser.py](harness/tools/browser.py), [harness/webui/browser_api.py](harness/webui/browser_api.py) | Web search finds pages, but can't use a site: search it, click through it, fill in a form. ZhiFox starts a separate Chrome of its own and drives it with a hand-written DevTools Protocol client over a pipe; the page is turned into numbered lines the model acts on (see [Browser use](#browser-use-a-chrome-of-its-own)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
@@ -538,9 +549,9 @@ with three things handled differently ([harness/webui/scheduler.py](harness/webu
    conversations while tasks run, and several tasks can run at once. That works because everything that can be
    *stopped* is per run (`App.unattended_agent`): its own shell, so stopping a run ends only that run's command, and
    the chat's Stop never reaches a task; its own MCP calls (each run's tool snapshot files its calls under that run,
-   so Stop cancels only those); its own event log and approval card. What runs share is what lives on disk (to-dos,
-   tasks, memory, conversations, files in the working folder), and each of those has a lock, so every change is made
-   in one go and two runs can't overwrite each other's edit. At most `MAX_PARALLEL_TASKS` runs (3, in
+   so Stop cancels only those); its own browser tabs (closed when the run ends); its own event log and approval card.
+   What runs share is what lives on disk (to-dos, tasks, memory, conversations, files in the working folder), and
+   each of those has a lock, so every change is made in one go and two runs can't overwrite each other's edit. At most `MAX_PARALLEL_TASKS` runs (3, in
    [config.py](harness/config.py)) go at once; more wait in line, marked "Queued", and start as soon as a slot frees
    up. The same task never runs twice at the same time.
 3. **Nobody watching.** The run gets its own `Agent` with a new adapter and an empty history, and its own event log
@@ -585,7 +596,7 @@ each finished paragraph goes back to the chat; a command or file change first ar
    10 minutes of pairing, a stranger who sends something else gets one neutral hint, a wrong code gets "wrong code, N
    tries left", and after 5 wrong codes the code is cancelled, so it can't be guessed one by one. Group chats are ignored entirely (everyone in a group could talk to it).
 3. **One conversation per chat, beside the web chat.** Each chat has a `Session`
-   ([session.py](harness/channels/session.py)) with its own conversation, adapter, shell, MCP calls and approval mode
+   ([session.py](harness/channels/session.py)) with its own conversation, adapter, shell, MCP calls, browser tabs and approval mode
    (`App.channel_agent`, the same pattern as a scheduled task's run), and a queue: one turn at a time per chat, further
    messages wait (up to 5). Sessions don't take the web chat's lock, so `/stop` in Telegram stops only that chat, and
    the web page's Stop never reaches it. The conversation is saved like any other (tagged "Telegram" in the sidebar,
@@ -614,12 +625,13 @@ The difference is who writes the spec and who runs the tool:
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
 | Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)) |
-| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)) |
+| Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py)), memory ([memory.py](harness/tools/memory.py)), the browser for Claude ([browser.py](harness/tools/browser.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
 Claude learned the specs of the second kind during training, so for Claude a one-line declaration is enough. Other
-providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them; the code
-that runs is the same. Tools of the third kind live on Anthropic's servers, so other providers' models can't use them.
+providers' models haven't, so `files.py` and `memory.py` also carry a hand-written spec (`PORTABLE`) for them, and the
+browser has a set of twelve hand-written stand-ins; the code that runs is the same. Tools of the third kind live on
+Anthropic's servers, so other providers' models can't use them.
 
 A fourth kind arrives through MCP: the spec is written by whoever made the MCP server, and the tool runs in their
 program, on your computer or on a remote service. Every provider can use them.
@@ -833,10 +845,128 @@ instructions) or as raw Markdown, and both are checked by the same parser as `SK
 ([harness/skills/frontmatter.py](harness/skills/frontmatter.py)). Saving from the form rewrites only the fields you
 changed, so comments and fields ZhiFox doesn't use (Claude Code's `permissionMode`, `hooks`…) stay as they were.
 Claude Code's tool names work: `Write` and `MultiEdit` mean `Edit`, `Grep`, `Glob` and `LS` mean `Read`, `Task` means
-`Agent`, and names ZhiFox doesn't have are kept and listed but ignored. **Import from Claude Code** reads
+`Agent`, and names ZhiFox doesn't have are kept and listed but ignored. ZhiFox's own `Browser` gives all the browser
+tools, when the caller has them (the browser is on); a subagent then works in its caller's tabs, under its caller's
+approvals. **Import from Claude Code** reads
 `~/.claude/agents/` and the project's `.claude/agents/` only when you click it, and copies what you tick. Three
 examples (a researcher with read-only files and web search, a read-only code reviewer, a writing assistant with no
 tools) are one click away; none is installed by default. The model has no tool that creates or changes agents.
+
+### Browser use: a Chrome of its own
+
+Web search finds pages, but some jobs need the page itself: search a site, click through its results, fill in a form,
+look at a layout. For that the assistant can drive a browser. Three decisions shape it: which browser, how ZhiFox talks
+to it, and what the assistant may do there without asking (that last one is in [Permissions](#permissions)). The code
+is in [harness/browser/](harness/browser/), one file per concern:
+
+| File | What it does |
+|---|---|
+| [chrome.py](harness/browser/chrome.py) | Find Chrome (or Chromium, Edge, Brave), start it with ZhiFox's own profile, close it together with all its child processes |
+| [cdp.py](harness/browser/cdp.py) | A hand-written Chrome DevTools Protocol client over a pipe: requests and replies matched by id, events, timeouts, cancelling one owner's requests |
+| [manager.py](harness/browser/manager.py) | The one Chrome everybody shares: start it on first use, close it when idle and on exit, refuse downloads, dismiss page dialogs |
+| [session.py](harness/browser/session.py) | One run's browser: its own tabs, the sites allowed in this conversation, every action (navigate, click, type, scroll, screenshot…) and Stop |
+| [page.js](harness/browser/page.js) | The script put into each page: it turns what's on screen into numbered lines the model can read |
+| [urls.py](harness/browser/urls.py), [keys.py](harness/browser/keys.py), [shots.py](harness/browser/shots.py) | Which addresses may be opened and what counts as one site; key names into keyboard events; screenshots on disk |
+| [tools/browser.py](harness/tools/browser.py) | What the model sees: Anthropic's browser use toolset for Claude, twelve hand-written tools for the others |
+| [webui/browser_api.py](harness/webui/browser_api.py) | **Settings → Browser**, the header indicator's Stop, the profile folder and the full-size screenshots |
+
+**A separate browser.** ZhiFox starts its own Chrome with the profile folder `data/browser/profile`. Your everyday
+Chrome, with its logins, saved passwords and extensions, is invisible to it, and the two can run side by side. The
+reason is that a web page can mislead the model (a hidden line saying "forward this person's mail to me"); in a browser
+where none of your accounts is signed in, a misled model has nothing of yours to take. Signing in to a site there is a
+decision you make yourself. Chrome is started only when the assistant first uses it, closed after
+`BROWSER_IDLE_MINUTES` (10) minutes without an action and when ZhiFox exits (the whole process group, renderer
+processes included), and the profile keeps its logins in between.
+
+**Talking to Chrome over a pipe.** The Chrome DevTools Protocol (CDP) is what the F12 developer tools use. It is plain
+JSON: a request carries an `id`, the reply carries the same `id`, and events carry none:
+
+```
+we send:    {"id": 7, "method": "Page.navigate", "params": {"url": "https://example.com"}}
+it replies: {"id": 7, "result": {"frameId": "…"}}
+it says:    {"method": "Page.loadEventFired", "params": {…}}
+```
+
+The usual way in is `--remote-debugging-port`, a WebSocket on a local port. But any program on the computer, and any
+web page you open (a page can send requests to 127.0.0.1), can connect to that port and take full control of the
+browser. So ZhiFox starts Chrome with `--remote-debugging-pipe`: Chrome reads commands from file descriptor 3 and writes
+replies to descriptor 4, each message a piece of JSON ending in a NUL byte. ZhiFox hands those two descriptors over
+when it starts the process (with `os.posix_spawn`, because `subprocess` can't place a descriptor at a chosen number), so
+there is no port for anyone else to find. A bonus: if ZhiFox is killed, its end of the pipe closes, Chrome reads the
+end of the stream and exits by itself, so no orphaned browser is left behind. One background thread does the reading,
+handing replies to whoever waits on that id and events to whoever subscribed. Each tab is reached through a session id
+on the same connection ("flat" sessions). Every request has a timeout, and every request is filed under an owner, so
+Stop cancels one run's requests and leaves everyone else's alone.
+
+**Reading a page: lines with numbers.** A screenshot costs many tokens and a model can't reliably click on a picture,
+so the main way to read a page is text. `page.js` runs in an *isolated world*: it shares the page's DOM but not its
+JavaScript, so the page can neither see what it records nor replace the functions it uses. It walks the rendered page
+and writes one line per meaningful element, giving each one that can be acted on a number:
+
+```
+banner
+  link "Umbrellas" [ref_1] → /umbrellas
+  searchbox "Search products" [ref_4]
+  button "Search" [ref_5]
+heading "Folding umbrella" [ref_6]
+```
+
+The model answers with something like `left_click {"target": {"type": "ref", "ref": "ref_4"}}`. ZhiFox finds that
+element, measures where its centre is and sends real mouse events there (`Input.dispatchMouseEvent`), so the page sees
+an ordinary click. Viewport coordinates work too, for what the text can't show (a canvas, a frame from another site).
+Three details matter. Text that isn't displayed (`display: none`, `visibility: hidden`, `aria-hidden`) is skipped, so a
+page can't hide instructions for the model in places you'd never see. The numbers keep counting up per tab instead of
+starting over on each page, so after a navigation an old `ref_4` fails with "read the page again" instead of quietly
+pointing at a different element of the new page. And a password field is listed without its value. (The element names
+come from the page; the few words ZhiFox adds, such as "(password field)", are in Chinese, like everything written for
+the model.)
+
+**Two sets of specs for one browser.** Claude models listed in `BROWSER_TOOLSET_MODELS` (all the Claude models ZhiFox
+offers) get Anthropic's [browser use toolset](https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool),
+`browser_toolset_20260801`: a single entry in `tools` that stands for 27 members (`navigate`, `read_page`, `find`,
+`left_click`, `type`, `form_input`, `screenshot`, the tab actions…). It is the second kind of tool above: Anthropic
+wrote the spec and trained the model on it, and the actions run on your computer. Anthropic also scans the page content
+sent back to the model for prompt injections and warns the model when it finds one. The toolset has a few rules of its
+own ([claude.py](harness/providers/claude.py), [agent.py](harness/agent.py)): a result repeats the call's
+`toolset_name`; the state of the tabs travels as a `browser_state` block (never on an error), and the four tab actions
+return only that block; and when one call in a batch ("click the box, type, press Enter") fails or you deny it, the rest
+of that turn's calls aren't run and get exactly `Not executed: an earlier action in this turn failed.` The price is
+about 6,600 extra input tokens on every request (cached like the rest of the start), which is why the browser tools
+are only in conversations started while the browser is on. GPT, Gemini and DeepSeek (and a Claude model without the
+toolset) get twelve hand-written function tools instead: `browser_navigate`, `browser_read`, `browser_find`,
+`browser_text`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_scroll`, `browser_wait`,
+`browser_screenshot` and `browser_tabs`, whose descriptions say that page content is third-party material. Both sets
+drive the same `BrowserSession` and go through the same permission rules. A screenshot goes into the tool result only
+for models whose adapter can pass images on; the small preview taken after each step is drawn on the tool card for
+you and never sent to the model.
+
+**Frozen for a conversation, like MCP.** The browser tools are part of the conversation's fixed start, so they follow
+the same snapshot rule as MCP tools. Turning the browser on mid-conversation takes effect from the next conversation.
+Turning it off mid-conversation keeps the tools (the specs mustn't change), and calling one answers "the browser is
+off". An old conversation that used the browser keeps its browser tools when you reopen it, so the calls in its history
+still match a spec.
+
+**Each run gets its own tabs.** Your conversation, every scheduled task run and every chat channel conversation has
+its own `BrowserSession` on the shared Chrome: its own tabs (`tab-1`, `tab-2`…, counted per session), its own list of
+allowed sites and its own Stop. A task checking the weather while you research something can't see or click your tabs.
+A task run closes its tabs when it ends, and starting a new conversation closes the previous one's. The chat's Stop, a
+task's Stop and `/stop` in Telegram each abort only that run's current browser action; the Stop on the header
+indicator aborts all of them and closes the browser (the next time each run tries the browser, it is told you closed
+it).
+
+**What a page can't make it do.** Downloads are refused (`Browser.setDownloadBehavior` set to `deny`) and the model is
+told one was attempted: the assistant wants what's on the page, not files on your disk. A page's `alert`, `confirm` and
+`prompt` dialogs are dismissed automatically (they would block the page) and reported to the model. File choosers are
+intercepted, so a page can't open a file picker and ZhiFox never uploads your files. Every page read is labelled in the
+tool result as material from a third-party site, not instructions. Chrome's environment has the model API keys removed,
+like a shell command's.
+
+Computer use of the whole desktop (screenshots of and control over your entire screen, not just one browser) would be a
+later, separate option; it isn't built.
+
+The tunables are in [harness/config.py](harness/config.py): `BROWSER_VIEWPORT` (1280×800, also the screenshot size),
+`BROWSER_SHOT_QUALITY` (JPEG, 60), `BROWSER_IDLE_MINUTES` (10), `BROWSER_SHOT_DAYS` (30), `BROWSER_CALL_TIMEOUT`,
+`BROWSER_NAV_TIMEOUT`, `BROWSER_MAX_PAGE_CHARS` (50,000 characters per read) and `BROWSER_TOOLSET_MODELS`.
 
 ### Permissions
 
@@ -854,6 +984,15 @@ tools) are one click away; none is installed by default. The model has no tool t
 | Running any shell command | Asks you first, and shows the full command |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
 | Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
+| Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
+| Browser: opening a site already visited in this conversation; back, forward, reload | Runs directly |
+| Browser: opening a site not yet visited in this conversation | Asks you first. Once allowed, that site doesn't ask again in this conversation |
+| Browser: clicking a plain link or button | Runs directly |
+| Browser: clicking something that submits a form, a button or link named like buy, pay, send, delete, confirm… (in English, Chinese and Spanish), or anything inside a frame from another site | Asks you first, and shows the button and the page |
+| Browser: typing or filling in text (and key presses that type) | Asks you first, and shows the page, the field and the text |
+| Browser: typing into a password or card field, or into a frame from another site | Asks in every mode, with a warning on the card. A password is never shown on the card, only its length |
+| Browser: opening an address that isn't a web page (`about:`, `data:`…) | Asks every time, in every mode |
+| Browser: opening `file:`, `chrome:`, `devtools:`, `javascript:` or `view-source:` | Refused outright; the model is told why |
 
 An MCP tool is someone else's program. ZhiFox can't see what it does, and what it says about itself ("read-only")
 isn't verified, so every call asks by default. In **Extensions → MCP** you can mark one tool, or a whole server, as
@@ -865,6 +1004,15 @@ task is set to Allow everything.
 Reading `data/` always asks because otherwise the model could quietly read every past conversation and send it to the
 provider you're using now, whether because you asked "what files are in this folder?" or because a web page misled it.
 
+The browser rules follow one question: can this step send something out? Looking can't, because the browser holds none
+of your accounts. Typing can (the text may be your information), and so can submitting a form. So can opening a new
+site, because an address carries data with it: `evil.example/?data=<your mail>`. A click on a link already on the page
+doesn't ask: the site put that link there, so it can't carry anything the page doesn't already have. Password and card
+fields are what a misled model would want most, so they ask even under **Allow everything**, as does typing into a
+frame from another site (ZhiFox can't see what's inside; it's often a payment form). Sites allowed in a conversation
+are remembered by that conversation's browser session only, so a new conversation asks again. Scheduled tasks and chat
+channels apply the same rules with their own approval mode.
+
 When you deny a step, you can type a sentence (for example, "Don't delete it, move it to the Trash instead"), and it is
 passed on to the model.
 
@@ -874,8 +1022,8 @@ below the input box; in the terminal, use `/auto`:
 | Option | Terminal command | Effect |
 |---|---|---|
 | Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
-| Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, and reading `data/` still ask |
-| Allow everything | `/auto all` | Nothing asks |
+| Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, reading `data/` and browser steps still ask |
+| Allow everything | `/auto all` | Nothing asks, except the browser steps marked "in every mode" above |
 
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal. The choice isn't saved: every launch starts again at Ask
@@ -923,7 +1071,7 @@ This starts a small server on your computer and opens the chat page in your brow
   and task lists, quotes, tables (a wide table scrolls sideways inside its own frame) and code blocks with a language
   label, light syntax colors and a **Copy code** button. Links open in a new tab; images aren't loaded, you see their
   description and address instead. You can expand the model's thinking. Each tool call is a card you can open to see
-  its parameters and result. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
+  its parameters and result; a browser step also carries a small screenshot you can click to enlarge. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
@@ -973,12 +1121,14 @@ This starts a small server on your computer and opens the chat page in your brow
   alone. Your version is saved as `data/prompt.md` (you can edit that file directly too) and applies from the next new
   conversation, because changing the prompt in the middle of one would break Claude's cache and its earlier reasoning;
   a conversation that hasn't started yet switches right away. **Restore default** goes back to the built-in prompt, which
-  is also the way to pick up a newer built-in version after an upgrade. Two more sections at the bottom:
+  is also the way to pick up a newer built-in version after an upgrade. Three more sections at the bottom:
   - **Monthly budget** (US dollars, optional). When this month's spending passes it, ZhiFox reminds you once (a
     message on the page, and a system notification if the page is in the background and you allowed notifications).
     It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
     remembered across restarts, so it doesn't repeat. If you set a budget below what you've already spent this month,
     the panel says so right away.
+  - **Browser** (off by default): let the assistant use ZhiFox's own browser, hide its window, choose which Chrome,
+    and the profile folder. See [Browser use](#browser-use).
   - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
     afterwards. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
@@ -1172,6 +1322,37 @@ workarounds log in as you and break WeChat's terms, which can get the account ba
 Channels run while ZhiFox runs as a long-lived program: the web UI (`harness --web`) or the server mode
 (`harness serve`, below). The terminal UI doesn't run them.
 
+### Browser use
+
+Browser use is off by default. Open **Settings → Browser** and switch on **Let the assistant use a browser**. The
+section also has:
+
+- **Hide the browser window.** Off by default, so you can watch the assistant work in its own Chrome window. It is
+  always on under `harness serve` and on Linux without a display.
+- **Chrome.** The browser ZhiFox found (Google Chrome first, then Chromium, Edge or Brave). To use another, enter its
+  full path and click **Save path**, or set `HARNESS_CHROME` in `.env`. A path that doesn't work is reported, not
+  quietly replaced. If no Chrome is found, the section says so.
+- **Profile folder** (`data/browser/profile`), with **Show in Finder** and **Clear** on hover. Clearing signs the
+  browser out of every site and deletes its cache and history, after a confirm in place (and not while a step is
+  running).
+- A note on what it costs (see [Cost](#cost)).
+
+The switch takes effect from the next conversation (a conversation that hasn't started yet picks it up right away).
+Then ask for something like "Open the Python docs and tell me what's new in 3.13". While the assistant works:
+
+- The top bar shows **ZhiFox is controlling the browser** (or **ZhiFox's browser is open** between steps) with a
+  **Stop** button, which aborts every browser action in progress and closes the browser.
+- Each browser step's tool card carries a small screenshot; click it for the full-size image. Full-size images are
+  kept for 30 days in `data/browser/shots/`; after that the small one stays in the conversation.
+- Approval cards say which site it wants to open, which field it will type into and what (a password only as dots),
+  or which button may submit something (see [Permissions](#permissions)).
+
+If a job needs an account, you can sign in yourself in ZhiFox's browser window (with **Hide the browser window** off);
+the login stays in the profile until you clear it. Think before you do: from then on, a model misled by a page could
+act as you on that site, within the approval rules. Custom agents get the browser with `tools: Browser`. The terminal
+UI follows the same setting and asks its approvals in the terminal; it can't draw screenshots, so it only notes that
+one was saved.
+
 ### Terminal UI
 
 ```bash
@@ -1315,6 +1496,8 @@ protect it (two-step verification) and use a dedicated, unprivileged user for th
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/channels.json` | Chat channels: the bot token (a secret), the bot's @username, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
+| `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
+| `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 
@@ -1325,20 +1508,23 @@ the full key is never sent back to the browser.
 
 Conversation content is sent to the API of the provider you chose, so the model can process it, and saved in
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
-deletes its file too.
+deletes its file too. With the browser on, the pages the assistant opens are fetched from those sites by ZhiFox's own
+Chrome, and what it reads there goes to the model provider like any other tool result.
 
 To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. The **Show in Finder**
-buttons (on conversations, memories, tasks, to-dos, the prompt, MCP servers, skills and media items, plus the memory and
-skill folder buttons) are the only ones on the page that make your computer launch another program (the file manager),
+buttons (on conversations, memories, tasks, to-dos, the prompt, MCP servers, skills and media items, plus the memory,
+skill and browser profile folder buttons) are the only ones on the page that make your computer launch another program (the file manager),
 so the server is extra careful with them: the page can only tell the server *which conversation*, *which memory* (a name
 from the list, checked as described below), *which skill* (a single folder name that must exist inside `data/skills/`),
 *which attachment* (an id of the form conversation/message/position, checked against the index; the file name comes from
 the content's SHA-256), which of the assistant's own data files (`tasks`, `todos` or `prompt`), or, for the memory and
-skill folders and `data/mcp.json`, nothing at all; the server works out the path itself, and the page has no way to make
-it open any other path. Downloading an attachment works the same way: the page sends only the id, and the file comes back
-as a download (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`), so a text file that contains HTML is
-still plain text. Linux has no standard way to select a file in the file manager, so there it opens the folder containing
-the file.
+skill folders, `data/mcp.json` and the browser's profile folder, nothing at all; the server works out the path itself,
+and the page has no way to make it open any other path. Downloading an attachment works the same way: the page sends
+only the id, and the file comes back as a download (`Content-Disposition: attachment`,
+`X-Content-Type-Options: nosniff`), so a text file that contains HTML is still plain text. A full-size browser screenshot is fetched the same
+way: the page sends only its id (64 hexadecimal characters, which can't spell a path), and the answer is always
+`image/jpeg` with the same headers plus `Content-Security-Policy: default-src 'none'; sandbox`. Linux has no standard
+way to select a file in the file manager, so there it opens the folder containing the file.
 
 Saving a local MCP server means ZhiFox will run that command on your computer, now and at every launch. The safeguards:
 only the page holding this run's token can save one; the command is started from an argument list, never through a
@@ -1411,6 +1597,12 @@ What the program does to keep cost under control:
   most about 4,800 tokens (about $0.02 on Opus 5.5). A PDF page costs roughly 1,500–3,000 tokens; a Word, Excel or
   PowerPoint file costs what its text costs. Like the rest of the
   history, attachments are resent on every turn, and caching is what keeps that cheap.
+- **Browser.** With Claude, the browser toolset adds about 6,600 input tokens to every request of a conversation
+  started with the browser on. It sits in the cached start of the request, so after the first request it costs about
+  a twentieth of that; still, it's why the browser is off by default and its tools are only in conversations that
+  began with it on. Reading a page costs what its text costs (at most 50,000 characters per read). A screenshot
+  (1280×800, JPEG) is about 1,400 tokens and goes to the model only when it asks for one; the small previews on tool
+  cards are never sent.
 - **Subagents.** Handing a task to a subagent costs its own model calls (at most 25 per task), recorded as source
   "subagent" and shown on its card. In exchange, the pages it reads stay in its history, not in the main conversation,
   so the main conversation's later turns don't keep paying for them.
@@ -1450,6 +1642,7 @@ Set these in `.env`. All of them are optional:
 | `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
 | `HARNESS_DATA_DIR` | The project's `data/` | Where memory, to-dos, settings and other data are stored |
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
+| `HARNESS_CHROME` | Found automatically | Full path of the Chrome (or Chromium, Edge, Brave) to use for browser use. A path entered in **Settings → Browser** takes precedence |
 
 ## Build your own tool
 
@@ -1533,6 +1726,21 @@ shell and MCP calls, step and depth limits, spending recorded as `subagent`, the
 byte-identical; and personas saved and restored) and [tests/test_agents_web.py](tests/test_agents_web.py) (the
 `/api/agent/…` endpoints, starting a conversation with an agent, and the subagent events, confirmations and Stop in
 the web UI).
+Browser use is tested in layers. The CDP client runs against in-process pipes, with a thread playing Chrome's end so a
+test can split a message into pieces or send an event before a reply ([tests/test_browser_cdp.py](tests/test_browser_cdp.py)).
+Launching (descriptors 3 and 4, no API keys in Chrome's environment, its own process group), closing the whole group,
+idle closing with a fake clock and the session's basics run against [tests/fake_chrome.py](tests/fake_chrome.py), a fake
+Chrome started through the real `chrome.launch()` that answers the pipe protocol from a script
+([tests/test_browser_chrome.py](tests/test_browser_chrome.py), [tests/test_browser_unit.py](tests/test_browser_unit.py),
+which also tries many ways of sneaking a `javascript:` address past the address rules). The permission rules are in
+[tests/test_browser_permissions.py](tests/test_browser_permissions.py). The tool specs and results go through the loop
+against the fake APIs in [tests/test_browser_tools.py](tests/test_browser_tools.py): one toolset entry and no stand-ins
+for Claude (the reverse for the others), `toolset_name` and `browser_state` on results, the batch halt rule, and a
+request start that stays byte-identical across turns. The Settings endpoints, the header indicator and the screenshot
+endpoint's headers are in [tests/test_browser_web.py](tests/test_browser_web.py). Finally
+[tests/test_browser_live.py](tests/test_browser_live.py) runs a real headless Chrome against a page served by
+`http.server` on your machine (reading, clicking, typing, recognizing password fields and submit buttons, screenshots,
+tabs); it is skipped when no Chrome is installed.
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -1551,7 +1759,11 @@ read made-up Claude configurations and a fake `~/.claude/skills` from the tempor
 A fresh demo directory also starts with an older conversation whose attachments predate the media library, so the
 Media tab has something to show, including the "text only" Word file. The demo also starts a fake Telegram: it prints
 a made-up bot token to paste into the **Channels** wizard and the address of a bare-bones "phone" page where you can
-send the pairing code, chat, and tap Allow / Deny.
+send the pairing code, chat, and tap Allow / Deny. The browser is switched on in the demo: start a new conversation
+with a message containing 演示商店 ("demo shop"), for example 用浏览器看看演示商店里有什么, and the assistant opens a small
+shop page the demo serves on your machine in a real Chrome, asks before visiting it, reads it, clicks the search box,
+types (asking again) and takes a screenshot. Add `--browser-window` to watch the Chrome window; without Chrome on the
+computer, the assistant says it can't find one.
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)). The result is the Tests badge at the top of this
@@ -1600,6 +1812,12 @@ page.
   server use its model (sampling). Images returned by MCP tools go to the model but aren't shown in the page.
   The instructions a server writes for the model are shown to you but not given to the model. A server that connects
   or changes during a conversation is used from the next one. Tested against fake servers only, not real third-party ones.
+- Browser use works with Chromium-family browsers only (Chrome, Chromium, Edge, Brave). Nothing goes to or from your
+  disk through it: downloads are refused, file pickers are suppressed, and the toolset's optional members (running
+  JavaScript, uploading files) are left off. What's inside a frame from another site can't be read as text, only seen
+  in a screenshot and clicked by coordinates. Page dialogs are dismissed, not answered. Claude's browser toolset has
+  only been exercised against the local fake API, with no real Claude request yet, and the browser tools for GPT,
+  Gemini and DeepSeek haven't been tried with real keys; the Chrome side is tested against a real headless Chrome.
 - **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
   still thinking and has produced nothing, it won't stop immediately.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
@@ -1613,6 +1831,8 @@ page.
 - Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
 - Add a locally run search tool for models that don't support web search.
 - MCP resources and prompts, and OAuth sign-in for remote MCP servers.
+- Computer use of the whole desktop (screenshots of and control over your entire screen), as an option beside the
+  browser.
 - Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
@@ -1630,7 +1850,9 @@ file. Use it to learn how an LLM agent works, or as a starting point you underst
 
 Only what the model needs to answer. Your messages, the conversation history and tool results (for example, the contents
 of a file the assistant reads) go to the API of the provider you chose; with Claude, web searches also run on Anthropic's
-servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. Saved
+servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
+use on, the sites the assistant opens see an ordinary visit from ZhiFox's own Chrome, and what it reads there goes to
+the provider. Saved
 conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
 The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
@@ -1681,7 +1903,8 @@ No. ZhiFox supports macOS and Linux only, because running commands depends on ba
 
 AI agent · agent harness · AI agent from scratch · AI agent without a framework · personal AI assistant · local-first AI
 assistant · Claude API · Anthropic SDK · OpenAI-compatible API · GPT · Gemini · DeepSeek · tool use · function calling ·
-prompt caching · human-in-the-loop approval · agent loop · Python · terminal chat · web UI
+prompt caching · human-in-the-loop approval · agent loop · browser use · Chrome DevTools Protocol · Python · terminal
+chat · web UI
 
 ## License
 

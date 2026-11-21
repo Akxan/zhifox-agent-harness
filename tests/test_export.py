@@ -220,3 +220,21 @@ def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
     assert "channels.json" in archive.read(NOTE).decode()  # 说明里写着哪个文件要重新填
     # 导出不改原来的文件
     assert ChannelStore(data / "channels.json").get("telegram")["token"] == token
+
+
+def test_the_browser_profile_with_its_login_cookies_is_left_out(tmp_path):
+    """智狐的浏览器的配置文件夹里是登录过的网站的 cookie：拿到它就能冒充你登录，和密钥一样不导出。截图照样导出。"""
+    data = tmp_path / "data"
+    cookies = data / "browser" / "profile" / "Default" / "Cookies"
+    cookies.parent.mkdir(parents=True)
+    cookies.write_bytes(b"SQLite format 3\x00session=very-secret-cookie-value")
+    shot = data / "browser" / "shots" / ("a" * 64 + ".jpg")
+    shot.parent.mkdir(parents=True)
+    shot.write_bytes(b"\xff\xd8\xff")
+    raw, work = export_bytes(data)
+    archive = zipfile.ZipFile(io.BytesIO(raw))
+    assert sorted(archive.namelist()) == sorted([f"browser/shots/{'a' * 64}.jpg", NOTE])
+    assert b"very-secret-cookie-value" not in b"".join(archive.read(name) for name in archive.namelist())
+    assert [name for name, _ in work.skipped] == ["browser/profile/"]
+    assert "cookie" in archive.read(NOTE).decode()
+

@@ -125,8 +125,9 @@ class SubUI:
         self.calls[name] += 1
         self.parent.subagent("tool_call", run=self.run, agent=self.name, name=name, summary=describe_call(name, tool_input), input=tool_input)
 
-    def tool_result(self, text: str, is_error: bool) -> None:
-        self.parent.subagent("tool_result", run=self.run, agent=self.name, text=text, is_error=is_error)
+    def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
+        extra = {"thumb": preview["thumb"], "shot": preview.get("shot", "")} if preview and preview.get("thumb") else {}
+        self.parent.subagent("tool_result", run=self.run, agent=self.name, text=text, is_error=is_error, **extra)
 
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
         # 确认卡片照常画在页面上，只是写明是哪个 Agent 在问（再往下一层的，写的是最里面那一个）

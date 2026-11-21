@@ -358,7 +358,10 @@ class Scheduler:
         if stop_now:
             ui.request_stop()  # 在 begin_turn 之后才立旗子：begin_turn 会把旗子放下
         self._progress(now=True)
-        run_turn(agent, ui, instruction(task, pending))
+        try:
+            run_turn(agent, ui, instruction(task, pending))
+        finally:
+            unattended.close()  # 这次运行自己开的浏览器标签页关掉（别的运行的不碰）
         ui.end_turn()
 
         messages = agent.backend.export()

@@ -32,6 +32,12 @@
     就像拿着手机：发配对码、聊天、点"允许 / 拒绝"）。聊天里的回复也不占下面那一串：单数轮打个招呼，
     双数轮执行一条要你批准的命令（"每次确认"时会发来按钮，网页上也能答复）。
 
+  - 浏览器（设置 → 浏览器）是开着的：发一句含有"演示商店"的话（比如"用浏览器看看演示商店里有什么"）开始一段新对话，
+    助手会用真的 Chrome 打开这个脚本在本机起的一个"演示商店"网页：先问你能不能去这个网站，然后读页面、点搜索框、
+    输入（又问你一次）、截图。对话里每一步下面有一张小截图，点开看大图；顶栏上会出现"浏览器正在被智狐控制"。
+    默认不显示浏览器窗口；加 --browser-window 可以看着它操作。这台电脑上没有 Chrome 的话，助手会说找不到。
+    这一段的回复不占下面那一串（看每次请求的历史走到了哪一步，见 browser_reply）。
+
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
 一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
@@ -60,6 +66,7 @@ parser.add_argument("--data", type=Path, help="数据放在哪个目录（默认
 parser.add_argument("--delay", type=float, default=0.035, help="逐字输出时每一小段之间隔多少秒")
 parser.add_argument("--no-key", action="store_true", help="不设置任何密钥，看第一次使用时的样子")
 parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram（\"手机\"页面）用的端口，默认随便挑一个空闲的")
+parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
 options = parser.parse_args()
 
 # 这个脚本绝不能碰到真正的密钥：先把环境变量里的都清掉，再放一个编造的
@@ -129,6 +136,62 @@ def channel_reply(body: dict) -> dict:
     return reply(text("我来看一下磁盘。"), tool_use(f"toolu_chat_{asked}", "run_command", {"command": "df -h . && du -sh ~/Downloads"}), stop_reason="tool_use")
 
 
+# 浏览器演示用的"演示商店"：这个脚本在本机起的一个小网页（见下面的 shop），不连外网
+SHOP_PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>演示商店 · 雨具</title>
+<style>
+  body { margin: 0; font: 16px/1.6 system-ui, sans-serif; color: #1d1d1f; background: #f5f3ee; }
+  header { display: flex; align-items: center; gap: 24px; padding: 18px 40px; background: #fff; border-bottom: 1px solid #e4e0d8; }
+  header b { font-size: 20px; letter-spacing: .02em; }
+  form { display: flex; gap: 8px; margin-left: auto; }
+  input { width: 260px; height: 36px; padding: 0 12px; font: inherit; border: 1px solid #b9b3a7; border-radius: 10px; }
+  button { height: 36px; padding: 0 16px; font: inherit; color: #fff; background: #1d1d1f; border: 0; border-radius: 10px; }
+  main { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; padding: 32px 40px; }
+  article { padding: 18px; background: #fff; border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,.06); }
+  .swatch { height: 120px; margin-bottom: 12px; border-radius: 12px; }
+  h2 { margin: 0 0 4px; font-size: 17px; } p { margin: 0 0 10px; color: #5d5a54; } .price { font-weight: 600; color: #1d1d1f; }
+</style></head><body>
+<header><b>☂ 演示商店</b><nav><a href="#">雨伞</a> · <a href="#">雨衣</a> · <a href="#">雨靴</a></nav>
+<form onsubmit="event.preventDefault(); document.title = '搜索：' + this.q.value"><input name="q" type="search" placeholder="搜索商品" aria-label="搜索商品"><button>搜索</button></form></header>
+<main>
+<article><div class="swatch" style="background:linear-gradient(135deg,#4f6bff,#8b5cf6)"></div><h2>折叠雨伞</h2><p>三折，220 克，放得进包里。</p><p class="price">¥ 89</p><button type="button">加入购物车</button></article>
+<article><div class="swatch" style="background:linear-gradient(135deg,#ec4899,#f59e0b)"></div><h2>长柄雨伞</h2><p>十二骨，大风天也不翻。</p><p class="price">¥ 129</p><button type="button">加入购物车</button></article>
+<article><div class="swatch" style="background:linear-gradient(135deg,#0d9488,#4f6bff)"></div><h2>儿童雨伞</h2><p>圆头伞骨，颜色亮，好找。</p><p class="price">¥ 59</p><button type="button">加入购物车</button></article>
+</main></body></html>"""
+
+
+def browser_reply(body: dict, shop: str) -> dict:
+    """浏览器演示：打开演示商店 → 读页面 → 点搜索框、输入 → 截图 → 交代看到了什么。按历史走到了哪一步来回答。"""
+    messages = body.get("messages") or []
+    last = messages[-1] if messages else {}
+    results = [block for block in (last.get("content") or []) if isinstance(block, dict) and block.get("type") == "tool_result"]
+    if any(block.get("is_error") for block in results):
+        return reply(text("好的，这一步不做了。需要的时候再叫我用浏览器。"))
+    step = sum(1 for message in messages if message.get("role") == "assistant")
+    if step == 0:
+        return reply(
+            thinking("用户想看看演示商店。先用浏览器打开它。"),
+            text("我用智狐的浏览器打开演示商店看看。"),
+            tool_use("toolu_browser_1", "navigate", {"url": shop}, toolset="browser"),
+            stop_reason="tool_use",
+        )
+    if step == 1:
+        return reply(tool_use("toolu_browser_2", "read_page", {"filter": "interactive"}, toolset="browser"), stop_reason="tool_use")
+    if step == 2:
+        page = "".join(block["content"] if isinstance(block.get("content"), str) else "".join(
+            part.get("text", "") for part in block.get("content") or [] if isinstance(part, dict)) for block in results)
+        found = next((line for line in page.splitlines() if "搜索商品" in line), "")
+        ref = found[found.find("[") + 1 : found.find("]")] if "[" in found else "ref_1"
+        return reply(
+            text("页面上有一个搜索框和三件商品。我在搜索框里输入“雨伞”。"),
+            tool_use("toolu_browser_3", "left_click", {"target": {"type": "ref", "ref": ref}}, toolset="browser"),
+            tool_use("toolu_browser_4", "type", {"text": "雨伞"}, toolset="browser"),
+            stop_reason="tool_use",
+        )
+    if step == 3:
+        return reply(tool_use("toolu_browser_5", "screenshot", {}, toolset="browser"), stop_reason="tool_use")
+    return reply(text("看完了。演示商店里有 **3 把雨伞**：\n\n| 商品 | 价格 |\n|:--|--:|\n| 折叠雨伞 | ¥ 89 |\n| 长柄雨伞 | ¥ 129 |\n| 儿童雨伞 | ¥ 59 |\n\n要不要我把其中一把加入购物车？（点“加入购物车”不用问你，真要下单时我会先问。）"))
+
+
 class SlowClaude:
     """假的 Anthropic API：按顺序回放写好的回复，但是慢慢地发。定时任务的请求另外回答（见 task_reply）。"""
 
@@ -148,6 +211,8 @@ class SlowClaude:
                         scripted = task_reply(body)
                     elif "<channel>" in first:
                         scripted = channel_reply(body)
+                    elif "演示商店" in first:
+                        scripted = browser_reply(body, shop.url)
                     else:
                         scripted = api.replies.pop(0) if api.replies else None
                 if scripted is None:
@@ -300,6 +365,31 @@ fake_home = root / "home"
 os.environ["HOME"] = str(fake_home)
 # 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
 docs_server = FakeMcpHttp("modern", sse=True, token="demo-header-token-9876wxyz").start()
+
+
+class Shop:
+    """浏览器演示用的"演示商店"网页（SHOP_PAGE），只在这台电脑上。"""
+
+    def start(self) -> Shop:
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                payload = SHOP_PAGE.encode()
+                self.send_response(200)
+                self.send_header("content-type", "text/html; charset=utf-8")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+        return self
+
+
+shop = Shop().start()
 os.environ["DEMO_MCP_URL"] = docs_server.url
 workspace = root / "work"
 workspace.mkdir(parents=True, exist_ok=True)
@@ -485,6 +575,9 @@ server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里�
 ui = WebUI()
 fresh = not (root / "data" / "tasks.json").exists()
 app = build_app(config, ui, client_factory=client_factory)
+# 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里
+app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
+app.refresh_tools()
 if fresh:
     # 编造几个任务，"任务"那一栏才有东西可看：有运行记录的、关掉了的、还没关掉的提醒
     now = time.time()
@@ -510,3 +603,4 @@ finally:
     lifecycle.stop(server.web, 3)  # 停下通道和任务（也会关掉启动过的假 MCP 服务器进程）
     telegram.stop()
     docs_server.stop()
+    shop.server.shutdown()

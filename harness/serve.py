@@ -67,6 +67,7 @@ def serve(config: Config, stop: threading.Event, web: bool = False, port: int | 
     """运行到 stop 被设置为止。测试直接调用它（不用真的发信号）。"""
     ui = WebUI()
     app = build_app(config, ui) if client_factory is None else build_app(config, ui, client_factory=client_factory)
+    app.browser.headless_only = True  # 服务器上没有屏幕：浏览器（设置里开着的话）一律无界面运行
     server = None
     if web:
         try:

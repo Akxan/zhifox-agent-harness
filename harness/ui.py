@@ -141,8 +141,10 @@ class TerminalUI:
     def tool_call(self, name: str, tool_input: object) -> None:
         self._line(CYAN, f"🔧 {describe_call(name, tool_input)}")
 
-    def tool_result(self, text: str, is_error: bool) -> None:
-        self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}")
+    def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
+        # 浏览器的截图在终端里画不出来，只说一声大图存在哪儿（网页界面里点小图就能看）
+        shot = f" · {t('截图已保存')}" if preview and preview.get("shot") else ""
+        self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}{shot}")
 
     def auto_allowed(self) -> None:
         self.info("   " + t("（自动允许）"))

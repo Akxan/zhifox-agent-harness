@@ -11,7 +11,6 @@ import stat
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from urllib.parse import unquote
 
 import pytest
@@ -91,7 +90,7 @@ def history(provider: str, *turns: Sequence[Attachment], words: str = "看看") 
     而不是测试里自己想象的格式。
     """
     if provider == "claude":
-        backend = AnthropicBackend(None, "claude-opus-5-5", None, SimpleNamespace(specs=list), "系统提示词")
+        backend = AnthropicBackend(None, "claude-opus-5-5", None, [], "系统提示词")
         answer = {"role": "assistant", "content": [{"type": "text", "text": "好的。"}]}
     else:
         backend = OpenAICompatBackend(None, "openai", "GPT", "gpt-6-luna", None, [], "系统提示词", vision=True, pdf=True)

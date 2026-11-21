@@ -101,6 +101,44 @@ MAX_AGENT_BYTES = 200_000
 # Agent 一页最多列这么多个
 MAX_AGENTS = 200
 
+# 浏览器（见 browser/）：助手操作一个智狐自己启动的 Chrome，和你平时用的浏览器分开。
+# 页面的大小（宽、高，CSS 像素）。截图就是这么大：模型看到的、点击用的坐标都在这个范围里。
+# 调大了看得更全，但每张截图的 token 也跟着涨（Claude 大约按 宽×高÷750 计，1280×800 约 1400 个）
+BROWSER_VIEWPORT = (1280, 800)
+# 截图的 JPEG 质量（1~100）。60 看得清字，大小只有 PNG 的几分之一；截图是要按输入 token 付钱的
+BROWSER_SHOT_QUALITY = 60
+# 对话里那张小预览图的宽度（像素）。只给你看，不发给模型
+BROWSER_THUMB_WIDTH = 320
+# 截图的大图存在 data/browser/shots/ 里，点开小图时看的就是它。超过这么多天的删掉（小图还在会话里）
+BROWSER_SHOT_DAYS = 30
+# 这么多分钟没有用过浏览器，就把它关掉（省内存；下次要用时再自动打开，登录状态在配置文件夹里，不会丢）
+BROWSER_IDLE_MINUTES = 10
+# 发给 Chrome 的一个命令最多等这么久（秒）
+BROWSER_CALL_TIMEOUT = 20
+# 打开一个网页最多等它加载这么久（秒）。到了还没加载完，先把现在的样子交给模型
+BROWSER_NAV_TIMEOUT = 30
+# 点击、按键之后等页面"安静下来"最多这么久（秒）：点了一个链接，要等新页面开始加载
+BROWSER_SETTLE_SECONDS = 3
+# 读页面（read_page、get_page_text）一次最多交给模型这么多字。再多就告诉它"截断了，请缩小范围"
+BROWSER_MAX_PAGE_CHARS = 50_000
+# 支持 Anthropic 的"浏览器工具包"（browser_toolset_20260801）的 Claude 模型。用它们时，浏览器的工具按这个工具包发
+# （模型专门为它训练过，Anthropic 还会扫描页面内容里有没有冲着模型来的指令）；别的模型用智狐自己写的函数工具。
+# 名单来自 https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool 的"API support"
+BROWSER_TOOLSET_MODELS = {
+    "claude-fable-5-2",
+    "claude-mythos-5-2",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-sonnet-5",
+    "claude-haiku-5-5",
+    "claude-opus-4-8",
+}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -163,6 +201,11 @@ class Config:
     @property
     def ledger_file(self) -> Path:
         return self.data_dir / "ledger.jsonl"
+
+    @property
+    def browser_dir(self) -> Path:
+        """浏览器：profile/ 是智狐那个 Chrome 的配置文件夹（登录状态、缓存），shots/ 是截图的大图（见 browser/）。"""
+        return self.data_dir / "browser"
 
     @property
     def channels_file(self) -> Path:

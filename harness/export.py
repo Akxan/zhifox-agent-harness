@@ -11,6 +11,8 @@
     GITHUB_TOKEN）留着，恢复以后照着填回去就行。读不懂（不是合法的 JSON）的话整个文件不导出：
     宁可少导出一份，也不冒险把密钥带出去。以后再有存着密钥的配置文件，加进 MASKED_FILES。
   - 符号链接（替身）不导出：它可能指向数据文件夹外面的任何地方，比如你的 ~/.ssh。
+  - 浏览器的配置文件夹（browser/profile，见 browser/）不导出：里面是你在智狐的浏览器里登录过的网站的 cookie，
+    拿到它就能冒充你登录那些网站，和密钥一样不该被带出去；剩下的只是缓存，恢复以后重新登录就行。截图（browser/shots）照样导出。
   - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock、*.lock）、写到一半的临时文件（*.tmp）。
 
 压缩包的最外层就是数据文件夹里的内容，另外多一个 README-backup.txt：导出的时间、怎么恢复、哪些文件做了处理。
@@ -32,7 +34,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from .config import APP_NAME
-from .i18n import t
+from .i18n import k, t
 from .safe import to_json
 
 # 存着密钥的配置文件（相对数据文件夹的路径）：导出时把密钥换成占位符。
@@ -40,6 +42,8 @@ from .safe import to_json
 MASKED_FILES = ("mcp.json", "channels.json")
 PLACEHOLDER = "<removed-from-backup>"  # 写成英文：它留在配置文件里，恢复以后谁来看都认得出
 NOTE = "README-backup.txt"
+# 整个不导出的文件夹（相对数据文件夹的路径）→ 原因（写进压缩包里的说明）
+LEFT_OUT_FOLDERS = {"browser/profile": k("浏览器的配置文件夹：里面是登录过的网站的 cookie，和密钥一样不导出")}
 # 本来就压缩过的格式，再压一遍只是白费时间：原样存进去
 STORED = {".zip", ".gz", ".xz", ".bz2", ".7z", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".avif",
           ".pdf", ".mp3", ".m4a", ".mp4", ".mov", ".webm", ".docx", ".xlsx", ".pptx"}
@@ -153,6 +157,11 @@ def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
             if (here / name).is_symlink():  # os.walk 不会进去，但要说一声没导出
                 result.skipped.append(((here / name).relative_to(data_dir).as_posix() + "/", t("符号链接，可能指向数据文件夹外面")))
         folders[:] = sorted(name for name in folders if not (here / name).is_symlink())
+        for name in list(folders):
+            relative = (here / name).relative_to(data_dir).as_posix()
+            if relative in LEFT_OUT_FOLDERS:
+                folders.remove(name)
+                result.skipped.append((relative + "/", t(LEFT_OUT_FOLDERS[relative])))
         for name in sorted(names):
             path = here / name
             relative = path.relative_to(data_dir).as_posix()
