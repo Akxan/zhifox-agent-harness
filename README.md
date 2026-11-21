@@ -556,7 +556,10 @@ carry a one-time nonce, and it loads nothing from outside. That doesn't mean it 
 source lives in [harness/webui/page/](harness/webui/page/), one concern per file: `index.html` is the skeleton (the
 markup plus a few placeholder lines), `styles/` holds the CSS split by part of the interface (`tokens.css`, `chat.css`,
 `memory.css`, `skills.css`…), and `scripts/` holds the page script split by section (`i18n.js`, `motion.js`,
-`memory.js`, `tasks.js`, `browser.js`…). A manifest in [page/\_\_init\_\_.py](harness/webui/page/__init__.py) lists the
+`memory.js`, `tasks.js`, `browser.js`…). A section that grew past a few hundred lines is split along its own
+subsections into files sharing a prefix: `skills.js` holds the Skills tab's overview, shared state and helpers, then
+come `skills-list.js`, `skills-detail.js`, `skills-add.js` and `skills-review.js` (likewise `agents-*`, `mcp-*`,
+`channels-*` and `tasks-*`). A manifest in [page/\_\_init\_\_.py](harness/webui/page/__init__.py) lists the
 parts in order, and the server joins them into the same single page once at startup (the demo re-assembles it on
 every refresh). Order matters: in CSS a later rule beats an equally specific earlier one, so `reduce-motion.css` comes
 last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses

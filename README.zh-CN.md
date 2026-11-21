@@ -801,7 +801,9 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 不加载任何外部的东西。但这不等于它得写成一个文件。页面的源码在 [harness/webui/page/](harness/webui/page/) 里，
 一个文件只讲一件事：`index.html` 是骨架（标记，外加几行占位符），`styles/` 里是按界面的部分分开的样式
 （`tokens.css`、`chat.css`、`memory.css`、`skills.css`……），`scripts/` 里是按小节分开的页面脚本
-（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
+（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。一节长到几百行以上，就按它自己的小节拆成几个
+同一前缀的文件：`skills.js` 是 Skill 一页的总说明、共用的状态和小工具，后面接着 `skills-list.js`、`skills-detail.js`、
+`skills-add.js`、`skills-review.js`（`agents-*`、`mcp-*`、`channels-*`、`tasks-*` 也一样）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
 里的清单按顺序列出这些块，服务器启动时把它们拼回同一个页面（演示每次刷新都重新拼）。顺序很要紧：样式里两条一样具体的规则，
 后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
 所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
