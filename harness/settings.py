@@ -153,7 +153,7 @@ def computer_settings(saved: object) -> dict:
     """"操作整台电脑"的设置，只认这三项、这几种类型；不认识的、类型不对的按默认的来。
 
     enabled     开没开（默认关着）
-    unattended  定时任务、聊天通道能不能用（默认不能；能用的时候每一步照样要你批准）
+    unattended  定时任务、聊天通道能不能用（默认不能；能用的时候按任务、通道自己的那一档问你，没有"这段对话里不再问"）
     blocked     不许碰的程序的名字（前台是它们的时候，智狐不截图也不操作，见 desktop/session.py）
     """
     saved = saved if isinstance(saved, dict) else {}

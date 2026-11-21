@@ -24,6 +24,7 @@ from typing import Any
 
 from ..attachments import Attachment, from_saved
 from ..citations import Numbering
+from ..desktop.session import TRUSTS
 from ..display import describe_call
 from ..i18n import Message, t
 
@@ -80,6 +81,7 @@ class WebUI:
         self._stop_requested = False
         self._stop_callbacks: list[Callable[[], None]] = []
         self._waiting_confirm: int | None = None  # 正在等用户答复的确认请求的编号
+        self._waiting_offer = ""  # 它的卡片上多给的那个选择（见 confirm 和 offered）
         self._confirm_answer: tuple[bool, str] | None = None
 
     # ---- 事件日志（server.py 使用）-----------------------------------------
@@ -366,24 +368,35 @@ class WebUI:
             fields = said(description)
             if agent:
                 fields["agent"] = agent
-            if getattr(description, "offer", "") in OFFERS:
-                # 卡片上多给的一个选择（见 permissions.offering）。只给你正在看的这段对话：子 Agent 问的也是这段对话的电脑
-                fields["offer"] = description.offer
+            offer = getattr(description, "offer", "")
+            if offer in OFFERS:
+                # 卡片上多给的一个选择（见 permissions.offering）。只有你正在看的这段对话的问题才带着它
+                # （子 Agent 问的也是这段对话的电脑）；定时任务、聊天通道的问题根本不带
+                fields["offer"] = offer
             if getattr(description, "always", False) is True:
                 fields["always"] = True  # 在任何模式下都要问（见 permissions.always）：页面不放"不想每次都问？"
             confirm_id = self.publish("confirm", description=fields.pop("text"), **fields)
             self._waiting_confirm = confirm_id
+            self._waiting_offer = offer if offer in OFFERS else ""
             self._confirm_answer = None
             while self._confirm_answer is None and not self._stop_requested:
                 self._changed.wait()
             answer = self._confirm_answer
             self._waiting_confirm = None
+            self._waiting_offer = ""
         if answer is None:  # 等待期间用户点了"停止"
             self.publish("confirm_done", confirm=confirm_id, allowed=False, stopped=True)
             raise KeyboardInterrupt
         allowed, feedback = answer
         self.publish("confirm_done", confirm=confirm_id, allowed=allowed, stopped=False)
         return allowed, feedback
+
+    def offered(self, confirm_id: object, offer: str) -> bool:
+        """confirm_id 是不是正在等你答复的那张卡片，而且它上面给了 offer 这个选择（/api/computer/trust 先问这一句：
+        "这段对话里不再问"只能从那张卡片上点出来，卡片答复过了、换了对话、问的根本不是这一类，都不算）。"""
+        with self._changed:
+            waiting = self._waiting_confirm is not None and self._confirm_answer is None
+            return waiting and isinstance(confirm_id, int) and not isinstance(confirm_id, bool) and confirm_id == self._waiting_confirm and offer == self._waiting_offer
 
     def answer_confirm(self, confirm_id: int, allowed: bool, feedback: str) -> bool:
         """浏览器送来了用户的答复。返回 False 表示这个确认请求已经不在等待了。"""
@@ -426,8 +439,9 @@ class WebUI:
         self.publish("notice", level="error", **said(text))
 
 
-# 确认卡片上可以多给的选择：screenshots 是"允许，这段对话里截图不再问"（操作整台电脑，见 permissions.py）
-OFFERS = frozenset({"screenshots"})
+# 确认卡片上可以多给的选择（操作整台电脑，见 permissions.py）：screenshots 是"允许，这段对话里截图不再问"，
+# actions 是"允许，这段对话里的点击、打字不再问"（两个词只定义在 desktop/session.py 的 TRUSTS 里）
+OFFERS = frozenset(TRUSTS.values())
 THUMB_PREFIX = "data:image/jpeg;base64,"
 MAX_THUMB_CHARS = 60_000  # 小图最多这么大（正常的只有几 KB）。再大的不放进事件：每次刷新页面都要重发
 

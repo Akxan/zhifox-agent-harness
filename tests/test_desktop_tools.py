@@ -6,8 +6,9 @@
     看不了图片的模型（DeepSeek）一个都拿不到。
   - 工具包成员的结果上写回 toolset_name: "computer"；截图是一张图片。
   - 一串连着的调用里前一个失败了（包括你拒绝了），后面的不做，结果是文档给电脑工具包规定的那句话。
-  - 每一步都问，"全部自动允许"也不放开；只有截图可以"这段对话里不再问"；等一等、看鼠标在哪儿不问。
-  - 定时任务、聊天通道：设置里另外打开了才有这些工具，有了也每一步都问。屏幕同一时间只归一个运行。
+  - 默认每一步都问；"全部自动允许"、这段对话里放开了（截图一类、点击打字一类）才不问，每一步都留下"自动允许"的记录；
+    危险的组合键怎么都问；不许碰的程序照样拒绝；打字前换回程序、点的位置换了窗口就不点，没问的也一样；等一等、看鼠标在哪儿不问。
+  - 定时任务、聊天通道：设置里另外打开了才有这些工具，有了按它自己的那一档问，没有"这段对话里不再问"。屏幕同一时间只归一个运行。
   - 说明书在一段对话里不变：每次请求的开头一个字节都不差。
 """
 
@@ -232,8 +233,9 @@ def test_turned_off_mid_conversation_answers_that_it_is_off(start):
 # ---- 问不问你 ---------------------------------------------------------------------
 
 
-def test_every_input_action_asks_even_when_everything_is_auto_allowed(start):
-    actions = [
+def every_step() -> list[dict]:
+    """每一种会问的动作各一次（危险的组合键不在里面，见 test_dangerous_keys_ask_even_when_everything_is_loosened）。"""
+    return [
         tool_use("a1", "left_click", {"coordinate": [1, 1]}, toolset="computer"),
         tool_use("a2", "double_click", {"coordinate": [1, 1]}, toolset="computer"),
         tool_use("a3", "left_click_drag", {"start_coordinate": [1, 1], "coordinate": [9, 9]}, toolset="computer"),
@@ -245,14 +247,165 @@ def test_every_input_action_asks_even_when_everything_is_auto_allowed(start):
         tool_use("a9", "left_mouse_down", {}, toolset="computer"),
         tool_use("a10", "left_mouse_up", {}, toolset="computer"),
         tool_use("a11", "zoom", {"region": [0, 0, 100, 100]}, toolset="computer"),
-        SCREENSHOT,
+        tool_use("a12", "screenshot", {}, toolset="computer"),
     ]
+
+
+@pytest.mark.parametrize("mode", ["ask", "readonly", "edits"])
+def test_every_step_asks_unless_everything_is_allowed(start, mode):
+    """"只读的命令""改工作目录里的文件"这两档都不放开操作电脑：每一步都问。"""
+    actions = every_step()
     s = start(reply(*actions, stop_reason="tool_use"), reply(text("好")))
     with_computer(s)
-    s.agent.permissions.mode = "all"
+    s.agent.permissions.mode = mode
     s.agent.run_turn("做吧")
     assert len(s.ui.confirmations) == len(actions)
     assert s.ui.auto_allowed_count == 0
+
+
+def test_everything_allowed_runs_every_step_without_asking_and_marks_each(start):
+    """选了"全部自动允许"：截图、点击、打字都不问，每一步都留下"自动允许"的记录（why 是 mode）。"""
+    actions = every_step()
+    s = start(reply(*actions, stop_reason="tool_use"), reply(text("好")))
+    fake = with_computer(s)
+    s.agent.permissions.mode = "all"
+    s.agent.run_turn("做吧")
+    assert s.ui.confirmations == []
+    assert s.ui.auto_whys == ["mode"] * len(actions)
+    assert not [result for result in results_of(s.api.requests[1]) if result.get("is_error")]
+    assert ("click", 1, 1, "left", 1, ()) in fake.events and ("type", "hi") in fake.events and fake.captures
+
+
+def test_trusting_clicks_and_typing_lets_them_through_for_this_conversation(start):
+    """点击的卡片上选了"这段对话里的点击、打字不再问"：后面的点击、打字不问（标着 trusted），截图照样问；新的对话从头再问。"""
+    s = start(
+        reply(
+            tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"),
+            tool_use("t1", "type", {"text": "你好"}, toolset="computer"),
+            tool_use("k1", "key", {"text": "Return"}, toolset="computer"),
+            SCREENSHOT,
+            stop_reason="tool_use",
+        ),
+        reply(text("好")),
+        reply(tool_use("c2", "left_click", {"coordinate": [6, 6]}, toolset="computer"), stop_reason="tool_use"),
+        reply(text("好")),
+    )
+    fake = with_computer(s)
+    trusted = []
+
+    def answer(question, agent=""):
+        s.ui.confirmations.append(question)
+        if getattr(question, "offer", "") == "actions" and not trusted:
+            trusted.append(s.app.chat_desktop.trust("actions"))  # 你点了"允许，这段对话里的点击、打字不再问"
+        return True, ""
+
+    s.ui.confirm = answer
+    s.agent.run_turn("点一下再打字")
+    first, shot = s.ui.confirmations
+    assert getattr(first, "offer", "") == "actions" and "左键单击" in first
+    assert getattr(shot, "offer", "") == "screenshots"  # 截图另外选
+    assert trusted == [True] and s.ui.auto_whys == ["trusted", "trusted"]
+    assert ("type", "你好") in fake.events and ("key", "return", "tap") in fake.events
+    s.app.chat_desktop.release()
+    s.app.new_conversation()
+    s.agent = s.app.agent
+    s.agent.run_turn("再点一下")
+    assert len(s.ui.confirmations) == 3 and "左键单击" in s.ui.confirmations[-1]  # 新的对话：又问了
+
+
+def test_dangerous_keys_ask_even_when_everything_is_loosened(start):
+    """危险的组合键：选了"全部自动允许"、这段对话里放开了点击打字，照样问；卡片上带着警告，不给"不再问"。"""
+    s = start(
+        reply(tool_use("k1", "key", {"text": "cmd+q"}, toolset="computer"), tool_use("k2", "hold_key", {"text": "cmd+q", "duration": 0}, toolset="computer"), stop_reason="tool_use"),
+        reply(text("好")),
+    )
+    with_computer(s)
+    s.agent.permissions.mode = "all"
+    s.app.chat_desktop.trust("actions")
+    s.app.chat_desktop.trust("screenshots")
+    s.agent.run_turn("退出")
+    assert len(s.ui.confirmations) == 2 and s.ui.auto_allowed_count == 0
+    for question in s.ui.confirmations:
+        assert "退出最前面的那个程序" in question
+        assert getattr(question, "always", False) is True and getattr(question, "offer", "") == ""
+
+
+def test_dangerous_keys_follow_the_platform(start):
+    """Linux（X11）上危险的是 Alt+F4 这类，⌘Q 那一套是 Mac 的：放开了以后，Alt+F4 照样问，别的照常不问。"""
+    s = start(
+        reply(tool_use("k1", "key", {"text": "alt+F4"}, toolset="computer"), tool_use("k2", "key", {"text": "ctrl+s"}, toolset="computer"), stop_reason="tool_use"),
+        reply(text("好")),
+    )
+    with_computer(s, FakeDesktop(platform="x11", front=("firefox · 文档", "101")))
+    s.app.chat_desktop.trust("actions")
+    s.agent.run_turn("关窗口")
+    assert len(s.ui.confirmations) == 1 and "Alt+F4" in s.ui.confirmations[0]
+    assert s.ui.auto_whys == ["trusted"]
+
+
+def test_trusting_screenshots_never_lets_clicks_through(start):
+    s = start(reply(tool_use("c1", "left_click", {"coordinate": [1, 1]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
+    with_computer(s)
+    s.app.chat_desktop.trust_screenshots = True
+    s.agent.run_turn("点")
+    assert len(s.ui.confirmations) == 1 and getattr(s.ui.confirmations[0], "offer", "") == "actions"
+    assert "左键单击" in s.ui.confirmations[0] and "落在：备忘录" in s.ui.confirmations[0]
+
+
+@pytest.mark.parametrize("loosen", ["all", "trusted"])
+def test_blocked_apps_stay_refused_however_loose(start, loosen):
+    s = start(reply(SCREENSHOT, tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
+    fake = with_computer(s, blocked=["备忘录"])
+    if loosen == "all":
+        s.agent.permissions.mode = "all"
+    else:
+        s.app.chat_desktop.trust("actions")
+        s.app.chat_desktop.trust("screenshots")
+    s.agent.run_turn("截图再点")
+    assert s.ui.confirmations == [] and fake.captures == [] and fake.events == []
+    refused, halted = results_of(s.api.requests[1])
+    assert "不许碰" in refused["content"] and halted["content"] == HALTED  # 第一步被拒绝了，后面的那一步不做
+
+
+class SwitchingDesktop(FakeDesktop):
+    """问你（看事实）的时候最前面是备忘录；动手的时候浏览器跑到了最前面，点的那一点也被它挡住了。"""
+
+    def __init__(self):
+        super().__init__()
+        self.looked = 0
+
+    def front(self):
+        self.looked += 1
+        return ("备忘录", "101") if self.looked == 1 else self.front_app
+
+    def app_at(self, x, y):
+        return "Google Chrome"
+
+
+def test_typing_without_asking_still_brings_the_app_back_first(start):
+    """没问就做的也一样：打字前把看事实时最前面的那个程序换回来（_focus）。"""
+    s = start(reply(tool_use("t1", "type", {"text": "你好"}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
+    fake = with_computer(s, SwitchingDesktop())
+    fake.front_app = ("Google Chrome", "9")
+    s.agent.permissions.mode = "all"
+    s.agent.run_turn("打字")
+    assert s.ui.confirmations == [] and fake.activations == ["101"] and ("type", "你好") in fake.events
+
+
+def test_a_click_without_asking_is_still_not_made_when_the_spot_changed(start):
+    """点的位置在动手之前换成了别的窗口：照样不点（_guard），哪怕这段对话里放开了点击。"""
+    s2 = start(reply(tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
+    seen: list[tuple[int, int]] = []
+
+    def covered(x: int, y: int) -> str:
+        seen.append((x, y))  # 第一次是看事实的时候，第二次是动手之前（_guard）
+        return "备忘录" if len(seen) == 1 else "Google Chrome"
+
+    fake2 = with_computer(s2, FakeDesktop(app_at=covered))
+    s2.app.chat_desktop.trust("actions")
+    s2.agent.run_turn("点")
+    assert s2.ui.confirmations == [] and fake2.events == []
+    assert "问用户的时候" in results_of(s2.api.requests[1])[0]["content"]
 
 
 def test_wait_and_cursor_position_do_not_ask(start):
@@ -278,16 +431,6 @@ def test_screenshots_ask_until_trusted_for_this_conversation(start):
     s.app.chat_desktop.trust_screenshots = True
     s.agent.run_turn("再截一张")
     assert len(s.ui.confirmations) == 1 and s.ui.auto_allowed_count == 1  # 没问，卡片上标着"自动允许"
-
-
-def test_trusting_screenshots_never_lets_clicks_through(start):
-    s = start(reply(tool_use("c1", "left_click", {"coordinate": [1, 1]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
-    with_computer(s)
-    s.app.chat_desktop.trust_screenshots = True
-    s.agent.permissions.mode = "all"
-    s.agent.run_turn("点")
-    assert len(s.ui.confirmations) == 1 and not getattr(s.ui.confirmations[0], "offer", "")
-    assert "左键单击" in s.ui.confirmations[0] and "落在：备忘录" in s.ui.confirmations[0]
 
 
 def test_dangerous_keys_carry_a_warning_on_the_card(start):
@@ -336,17 +479,60 @@ def test_unattended_runs_get_no_computer_tools_unless_allowed(start):
     channel.close()
 
 
-def test_allowed_unattended_runs_still_ask_every_step(start):
+@pytest.mark.parametrize("mode", ["ask", "readonly", "edits"])
+def test_allowed_unattended_runs_ask_every_step_by_their_own_mode(start, mode):
+    """任务、通道按它自己的那一档问：你在对话里放开的不算数，卡片上也不给"这段对话里不再问"。"""
     s = start(reply(SCREENSHOT, tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
     fake = with_computer(s, unattended=True)
-    s.app.chat_desktop.trust_screenshots = True  # 你在对话里放开的截图，任务里不算数
-    run = s.app.unattended_agent(s.ui, "all")  # 这个任务选了"全部自动允许"
+    s.app.chat_desktop.trust("screenshots")  # 你在对话里放开的，任务里不算数
+    s.app.chat_desktop.trust("actions")
+    run = s.app.unattended_agent(s.ui, mode)
     assert run.agent.tools.get("screenshot", "computer") is not None
     run.agent.run_turn("<task>看一眼屏幕</task>")
     assert len(s.ui.confirmations) == 2 and s.ui.auto_allowed_count == 0
+    assert [getattr(question, "offer", "") for question in s.ui.confirmations] == ["", ""]
     assert fake.events == [("click", 5, 5, "left", 1, ())]
     run.close()
     assert s.app.desktop.free_for(s.app.chat_desktop)  # 这次运行结束：屏幕让出来了
+
+
+def test_a_task_that_allows_everything_operates_without_asking_but_dangerous_keys_still_ask(start):
+    """任务选了"全部自动允许"（设置里也允许了任务用电脑）：截图、点击不问，记着"自动允许"；⌘Q 照样问。"""
+    s = start(
+        reply(SCREENSHOT, tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"), tool_use("k1", "key", {"text": "cmd+q"}, toolset="computer"), stop_reason="tool_use"),
+        reply(text("好")),
+    )
+    fake = with_computer(s, unattended=True)
+    run = s.app.unattended_agent(s.ui, "all")
+    run.agent.run_turn("<task>点一下</task>")
+    assert s.ui.auto_whys == ["mode", "mode"]
+    assert len(s.ui.confirmations) == 1 and "⌘Q" in s.ui.confirmations[0]
+    assert getattr(s.ui.confirmations[0], "always", False) is True
+    assert ("click", 5, 5, "left", 1, ()) in fake.events and len(fake.captures) >= 1
+    run.close()
+
+
+def test_a_channel_that_allows_everything_operates_without_asking(start):
+    """聊天通道选了"全部自动允许"：一样不问；它的 session 没人看着，"这段对话里不再问"根本打不开。"""
+    s = start(reply(tool_use("c1", "left_click", {"coordinate": [5, 5]}, toolset="computer"), stop_reason="tool_use"), reply(text("好")))
+    fake = with_computer(s, unattended=True)
+    channel = s.app.channel_agent(s.ui, "all", "anthropic", "claude-opus-5-5")
+    channel.agent.run_turn("<channel>点一下</channel>")
+    assert s.ui.confirmations == [] and s.ui.auto_whys == ["mode"]
+    assert fake.events == [("click", 5, 5, "left", 1, ())]
+    channel.close()
+
+
+def test_unattended_runs_have_no_way_to_trust(start):
+    """定时任务、聊天通道的 session 不是 attended 的：trust 一律不开，开不开也不影响你的对话。"""
+    s = start(reply(text("好")))
+    with_computer(s, unattended=True)
+    for run in (s.app.unattended_agent(s.ui, "ask"), s.app.channel_agent(s.ui, "ask", "anthropic", "claude-opus-5-5")):
+        tool = run.agent.tools.get("left_click", "computer")
+        session_of_run = tool.look({"coordinate": [5, 5]})
+        assert session_of_run.attended is False and session_of_run.trusted is False
+        run.close()
+    assert s.app.chat_desktop.attended is True
 
 
 def test_the_screen_belongs_to_one_run_at_a_time(start):

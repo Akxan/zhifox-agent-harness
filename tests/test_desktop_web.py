@@ -1,8 +1,10 @@
-"""网页上的"操作整台电脑"：设置里的开关（打开要先确认）、"这段对话里截图不再问"、页面顶上的"停止"、截图的大图、
-确认卡片上多给的那个选择、打开 macOS 系统设置里的那一页。
+"""网页上的"操作整台电脑"：设置里的开关（打开要先确认）、"这段对话里截图不再问""这段对话里的点击、打字不再问"、
+页面顶上的"停止"、截图的大图、确认卡片上多给的那个选择、打开 macOS 系统设置里的那一页。
 
 真实的 HTTP 服务器 + 假的模型（test_webui.py 的 serve），电脑换成 FakeDesktop，不碰真的屏幕。要守住的规矩：
   - 打开它是一件要想清楚的事：不带 acknowledge 的"打开"一律拒绝；
+  - "这段对话里不再问"只能从正在等你答复、给了这个选择的那张卡片上打开（/api/computer/trust 要卡片的编号），
+    危险的组合键的卡片不给；"全部自动允许"下电脑的每一步不弹卡片，记着"自动允许"；
   - 截图的大图只认 64 个十六进制字符的编号，回答固定是 image/jpeg，带 attachment、nosniff、sandbox（和浏览器的一样）；
   - "打开系统设置"只认两个固定的词，地址由服务器定，命令用参数列表；测试里绝不真的打开任何东西；
   - 一轮结束，屏幕让出来；对话里的"停止"也停下电脑的动作。
@@ -64,7 +66,7 @@ def test_turning_it_on_needs_an_explicit_acknowledgement(serve):
     wait_until(lambda: latest_state(s.browser)["computer"]["enabled"])
     computer = capability(latest_state(s.browser), "computer")
     assert computer["status"] == "on" and computer["tools"] == ["computer_toolset_20260801"]  # 还没开始的对话：马上换上了
-    assert computer["approval"]["level"] == "always"  # 每一步都问，哪一档都一样
+    assert computer["approval"]["level"] == "ask"  # "每次都问"这一档：每一步都先问你（危险的组合键哪一档都问）
     # 已经开着的时候改别的，不用再确认
     assert settings(s, unattended=True)[0] == 200 and s.app.settings.computer["unattended"] is True
 
@@ -105,16 +107,94 @@ def test_blocked_apps_are_saved_and_checked(serve):
     assert s.browser.post("/api/computer/nope", {})[0] == 404
 
 
-def test_trusting_screenshots_is_only_for_this_conversation_and_only_when_on(serve):
-    s = serve()
-    status, _ = s.browser.post("/api/computer/trust", {})
-    assert status == 409 and s.app.chat_desktop.trust_screenshots is False
+def trust(s, what: str, confirm) -> tuple[int, dict]:
+    return s.browser.post("/api/computer/trust", {"what": what, "confirm": confirm})
+
+
+def test_trusting_is_only_from_the_card_that_offers_it_and_only_when_on(serve, monkeypatch):
+    """"这段对话里不再问"只能从正在等你答复、而且给了这个选择的那张卡片上点出来：
+    词不对是 400；关着、卡片不对（编号不对、答复过了、问的不是这一类）都是 409，什么都不放开。"""
+    monkeypatch.setattr(session_module, "DESKTOP_SETTLE_SECONDS", 0)
+    s = serve(reply(tool_use("s1", "screenshot", {}, toolset="computer"), stop_reason="tool_use"), reply(text("看完了")))
+    install(s.app.desktop, FakeDesktop())
+    assert trust(s, "screenshots", 1)[0] == 409  # 关着
+    for bad in ({}, {"what": "everything", "confirm": 1}, {"what": ["actions"], "confirm": 1}):
+        assert s.browser.post("/api/computer/trust", bad)[0] == 400
     settings(s, enabled=True, acknowledge=True)
-    assert s.browser.post("/api/computer/trust", {}) == (200, {"ok": True})
-    assert s.app.chat_desktop.trust_screenshots is True
+    assert trust(s, "screenshots", 1)[0] == 409  # 没有在等的卡片
+    s.browser.post("/api/message", {"text": "看看屏幕"})
+    card = s.browser.wait_for("confirm")
+    assert card["offer"] == "screenshots" and not card.get("always")
+    for wrong in ((card["id"] + 1), str(card["id"]), True, None):
+        assert trust(s, "screenshots", wrong)[0] == 409
+    assert trust(s, "actions", card["id"])[0] == 409  # 这张卡片问的是截图，给的不是这个选择
+    assert not s.app.chat_desktop.trust_actions and not s.app.chat_desktop.trust_screenshots
+    assert trust(s, "screenshots", card["id"]) == (200, {"ok": True})
+    assert s.app.chat_desktop.trust_screenshots and not s.app.chat_desktop.trust_actions
     wait_until(lambda: latest_state(s.browser)["computer"]["trusted"])
+    assert s.browser.post("/api/confirm", {"id": card["id"], "allow": True})[0] == 200
+    s.browser.wait_for("turn_end")
+    assert trust(s, "screenshots", card["id"])[0] == 409  # 答复过了
     assert s.browser.post("/api/new", {})[0] == 200  # 换一段对话：从头再问
     assert s.app.chat_desktop.trust_screenshots is False
+
+
+def test_trusting_clicks_and_typing_from_the_card_and_taking_it_back(serve, monkeypatch):
+    """点击的卡片给的是"这段对话里的点击、打字不再问"：点了以后打字、按键不问（工具卡片上标着为什么），截图照样问；
+    危险的组合键照样问、不给选择。设置里的"恢复每一步都问"能收回。"""
+    monkeypatch.setattr(session_module, "DESKTOP_SETTLE_SECONDS", 0)
+    s = serve(
+        reply(
+            tool_use("c1", "left_click", {"coordinate": [10, 20]}, toolset="computer"),
+            tool_use("t1", "type", {"text": "你好"}, toolset="computer"),
+            tool_use("s1", "screenshot", {}, toolset="computer"),
+            tool_use("k1", "key", {"text": "cmd+q"}, toolset="computer"),
+            stop_reason="tool_use",
+        ),
+        reply(text("做完了")),
+    )
+    fake = FakeDesktop()
+    install(s.app.desktop, fake)
+    settings(s, enabled=True, acknowledge=True)
+    s.browser.post("/api/message", {"text": "点一下再打字"})
+    click = s.browser.wait_for("confirm")
+    assert click["offer"] == "actions" and not click.get("always") and click["key"].startswith("在电脑上点击鼠标")
+    assert trust(s, "actions", click["id"]) == (200, {"ok": True})
+    assert s.browser.post("/api/confirm", {"id": click["id"], "allow": True})[0] == 200
+    auto = s.browser.wait_for("auto_allowed")
+    assert auto["why"] == "trusted"  # 打字没问：页面上写"自动允许（这段对话里不再问）"
+    shot = s.browser.wait_for("confirm")
+    assert shot["offer"] == "screenshots"  # 截图另外选
+    assert s.browser.post("/api/confirm", {"id": shot["id"], "allow": True})[0] == 200
+    danger = s.browser.wait_for("confirm")
+    assert danger.get("always") is True and "offer" not in danger  # ⌘Q：放开了也照样问，不给选择
+    assert trust(s, "actions", danger["id"])[0] == 409
+    assert s.browser.post("/api/confirm", {"id": danger["id"], "allow": False})[0] == 200
+    s.browser.wait_for("turn_end")
+    assert ("type", "你好") in fake.events and not [event for event in fake.events if event[0] == "key"]
+    wait_until(lambda: latest_state(s.browser)["computer"]["trusted_actions"])
+    assert s.browser.post("/api/computer/untrust", {}) == (200, {"ok": True})
+    assert not s.app.chat_desktop.trust_actions and not s.app.chat_desktop.trust_screenshots
+    wait_until(lambda: not latest_state(s.browser)["computer"]["trusted_actions"])
+
+
+def test_everything_allowed_operates_without_cards_in_the_web_chat(serve, monkeypatch):
+    """网页上选了"全部自动允许"：电脑的每一步都不弹卡片，工具卡片上标着"自动允许"（why 是 mode）。"""
+    monkeypatch.setattr(session_module, "DESKTOP_SETTLE_SECONDS", 0)
+    s = serve(
+        reply(tool_use("s1", "screenshot", {}, toolset="computer"), tool_use("c1", "left_click", {"coordinate": [10, 20]}, toolset="computer"), stop_reason="tool_use"),
+        reply(text("做完了")),
+    )
+    fake = FakeDesktop()
+    install(s.app.desktop, fake)
+    settings(s, enabled=True, acknowledge=True)
+    assert s.browser.post("/api/approval", {"mode": "all"})[0] == 200
+    s.browser.post("/api/message", {"text": "看看再点"})
+    s.browser.wait_for("turn_end")
+    events = [event for event in s.browser.events if event.get("type") in ("confirm", "auto_allowed")]
+    assert [event["type"] for event in events] == ["auto_allowed", "auto_allowed"]
+    assert all(event["why"] == "mode" for event in events)
+    assert ("click", 10, 20, "left", 1, ()) in fake.events
 
 
 def test_stop_reaches_the_manager(serve, monkeypatch):
@@ -188,12 +268,12 @@ def test_a_screenshot_confirm_offers_to_stop_asking_and_the_step_shows_a_thumbna
     confirm = s.browser.wait_for("confirm")
     assert confirm["offer"] == "screenshots" and confirm["key"].startswith("截一张整个屏幕的图")
     # 页面上的"允许，这段对话里截图不再问"：先告诉服务器不再问，再允许这一次
-    assert s.browser.post("/api/computer/trust", {})[0] == 200
+    assert trust(s, "screenshots", confirm["id"])[0] == 200
     assert s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})[0] == 200
     shot = s.browser.wait_for("tool_result")
     assert shot["thumb"].startswith("data:image/jpeg;base64,") and len(shot["shot"]) == 64
     click = s.browser.wait_for("confirm")
-    assert "offer" not in click  # 点击永远不能"不再问"
+    assert click["offer"] == "actions"  # 点击另有一个选择：放开截图不会连点击一起放开
     assert s.browser.post("/api/confirm", {"id": click["id"], "allow": True})[0] == 200
     result = s.browser.wait_for("tool_result")
     assert result["thumb"] and not result["is_error"]

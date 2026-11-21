@@ -168,8 +168,8 @@ const handlers = {
     what.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.description).trimEnd()));
     const actions = card.appendChild(el('div', 'confirm-actions'));
     const allow = actions.appendChild(tel('button', 'button primary', k('允许')));
-    // 操作整台电脑的截图：可以多选一个"这段对话里截图不再问"（只管这段对话，换一段就从头再问，见 harness/permissions.py）
-    const trust = event.offer === 'screenshots' ? actions.appendChild(tel('button', 'button', k('允许，这段对话里截图不再问'))) : null;
+    // 操作整台电脑：可以多选一个"这段对话里……不再问"（截图一种，点击、打字一种；只管这段对话，见 computer.js 的 computerTrust）
+    const trust = computerTrust(event.offer, actions);
     const deny = actions.appendChild(tel('button', 'button', k('拒绝')));
     const reason = actions.appendChild(el('input', 'field reason'));
     allow.type = deny.type = 'button';
@@ -181,6 +181,7 @@ const handlers = {
       fewer.type = 'button';
       fewer.addEventListener('click', openApproval);
     }
+    if (trust) computerTrustNote(event.offer, trust, actions, event.id);
 
     const answer = async (allowed) => {
       const hadFocus = card.contains(document.activeElement);
@@ -194,7 +195,7 @@ const handlers = {
     deny.addEventListener('click', () => answer(false));
     if (trust) trust.addEventListener('click', async () => {
       trust.disabled = true;
-      const reply = await call('/api/computer/trust', {});
+      const reply = await call('/api/computer/trust', { what: event.offer, confirm: event.id });
       if (!reply.ok) { trust.disabled = false; toast(reply.error); return; }
       answer(true);
     });

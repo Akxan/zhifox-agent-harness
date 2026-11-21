@@ -28,6 +28,12 @@ pre { margin: 0; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-w
 .confirm pre { margin: 8px 0 14px; font-size: 13px; }  /* 不限高度：要你批准的内容必须整段摆在眼前，不能藏在小滚动框里 */
 .confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .reason { flex: 1 1 220px; }
+/* 操作整台电脑的"允许，这段对话里……不再问"：字长（英文、西班牙语更长），窄屏上折行，不冲出卡片 */
+.confirm-trust { height: auto; min-height: 36px; max-width: 100%; padding: 7px 16px; line-height: 1.4; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+/* 放开点击、打字之前的那句提醒：占满一行，放在按钮下面；卡片答复以后跟着按钮一起换成结果 */
+.confirm-trust-note { flex: 1 0 100%; display: flex; align-items: flex-start; gap: 7px; min-width: 0; margin: 2px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.confirm-trust-note .icon { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--warn); }
+.confirm-trust-note span { min-width: 0; overflow-wrap: anywhere; }
 .outcome { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); }
 .outcome.allowed { color: var(--ok); }
 .outcome.denied { color: var(--err); }

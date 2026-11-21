@@ -447,10 +447,15 @@ __STYLES__
           <button id="computer-enabled" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="computer-title"></button>
         </div>
         <ul class="browser-rules">
-          <li><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>每一步都要你批准，不管选了哪一档；只有截图可以选“这段对话里不再问”</span></li>
-          <li><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>⌘Q、Ctrl+Alt+Del 这类按下去收不回来的组合键，确认卡片上带着警告</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>默认每一步都要你批准。确认卡片上可以选“这段对话里截图不再问”“这段对话里的点击、打字不再问”；选了“全部自动允许”也不再问</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>不再问，就是让它自己动手：屏幕上的任何文字都可能带着它去点、去打字。页面顶上的“停止”随时能叫停</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="computer-rule-keys"></span></li>
           <li><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg><span data-i18n>打字之前，智狐先把问你时最前面的那个程序换回来；点击的位置被别的窗口挡住了就不点</span></li>
         </ul>
+        <div id="computer-trusted" class="computer-trusted" hidden>
+          <span id="computer-trusted-text"></span>
+          <button id="computer-untrust" class="mini" type="button" data-i18n>恢复每一步都问</button>
+        </div>
       </div>
       <div id="computer-confirm" class="computer-confirm" role="group" aria-labelledby="computer-confirm-title" hidden>
         <h4><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span id="computer-confirm-title" data-i18n>打开之前，请先看一下</span></h4>
@@ -460,7 +465,7 @@ __STYLES__
           <li data-i18n>它点得到、打得到你电脑上的任何地方。智狐只看得到像素，没法替你判断点下去会发生什么：每一步都要你看清楚。</li>
         </ul>
         <p><b data-i18n>最稳妥的用法：</b><span data-i18n>在虚拟机，或者一个单独的用户账号里运行智狐，那里面不要登录你的重要账号。</span></p>
-        <p data-i18n>每一步都要你在这个页面上点“允许”：把智狐的页面和要操作的程序并排放好，不要互相挡住。</p>
+        <p data-i18n>默认每一步都要你在这个页面上点“允许”：把智狐的页面和要操作的程序并排放好，不要互相挡住。</p>
         <label class="computer-ack"><input id="computer-ack" type="checkbox"><span data-i18n>我明白这些风险，每一步都会看清楚再允许</span></label>
         <div class="computer-confirm-actions">
           <button id="computer-confirm-yes" class="button primary" type="button" disabled data-i18n>打开</button>
@@ -469,7 +474,7 @@ __STYLES__
       </div>
       <div id="computer-checks" class="computer-checks"></div>
       <div class="browser-option">
-        <div class="browser-option-words"><b id="computer-unattended-title" data-i18n>允许定时任务和聊天通道使用</b><span class="browser-note" data-i18n>默认不允许：它们多半是在没人看着的时候运行。允许以后，每一步照样要你批准（在任务的卡片上、在聊天里）。</span></div>
+        <div class="browser-option-words"><b id="computer-unattended-title" data-i18n>允许定时任务和聊天通道使用</b><span class="browser-note" data-i18n>默认不允许：它们多半是在没人看着的时候运行。允许以后按任务、通道自己选的那一档问你（在任务的卡片上、在聊天里）：选了“全部自动允许”的不再问，没有“这段对话里不再问”。</span></div>
         <button id="computer-unattended" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="computer-unattended-title"></button>
       </div>
       <div class="computer-blocked">
@@ -558,7 +563,7 @@ __STYLES__
     </div>
     <div id="task-approval-field" class="task-field"><span class="task-label" id="task-approval-label" data-i18n>动手之前要不要先问你</span>
       <div id="task-approval-options" class="task-approval" role="radiogroup" aria-labelledby="task-approval-label"></div>
-      <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。</span></p>
+      <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件（允许了任务操作电脑的话，还有点击、打字）都不会再等你批准。只给你完全信任的指令用。</span></p>
       <p class="hint task-approval-hint" data-i18n>任务按这里选的来，和对话里选的那一档互不影响。要确认的操作会停下来，等你在任务列表里批准。</p>
     </div>
     <label class="task-check"><input id="task-enabled" type="checkbox"><span data-i18n>启用（关掉以后先不运行，设置都留着）</span></label>
@@ -661,7 +666,7 @@ __STYLES__
   <div class="settings-body">
     <div id="approval-options" class="options"></div>
     <div id="approval-warning" class="warning" hidden>
-      <p><b data-i18n>开启之前请知道：</b><span data-i18n>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件。只在你信任手头的任务、并且会盯着它的时候开启。</span></p>
+      <p><b data-i18n>开启之前请知道：</b><span data-i18n>确认是你和模型之间唯一的关卡。全部放开之后，助手读到的网页或文件里如果藏着恶意的指令，它可能在你没有看到的情况下执行命令、改动或发走你的文件；打开了“操作整台电脑”的话，还会替你点击、打字。只在你信任手头的任务、并且会盯着它的时候开启。</span></p>
       <div class="row">
         <button id="approval-confirm" class="button danger" type="button" data-i18n>我明白风险，开启</button>
         <button id="approval-cancel" class="button" type="button" data-i18n>取消</button>

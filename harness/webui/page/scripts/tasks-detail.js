@@ -32,7 +32,7 @@ function drawDetail() {
   if (task.kind === 'agent' && task.approval in APPROVAL) {
     const line = section(t('动手之前要不要先问你')).appendChild(el('p', 'task-mode-line'));
     line.appendChild(modeChip(task.approval));
-    line.appendChild(el('span', null, task.approval === 'all' ? t('任务运行时多半没人看着：选这一项，执行命令、改文件都不会再等你批准。只给你完全信任的指令用。')
+    line.appendChild(el('span', null, task.approval === 'all' ? t('任务运行时多半没人看着：选这一项，执行命令、改文件（允许了任务操作电脑的话，还有点击、打字）都不会再等你批准。只给你完全信任的指令用。')
       : task.approval === 'edits' ? t('改工作目录里的文件直接做；执行命令等别的操作，停下来等你批准。')
         : task.approval === 'readonly' ? t('只是看的命令和读文件直接做；会改动东西的命令、改文件，停下来等你批准。')
         : t('要确认的操作会停下来，等你在任务列表里批准。')));

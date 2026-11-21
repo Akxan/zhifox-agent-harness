@@ -58,6 +58,7 @@ from .agents import tools as agent_tools
 from .browser.session import Facts as BrowserFacts
 from .channels import platforms
 from .desktop import backend as desktop_backend
+from .desktop.keys import DANGEROUS
 from .desktop.session import Facts as DesktopFacts
 from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
@@ -275,7 +276,7 @@ class _Context:
     channel: str  # 这段会话是在哪个聊天通道里开始的（空的是网页上开的）
     in_chat: bool  # 现在是不是真的在聊天软件里（send_file 发得出去）
     unattended: bool  # 定时任务、聊天通道的运行（"操作整台电脑"另有一个开关）
-    trusted: bool  # 这段对话里截图不再问（只有网页上的对话能选）
+    trusted: tuple[bool, bool]  # 这段对话里（截图，点击打字）不再问。只有你正看着的对话能选，定时任务、聊天通道的运行都是 False
     skills: list[dict]
     agents: list[dict]
     everywhere: Any = None
@@ -318,11 +319,11 @@ def overview(app: Any, run: Any = None, persona: Any = None, in_chat: bool = Fal
     if run is None:
         tools, started = app.toolbox()
         agent, persona, channel = app.agent, app.persona, app.conversation.channel
-        unattended, trusted = False, bool(app.chat_desktop.trust_screenshots)
+        unattended, trusted = False, (bool(app.chat_desktop.trust_screenshots), bool(app.chat_desktop.trust_actions))
     else:
         agent = run.agent
         tools = [tool for tool in agent.tools if agent.backend.sends(tool)]
-        started, channel, unattended, trusted = True, "chat" if in_chat else "", True, False
+        started, channel, unattended, trusted = True, "chat" if in_chat else "", True, (False, False)
     context = _Context(
         app=app,
         agent=agent,
@@ -563,15 +564,30 @@ def _computer(context: _Context) -> Capability:
         return _item("computer", "unavailable", context.persona_reason())
 
     def approval() -> Approval:
-        def look(facts: DesktopFacts) -> Probe:
+        attended = not context.unattended
+        looks, acts = context.trusted
+
+        def look(action: str, trusted: bool = False, **fields: Any) -> Probe:
+            facts = DesktopFacts(action, trusted=trusted, attended=attended, **fields)
             return Probe(COMPUTER, {}, DesktopTool(spec={"name": "computer_probe"}, stands_in_for=COMPUTER, facts=lambda _: facts))
 
+        # 第一条是点击、打字：一句话的总结先说它（"点击、打字直接做；危险的组合键每次都问"）。危险的组合键单独一条：
+        # 不管选了哪一档、放开了什么都要问，所以这里永远不会是"都直接做"
+        acting = [look("click", acts, point=(10, 10)), look("type", acts, text="…")]
+        danger = [look("key", acts, text="cmd+q", danger=DANGEROUS[0][3])]
         rules = [
-            context.rule(k("截图"), [look(DesktopFacts("screenshot", trusted=context.trusted))], k("截图不再问（这段对话里）"), k("截图每次都问")),
-            context.rule(k("点鼠标、打字、按键"), [look(DesktopFacts("click", point=(10, 10))), look(DesktopFacts("type", text="…"))], k("点击、打字直接做"), k("点击、打字每一步都问")),
+            context.rule(k("点鼠标、打字、按键"), acting, k("点击、打字不再问（这段对话里）") if acts else k("点击、打字直接做"), k("点击、打字每一步都问")),
+            context.rule(k("截图"), [look("screenshot", looks)], k("截图不再问（这段对话里）") if looks else k("截图直接做"), k("截图每次都问")),
+            context.rule(k("危险的组合键（退出程序、退出登录……）"), danger, "", k("危险的组合键每次都问")),
         ]
-        note = k("截图可以在确认卡片上选“这段对话里不再问”。只是等一等、看鼠标在哪儿的不问。")
-        return _approval(rules, all_ask=k("每一步都先问你，哪一档都一样"), note=note)
+        if attended:
+            note = k(
+                "确认卡片上可以选这段对话里截图不再问、点击和打字不再问。不再问以后，屏幕上的任何文字都可能带着它去点、去打字；"
+                "页面顶上的“停止”随时能叫停。只是等一等、看鼠标在哪儿的不问。"
+            )
+        else:
+            note = k("定时任务和聊天通道按它自己的那一档问，没有“这段对话里不再问”。只是等一等、看鼠标在哪儿的不问。")
+        return _approval(rules, all_ask=k("每一步都先问你"), note=note)
 
     enabled = context.app.desktop.unattended if context.unattended else context.app.desktop.enabled
     return _switched(context, "computer", here, enabled, "computer", approval)

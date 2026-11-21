@@ -59,10 +59,12 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   browser tools.
 - 🖱️ **Computer use, as an advanced option.** Off by default and switched on only after an explicit risk confirmation:
   the assistant looks at your whole screen and works the mouse and keyboard (macOS through `screencapture` and
-  CoreGraphics via `ctypes`, Linux/X11 through `xdotool` and ImageMagick, no new dependencies). Every single action asks
-  you, in every approval mode; screenshots are shrunk to the model's limits and its coordinates mapped back to real
-  screen points (Retina included). Claude uses Anthropic's computer use toolset; GPT and Gemini get hand-written
-  stand-ins.
+  CoreGraphics via `ctypes`, Linux/X11 through `xdotool` and ImageMagick, no new dependencies). By default every action
+  asks you. In the web chat, the approval card lets you stop being asked about screenshots, or about clicks and typing,
+  for that one conversation, and **Allow everything** covers computer use too; dangerous shortcuts (⌘Q on a Mac,
+  Alt+F4 or Ctrl+Alt+Del elsewhere) still ask every time, and blocked apps are never touched. Screenshots are shrunk to
+  the model's limits and its coordinates mapped back to real screen points (Retina included). Claude uses Anthropic's
+  computer use toolset; GPT and Gemini get hand-written stand-ins.
 - 🧩 **Skills in the open [Agent Skills](https://agentskills.io) format.** Write one in the page, upload a folder, a `.zip`
   or `.skill` file, paste a GitHub link, or import the skills you already use in Claude Code, Codex, Cursor, Gemini CLI
   and [other tools](#importing-from-other-tools). The model sees only each skill's name and
@@ -248,7 +250,7 @@ Each part of the harness has its own file or directory:
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
 | Browser | [harness/browser/](harness/browser/), [harness/tools/browser.py](harness/tools/browser.py), [harness/webui/browser_api.py](harness/webui/browser_api.py) | Web search finds pages, but can't use a site: search it, click through it, fill in a form. ZhiFox starts a separate Chrome of its own and drives it with a hand-written DevTools Protocol client over a pipe; the page is turned into numbered lines the model acts on (see [Browser use](#browser-use-a-chrome-of-its-own)) |
-| Computer use | [harness/desktop/](harness/desktop/), [harness/tools/computer.py](harness/tools/computer.py), [harness/webui/computer_api.py](harness/webui/computer_api.py) | Some jobs aren't in a browser at all: a desktop app, a system dialog, a file to drag from one window to another. As an advanced option that is off by default, the assistant looks at screenshots of your whole screen and moves your mouse and keyboard, each step approved by you; screenshots are scaled down and the model's coordinates mapped back to the screen (see [Computer use](#computer-use-your-whole-desktop-advanced)) |
+| Computer use | [harness/desktop/](harness/desktop/), [harness/tools/computer.py](harness/tools/computer.py), [harness/webui/computer_api.py](harness/webui/computer_api.py) | Some jobs aren't in a browser at all: a desktop app, a system dialog, a file to drag from one window to another. As an advanced option that is off by default, the assistant looks at screenshots of your whole screen and moves your mouse and keyboard, asking before each step unless you loosen it (per conversation on the approval card, or Allow everything); screenshots are scaled down and the model's coordinates mapped back to the screen (see [Computer use](#computer-use-your-whole-desktop-advanced)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
 | Skills | [harness/skills/](harness/skills/), [harness/tools/skill.py](harness/tools/skill.py) | A model doesn't know how *you* want a kind of task done. A skill is a folder of instructions (and maybe scripts) that the model reads only when a task matches it |
 | Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
@@ -1061,7 +1063,8 @@ Claude Code's tool names work: `Write` and `MultiEdit` mean `Edit`, `Grep`, `Glo
 `Agent`, and names ZhiFox doesn't have are kept and listed but ignored. ZhiFox's own `Browser` gives all the browser
 tools, when the caller has them (the browser is on); a subagent then works in its caller's tabs, under its caller's
 approvals. `Computer` likewise gives the computer use tools when the caller has them; the subagent shares its caller's
-screen session, and every one of its steps still asks you, with its name on the card. **Import from other tools** reads
+screen session, so its steps ask you (with its name on the card) exactly when its caller's would: what you've allowed
+for screenshots or for clicks and typing in that conversation covers it too. **Import from other tools** reads
 Claude Code's, GitHub Copilot's, Gemini CLI's, OpenCode's, Codex's and other tools' agent folders only when you click it,
 rewrites the ones in another format the ZhiFox way, and copies what you tick (see
 [Importing from other tools](#importing-from-other-tools)). Three
@@ -1268,10 +1271,10 @@ dangerous thing ZhiFox can do, so most of this section is about why it is built 
 | [backend.py](harness/desktop/backend.py) | What a platform backend provides (screenshots, mouse, keyboard, which app is in front, bringing an app back to the front) and which one this computer uses |
 | [macos.py](harness/desktop/macos.py) | macOS: `screencapture` and `sips` for screenshots, CoreGraphics `CGEvent` through `ctypes` for mouse and keyboard |
 | [x11.py](harness/desktop/x11.py) | Linux on X11: `xdotool` for mouse and keyboard, ImageMagick (`import`, `convert`) for screenshots |
-| [session.py](harness/desktop/session.py) | One run's computer use: coordinate mapping, the last look before acting, "don't ask about screenshots again", Stop |
+| [session.py](harness/desktop/session.py) | One run's computer use: coordinate mapping, the last look before acting, the conversation's "don't ask again" for screenshots and for clicks and typing (`trust_screenshots`, `trust_actions`), Stop |
 | [manager.py](harness/desktop/manager.py) | One screen shared by everybody: only one run controls it at a time; the header indicator; the settings |
 | [tools/computer.py](harness/tools/computer.py) | What the model sees: Anthropic's computer use toolset for Claude, nine hand-written stand-ins for GPT and Gemini |
-| [webui/computer_api.py](harness/webui/computer_api.py) | **Settings → Computer use**, the indicator's Stop, the per-conversation screenshot allowance, opening System Settings, full-size screenshots |
+| [webui/computer_api.py](harness/webui/computer_api.py) | **Settings → Computer use**, the indicator's Stop, the per-conversation "don't ask again" (screenshots, or clicks and typing), opening System Settings, full-size screenshots |
 
 **The loop: screenshot, action, screenshot.** The model can't see your screen and can't touch your mouse. All it can
 do is look at a picture and say what to do next, so the loop goes like this:
@@ -1284,7 +1287,8 @@ model: screenshot                              → did it work?
 ```
 
 It is the same agent loop as everywhere else in ZhiFox; only what is seen and touched changes. Claude often sends a
-short batch in one reply (click, type, screenshot). The calls run in order, each one asks you, and when one fails or
+short batch in one reply (click, type, screenshot). The calls run in order, each one asks you (unless you've chosen
+otherwise, see below), and when one fails or
 you deny it the rest of the batch isn't run and gets exactly `Not executed: an earlier computer action in this turn
 failed.` (the computer toolset's own wording, one word longer than the browser's). The stand-ins for other models follow
 the same rule, so a denied click is never followed by typing into whatever happens to have the focus.
@@ -1328,16 +1332,41 @@ privileges, and asks applications to explain the risks and get consent first. Zh
 - **Off by default, on deliberately.** Switching it on in Settings first opens an explanation of the risks, in place,
   with the recommendation to run ZhiFox in a virtual machine or a separate user account; the switch only takes effect
   after you tick **I understand these risks**. The server refuses to enable it without `acknowledge: true`.
-- **Every action asks, in every approval mode**, Allow everything included. The one exception you can choose: on a
-  screenshot's approval card, **Allow, and don't ask about screenshots in this conversation**. Looking changes nothing,
-  and the model takes a screenshot after nearly every step; asking each time would train you to click Allow without
-  reading. The allowance belongs to that conversation's session only: a new conversation asks again, and scheduled
-  tasks and channels never get it. `wait` and `cursor_position` run without asking, because they neither look nor touch.
+- **By default, every step asks.** In **Ask every time**, **Allow read-only commands** and **Allow file edits**, every
+  computer step asks: those modes loosen commands and files, not your screen. Only `wait` and `cursor_position` run
+  without asking, because they neither look nor touch.
+- **Loosening is your choice, per conversation, and only where you're watching.** Asking at every step sounds safest,
+  but the model takes a screenshot after nearly every action and a simple job is dozens of clicks; asked that often,
+  people end up clicking Allow without reading, and then the question protects nothing. So the approval card in the web
+  chat offers two separate choices. A screenshot's or zoom's card has **Allow, and don't ask about screenshots in this
+  conversation**. A card for a click (any button, double or triple), a drag, a mouse move, pressing or releasing the
+  mouse button, a scroll, typing, a key or a held key has **Allow, and don't ask about clicks and typing in this
+  conversation**, and under it the card spells out what that means: from now on ZhiFox clicks and types without asking,
+  any text on the screen could steer the model, dangerous shortcuts still ask, and the Stop button at the top is always
+  there. Each choice is remembered only on that conversation's own `DesktopSession` (`trust_screenshots`,
+  `trust_actions`), because you gave it for one job you're watching, not for whatever comes next: a new conversation
+  asks again. Subagents working inside that conversation share its screen session, so the choice covers them too. The
+  terminal UI has no buttons, so there only **Allow everything** loosens it.
+- **Allow everything means everything.** Wherever the approval mode in effect is **Allow everything** (the chat's mode,
+  a scheduled task's own setting, a chat channel's), computer steps, screenshots and actions alike, run without asking.
+  You choose that mode deliberately, past its warning, so ZhiFox doesn't overrule it here. Tasks and channels still
+  need their own switch before they get computer tools at all (below).
+- **What never loosens.** These hold in every mode and whatever you've allowed in the conversation, because they guard
+  against what a single wrong step can't undo or what nobody checks once the questions stop:
+  - Dangerous key combinations (`DANGEROUS` in [keys.py](harness/desktop/keys.py), per system) ask every time, with a
+    warning on the card and with neither the "don't ask again" button nor the **Don't want to be asked every time?**
+    link: on a Mac ⌘Q, ⌘⌥Esc, ⌘⇧Q (log out), ⌃⌘Q (lock the screen), ⌘W, ⌘⌫ and ⌘⇧⌫ (Finder's move to Trash and
+    empty Trash); on Linux Alt+F4, Ctrl+Alt+Backspace, Ctrl+Q, Ctrl+W, Super+L; Ctrl+Alt+Del everywhere; and more.
+    One of them can lose unsaved work, log you out or empty the Trash in a single keystroke.
+  - Blocked apps are refused without asking (below): that list is your own hard line.
+  - The last look before acting (below) still runs: keys go only to the app that was in front, and a click whose spot
+    now shows another window isn't done. When nobody approves each step, this matters more, not less.
+  - The **ZhiFox is controlling this computer** indicator and its **Stop** stay.
+  - Every step that ran without asking is recorded: its tool card in the conversation says **Allowed automatically**
+    (**Allowed automatically (this conversation)** when it ran on the conversation's choice).
 - **The card says where.** The coordinates on the screenshot and on the screen, whose window is under the click
-  (macOS), which app the keystrokes will go to, the keys and the text. Dangerous combinations carry a warning: ⌘Q,
-  ⌘⌥Esc, ⌘⇧Q (log out), ⌃⌘Q (lock the screen), ⌘W, ⌘⌫ and ⌘⇧⌫ (Finder's move to Trash and empty Trash),
-  Ctrl+Alt+Del, Ctrl+Alt+Backspace, Alt+F4, Ctrl+Q and more. Text with a line break warns that a newline often means
-  Enter (send, submit).
+  (macOS), which app the keystrokes will go to, the keys and the text, and the warning for a dangerous combination.
+  Text with a line break warns that a newline often means Enter (send, submit).
 - **A last look before acting.** Clicking Allow on the ZhiFox page brings your browser to the front, so anything typed
   next would land in ZhiFox's own page. Keyboard actions (`type`, `key`, `hold_key`) therefore first bring back the app
   that was in front when ZhiFox asked, and refuse when they can't. Mouse actions check that the same app's window is
@@ -1348,8 +1377,11 @@ privileges, and asks applications to explain the risks and get consent first. Zh
   against the active window's class and title). A blocked app peeking out from behind another window can still show up
   in a screenshot.
 - **Scheduled tasks and chat channels** may use it only when you also switch on **Allow scheduled tasks and chat
-  channels** (off by default), and even then every step waits for your approval through that run's own approval
-  route: the task's card, or the chat.
+  channels** (off by default). Even then each step follows that run's own approval mode: it waits for your approval
+  through the run's own route (the task's card, or the chat) unless that task or channel is set to **Allow
+  everything**. They never get the per-conversation choice: nobody is necessarily watching the screen while a task runs
+  at 3 a.m. or while you type into a chat on your phone, so their screen session isn't marked as attended, no card
+  offers the button, and the server has no route that sets it for them.
 - **One screen, one controller.** The first run to act claims the screen until its turn (or task run) ends. Another run
   trying in the meantime is told the computer is busy. A browser can give each run its own tabs; a screen can't be
   split.
@@ -1362,7 +1394,8 @@ privileges, and asks applications to explain the risks and get consent first. Zh
   shorter than the browser's 30, because a picture of the whole screen can catch anything.
 - In the result of its first screenshot the model is told which system it is on (⌘ shortcuts on macOS) and not to click
   ZhiFox's own page or change ZhiFox's settings. That depends on the model obeying; what actually protects you is that
-  each such click still asks.
+  such a click asks you, unless you've chosen not to be asked, which is exactly the risk the card spells out when you
+  do.
 
 **Platforms.**
 
@@ -1410,8 +1443,9 @@ outside the list would get the stand-ins.
 conversation's fixed start. Switching computer use on mid-conversation takes effect from the next conversation;
 switching it off keeps the tools (the specs mustn't change), stops any action in progress, and answers further calls
 with "off". A reopened conversation that used computer use keeps its tools, so its history still matches the specs.
-Each run (your conversation, a task run, a channel conversation) has its own `DesktopSession` with its own screenshot
-allowance, its own Stop and its own idea of which screenshot the coordinates refer to.
+Each run (your conversation, a task run, a channel conversation) has its own `DesktopSession` with its own "don't ask
+again" choices (only the web chat's session is attended, so only it can get them), its own Stop and its own idea of
+which screenshot the coordinates refer to.
 
 **What it shares with browser use, and what it doesn't.** Shared: the toolset-versus-stand-in pattern (`Tool.toolset`,
 `member`, `stands_in_for`), the per-conversation snapshot of tools, one session per run, the halt-on-failure batches,
@@ -1422,7 +1456,11 @@ single-screen claim and a shorter screenshot retention.
 **The web endpoints** ([harness/webui/computer_api.py](harness/webui/computer_api.py)), all behind the page's token like
 every other request: `POST /api/computer/settings` (on and off, tasks and channels, blocked apps; switching it on
 requires `acknowledge: true`, which the page sends only after you tick the box), `/api/computer/stop` (the indicator's
-Stop), `/api/computer/trust` (no more screenshot questions in the conversation you're looking at),
+Stop), `/api/computer/trust` (`{"what": "screenshots" | "actions", "confirm": <id>}`: stop asking about screenshots, or
+about clicks and typing, in the conversation you're looking at; it works only while computer use is on and only while
+the web chat is waiting on that very approval card, and only for the word that card offered, so the choice is always
+tied to a card you saw, and it never reaches a task or a channel), `/api/computer/untrust` (Settings' **Ask at every
+step again**: takes back both "don't ask" choices for this conversation; it only tightens, so no card is needed),
 `/api/computer/permission` (macOS only; the page sends `screen` or `input` and the server opens that System Settings
 pane) and `/api/computer/shot` (a full-size screenshot by its 64-hex-character id only, answered as `image/jpeg` with
 `Content-Disposition: attachment`, `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, like the
@@ -1459,8 +1497,9 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 | Browser: typing into a password or card field, or into a frame from another site | Asks in every mode, with a warning on the card. A password is never shown on the card, only its length |
 | Browser: opening an address that isn't a web page (`about:`, `data:`…) | Asks every time, in every mode |
 | Browser: opening `file:`, `chrome:`, `devtools:`, `javascript:` or `view-source:` | Refused outright; the model is told why |
-| Computer use: a screenshot or a zoom | Asks every time, in every mode. On the card you can choose not to be asked about screenshots again in this conversation |
-| Computer use: clicking, dragging, moving the mouse, scrolling, typing, pressing keys | Asks every time, in every mode, Allow everything included. The card shows where (and whose window), the keys or the text, and a warning for dangerous combinations such as ⌘Q or Ctrl+Alt+Del |
+| Computer use: a screenshot or a zoom | Asks you first; Allow read-only commands and Allow file edits don't change that. In the web chat the card lets you stop being asked about screenshots in this conversation. Runs directly under Allow everything |
+| Computer use: clicking, dragging, moving the mouse, scrolling, typing, pressing keys | Asks you first; Allow read-only commands and Allow file edits don't change that. The card shows where (and whose window), the keys or the text. In the web chat it lets you stop being asked about clicks and typing in this conversation, and explains the risk. Runs directly under Allow everything |
+| Computer use: a dangerous key combination (⌘Q or ⌘⌥Esc on a Mac, Alt+F4 or Ctrl+Alt+Del elsewhere…) | Asks every time, in every mode and whatever you allowed in the conversation, with a warning on the card and no way to stop asking |
 | Computer use: waiting, reading the cursor position | Runs directly (they neither look nor touch) |
 | Computer use: anything while a blocked app is in front or under the click, or while another run holds the screen | Refused without asking; the model is told why |
 | Sending a file into the chat (`send_file`, chat channels only) | Asks you first, in the chat (and on the page), unless the channel is set to Allow everything. The card shows the file, its size, whether it goes as a photo, the caption and the chat it goes to. A file in `data/` asks with a warning, like reading it. The files that hold secrets (`.env`, `data/mcp.json`, `data/channels.json`) are never sent, in any mode, and files a platform won't take (too big, wrong kind) are refused without asking |
@@ -1488,10 +1527,14 @@ frame from another site (ZhiFox can't see what's inside; it's often a payment fo
 are remembered by that conversation's browser session only, so a new conversation asks again. Scheduled tasks and chat
 channels apply the same rules with their own approval mode.
 
-Computer use is stricter because it touches your whole computer, any text on the screen can mislead the model, and
-ZhiFox sees only pixels, so it can't tell you what a click will do (see
-[Computer use](#computer-use-your-whole-desktop-advanced)). Every step therefore needs your own eyes, and no mode
-loosens that. The only thing you can relax is screenshots, per conversation, from the approval card itself.
+Computer use is stricter by default because it touches your whole computer, any text on the screen can mislead the
+model, and ZhiFox sees only pixels, so it can't tell you what a click will do (see
+[Computer use](#computer-use-your-whole-desktop-advanced)). So the modes that loosen commands and files don't loosen
+it. But a question at each of dozens of steps teaches you to click Allow without looking, so you decide: in the web
+chat, the approval card lets you stop being asked about screenshots, or about clicks and typing, for the one
+conversation you're watching (a new conversation asks again; tasks and channels never get it), and **Allow
+everything** covers computer use too. What never loosens: dangerous key combinations ask every time, blocked apps are
+refused, the last look before acting still runs, and the indicator's Stop is always there.
 
 When you deny a step, you can type a sentence (for example, "Don't delete it, move it to the Trash instead"), and it is
 passed on to the model.
@@ -1504,7 +1547,7 @@ below the input box; in the terminal, use `/auto`:
 | Ask every time (default) | `/auto ask` | Everything marked "Asks you first" above asks, every time |
 | Allow read-only commands | `/auto readonly` | Commands that only look (`ls`, `cat`, `grep`, `df`, `ps`, `git status`, `git log`, `systemctl status`, `journalctl`, `docker ps`…), your own commands that don't ask, and reading files outside the working directory no longer ask. Commands that could change something, file edits, reading `.env`, `data/` or places like `~/.ssh`, MCP, browser steps, sending files and computer use still ask |
 | Allow file edits | `/auto edits` | Creating and changing files in the working directory no longer asks. Running commands, reading or writing outside the working directory, reading `data/`, browser steps and computer use still ask |
-| Allow everything | `/auto all` | Nothing asks, except the browser steps marked "in every mode" above and every computer use step |
+| Allow everything | `/auto all` | Nothing asks, computer use included, except the browser steps marked "in every mode" above and dangerous key combinations in computer use |
 
 This only changes whether ZhiFox asks. Steps that ran without asking are marked **Allowed automatically** on their tool card in
 the web UI, and noted as "(allowed automatically)" in the terminal; a read-only command says **Allowed automatically
@@ -1861,7 +1904,9 @@ chat. Each row says:
 - **whether it asks you first, in the current approval mode**: a small label (*Direct*, *Asks some*, *Asks first*,
   *Asks always*) and, when you open the row, a sentence such as "Reads files in the working folder without asking;
   asks you before editing files" with a line per kind of action. Change the mode from the bar at the top of the list
-  and the labels change with it.
+  and the labels change with it. Computer use, for example, has three lines (clicking, typing and keys; screenshots;
+  dangerous key combinations): its label is *Asks first* in Ask every time, and *Asks some* under Allow everything or
+  once you've stopped being asked in the conversation, because dangerous key combinations still ask.
 - **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server.
 - **Technical details**, folded: the tool names the model actually receives (for Claude, a toolset counts as one,
   such as `browser_toolset_20260801`).
@@ -2046,8 +2091,9 @@ whole computer**. A panel explains the risks first; tick **I understand these ri
   ZhiFox from: Terminal, iTerm, VS Code…), with the exact place in System Settings and an **Open System Settings**
   button that opens that pane (restart ZhiFox after granting). On Linux, whether `xdotool` and ImageMagick are
   installed, with the command to install them. On Wayland or without a display, why it can't work there.
-- **Allow scheduled tasks and chat channels** (off by default). Even when on, every step of a task run or a chat waits
-  for your approval, on the task's card or in the chat.
+- **Allow scheduled tasks and chat channels** (off by default). When on, a task run or a chat follows its own approval
+  mode: each step waits for your approval, on the task's card or in the chat, unless that task or channel is set to
+  **Allow everything**. The per-conversation "don't ask again" isn't offered there.
 - **Blocked apps.** Names of apps ZhiFox must not screenshot or touch while they're in front, such as your password
   manager or your bank's app.
 - Which providers can use it (Claude with Anthropic's toolset, GPT and Gemini with stand-ins, not DeepSeek), and what it
@@ -2058,15 +2104,22 @@ then ask for something like "In TextEdit, write a short note that says hello and
 works:
 
 - Every step shows an approval card. A screenshot's card has an extra button, **Allow, and don't ask about screenshots
-  in this conversation**; clicks, typing and keys always ask. Read the card: it says where the click lands and whose
-  window that is, which app the keys go to, and warns about dangerous keys.
+  in this conversation**; the card for a click, a drag, a scroll, typing or a key has **Allow, and don't ask about
+  clicks and typing in this conversation**, with a few lines on what that means. The two are separate choices, and
+  each lasts for this conversation only; steps that then run unasked are marked **Allowed automatically (this
+  conversation)**. To take it back, **Settings → Computer use** shows what this conversation has loosened, and **Ask at
+  every step again** starts asking again (it only tightens, so it takes effect at once). Dangerous combinations (⌘Q on a Mac, Alt+F4 or Ctrl+Alt+Del elsewhere…) always ask and offer
+  neither. Read the card: it says where the click lands and whose window that is, which app the keys go to, and warns
+  about dangerous keys.
+- In **Allow everything**, nothing asks except those dangerous combinations.
 - The top bar shows **ZhiFox is controlling this computer** with a **Stop** button, which stops the step in progress
   and keeps the assistant off the computer for the rest of the turn.
 - Each step's tool card carries a small screenshot; click it for the full-size image (kept for 7 days in
   `data/desktop/shots/`).
 
 Custom agents get it with `tools: Computer`. The terminal UI follows the same setting and asks its approvals in the
-terminal.
+terminal; it has no buttons for the per-conversation choices, so there only `/auto all` stops the questions (dangerous
+combinations still ask).
 
 ### Terminal UI
 
@@ -2402,8 +2455,8 @@ Conversation content is sent to the API of the provider you chose, so the model 
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
 deletes its file too. With the browser on, the pages the assistant opens are fetched from those sites by ZhiFox's own
 Chrome, and what it reads there goes to the model provider like any other tool result. With computer use on, every
-screenshot you approve (or allow for the conversation) is a picture of your whole screen, and it goes to the model
-provider too.
+screenshot taken (one you approved, one allowed for the conversation, or one under Allow everything) is a picture of
+your whole screen, and it goes to the model provider too.
 
 To look at a conversation's file directly, click **Show in Finder** on its row in the sidebar. The **Show in Finder**
 buttons (on conversations, memories, tasks, to-dos, the prompt, MCP servers, skills and media items, plus the memory,
@@ -2699,10 +2752,11 @@ undetectable in every test, and the tests that need a desktop install [tests/fak
 a fake backend that records every event and answers screenshots with a made-up desktop picture
 ([tests/fixtures/](tests/fixtures/)); its screen size and Retina factor can be set. Against it, `tests/test_desktop_*.py`
 check that every member and stand-in maps to the right events and coordinates (Retina included), that every step asks
-in every mode while trusted screenshots don't, the dangerous-key warnings, Stop, a run's own session and the one-screen
-claim, the tasks-and-channels switch, the endpoints and their headers, and that the request start stays byte-identical
-across turns. [tests/test_desktop_x11.py](tests/test_desktop_x11.py) runs the real X11 backend against a virtual
-display (Xvfb) it starts itself, and is skipped wherever Xvfb, `xdotool` or ImageMagick is missing, which includes
+by default while the conversation's "don't ask again" (screenshots, or clicks and typing) and Allow everything let
+steps run unasked, that dangerous keys still ask with a warning, that tasks and channels never get the trust, Stop, a
+run's own session and the one-screen claim, the tasks-and-channels switch, the endpoints and their headers, and that
+the request start stays byte-identical across turns. [tests/test_desktop_x11.py](tests/test_desktop_x11.py) runs the
+real X11 backend against a virtual display (Xvfb) it starts itself, and is skipped wherever Xvfb, `xdotool` or ImageMagick is missing, which includes
 every Mac.
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
@@ -2766,8 +2820,8 @@ shop page the demo serves on your machine in a real Chrome, asks before visiting
 types (asking again) and takes a screenshot. Add `--browser-window` to watch the Chrome window; without Chrome on the
 computer, the assistant says it can't find one. Computer use is switched on in the demo too, backed by the fake desktop
 (never your real screen): a message containing 演示电脑 ("demo computer") starts a scripted step with screenshots,
-approval cards, the screenshot allowance and the header indicator. A conversation whose first message contains a tag
-such as `[ui:approve]` follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]`
+approval cards with their "don't ask again" buttons, a dangerous-key warning and the header indicator. A
+conversation whose first message contains a tag such as `[ui:approve]` follows the matching script in `tests/demo_scripts.py` (the page tests use them): `[ui:approve]`
 asks to run a command, `[ui:long]` writes a long reply, `[ui:todo]` adds a to-do with a very long title, `[ui:hello]`
 greets you, and `[ui:flaky]` fails the first attempt at every message (so you can try Regenerate on a failed turn).
 `--script NAME` makes every conversation follow that script even without a tag; the README screenshots were taken with
@@ -2893,7 +2947,9 @@ added with one entry in `PROVIDERS`.
 Not by default. Every shell command and every file write waits for your approval. You can loosen this for the current
 session with `/auto edits` or `/auto all` in the terminal, or the **Ask every time** button in the web UI; it resets on
 every launch, and steps that ran without asking are marked as allowed automatically. Computer use (off by default) asks
-before every click, keystroke and screenshot even under Allow everything. Scheduled tasks have their own
+before every click, keystroke and screenshot unless you choose otherwise: on the approval card, for the one
+conversation you're watching, or with Allow everything; dangerous shortcuts (⌘Q on a Mac, Alt+F4 or Ctrl+Alt+Del
+elsewhere) ask every time regardless. Scheduled tasks have their own
 setting, chosen per task in the task editor (Ask every time by default; tasks the assistant creates always ask). In
 every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
 [Permissions](#permissions).

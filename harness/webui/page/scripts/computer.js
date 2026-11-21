@@ -2,9 +2,10 @@
 // 进阶选项（见 harness/desktop/）：助手看你的整个屏幕、动你的鼠标键盘。这一节管页面上和它有关的几样东西：
 //   顶栏上的提示   有运行正在操作电脑时出现："智狐正在控制这台电脑"，旁边一颗"停止"。停下以后那个运行这一轮里不能再动电脑
 //   对话里的一步   和浏览器一样：工具卡片下面一张小截图，点开看大图（大图问 /api/computer/shot 要）
-//   确认卡片       截图的卡片上多一个"这段对话里截图不再问"（见上面 handlers.confirm）
+//   确认卡片       截图的卡片上多一个"这段对话里截图不再问"，点击、打字的卡片上多一个"这段对话里的点击、打字不再问"
+//                  （带一句风险的提醒）。给不给、给哪一个都由助手程序定（事件里的 offer），见 harness/permissions.py
 //   设置里的一节   开关（打开之前先在原地讲清楚风险、勾了"我明白"才能打开）、权限和要装的程序检查好了没有、
-//                  定时任务和聊天通道能不能用、不许碰的程序
+//                  这段对话里放开了什么（可以收回）、定时任务和聊天通道能不能用、不许碰的程序
 // 开没开、能不能用、权限、截图多大、留几天……都由助手程序在状态里给（state.computer），页面不另算一份。
 
 let computerStatus = null;     // 状态里最新的那一份
@@ -18,6 +19,28 @@ const COMPUTER_REASONS = {
   no_display: k('这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。'),
   platform: k('只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。'),
 };
+
+// 确认卡片上多给的那个选择。按钮上的话按 offer 挑（两个词只认这两个，别的不画）
+const COMPUTER_TRUST = {
+  screenshots: k('允许，这段对话里截图不再问'),
+  actions: k('允许，这段对话里的点击、打字不再问'),
+};
+// 设置里"按下去收不回来的组合键"举的例子，按这台电脑的系统写（完整的名单在 harness/desktop/keys.py）
+const COMPUTER_KEYS = { mac: ['⌘Q', '⌘⌥Esc'], other: ['Alt+F4', 'Ctrl+Alt+Del'] };
+
+function computerTrust(offer, actions) {
+  if (!Object.hasOwn(COMPUTER_TRUST, offer)) return null;
+  return actions.appendChild(tel('button', 'button confirm-trust', COMPUTER_TRUST[offer]));
+}
+
+// 放开点击、打字之前把话说明白：不再问以后它自己动手，屏幕上的字可能把它带偏；危险的组合键照样问，"停止"一直在
+function computerTrustNote(offer, button, actions, id) {
+  if (offer !== 'actions') return;
+  const note = actions.appendChild(el('p', 'confirm-trust-note'));
+  note.id = 'confirm-trust-note-' + id;
+  note.append(icon('alert'), tel('span', null, k('选了这一项，这段对话里它会不问你就点击、打字：屏幕上的任何文字都可能把它带偏。危险的组合键照样每次问你，页面顶上的“停止”随时能叫停。')));
+  button.setAttribute('aria-describedby', note.id);
+}
 
 function renderComputer(status, force) {
   if (!status) return;
@@ -72,7 +95,7 @@ $('computer-confirm').addEventListener('keydown', (key) => {
 $('computer-confirm-yes').addEventListener('click', async () => {
   if (!$('computer-ack').checked) return;
   $('computer-confirm-yes').disabled = true;
-  const done = await setComputer({ enabled: true, acknowledge: true }, t('已经打开：每一步都会先问你。'));
+  const done = await setComputer({ enabled: true, acknowledge: true }, t('已经打开：默认每一步都会先问你。'));
   if (done) showComputerConfirm(false); else $('computer-confirm-yes').disabled = false;
 });
 $('computer-enabled').addEventListener('click', async () => {
@@ -82,7 +105,14 @@ $('computer-enabled').addEventListener('click', async () => {
 });
 $('computer-unattended').addEventListener('click', async () => {
   const on = $('computer-unattended').getAttribute('aria-checked') !== 'true';
-  await setComputer({ unattended: on }, on ? t('定时任务和聊天通道也能操作电脑了：每一步照样要你批准。') : t('定时任务和聊天通道不能再操作电脑。'));
+  await setComputer({ unattended: on }, on ? t('定时任务和聊天通道也能操作电脑了：按它们自己选的那一档问你。') : t('定时任务和聊天通道不能再操作电脑。'));
+});
+// 收回这段对话里的"不再问"：只会更严，点了马上生效
+$('computer-untrust').addEventListener('click', async () => {
+  const reply = await call('/api/computer/untrust', {});
+  if (!reply.ok) { say(reply.error, 'bad'); return; }
+  say(t('这段对话里又会每一步都先问你了。'), 'good');
+  $('computer-enabled').focus();  // 这一行马上就藏起来了：焦点先挪到看得见的地方
 });
 
 function drawComputerSettings(force) {
@@ -97,7 +127,16 @@ function drawComputerSettings(force) {
   enabled.disabled = !status.supported && !status.enabled;
   $('computer-card').classList.toggle('on', Boolean(status.enabled));
   if (status.enabled && !$('computer-confirm').hidden) showComputerConfirm(false);
-  retext($('computer-state'), !status.supported ? k('（这台电脑上用不了）') : !status.enabled ? k('（关着）') : status.busy ? k('（正在操作）') : k('（开着，每一步都会问你）'));
+  retext($('computer-state'), !status.supported ? k('（这台电脑上用不了）') : !status.enabled ? k('（关着）') : status.busy ? k('（正在操作）') : k('（开着）'));
+  const mac = status.platform ? status.platform === 'macos' : ON_MAC;  // 能用的时候按后端认的系统，不然按这台电脑的浏览器
+  const [first, second] = COMPUTER_KEYS[mac ? 'mac' : 'other'];
+  retext($('computer-rule-keys'), k('{first}、{second} 这类按下去收不回来的组合键：不管怎么放开都照样问，卡片上带着警告'), { first, second });
+  // 这段对话里放开了什么（只有你正看着的这段对话会有）。换一段对话就没了；这里也能收回
+  const looks = Boolean(status.trusted), acts = Boolean(status.trusted_actions);
+  $('computer-trusted').hidden = !status.enabled || !(looks || acts);
+  if (looks || acts) {
+    retext($('computer-trusted-text'), looks && acts ? k('这段对话里，截图、点击和打字都不再问你。') : looks ? k('这段对话里，截图不再问你。') : k('这段对话里，点击和打字不再问你。'));
+  }
   const unattended = $('computer-unattended');
   unattended.setAttribute('aria-checked', String(Boolean(status.unattended)));
   unattended.disabled = !status.enabled;

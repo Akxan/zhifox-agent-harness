@@ -51,7 +51,7 @@
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
-  POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
+  POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图（或者点击、打字）不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
   POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
@@ -437,12 +437,16 @@ class WebApp:
                 self._save()  # 每一轮结束都存一次盘，所以最多只会丢失正在进行的这一轮
                 self.publish_state()
             finally:
-                # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
-                # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
-                self.ui.end_turn()
-                self.app.chat_desktop.release()  # 这一轮结束：屏幕让出来，还按着的鼠标键松开（见 desktop/session.py）
-                self.claims.release(self.app.conversation.id, "web")
-                self._turn.release()
+                try:
+                    # 这一轮结束：屏幕让出来，还按着的鼠标键松开（见 desktop/session.py）。让出屏幕会刷新一次状态，
+                    # 所以放在通知页面之前：放在后面的话，页面收到"结束了"马上发来的请求（比如开新对话）会撞上还拿着的锁
+                    self.app.chat_desktop.release()
+                    self.claims.release(self.app.conversation.id, "web")
+                finally:
+                    # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
+                    # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"。
+                    self.ui.end_turn()
+                    self._turn.release()
 
     # ---- 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）-------------------
 

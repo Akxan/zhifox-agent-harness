@@ -275,7 +275,7 @@ function chanStepFour(item, pane, foot, help) {
     choose(order[(next + order.length) % order.length], true);
   });
   if (view.mode === 'all') {
-    pane.appendChild(chanNote('bad', t('确认是你和模型之间唯一的一道关卡。全部自动允许以后，聊天里的一句话就能让助手在这台电脑上执行任何命令，不再问你；网页或文件里藏着误导模型的话，它照做的时候也没人拦着。只在你清楚风险的时候用。')));
+    pane.appendChild(chanNote('bad', t('确认是你和模型之间唯一的一道关卡。全部自动允许以后，聊天里的一句话就能让助手在这台电脑上执行任何命令（允许了聊天通道操作电脑的话，还有点击、打字），不再问你；网页或文件里藏着误导模型的话，它照做的时候也没人拦着。只在你清楚风险的时候用。')));
   }
   if (!item.owner) pane.appendChild(chanNote('warn', t('还没有配对：在配对之前，谁发来的消息都不会处理。')));
   const done = foot.appendChild(chanButton('check', k('完成'), 'primary'));
