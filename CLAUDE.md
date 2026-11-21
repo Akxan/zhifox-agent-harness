@@ -267,7 +267,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
 - **后台服务（`harness service`）**：plist / unit 只照着 `service/plan.py` 的 Plan 写，只放路径和开关，不放密钥和口令
-  （口令每次启动随机，写在 `data/.web-address`，权限 600）。命令一律用参数列表、不经过 shell，launchctl 写完整路径 `/bin/launchctl`。
+  （口令存在 `data/.web-token`，权限 600，重启前后不变，浏览器里开着的页面刷新一下就能接着用；卸载服务时删掉，见 `webui/token.py`；
+  带口令的地址写在 `data/.web-address`；两个都不导出）。在终端里开的 `harness --web` 照旧每次换口令。命令一律用参数列表、不经过 shell，launchctl 写完整路径 `/bin/launchctl`。
   运行的是 `.venv/bin/python -P -m harness … serve --service launchd|systemd`。**开发和测试永远不运行真的 launchctl / systemctl / journalctl，
   也不打开浏览器**：conftest 把 `service.base.run_command`、`run_attached` 和 `service.cli._open_browser` 换成一调用就失败的函数，
   测试用 `tests/test_service.py` 里的假系统。数据目录的锁在 `instance.py`：`claim(data_dir, kind)` 写下进程编号和 kind，`in_use` 只看不改；

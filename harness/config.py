@@ -236,6 +236,8 @@ SERVICE_RESTART_SECONDS = 10
 SERVICE_LOG = Path("logs") / "service.log"
 # 后台服务没有终端可以打印网页的地址（里面有口令），就写在数据目录里的这个文件里（见 serve.py），harness service open 读它
 WEB_ADDRESS = ".web-address"
+# 后台服务的网页口令存在这里，重启前后不变，开着的页面刷新一下就能接着用（见 webui/token.py）
+WEB_TOKEN = ".web-token"
 SERVICE_LOG_BYTES = 1_000_000
 SERVICE_LOG_BACKUPS = 3
 # 装好、重启之后，最多等这么多秒看它开起来没有（开起来了就告诉你可以打开网页；没开起来就把日志里的错误给你看）

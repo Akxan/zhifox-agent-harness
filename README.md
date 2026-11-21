@@ -87,7 +87,7 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   `harness channels setup` / `pair`, then do server chores from your chat app.
 - ♻️ **Always on, no terminal needed.** `harness service install` hands ZhiFox to launchd (macOS) or systemd (Linux):
   it starts at login, restarts itself after a crash, keeps the web page and your chat bot up with no terminal open, and
-  `harness service open` opens the page with this run's token.
+  `harness service open` opens the page; its token stays the same across restarts, so an open tab survives updates.
 - 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
   can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
   convert it, in all three interface languages.
@@ -1960,7 +1960,7 @@ macOS, **systemd** on Linux. One command does it:
 
 ```bash
 uv run harness service install     # install and start it: from now on it starts at login and restarts itself after a crash
-uv run harness service open        # open its web page (reads the address with this run's token for you)
+uv run harness service open        # open its web page (reads the address with its token for you)
 uv run harness service status      # running or not, process id, port, folders, the log, recent warnings and errors
 uv run harness service logs -f     # follow the log (Ctrl-C stops following); -n 200 shows more lines
 uv run harness service stop        # stop it now (it starts again at your next login)
@@ -2080,12 +2080,15 @@ WantedBy=default.target
   `.bashrc`. The service gets the data folder, the `.env` location, and `PATH` and `LANG` as they were when you
   installed. Anything else (`HTTPS_PROXY`, `HARNESS_MODEL`, an API key you only `export`ed) belongs in `.env`. `install`
   lists the ones set in your terminal but missing from `.env`, by name only, never their values.
-- **The web page and its token.** The page still listens on 127.0.0.1 only, and the token is still random for every
-  start: a token that never changed would be a password left on disk for good, and anyone who saw it once could use it
-  later. With no terminal to print it in, the address is written to `data/.web-address` (readable by your account only,
-  deleted on exit), never to the log. `uv run harness service open` reads it and opens your browser, printing the
-  address without the token; `open --print` prints the whole address, for a browser on another machine through an SSH
-  tunnel. After a restart, an open tab's token no longer works: run `open` again.
+- **The web page and its token.** The page still listens on 127.0.0.1 only. The background service keeps its token in
+  `data/.web-token` (readable by your account only, never exported), so it survives restarts: after an update and
+  `harness service restart`, an open tab keeps working once you reload it. The token guards against other accounts on
+  this computer and other websites in your browser; a program running as you can read `data/` anyway, so keeping the token
+  next to it gives that program nothing new. Uninstalling the service deletes the token, so the next install gets a new
+  one (or delete the file and restart). `harness --web` in a terminal still makes a new token every start. With no terminal
+  to print it in, the address is written to `data/.web-address` (your account only, deleted on exit), never to the log.
+  `uv run harness service open` reads it and opens your browser, printing the address without the token; `open --print`
+  prints the whole address, for a browser on another machine through an SSH tunnel.
 - **Logs.** On macOS: `data/logs/service.log`, with the date on every line. ZhiFox starts a new file at 1 MB and keeps
   three old ones (`service.log.1` to `.3`), so the log stays under about 4 MB; launchd itself never trims it. On Linux:
   the journal, `journalctl --user -u zhifox -f`. Either way, `status` shows the last few warnings and errors. API keys
@@ -2217,7 +2220,7 @@ unprivileged user for the service.
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 | `data/logs/` | The background service's log on macOS, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
-| `data/.web-address` | The web page's address with this run's token, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
+| `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
 | `data/.lock` | Held by the ZhiFox that is using this data folder, with its kind (web page, `serve`, background service) and process id, so a second one can say who's in the way. Never exported |
 
 These are all ordinary files you can open. Both `data/` and `.env` are listed in `.gitignore`, so they never get

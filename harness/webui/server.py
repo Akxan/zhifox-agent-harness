@@ -1700,7 +1700,8 @@ class Handler(BaseHTTPRequestHandler):
             and secrets.compare_digest(supplied_token.encode(), self.server.web.token.encode())
         )
         if not ok:
-            self._send_text(403, t("链接无效或已经过期。请使用终端里显示的完整地址重新打开。"))
+            # 作为后台服务运行时口令重启前后不变（见 token.py），过期多半是重装过服务、或者是终端里开的那一份换了口令
+            self._send_text(403, t("链接无效或已经过期。请使用终端里显示的完整地址重新打开。") + "\n" + t("智狐作为后台服务运行时，在终端里运行 uv run harness service open 重新打开。"))
         return ok
 
     # ---- 响应 --------------------------------------------------------------
