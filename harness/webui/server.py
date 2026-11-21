@@ -38,6 +38,8 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/endpoint/save、delete、probe、reveal   自定义模型接口（Ollama、LM Studio、公司的网关……）：保存、删除、
+                       测试连接和同步模型（请求从这里发出去，页面从来不直接连那个地址）、在访达中显示 endpoints.json（见 endpoints_api.py）
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
@@ -113,11 +115,20 @@ from ..mcp import importers as mcp_imports
 from ..media import Entry, MediaError
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
-from ..pricing import estimate, price_of
-from ..providers import PROVIDERS, ProviderError, has_key
+from ..pricing import estimate
+from ..providers import (
+    PROVIDERS,
+    ProviderError,
+    caps,
+    continues,
+    every,
+    find,
+    has_key,
+    hint,
+)
 from ..safe import clean, private_dir, to_json
 from ..search import MAX_QUERY_CHARS
-from ..settings import key_hint, valid_api_key
+from ..settings import valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
@@ -128,6 +139,7 @@ from .browser_api import BrowserAPI
 from .capabilities_api import page_state as capabilities_state
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
+from .endpoints_api import EndpointsAPI
 from .page import assemble as assemble_page
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
@@ -217,6 +229,7 @@ class WebApp:
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
+        self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -251,8 +264,9 @@ class WebApp:
     def _publish_state(self) -> None:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
-        cost, unpriced = estimate(agent.usage_by_model, settings.prices)
-        price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
+        cost, unpriced = estimate(agent.usage_by_model, self.app.prices())
+        price = self.app.price_of(settings.provider, settings.model)
+        offpeak = self.app.price_of(settings.provider, settings.model, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
         tasks, reminders = self.tasks.snapshot()
         skills, agents = self.skills.summaries(), self.agents.summaries()
@@ -264,20 +278,9 @@ class WebApp:
             conversation=self.app.conversation.id,
             title=self.app.conversation.title,
             conversations=self.app.conversation_summaries(),
-            providers=[
-                {
-                    "id": provider.id,
-                    "label": provider.label,
-                    "has_key": has_key(provider),
-                    "key_hint": key_hint(provider.key_env),
-                    "key_page": provider.key_page,
-                    "models": self._models(provider.id),
-                    # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收
-                    "vision": provider.vision,
-                    "pdf": provider.pdf,
-                }
-                for provider in PROVIDERS.values()
-            ],
+            providers=[self._provider_state(provider) for provider in every()],
+            # 自定义模型接口（设置里"自定义模型接口"一节，见 endpoints_api.py）：密钥只有最后 4 位
+            endpoints=self.endpoints.state(),
             price=price,
             price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
             todos=[
@@ -349,9 +352,23 @@ class WebApp:
             "dropped": mcp.active.dropped if started else 0,
         }
 
-    def _models(self, provider_id: str) -> list[str]:
-        """一家可以选择的模型（规矩在 model_catalog.models_of，换模型的面板用的也是它）。"""
-        return model_catalog.models_of(self.app.settings, provider_id)
+    def _provider_state(self, provider) -> dict:
+        """状态里的一家。密钥只有"有没有"和最后 4 位。"""
+        settings = self.app.settings
+        # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收。
+        # 自定义接口按模型算：现在用的这一家写现在这个模型的，别的写"有没有哪个模型能"
+        accepts = caps(provider, settings.model) if provider.id == settings.provider else provider
+        return {
+            "id": provider.id,
+            "label": provider.label,
+            "has_key": has_key(provider),
+            "key_hint": hint(provider),
+            "key_page": provider.key_page,
+            "models": model_catalog.models_of(settings, provider.id, provider),  # 规矩在 model_catalog.models_of
+            "vision": accepts.vision,
+            "pdf": accepts.pdf,
+            "custom": provider.custom,  # 自定义接口：设置里的"API 密钥"一节不列它（它有自己的一节）
+        }
 
     # ---- 对话 --------------------------------------------------------------
 
@@ -634,7 +651,7 @@ class WebApp:
                     persona = self.app.agents.usable(agent)
                 except AgentError as exc:
                     return str(exc)
-                provider = PROVIDERS[persona.spec.provider] if persona.spec.model else self.app.provider
+                provider = (find(persona.spec.provider) if persona.spec.model else None) or self.app.provider
                 if not has_key(provider):
                     return t("「{agent}」用的是 {provider} 的模型，还没有设置 {provider} 的 API 密钥。", agent=persona.name, provider=provider.label)
             blocked = self._before_leaving("new:" + (agent or ""))
@@ -1067,12 +1084,17 @@ class WebApp:
     BUSY = k("请先等当前这一轮对话结束，或者点“停止”")
 
     def select_model(self, provider_id: str, model: str) -> str:
-        if not has_key(PROVIDERS[provider_id]):
-            return t("还没有设置 {provider} 的 API 密钥", provider=PROVIDERS[provider_id].label)
+        provider = find(provider_id)
+        if provider is None:
+            return t("这个模型接口已经不在了，可能刚被删掉。")
+        if not has_key(provider):
+            return t("还没有设置 {provider} 的 API 密钥", provider=provider.label)
         if not self._turn.acquire(blocking=False):
             return self._busy()
         try:
-            if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
+            # 换到另一家要开始新对话，也就是离开当前会话（同一个自定义接口上，能不能用工具不一样的两个模型之间换也是，见 providers.continues）
+            same_provider = provider_id == self.app.agent.backend.provider
+            if not continues(self.app.agent.backend, provider, model):
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
                 if blocked:
                     return blocked
@@ -1085,9 +1107,11 @@ class WebApp:
             if not continued:
                 self._left()
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
-            label = PROVIDERS[provider_id].label
+            label = provider.label
             if continued:
                 self.ui.info(t("已换成 {provider} · {model}。对话继续。", provider=label, model=model))
+            elif same_provider:
+                self.ui.info(t("已换成 {provider} · {model}。它能不能用工具和刚才的模型不一样，开始新对话。", provider=label, model=model))
             else:
                 self.ui.info(t("已换成 {provider} · {model}。换了一家，开始新对话。", provider=label, model=model))
             self._show_warnings()
@@ -1130,7 +1154,8 @@ class WebApp:
         return ""
 
     def set_price(self, model: str, price: dict | None) -> None:
-        self.app.settings.set_price(model, price)
+        """设置里"价格"一节改的是现在用的这个模型：自定义接口上的记进 endpoints.json，内置的记进 settings.json（见 App.set_price）。"""
+        self.app.set_price(self.app.settings.provider, model, price)
         self.publish_state()
 
     def set_budget(self, amount: float | None) -> None:
@@ -1454,7 +1479,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
         elif path == "/api/model":
             provider, model = body.get("provider"), body.get("model")
-            if provider not in PROVIDERS or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
+            if find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.select_model(provider, model.strip()))
@@ -1472,10 +1497,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._finish(error, warning=warning)
         elif path == "/api/models":
             provider = body.get("provider")
-            if provider not in PROVIDERS:
+            if find(provider) is None:
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.sync_models(provider))
+        elif path.startswith("/api/endpoint/"):
+            # 自定义模型接口：保存、删除、测试连接、在访达中显示（见 endpoints_api.py）
+            status, payload = web.endpoints.route(path.removeprefix("/api/endpoint/"), body)
+            self._send_json(status, payload)
         elif path == "/api/ledger":
             self._send_json(200, {"ok": True, "report": web.spend_report()})
         elif path == "/api/budget":

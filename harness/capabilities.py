@@ -64,7 +64,7 @@ from .i18n import k, t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool, server_prefix
 from .mcp.config import transport_of
-from .providers import PROVIDERS
+from .providers import PROVIDERS, caps, find
 from .tools import agent as agent_tool
 from .tools import files, shell, skill
 from .tools import send as send_tool
@@ -292,7 +292,7 @@ class _Context:
 
     @property
     def provider(self) -> Any:
-        return PROVIDERS[self.agent.backend.provider]
+        return find(self.agent.backend.provider) or PROVIDERS["anthropic"]
 
     def here(self, group: str) -> list[Tool]:
         return [tool for tool in self.tools if group_of(tool) == group]
@@ -347,7 +347,27 @@ def overview(app: Any, run: Any = None, persona: Any = None, in_chat: bool = Fal
         if kind.id == "computer":
             items += _mcp(context)
     items += _others(context)
-    return Overview(items=items, mode=context.permissions.mode, started=started, notes=_notes(context))
+    notes = _notes(context)
+    if not getattr(agent.backend, "tools_supported", True):
+        items, notes = _without_tools(context, items), [_no_tools_reason(context), *notes]
+    return Overview(items=items, mode=context.permissions.mode, started=started, notes=notes)
+
+
+def _no_tools_reason(context: _Context) -> str:
+    backend = context.agent.backend
+    return t("{provider} 的 {model} 用不了工具（函数调用），这段对话里它只能用文字回答。", provider=context.provider.label, model=backend.model)
+
+
+def _without_tools(context: _Context, items: list[Capability]) -> list[Capability]:
+    """模型用不了工具（自定义接口上的一些模型，见 providers/openai_compat.py）：一个工具都没发给它，每一项都用不了，原因是同一个。
+    能做的只有换一个能用工具的模型（换模型的面板里每个模型都标着"能用工具""不能用工具"）。"""
+    reason = _no_tools_reason(context)
+    out = []
+    for item in items:
+        item.status, item.reason, item.approval, item.count = "unavailable", reason, None, None
+        item.tools, item.actions = [], [Action("models", "", t("换模型"))]
+        out.append(item)
+    return out
 
 
 def _item(kind_id: str, status: str, reason: str = "", **fields: Any) -> Capability:
@@ -556,7 +576,7 @@ def _computer(context: _Context) -> Capability:
     if found is None:
         # 设置里开着的话，工具照样发给了模型（调用时回答"这台电脑上用不了"），技术细节里照样列出来
         return _item("computer", "unavailable", t(_NO_DESKTOP.get(why, _NO_DESKTOP[desktop_backend.PLATFORM])), tools=technical_names(here))
-    if provider.kind != "anthropic" and not provider.vision:
+    if provider.kind != "anthropic" and not caps(provider, context.agent.backend.model).vision:
         reason = t("{provider} 看不了图片，用不了这个功能。", provider=provider.label)
         return _item("computer", "unavailable", reason, actions=[Action("models", "", t("换模型"))])
     sample = DesktopTool(spec={"name": "computer_probe"}, stands_in_for=COMPUTER)

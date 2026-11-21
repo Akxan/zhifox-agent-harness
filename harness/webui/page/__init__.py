@@ -68,6 +68,7 @@ STYLES = (
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/commands.css",  # 不用问的命令
+    "styles/endpoints.css",  # 自定义模型接口：设置里的那一节和编辑的窗口
     "styles/spending.css",  # 花费
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
     "styles/appearance.css",  # 外观面板
@@ -143,6 +144,8 @@ SCRIPTS = (
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）
     "scripts/settings.js",  # 设置面板
+    "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
+    "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑

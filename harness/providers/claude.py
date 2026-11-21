@@ -48,6 +48,7 @@ TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS, "computer": COMPUTER_TOOLSE
 
 class AnthropicBackend:
     provider = "anthropic"
+    tools_supported = True  # Claude 的模型都能用工具（自定义接口上的模型不一定，见 openai_compat.py）
 
     def __init__(self, client: Any, model: str, config: Config, tools: ToolRegistry, system_prompt: str):
         self.client = client

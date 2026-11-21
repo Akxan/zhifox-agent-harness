@@ -151,6 +151,42 @@ Every provider bills API usage by volume, separately from its chat-app subscript
 You can enter keys in the web UI's Settings, or copy [.env.example](.env.example) to `.env` and write them there. Both
 end up in the same place.
 
+### Local models and your own gateway (Ollama, LM Studio, vLLM, llama.cpp)
+
+Any server that speaks the OpenAI Chat Completions format can be added under **Settings → Custom model endpoints**: a
+model running on this computer, a GPU box on your network, or your company's own gateway. With an endpoint on this
+computer or your local network, your conversations never leave your network, and the model costs nothing (it is shown
+as "Local, free"). Each endpoint gets its own group in the model switcher.
+
+**Ollama**, in one step: with Ollama running (`ollama serve`, or the desktop app), click **Add endpoint**, pick
+**Ollama** (`http://localhost:11434/v1`), click **Test connection**, then **Save**. ZhiFox lists your pulled models and
+asks Ollama what each one can do (tools, images, context length).
+
+**LM Studio**, in one step: in LM Studio's Developer page, click **Start Server**, then add an endpoint and pick
+**LM Studio** (`http://localhost:1234/v1`), **Test connection**, **Save**.
+
+vLLM (`http://localhost:8000/v1`) and llama.cpp's `llama-server` (`http://localhost:8080/v1`) work the same way.
+The API key is optional; fill it in if your server or gateway needs one.
+
+**Choosing a local model.** Reading and writing files, running commands and keeping to-dos all need a model that
+supports tool calling (function calling). Qwen 3, Llama 3.1 and later, Mistral and GPT-OSS do; small or old models
+(Llama 2, Gemma 2, Phi-3) usually don't. A model without tools can only answer in text: the first time the server
+refuses tools, ZhiFox marks the model **No tools**, tells you in the conversation, and the capability list shows every
+tool as unavailable with the reason. vLLM needs `--enable-auto-tool-choice --tool-call-parser …` and llama.cpp needs
+`--jinja` for tools. ZhiFox's system prompt and tool descriptions alone take several thousand tokens, so give the model
+a large enough context: Ollama defaults to 4096 and silently cuts the start of longer prompts; set
+`OLLAMA_CONTEXT_LENGTH=32768` (or more) before starting it, and enter the same number as the model's context limit in
+the endpoint's settings, which is what ZhiFox uses to decide when to compact the conversation.
+
+Security rules: a remote address must use `https://`; plain `http://` is accepted only for this computer (`localhost`,
+`127.x`, `::1`) and private-network addresses (`10.x`, `172.16–31.x`, `192.168.x`, `100.64.x` as used by Tailscale,
+`*.local`, `*.internal`, single-label names). All requests go out from ZhiFox's own process, never from the web page.
+The key is stored in `data/endpoints.json` (readable by your account only, masked in exports, shown as its last 4
+characters); it never goes into environment variables, so commands and MCP servers can't see it. Keys of the built-in
+providers (`OPENAI_API_KEY`, `OPENAI_ORG_ID`, `OPENAI_CUSTOM_HEADERS`, …) are never sent to a custom endpoint, redirects
+are not followed, and changing an endpoint's host means entering its key again. Agent files and other programs name an
+endpoint's model as `custom-<id>/<model>`, for example `custom-ollama/qwen3:8b`.
+
 ## Architecture
 
 A model does one thing: it reads text and writes the next piece of text. It doesn't remember your last conversation,
@@ -241,6 +277,7 @@ Each part of the harness has its own file or directory:
 | Loop | [harness/agent.py](harness/agent.py) | A model replies once per call. The loop keeps calling it until the task is done |
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
+| Custom model endpoints | [harness/endpoints/](harness/endpoints/), [harness/webui/endpoints_api.py](harness/webui/endpoints_api.py) | The built-in providers all live on someone else's servers. An endpoint is any OpenAI-format URL (Ollama, LM Studio, vLLM, llama.cpp, a company gateway): the URL rules (https, or plain http only on your own network), storage with an optional key, a client that never carries other providers' keys or follows redirects, guessing what each model can do, and testing the connection without spending anything (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
 | History compaction | [harness/providers/compaction.py](harness/providers/compaction.py) | Resending the whole history every turn gets more expensive and finally exceeds the model's limit. When a GPT, Gemini or DeepSeek conversation gets too long, the model is asked to summarize the earlier part (Claude's API compacts on its own) |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
@@ -358,6 +395,15 @@ and DeepSeek all support it at different server addresses, so one piece of code 
 
 To add another provider that supports the OpenAI format, add one entry to `PROVIDERS` in
 [`harness/providers/__init__.py`](harness/providers/__init__.py).
+
+Custom endpoints (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) use the same
+adapter, with three differences. What a model can do (images, tools, PDF, context size) is recorded per model, not per
+provider, since one Ollama may host a model with tools next to one without. Servers that implement the format only
+partly are handled by stepping back once: if a server rejects `stream_options`, ZhiFox stops asking for usage; if it
+rejects tools before any tool was used in the conversation, that conversation goes on without tools (the rejected
+request was never processed, so the history is unchanged). Both are written to `data/endpoints.json`, so the next
+conversation starts the right way. And switching between two models of one endpoint that differ in tool support starts
+a new conversation, because a conversation's tool list never changes.
 
 ### When a conversation gets too long: compaction
 
@@ -2436,6 +2482,7 @@ unprivileged user for the service.
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, and the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
+| `data/endpoints.json` | Custom model endpoints: name, URL, the optional key, and each model's abilities, context limit and price. Readable by your account only; the assistant's file tool can't open it; the key is masked in exports and the web page only ever sees its last 4 characters |
 | `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
@@ -2675,6 +2722,13 @@ the limit, Stop reaching only its own run, and the four approval modes; the fake
 its instruction, so parallel runs stay deterministic).
 MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
 over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
+Custom model endpoints run against `fake_openai.py` set up to imitate Ollama, LM Studio, or a server with no model
+list, no tools or no `stream_options`: [tests/test_endpoints.py](tests/test_endpoints.py) (the URL rules, the form
+checks, storage, guessing abilities, probing, redirects not followed, the key masked in exports),
+[tests/test_endpoints_chat.py](tests/test_endpoints_chat.py) (a full turn and tool calls, stepping back without tools
+or `stream_options`, no other provider's key or header reaching the endpoint, per-model context and prices, switching
+rules, the catalog and the capability list) and [tests/test_endpoints_web.py](tests/test_endpoints_web.py) (the web
+endpoints, a kept key never following the address elsewhere, the key absent from everything sent to the browser).
 The media library is covered in
 [tests/test_media.py](tests/test_media.py) (storing and deduplicating originals, recovering attachments from older
 histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
@@ -2839,6 +2893,10 @@ integration test runs there against a virtual display. The result is the Tests b
   install a real one. On macOS, a project inside Documents, Desktop or Downloads may need a privacy permission first.
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
 - With GPT, Gemini and DeepSeek there is no web search.
+- Custom model endpoints have been tested only against local fake servers that imitate Ollama, LM Studio and partial
+  OpenAI-format servers, not a real Ollama, LM Studio, vLLM, llama.cpp or gateway. A server that doesn't report usage
+  while streaming shows no token counts and its conversations aren't compacted. PDFs reach a custom endpoint only in
+  OpenAI's own format, which local servers generally don't read.
 - Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
   inevitably loses detail. The cut can only fall between turns, so a single turn that by itself exceeds the model's
   limit (say, one that reads many large files) can't be compacted. Models not listed in `config.py` are all assumed
@@ -2928,7 +2986,8 @@ of a file the assistant reads) go to the API of the provider you chose; with Cla
 servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
 use on, the sites the assistant opens see an ordinary visit from ZhiFox's own Chrome, and what it reads there goes to
 the provider. With computer use on (off by default), the screenshots of your screen that you approve go to the
-provider as well. Saved
+provider as well. With a custom endpoint on this computer or your local network (Ollama, LM Studio…), all of this stays
+on your network. Saved
 conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
 The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
@@ -2940,7 +2999,10 @@ DeepSeek through the OpenAI-compatible Chat Completions API, using the model lis
 switcher. Only Claude has
 been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
 Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
-added with one entry in `PROVIDERS`.
+added with one entry in `PROVIDERS`, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp, your own
+gateway) can be added from Settings without touching code (see
+[Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)). Custom endpoints have been tested
+against local fake servers only, not a real Ollama or LM Studio yet.
 
 ### Can it run commands without asking me?
 

@@ -1,0 +1,97 @@
+/* ---- 自定义模型接口 ---------------------------------------------------------------
+   设置里的那一节（scripts/endpoints.js）和添加、编辑的窗口（scripts/endpoints-editor.js）。类名都以 endpoint- 开头。
+   每一行和别的本地的东西一样：悬停时右边浮出"在访达中显示 / 编辑 / 删除"（触屏上一直显示），按钮浮在文字上面，
+   左边一段渐隐的底色只是垫着，不接点击（pointer-events 只给按钮）。名字、地址再长也不冲出这一行（省略号）。
+   左边的小方块按接口在哪儿上色：这台电脑是绿色、内网是主色、外面的服务器是中性的灰。动效只动 transform 和 opacity。 */
+
+.endpoint-lead { margin: 0 0 12px; }
+.endpoint-problem { margin: 0 0 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; overflow-wrap: anywhere; }
+.endpoint-problem[hidden] { display: none; }
+.endpoint-list { display: grid; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
+.endpoint-list:empty { display: none; }
+.endpoint-empty { display: flex; align-items: center; gap: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.55; color: var(--ink-3); background: var(--hover); border-radius: 14px; }
+.endpoint-empty .icon { flex: none; width: 18px; height: 18px; }
+
+.endpoint-row { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 58px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s ease, box-shadow .15s ease; }
+.endpoint-row:hover, .endpoint-row:focus-within { border-color: var(--line-2); box-shadow: 0 1px 3px rgba(0, 0, 0, .05); }
+.endpoint-open { position: absolute; inset: 0; width: 100%; padding: 0; background: none; border: 0; border-radius: inherit; cursor: pointer; }  /* 点这一行的任何地方都是"编辑" */
+.endpoint-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.endpoint-glyph { position: relative; flex: none; display: grid; place-items: center; width: 36px; height: 36px; color: var(--ink-2); background: var(--hover); border-radius: 11px; pointer-events: none; }
+.endpoint-glyph .icon { width: 18px; height: 18px; }
+.endpoint-glyph.local { color: var(--ok); background: var(--ok-soft); }
+.endpoint-glyph.lan { color: var(--accent); background: var(--accent-soft); }
+.endpoint-glyph.used::after { content: ""; position: absolute; right: -2px; top: -2px; width: 9px; height: 9px; background: var(--ok); border: 2px solid var(--surface); border-radius: 50%; }
+.endpoint-words { flex: 1; min-width: 0; display: grid; gap: 3px; pointer-events: none; }
+.endpoint-name { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-url { min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.endpoint-chip { display: inline-flex; align-items: center; max-width: 100%; height: 19px; padding: 0 8px; font-size: 11px; color: var(--ink-3); background: var(--hover); border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-chip.local { color: var(--ok); background: var(--ok-soft); }
+.endpoint-chip.lan { color: var(--accent); background: var(--accent-soft); }
+.endpoint-chip.used { color: var(--on-ink); background: var(--ink); }
+.endpoint-actions { position: absolute; right: 8px; top: 50%; display: flex; gap: 2px; padding-left: 28px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  background: linear-gradient(90deg, transparent, var(--surface) 26px); }
+.endpoint-row:hover .endpoint-actions, .endpoint-row:focus-within .endpoint-actions { opacity: 1; }
+.endpoint-row:hover .endpoint-actions > *, .endpoint-row:focus-within .endpoint-actions > * { pointer-events: auto; }
+@media (hover: none) { .endpoint-actions { opacity: 1; } .endpoint-actions > * { pointer-events: auto; } .endpoint-words { padding-right: 88px; } }
+.endpoint-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.endpoint-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; }
+.endpoint-confirm span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.endpoint-row.arrive { animation: endpoint-in .38s var(--ease); }
+@keyframes endpoint-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+
+/* ---- 添加、编辑的窗口 ---- */
+.settings.endpoint-dialog { width: min(660px, calc(100vw - 32px)); }
+.endpoint-form { display: grid; gap: 14px; padding-top: 4px; padding-bottom: 16px; }
+.endpoint-field { display: grid; gap: 6px; min-width: 0; }
+.settings .endpoint-field { display: grid; align-items: stretch; }  /* 盖过 .settings label 的横排 */
+.endpoint-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.endpoint-label small { font-weight: 400; color: var(--ink-3); }
+.endpoint-field .field { width: 100%; }
+.settings .endpoint-field input[type="password"] { flex: none; }
+.endpoint-mono { font-family: var(--mono); }
+.endpoint-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.endpoint-check[hidden] { display: none; }
+.endpoint-presets { display: grid; gap: 6px; }
+.endpoint-preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.endpoint-preset { display: inline-flex; align-items: center; gap: 6px; height: 30px; max-width: 100%; padding: 0 12px; font-size: 12.5px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; transition: transform .15s var(--ease), border-color .15s ease; }
+.endpoint-preset:hover { border-color: var(--ink-3); color: var(--ink); }
+.endpoint-preset:active { transform: scale(.96); }
+.endpoint-preset[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.endpoint-preset span { flex: none; }
+.endpoint-preset small { min-width: 0; font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-probe { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.endpoint-probe .button[aria-busy="true"] .icon { animation: endpoint-spin .9s linear infinite; }
+@keyframes endpoint-spin { to { transform: rotate(360deg); } }
+.endpoint-result { flex: 1 1 220px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; white-space: pre-line; }  /* 结果分几行写：找到几个、认出是谁、数据去哪儿 */
+.endpoint-id { margin: -8px 0 0; }
+.endpoint-result.good { color: var(--ok); }
+.endpoint-result.bad { color: var(--err); }
+.settings h3.endpoint-models-head { margin: 4px 0 -4px; }
+.endpoint-models-head small { font-variant-numeric: tabular-nums; }
+.endpoint-models { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.endpoint-models-empty { padding: 14px 14px; font-size: 13px; line-height: 1.55; color: var(--ink-3); background: var(--hover); border-radius: 12px; }
+.endpoint-model { display: grid; gap: 8px; min-width: 0; padding: 10px 12px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.endpoint-model.arrive { animation: endpoint-in .3s var(--ease); }
+.endpoint-model-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.endpoint-model-name { flex: 1; min-width: 0; font: 600 13px/1.5 var(--mono); overflow-wrap: anywhere; }
+.endpoint-caps { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 每个模型能做什么：关着是虚线框、灰字；打开是实心的主色。点下去时图标弹一下（只动 transform） */
+.endpoint-cap { display: inline-flex; align-items: center; gap: 6px; height: 28px; max-width: 100%; padding: 0 12px 0 10px; font-size: 12.5px; color: var(--ink-3); background: none; border: 1px dashed var(--line-2); border-radius: 999px; transition: transform .15s var(--ease), color .15s ease, background-color .15s ease, border-color .15s ease; }
+.endpoint-cap .icon { flex: none; width: 14px; height: 14px; transition: transform .3s var(--spring); }
+.endpoint-cap[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-style: solid; border-color: transparent; }
+.endpoint-cap[aria-pressed="true"] .icon { transform: scale(1.12); }
+.endpoint-cap:hover { border-color: var(--ink-3); }
+.endpoint-cap[aria-pressed="true"]:hover { border-color: var(--accent); }
+.endpoint-cap:active { transform: scale(.95); }
+.endpoint-cap span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-numbers { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.settings .endpoint-number { display: grid; gap: 4px; min-width: 0; font-size: 11.5px; color: var(--ink-3); }
+.settings .endpoint-number .field { width: 100%; height: 32px; padding: 0 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.endpoint-number span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.endpoint-add { display: flex; gap: 8px; }
+.endpoint-add .field { flex: 1 1 200px; min-width: 0; }
+@media (max-width: 520px) {
+  .endpoint-numbers { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .endpoint-numbers .endpoint-number:first-child { grid-column: 1 / -1; }
+}
