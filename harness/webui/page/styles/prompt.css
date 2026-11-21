@@ -1,0 +1,14 @@
+/* ---- 提示词 ---- */
+.settings.prompt-dialog { width: min(860px, calc(100vw - 32px)); height: min(780px, calc(100vh - 48px)); }
+.prompt-body { padding-top: 14px; padding-bottom: 16px; }
+.prompt-pane[hidden] { display: none; }
+.prompt-pane { display: grid; gap: 10px; }
+.prompt-textarea { min-height: 360px; max-height: none; height: 46vh; }
+.prompt-preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 360px; }
+.prompt-placeholders { display: flex; flex-wrap: wrap; gap: 6px; }
+.prompt-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 4px 9px; font-size: 12px; color: var(--ink-2); text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; transition: border-color .15s ease; }
+.prompt-chip:hover { border-color: var(--ink-3); color: var(--ink); }
+.prompt-chip code { font: 12px var(--mono); color: var(--accent); }
+.prompt-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; color: var(--ink-3); }
+.button.with-icon { display: inline-flex; align-items: center; gap: 7px; }
+.button.with-icon .icon { width: 14px; height: 14px; }

@@ -1,0 +1,132 @@
+"""网页界面的页面：把这个文件夹里的几块拼成浏览器拿到的那一页。
+
+为什么拆开：页面原来是一个一万三千行的 index.html，样式、标记、脚本全挤在一起，改一处要在几十万字里找。
+现在一个文件只讲一件事：styles/ 里一种样子一个文件，scripts/ 里页面的一节一个文件。想改"记忆"，
+就打开 scripts/memory.js 和 styles/memory.css。
+
+为什么又拼回一页：页面的安全策略只认带着一次性 nonce 的内联 <script> 和 <style>（见 server.py 的 _send_page），
+不加载任何外部文件，离线也要能用。所以拆开只是为了好改：发给浏览器的仍然是同一个自给自足的页面，
+不多开一个地址，也不放宽安全策略。
+
+怎么拼：index.html 是骨架（标记，外加几行单独占一行的占位符，就是下面 SLOTS 的键）。每个占位符换成
+SLOTS 里列出的那几块，按列出的顺序一块接一块，中间空一行。顺序很要紧：
+  - 样式：两条规则一样具体时，后写的盖过先写的。STYLES 的顺序就是它们原来在页面里的顺序，
+    "减少动态效果"那一块必须排在最后。
+  - 脚本：SCRIPTS 里的各块接在一起，放进骨架里同一个 (() => { 'use strict'; … })() 里，所以它们共用
+    一个作用域：前面一块定义的 t()、el()、play()、calm()……后面每一块都能直接用。用 const、let 定义的名字
+    要等定义它的那一行跑过以后才能用，所以定义它们的那一块要排在用它们的前面。
+新加一块：把文件放进 styles/ 或 scripts/，再把名字加进下面的列表。漏了、写了两次，tests/test_page.py 都会失败。
+
+拼好的页面里还留着 __NONCE__、__I18N__、__MARKDOWN__ 三处，每次发页面时由 server.py 填上。
+所以每一块里都不能出现这样的占位符，也不能出现 </script、</style、<!--（浏览器会以为那一段提前结束了），
+测试会查。
+
+助手程序启动时拼一次（server.PAGE）；演示（tests/demo_web.py）每次刷新都重新拼，改完刷新就能看到。
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+FOLDER = Path(__file__).parent
+
+# <head> 里那一小段脚本：页面画出来之前就定好深浅色和动效。它是单独的一段 <script>，不和主脚本共用作用域
+FIRST_PAINT = ("first-paint.js",)
+
+# 样式，按层叠的先后排：后面的同样具体的规则盖过前面的
+STYLES = (
+    "styles/tokens.css",  # 颜色和字体：两套外观的变量
+    "styles/base.css",  # 基础：按钮、输入框、下拉框、图标
+    "styles/layout.css",  # 三栏的排法，左边的会话栏
+    "styles/sheet.css",  # 中间那张"纸"：极光、顶栏、对话区
+    "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
+    "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
+    "styles/markdown.css",  # 回复里的 Markdown
+    "styles/welcome.css",  # 空白页：问候语和建议
+    "styles/composer.css",  # 输入框和附件
+    "styles/viewer.css",  # 查看器
+    "styles/composer-controls.css",  # 发送键、输入框下面那一行、"要不要先问你"的开关、回到底部
+    "styles/info.css",  # 右边的信息栏
+    "styles/memory.css",  # 记忆的入口和窗口
+    "styles/nav-tabs.css",  # 左边栏的"会话 / 任务 / 多媒体"
+    "styles/media.css",  # 多媒体
+    "styles/tasks.css",  # 定时任务
+    "styles/prompt.css",  # 提示词
+    "styles/extensions.css",  # 扩展对话框的壳
+    "styles/skills.css",  # 扩展 · Skill
+    "styles/mcp.css",  # 扩展 · MCP
+    "styles/channels.css",  # 扩展 · 通道
+    "styles/memory-editor.css",  # 记忆窗口里的编辑
+    "styles/agents.css",  # 自定义 Agent
+    "styles/settings.css",  # 设置面板
+    "styles/spending.css",  # 花费
+    "styles/appearance.css",  # 外观面板
+    "styles/notices.css",  # 浮在最上面的提示
+    "styles/narrow.css",  # 窄屏
+    "styles/animations.css",  # 入场动画
+    "styles/browser.css",  # 浏览器
+    "styles/computer.css",  # 操作整台电脑
+    "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
+)
+
+# 主脚本的各节，按运行的先后排：前面的定义后面的要用的名字
+SCRIPTS = (
+    "scripts/basics.js",  # 口令、$、<html> 和 <body>
+    "scripts/i18n.js",  # 多语言：t()、tel()、retext()、tattr()
+    "scripts/state.js",  # 常用的几个元素、整个页面共用的状态
+    "scripts/helpers.js",  # 小工具：el()、icon()……
+    "scripts/motion.js",  # 动效：calm()、play()、relayout()、crossfade()
+    "scripts/follow.js",  # 跟着最新内容滚动
+    "scripts/requests.js",  # 提示和请求：toast()、call()、post()、announce()
+    "scripts/settle.js",  # 空白页和收尾，定位到搜索命中的地方
+    "scripts/markdown-view.js",  # 回复里的 Markdown（接上 markdown.js）
+    "scripts/streaming.js",  # 逐字输出的文字
+    "scripts/subagent-cards.js",  # 交给子 Agent 的卡片
+    "scripts/events.js",  # 每种事件怎么画
+    "scripts/attachments.js",  # 附件
+    "scripts/viewer.js",  # 查看器
+    "scripts/send.js",  # 发送消息
+    "scripts/rewind.js",  # 编辑最后一条消息、重新生成
+    "scripts/sidebars.js",  # 两边的栏：展开和收起
+    "scripts/appearance.js",  # 外观：颜色和动效
+    "scripts/conversations.js",  # 会话列表
+    "scripts/info.js",  # 信息栏
+    "scripts/spending.js",  # 花费
+    "scripts/memory.js",  # 记忆
+    "scripts/tasks.js",  # 定时任务
+    "scripts/media.js",  # 多媒体
+    "scripts/prompt.js",  # 提示词
+    "scripts/extensions.js",  # 扩展对话框的壳
+    "scripts/skills.js",  # 扩展 · Skill
+    "scripts/mcp.js",  # 扩展 · MCP
+    "scripts/agents.js",  # 扩展 · Agent
+    "scripts/agent-picker.js",  # 新对话旁边的 Agent 选择
+    "scripts/channels.js",  # 扩展 · 通道
+    "scripts/language.js",  # 语言
+    "scripts/approval.js",  # 要不要先问你
+    "scripts/settings.js",  # 设置面板
+    "scripts/browser.js",  # 浏览器
+    "scripts/computer.js",  # 操作整台电脑
+    "scripts/keyboard.js",  # 键盘
+    "scripts/start.js",  # 开始：连上事件流
+)
+
+# 骨架里的占位符 → 换成哪几块
+SLOTS = {"__FIRST_PAINT__": FIRST_PAINT, "__STYLES__": STYLES, "__SCRIPTS__": SCRIPTS}
+_SLOT = re.compile("^(" + "|".join(SLOTS) + ")\n", flags=re.MULTILINE)
+
+
+def parts() -> tuple[str, ...]:
+    """所有的块，按拼进页面的顺序。"""
+    return tuple(name for names in SLOTS.values() for name in names)
+
+
+def assemble() -> str:
+    """读骨架和各块，拼成一页（还留着 __NONCE__ 这几处，等 server.py 发页面时填）。"""
+    skeleton = (FOLDER / "index.html").read_text(encoding="utf-8")
+    found = _SLOT.findall(skeleton)
+    if sorted(found) != sorted(SLOTS):
+        raise ValueError(f"page/index.html 里的占位符应该是 {sorted(SLOTS)} 各一行，实际是 {found}")
+    # 一次换完（re.sub 不会回头再扫一遍换进去的内容），和 server.py 填 nonce 的做法一样
+    return _SLOT.sub(lambda match: "\n".join((FOLDER / name).read_text(encoding="utf-8") for name in SLOTS[match.group(1)]), skeleton)

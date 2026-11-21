@@ -1,0 +1,15 @@
+/* ---- 最后：换外观的交叉淡化、减少动态效果 ----------------------------------------
+   这一块必须排在所有样式的最后：减少动态效果时，要盖过前面每一处写的动画和过渡。 */
+/* 换外观时的交叉淡化（浏览器对新旧两张画面做合成，不重新排版） */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+::view-transition { pointer-events: none; }  /* 淡化的这一小会儿，页面照样能点（比如连点两下切到深色） */
+
+/* 减少动画：用户在外观面板里选了"减少"，或者选的是"跟随系统"、而系统开着"减少动态效果"。
+   页面最前面那段脚本（first-paint.js）把结果写在 <html data-motion="reduce"> 上（和深浅色的做法一样），这里不再直接查
+   prefers-reduced-motion，否则用户选的"完整"就盖不过系统设置了。
+   所有动画和过渡都一闪而过，直接显示结束时的样子；本来就不动的东西不受影响。 */
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after, :root[data-motion="reduce"] ::backdrop {
+  animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+}
+:root[data-motion="reduce"] .aurora i { animation: none !important; }
+:root[data-motion="reduce"] .found::before { opacity: 1; }  /* 不播动画时，命中的那一块静静地亮着，直到脚本把它收掉 */

@@ -1,0 +1,59 @@
+/* ---- 操作整台电脑 ----
+   顶栏上的提示比浏览器的那一条醒目：用确认卡片的那一套暖色（警示，但不是"出错"的红），"停止"是一颗实心的按钮。
+   动的只有那个点外面的一圈（transform、opacity），减少动态效果时停住 */
+.computer-live { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 4px 0 11px; font-size: 12.5px; font-weight: 500; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; animation: reveal .3s var(--ease); }
+.computer-live > .icon { width: 14px; height: 14px; flex: none; }
+.computer-live-dot { position: relative; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--warn-dot); }
+.computer-live.busy .computer-live-dot::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--warn-dot); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.computer-live-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.computer-live-stop { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px 0 8px; font-size: 12px; font-weight: 600; color: var(--on-ink); background: var(--ink); border: 0; border-radius: 999px; transition: transform .15s var(--ease), opacity .15s ease; }
+.computer-live-stop .icon { width: 11px; height: 11px; stroke-width: 2.4; color: currentColor; }
+.computer-live-stop:hover { opacity: .86; }
+.computer-live-stop:active { transform: scale(.94); }
+.computer-live-stop:disabled { opacity: .5; }
+:root[data-motion="reduce"] .computer-live.busy .computer-live-dot::after { animation: none; opacity: .5; }
+@media (max-width: 760px) {
+  /* width: max-content：从正中间（left: 50%）往右只剩一半的宽度，不写的话它只肯缩在那一半里，字就被截断了 */
+  .computer-live { position: absolute; z-index: 7; top: 58px; left: 50%; translate: -50% 0; width: max-content; max-width: calc(100% - 32px); box-shadow: var(--shadow-2); }
+  .computer-live > .icon { display: none; }
+  .browser-live:not([hidden]) + .computer-live { top: 98px; }  /* 两条都在的时候，电脑的这一条放在浏览器那一条下面 */
+}
+.call.computer-call .tool-name { color: var(--warn); }
+
+/* 设置里的一节：和浏览器那一节同一套卡片，开着时换成暖色 */
+.computer-card.on::before { background: radial-gradient(closest-side, var(--warn-dot), transparent); }
+.computer-card.on .browser-glyph { color: #fff; background: linear-gradient(135deg, #c2410c, #db2777); }
+.computer-badge { display: inline-block; margin-left: 6px; padding: 0 7px; font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: 1px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
+.computer-confirm { margin-top: 12px; padding: 14px 16px 16px; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: reveal .25s var(--ease); }
+.computer-confirm h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13.5px; font-weight: 600; color: var(--warn); }
+.computer-confirm h4 .icon { width: 16px; height: 16px; flex: none; }
+.computer-confirm ul { display: grid; gap: 4px; margin: 0 0 10px; padding: 0 0 0 18px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.computer-confirm li, .computer-confirm p { min-width: 0; overflow-wrap: anywhere; }
+.computer-confirm p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.computer-confirm p b { color: var(--ink); font-weight: 600; }
+.computer-ack { display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 12px; font-size: 13px; font-weight: 600; line-height: 1.5; cursor: pointer; }
+.computer-ack input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.computer-ack span { min-width: 0; overflow-wrap: anywhere; }
+.computer-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.computer-checks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 12px; }
+.computer-check { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.computer-check > .icon { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--ink-3); }
+.computer-check.good > .icon { color: var(--ok); }
+.computer-check.bad > .icon { color: var(--err); }
+.computer-check-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.computer-check-words b { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.computer-check-words span { font-size: 12px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.computer-check-words code { font: 11.5px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.computer-check > .mini { flex: none; align-self: center; }
+.computer-blocked { margin-top: 14px; }
+.computer-blocked-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 0 2px; }
+.computer-blocked-head b { font-size: 13px; font-weight: 600; }
+.computer-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 8px 0; padding: 0; list-style: none; }
+.computer-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; height: 28px; padding: 0 3px 0 10px; font-size: 12.5px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; animation: reveal .2s var(--ease); }
+.computer-chip span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.computer-chip button { flex: none; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: 50%; transition: color .15s ease, background-color .15s ease; }
+.computer-chip button:hover { color: var(--err); background: var(--err-soft); }
+.computer-chip button .icon { width: 11px; height: 11px; stroke-width: 2.4; }
+.computer-chips-empty { padding: 4px 2px; font-size: 12px; color: var(--ink-3); }
+.computer-blocked .row .field { flex: 1 1 200px; }
+:root[data-motion="reduce"] .computer-confirm, :root[data-motion="reduce"] .computer-chip { animation: none; }

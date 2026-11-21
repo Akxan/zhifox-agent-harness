@@ -1,0 +1,78 @@
+/* ---- 消息 ---------------------------------------------------------------- */
+/* 这个文件管对话里的消息：你说的、助手回答的，编辑和重新生成的那排按钮，思考过程，对话里的提示条。
+   工具卡片和确认卡片在 tool-cards.css，回复里的 Markdown 在 markdown.css。 */
+.msg { position: relative; font-size: 15.5px; line-height: 1.75; }
+.msg-text { overflow-wrap: anywhere; }  /* 回复按 Markdown 画（见 markdown.css） */
+.msg.user { align-self: flex-end; max-width: min(86%, 600px); padding: 10px 16px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bubble-ink); background: var(--bubble); border-radius: 20px 20px 6px 20px; transform-origin: 100% 100%; }
+.msg.user:not(:first-child) { margin-top: 12px; }
+/* 正在逐字输出时，文字末尾跟着一个呼吸的小光点。它画在最后一段（或最后一个单元格、最后一行代码）的末尾，
+   那个元素由 markdown.js 标上 md-caret */
+.msg.streaming .md-caret::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 5px; vertical-align: 1px; border-radius: 50%; background: linear-gradient(135deg, var(--a2), var(--a3)); animation: breathe 1s ease-in-out infinite; }
+.msg-actions { display: flex; height: 26px; margin: 2px 0 -12px -6px; opacity: 0; transition: opacity .15s ease; }
+/* 从搜索结果打开会话时，命中的那一块背后亮一下，告诉你"在这儿" */
+.found { position: relative; }
+.found::before { content: ""; position: absolute; inset: -6px -10px; z-index: -1; border-radius: 14px; background: var(--accent-soft); opacity: 0; pointer-events: none; animation: found 2.2s ease-out; }
+.msg.assistant:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg.streaming .msg-actions { visibility: hidden; }
+
+/* ---- 编辑最后一条消息、重新生成（脚本在 scripts/rewind.js） -------------------------------
+   "编辑"浮在最后一条消息左边的空白里：不占位置，悬停才出现，不会把文字挤动。最后一个回答下面那排按钮一直亮着，
+   里面多一个"重新生成"；这一轮没有回答（出错了、被停下了），就在最后单独放一排。改的时候，消息原地变成一个输入框；
+   倒回去之前要确认的话，确认也在原地 */
+.msg-atts { position: relative; }
+.turn-edit-open { position: absolute; right: calc(100% + 6px); bottom: 1px; opacity: 0; transition: opacity .15s ease, transform .15s var(--ease); }
+.msg.user:hover > .turn-edit-open, .msg-atts:hover > .turn-edit-open, .turn-edit-open:focus-visible { opacity: 1; }
+.msg-atts > .turn-edit-open { bottom: 4px; }
+@media (hover: none) { .turn-edit-open { opacity: 1; } }  /* 触屏上没有"悬停"：一直显示 */
+.turn-off .icon { opacity: .4; }  /* 现在倒不回去（点一下说为什么）：图标淡一些 */
+.turn-off:hover:not(:disabled) { color: var(--ink-3); background: none; }
+/* 最后一个回答下面那排一直亮着。直接亮，不渐显：刷新、打开会话重放出来时也会加上这个类，重放的内容不播动画 */
+.msg.assistant.turn-last .msg-actions { opacity: 1; transition: none; }
+.turn-actions { display: flex; align-items: center; gap: 8px; margin-top: -4px; }
+.turn-actions .button { height: 32px; padding: 0 12px; font-size: 13px; }
+.turn-again .icon { transition: transform .45s var(--ease); }
+.turn-again:hover:not(.turn-off) .icon, .turn-retry:hover:not(.turn-off) .icon { transform: rotate(-150deg); }
+.turn-retry .icon { transition: transform .45s var(--ease); }
+
+.turn-editor { align-self: flex-end; display: flex; flex-direction: column; gap: 10px; width: min(100%, 640px); min-width: 0; margin-top: 12px; padding: 12px 12px 10px 16px; background: var(--surface); border: 1px solid var(--line-3); border-radius: 20px 20px 6px 20px; box-shadow: var(--shadow-1); transform-origin: 100% 100%; transition: border-color .15s ease, box-shadow .15s ease; }
+.turn-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-1); }
+.turn-editor-atts { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+.turn-editor-atts .att { max-width: 100%; }
+.turn-editor-input { width: 100%; min-width: 0; min-height: 26px; max-height: 320px; margin: 0; padding: 2px 0; overflow-y: hidden; font-size: 15.5px; line-height: 1.6; overflow-wrap: anywhere; resize: none; background: none; border: 0; outline: 0; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.turn-editor-input:disabled { color: var(--ink-3); }
+.turn-editor-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.turn-editor-note { flex: 1 1 200px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); overflow-wrap: anywhere; }
+.turn-editor-note.warn { color: var(--warn); }
+.turn-editor-note.error { color: var(--err); }
+.turn-editor-buttons { display: flex; gap: 8px; margin-left: auto; }
+.turn-editor-foot .button { height: 32px; padding: 0 14px; font-size: 13px; }
+
+.turn-confirm { padding: 14px 16px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; }
+.turn-editor .turn-confirm { margin: 0 -4px 0 -8px; }
+.turn-confirm-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; color: var(--warn); }
+.turn-confirm-text { margin: 6px 0 8px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.turn-confirm-operated { margin: 0 0 8px; font-size: 13.5px; font-weight: 600; line-height: 1.55; color: var(--warn); }
+.turn-confirm-list { margin: 0 0 12px; padding: 0 0 0 18px; font: 12.5px/1.6 var(--mono); color: var(--ink); }
+.turn-confirm-list li { overflow-wrap: anywhere; }
+.turn-confirm-list li.more { font-family: var(--sans); color: var(--ink-3); list-style: none; margin-left: -18px; }
+.turn-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.turn-confirm-actions .button { height: 32px; padding: 0 14px; font-size: 13px; }
+
+.thinking { font-size: 13.5px; color: var(--ink-3); }
+.thinking summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -8px; padding: 4px 10px 4px 8px; border-radius: 8px; cursor: pointer; user-select: none; list-style: none; }
+.thinking summary::-webkit-details-marker, .call summary::-webkit-details-marker { display: none; }
+.thinking summary:hover { color: var(--ink-2); background: var(--hover); }
+.chev { width: 13px; height: 13px; transition: transform .25s var(--ease); }
+[open] > summary .chev { transform: rotate(90deg); }
+.thinking.streaming .spark { color: var(--accent); animation: twinkle 1.4s ease-in-out infinite; }
+.thinking-body { margin: 6px 0 2px 1px; padding: 2px 0 2px 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 2px solid var(--line-2); }
+[open] > .thinking-body, [open] > .tool-body { animation: reveal .28s var(--ease); }
+
+.notice { font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
+.notice.info { display: flex; align-items: center; gap: 12px; text-align: center; }
+.notice.info::before, .notice.info::after { content: ""; flex: 1 1 24px; min-width: 16px; height: 1px; background: var(--line); }
+.notice.info span { flex: 0 1 auto; max-width: 80%; }
+.notice.error { display: flex; gap: 10px; padding: 10px 14px; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; }
+.notice.error .icon { margin-top: 2px; }
+.notice.tool { display: flex; align-items: center; gap: 9px; font: 12.5px/1.5 var(--mono); color: var(--ink-2); }
+.notice.result { margin-top: -8px; padding-left: 25px; font-size: 12.5px; }

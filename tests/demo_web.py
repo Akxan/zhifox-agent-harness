@@ -9,7 +9,7 @@
   - 数据写在临时目录里，不碰项目的 `data/`；密钥也是编造的，不读也不写真正的 `.env`。
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
-  - 页面每次刷新都重新从磁盘读，改完 index.html（或 markdown.js）刷新一下就能看到，不用重启。
+  - 页面每次刷新都重新从磁盘读、重新拼（harness/webui/page/ 里的各块和 markdown.js），改完刷新一下就能看到，不用重启。
   - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
@@ -112,6 +112,7 @@ from harness.config import Config
 from harness.desktop import backend as desktop_backend
 from harness.tasks import new_run
 from harness.webui import lifecycle
+from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
 
 
@@ -645,14 +646,13 @@ def client_factory(provider):
     return openai.OpenAI(api_key=key, base_url=compat.base_url, max_retries=0)
 
 
-# 页面每次请求都重新读一遍，改了 index.html 刷新就能看到
+# 页面每次请求都重新拼一遍，改了 page/ 里的任何一块（或者 markdown.js）刷新就能看到
 send_page = server_module.Handler._send_page
 
 
 def send_fresh_page(self) -> None:
-    folder = Path(server_module.__file__).parent
-    server_module.PAGE = (folder / "index.html").read_text(encoding="utf-8")
-    server_module.MARKDOWN = (folder / "markdown.js").read_text(encoding="utf-8")
+    server_module.PAGE = assemble_page()
+    server_module.MARKDOWN = (Path(server_module.__file__).parent / "markdown.js").read_text(encoding="utf-8")
     send_page(self)
 
 
