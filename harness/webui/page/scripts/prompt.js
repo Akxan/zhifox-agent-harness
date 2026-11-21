@@ -98,8 +98,11 @@ async function savePrompt(reset) {
 }
 
 $('prompt-open').addEventListener('click', openPrompt);
-tattr($('prompt-reveal'), 'title', ON_MAC ? k('在访达中显示 prompt.md') : k('在文件夹中显示 prompt.md'));
-tattr($('prompt-reveal'), 'aria-label', ON_MAC ? k('在访达中显示 prompt.md') : k('在文件夹中显示 prompt.md'));
+whenServerKnown(() => {
+  const label = byServer(k('在访达中显示 prompt.md'), k('在文件资源管理器中显示 prompt.md'), k('在文件管理器中显示 prompt.md'));
+  tattr($('prompt-reveal'), 'title', label);
+  tattr($('prompt-reveal'), 'aria-label', label);
+});
 $('prompt-reveal').addEventListener('click', () => revealData('prompt', promptSay));
 $('prompt-save').addEventListener('click', () => savePrompt(false));
 $('prompt-reset').addEventListener('click', () => savePrompt(true));
@@ -118,7 +121,7 @@ promptDialog.querySelector('.tabs').addEventListener('keydown', (key) => {
 promptDialog.addEventListener('keydown', (key) => {
   if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
   if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); requestClosePrompt(); }
-  else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) { key.preventDefault(); savePrompt(false); }
+  else if (key.key === 'Enter' && commandHeld(key)) { key.preventDefault(); savePrompt(false); }
 });
 // 保险：焦点不在窗口里的时候按 Esc，浏览器直接发 cancel（不经过上面的 keydown）。照样先看有没有没保存的修改
 promptDialog.addEventListener('cancel', (event) => { if (promptChanged() && promptArmed !== 'close') { event.preventDefault(); requestClosePrompt(); } });

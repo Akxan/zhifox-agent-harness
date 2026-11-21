@@ -79,7 +79,7 @@ function buildAgentDetail(view) {
   const start = foot.appendChild(skillButton('chat', k('用它开始新对话'), 'primary idle-only', 'start', () => startWithAgent(view.name)));
   start.disabled = view.gone || data.problems.length > 0;
   foot.appendChild(skillButton('edit', k('编辑'), '', 'edit', () => startAgentEdit(view))).disabled = view.gone || !data.editable;
-  foot.appendChild(skillButton('folder', SHOW_FILE, '', 'reveal', () => revealAgent(view.name, view))).disabled = view.gone;
+  foot.appendChild(skillButton('folder', showLabel(), '', 'reveal', () => revealAgent(view.name, view))).disabled = view.gone;
   foot.appendChild(skillButton('trash', k('删除'), '', 'delete', () => { view.confirm = true; paintAgent('confirm-cancel'); })).disabled = view.gone;
   return node;
 }

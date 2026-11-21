@@ -16,8 +16,15 @@ const COMPUTER_WHO = { [k('一个定时任务')]: k('（一个定时任务）'),
 const COMPUTER_REASONS = {
   wayland: k('这台电脑用的是 Wayland 桌面：Wayland 不允许一个程序截别的程序的图、替别人点鼠标，所以用不了。登录时换成 X11（Xorg）桌面就可以。'),
   no_display: k('这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。'),
+  windows: k('Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。'),
   platform: k('只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。'),
 };
+
+// 风险清单里"收不回来的组合键"那一条，举的例子是助手程序所在的电脑（被操作的那一台）上的键，不是你打开页面的这一台
+whenServerKnown(() => retext($('computer-risk-keys'), byServer(
+  k('⌘Q、Ctrl+Alt+Del 这类按下去收不回来的组合键，确认卡片上带着警告'),
+  k('Alt+F4、Ctrl+Alt+Del 这类按下去收不回来的组合键，确认卡片上带着警告'),
+  k('Alt+F4、Ctrl+Alt+Del 这类按下去收不回来的组合键，确认卡片上带着警告'))));
 
 function renderComputer(status, force) {
   if (!status) return;

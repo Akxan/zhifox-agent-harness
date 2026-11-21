@@ -176,7 +176,7 @@ $('settings-open').addEventListener('click', openSettings);
 retitleSettingsButton();
 
 function retitleSettingsButton() {
-  $('settings-open').title = t('设置（{key}）', { key: ON_MAC ? '⌘,' : 'Ctrl+,' });
+  $('settings-open').title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
 }
 $('setup-open').addEventListener('click', openSettings);
 $('close-settings').addEventListener('click', () => settings.close());

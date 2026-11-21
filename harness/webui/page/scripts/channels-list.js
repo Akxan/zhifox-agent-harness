@@ -34,7 +34,7 @@ function drawChanList(focus) {
 function chanToolbar() {
   const bar = el('div', 'chan-bar');
   bar.appendChild(el('p', 'chan-lead', t('在手机上的聊天软件里和智狐说话，就像在这里一样。只有你配对过的账号能用；要执行命令、改文件时，照样先发到聊天里问你。')));
-  const reveal = bar.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示 channels.json') : k('在文件夹中显示 channels.json')));
+  const reveal = bar.appendChild(iconButton('folder', byServer(k('在访达中显示 channels.json'), k('在文件资源管理器中显示 channels.json'), k('在文件管理器中显示 channels.json'))));
   reveal.classList.remove('small');
   reveal.dataset.focus = 'reveal';
   reveal.addEventListener('click', revealChannels);
@@ -178,7 +178,7 @@ function chanRow(item) {
   const pair = button('link', k('重新配对'), k('重新配对：{platform}'));
   pair.dataset.focus = 'pair:' + item.id;
   pair.addEventListener('click', () => openChanWizard(item.id, 3, true));
-  const reveal = button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示 {platform} 的设置文件') : k('在文件夹中显示 {platform} 的设置文件'));
+  const reveal = button('folder', showLabel(), byServer(k('在访达中显示 {platform} 的设置文件'), k('在文件资源管理器中显示 {platform} 的设置文件'), k('在文件管理器中显示 {platform} 的设置文件')));
   reveal.dataset.focus = 'reveal:' + item.id;
   reveal.disabled = false;
   reveal.addEventListener('click', revealChannels);

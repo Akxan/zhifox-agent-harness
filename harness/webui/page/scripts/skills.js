@@ -31,7 +31,6 @@ let skillSeq = 0;           // 每发一次请求加一。回来得晚的旧结�
 
 // 服务器给的问题是 {key, values}：原文和填进去的值，换语言时照着它们重新翻译
 const problemText = (problem) => (problem && typeof problem === 'object' ? t(problem.key, problem.values) : String(problem || ''));
-const shortPath = (path) => { const parts = String(path || '').split('/'); return (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/'); };
 const skillNames = () => new Set((skills || []).map((skill) => skill.name));
 
 // 一个 Skill 是从哪儿来的。返回 [原文, 值]，没有的话返回 null

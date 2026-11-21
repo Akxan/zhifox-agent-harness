@@ -10,7 +10,8 @@
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
   - 页面每次刷新都重新从磁盘读、重新拼（harness/webui/page/ 里的各块和 markdown.js），改完刷新一下就能看到，不用重启。
-  - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
+  - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。加 --platform windows（或 linux、mac）
+    看助手程序在别的系统上时按钮怎么写（"在文件资源管理器中显示"……）；浏览器那边的快捷键（⌘ 还是 Ctrl）看的是你的浏览器。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
     "从 Claude Code 导入"看的是临时目录里一个假的 ~/.claude/skills（HOME 换成了临时目录），不是你电脑上真正的那个。
@@ -83,6 +84,7 @@ parser.add_argument("--phone-port", type=int, default=0, help="别的几家共�
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
 parser.add_argument("--service", choices=("terminal", "launchd", "systemd", "taskscheduler"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--platform", choices=("mac", "windows", "linux"), default="", help="当作助手程序在哪种电脑上运行（状态里的 platform）：按钮上写\"访达\"\"文件资源管理器\"还是\"文件管理器\"；windows 时\"操作整台电脑\"也显示成暂时不支持。默认是这台电脑真正的系统")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -108,6 +110,7 @@ from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
 
 import harness.webui.server as server_module
+from harness import machine
 from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.channels import platforms
@@ -693,6 +696,11 @@ def send_fresh_page(self) -> None:
 
 
 server_module.Handler._send_page = send_fresh_page
+# --platform：当作助手程序在另一种电脑上（只是演示和页面测试用，正式程序永远照 sys.platform 说）
+# 当作那是一台有桌面的电脑：显示了文件之后说"已在文件资源管理器中显示……"，不说"这台电脑上没有文件管理器"（没有图形界面的 CI 机器上也一样）
+if options.platform:
+    machine.system = lambda: options.platform
+    server_module.has_file_manager = lambda: True
 # 演示里不真的打开文件管理器
 server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里本来会在文件管理器里显示 {path}）", flush=True)
 
@@ -706,6 +714,8 @@ app = build_app(config, ui, client_factory=client_factory)
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
 # 操作整台电脑也打开，但背后一定是假的电脑：编造的截图，点击、打字只记下来，绝不碰这台电脑真的屏幕和键盘鼠标
 install(app.desktop, desktop)
+if options.platform == "windows":  # Windows 上还没有后端：设置和信息栏里照着真的样子说"暂时不支持"
+    app.desktop._backend, app.desktop._reason, app.desktop._detected = None, desktop_backend.WINDOWS, True
 app.settings.set_computer({"enabled": True})
 app.refresh_tools()
 if fresh:

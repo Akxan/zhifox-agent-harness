@@ -63,7 +63,8 @@ def pytest_runtest_makereport(item, call):
 class Demo:
     """作为子进程运行的演示服务器。"""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, extra: tuple[str, ...] = ()):
+        """extra 是另外给 demo_web.py 的参数，比如 ("--platform", "windows")（见 test_ui_platform.py）。"""
         self.root = root
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS and "proxy" not in key.lower()}
         env.update(NO_PROXY="*", no_proxy="*", PYTHONUNBUFFERED="1")
@@ -71,6 +72,7 @@ class Demo:
             sys.executable, str(DEMO), "--port", "0", "--data", str(root),
             "--delay", "0.004",  # 逐字输出还是一小段一小段的（测试要看到它），只是快一些
             "--think", "0.05",
+            *extra,
         ]
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -179,20 +181,30 @@ def page(request, demo, browser, artifacts) -> Page:
     opened = browser.new_page()
     opened.demo = demo  # 测试里要直接调接口时用：page.demo.api(...)
     try:
-        opened.goto(demo.url)
-        opened.wait("document.body.classList.contains('ready')", what="页面亮相")
+        show_demo(opened)
         yield opened
     finally:
-        report = getattr(request.node, "report_call", None)
-        failed = report is None or report.failed
-        errors = opened.unexpected_errors()
-        if failed or errors:
-            stem = artifacts / _safe(request.node.name)
-            with contextlib.suppress(Exception):  # 页面都坏了的时候，能存多少存多少
-                opened.screenshot(stem.with_suffix(".png"))
-                stem.with_suffix(".html").write_text(opened.html(), encoding="utf-8")
-            stem.with_suffix(".console.txt").write_text("\n".join(opened.console), encoding="utf-8")
-            print(f"\n页面测试的截图和日志：{stem}.*")
-        opened.close()
+        finish_page(request, opened, artifacts)
+
+
+def show_demo(opened: Page) -> None:
+    """在这个标签页里打开它的演示页面（opened.demo），等页面亮相。"""
+    opened.goto(opened.demo.url)
+    opened.wait("document.body.classList.contains('ready')", what="页面亮相")
+
+
+def finish_page(request, opened: Page, artifacts: Path) -> None:
+    """关掉标签页。测试失败了、或者页面里出了错，先存下截图、页面和控制台；页面里有错就让测试失败。"""
+    report = getattr(request.node, "report_call", None)
+    failed = report is None or report.failed
+    errors = opened.unexpected_errors()
+    if failed or errors:
+        stem = artifacts / _safe(request.node.name)
+        with contextlib.suppress(Exception):  # 页面都坏了的时候，能存多少存多少
+            opened.screenshot(stem.with_suffix(".png"))
+            stem.with_suffix(".html").write_text(opened.html(), encoding="utf-8")
+        stem.with_suffix(".console.txt").write_text("\n".join(opened.console), encoding="utf-8")
+        print(f"\n页面测试的截图和日志：{stem}.*")
+    opened.close()
     if errors:
         pytest.fail("页面里出了错（脚本异常、console.error 或者被安全策略拦下的东西）：\n" + "\n".join(errors))

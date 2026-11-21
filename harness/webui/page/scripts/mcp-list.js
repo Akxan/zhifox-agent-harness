@@ -43,7 +43,7 @@ function mcpToolbar() {
   const importer = tools.appendChild(panelButton('import', k('从 Claude 导入')));
   importer.dataset.focus = 'import';
   importer.addEventListener('click', openMcpImport);
-  const reveal = tools.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示配置文件') : k('在文件夹中显示配置文件')));
+  const reveal = tools.appendChild(iconButton('folder', byServer(k('在访达中显示配置文件'), k('在文件资源管理器中显示配置文件'), k('在文件管理器中显示配置文件'))));
   reveal.classList.remove('small');
   reveal.dataset.focus = 'reveal';
   reveal.addEventListener('click', revealMcpFile);
@@ -134,7 +134,7 @@ function mcpRow(server) {
   restart.dataset.focus = 'restart:' + server.name;
   restart.disabled = pending || !server.enabled;
   restart.addEventListener('click', () => restartMcp(server.name));
-  const reveal = button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示“{name}”的配置文件') : k('在文件夹中显示“{name}”的配置文件'));
+  const reveal = button('folder', showLabel(), byServer(k('在访达中显示“{name}”的配置文件'), k('在文件资源管理器中显示“{name}”的配置文件'), k('在文件管理器中显示“{name}”的配置文件')));
   reveal.dataset.focus = 'reveal:' + server.name;
   reveal.disabled = false;
   reveal.addEventListener('click', revealMcpFile);

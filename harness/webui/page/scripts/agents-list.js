@@ -74,7 +74,7 @@ function agentToolbar() {
   const n = agents.length;
   bar.appendChild(tel('p', 'skill-count', n === 1 ? k('1 个 Agent') : k('{n} 个 Agent'), { n: n.toLocaleString(LOCALES[language]) }));
   bar.append(...agentAdders(true));
-  const folder = iconButton('folder', ON_MAC ? k('在访达中打开 Agent 文件夹') : k('打开 Agent 文件夹'));
+  const folder = iconButton('folder', byServer(k('在访达中打开 Agent 文件夹'), k('在文件资源管理器中打开 Agent 文件夹'), k('在文件管理器中打开 Agent 文件夹')));
   folder.classList.remove('small');
   folder.dataset.key = 'bar:folder';
   folder.addEventListener('click', () => revealAgent(null));
@@ -218,7 +218,7 @@ function agentRow(agent, fresh) {
   const chat = action('chat', k('用它开始新对话'), k('用 {name} 开始新对话'), 'idle-only', 'chat');
   chat.disabled = bad;
   chat.addEventListener('click', () => startWithAgent(name));
-  action('folder', SHOW_FILE, ON_MAC ? k('在访达中显示：{name}') : k('在文件夹中显示：{name}'), '', 'folder').addEventListener('click', () => revealAgent(name));
+  action('folder', showLabel(), showNamedLabel(), '', 'folder').addEventListener('click', () => revealAgent(name));
   action('edit', k('编辑'), k('编辑 Agent：{name}'), '', 'edit').addEventListener('click', () => openAgent(name, true));
   action('trash', k('删除'), k('删除 Agent：{name}'), 'danger-hover', 'trash').addEventListener('click', () => {
     agentDeleting = name;
@@ -239,11 +239,7 @@ function startWithAgent(name) {
 // 在文件管理器里显示一个 Agent 的文件（name 为 null 时打开整个 Agent 文件夹）。页面只给名字，路径由助手程序算
 async function revealAgent(name, view) {
   const reply = await call('/api/agent/reveal', name ? { name } : {});
-  const shown = shortPath(reply.data.path);
-  const said = !reply.ok ? { text: reply.error, bad: true }
-    : state && state.file_manager === false ? { key: k('这台电脑上没有文件管理器。文件在：{path}'), values: { path: String(reply.data.path || '') }, good: true }
-    : name ? { key: ON_MAC ? k('已在访达中显示：{path}') : k('已在文件夹中显示：{path}'), values: { path: shown }, good: true }
-      : { key: ON_MAC ? k('已在访达中打开：{path}') : k('已打开文件夹：{path}'), values: { path: shown }, good: true };
+  const said = reply.ok ? { ...revealedSaid(reply.data.path, !name), good: true } : { text: reply.error, bad: true };
   if (view && agentView === view) { view.said = said; paintAgent(); }
   else extensionSay(said.key || null, said.values, said.bad ? 'bad' : 'good', said.text);
 }
@@ -273,7 +269,7 @@ agentPanel.addEventListener('keydown', (key) => {
     key.preventDefault();
     key.stopPropagation();
     leaveAgentView();
-  } else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && agentView.save) {
+  } else if (key.key === 'Enter' && commandHeld(key) && agentView.save) {
     key.preventDefault();
     agentView.save();
   }

@@ -7,7 +7,7 @@ document.addEventListener('keydown', (key) => {
     closeAppearance(true);
     return;
   }
-  const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
+  const command = commandHeld(key);  // Mac 上是 ⌘，别的电脑上是 Ctrl（见 platform.js）
   const letter = key.key.toLowerCase();
   if (command && !key.altKey && !key.shiftKey && key.key === ',') {
     // ⌘, / Ctrl+,：打开设置（Mac 上几乎所有程序都是这个键）。已经开着别的窗口时不抢
