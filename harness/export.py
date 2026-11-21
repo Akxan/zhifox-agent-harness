@@ -141,8 +141,8 @@ def _is_secret_file(name: str) -> bool:
 
 def _is_scratch(relative: str, name: str) -> bool:
     """程序运行时自己用的东西：锁、写到一半的临时文件、上一次导出时放进去的说明（解压回来以后就在数据文件夹里）。"""
-    # .web-address：harness serve --web 写的带口令的网页地址，只在这一次运行里有用
-    return relative in (".lock", NOTE, ".web-address") or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
+    # .web-address、.web-token：网页的口令（serve --web 写的地址，后台服务存着的口令，见 webui/token.py），不带出去
+    return relative in (".lock", NOTE, ".web-address", ".web-token") or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
 
 
 def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:

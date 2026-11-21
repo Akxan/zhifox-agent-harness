@@ -16,6 +16,9 @@ SLOTS 里列出的那几块，按列出的顺序一块接一块，中间空一�
     一个作用域：前面一块定义的 t()、el()、play()、calm()……后面每一块都能直接用。用 const、let 定义的名字
     要等定义它的那一行跑过以后才能用，所以定义它们的那一块要排在用它们的前面。
 新加一块：把文件放进 styles/ 或 scripts/，再把名字加进下面的列表。漏了、写了两次，tests/test_page.py 都会失败。
+一节太长（几百行以上）时，按它自己的小节拆成几个同一前缀的文件，在清单里挨着排：比如 skills.js 是 Skill 一页的
+总说明、共用的状态和小工具，后面接着 skills-list.js、skills-detail.js……，最后一个文件的末尾把这一页挂到扩展对话框上。
+用前缀而不用子文件夹，是为了和 styles/ 一样只有一层：文件夹里按名字一排，同一节的几个文件自然挨在一起。
 
 拼好的页面里还留着 __NONCE__、__I18N__、__MARKDOWN__ 三处，每次发页面时由 server.py 填上。
 所以每一块里都不能出现这样的占位符，也不能出现 </script、</style、<!--（浏览器会以为那一段提前结束了），
@@ -101,15 +104,34 @@ SCRIPTS = (
     "scripts/capabilities.js",  # 信息栏 · 智狐能做的事（清单由 harness/capabilities.py 算）
     "scripts/spending.js",  # 花费
     "scripts/memory.js",  # 记忆
-    "scripts/tasks.js",  # 定时任务
+    "scripts/tasks.js",  # 定时任务：共用的状态、时间的写法、左边栏的标签
+    "scripts/tasks-list.js",  # 定时任务 · 列表
+    "scripts/tasks-alerts.js",  # 定时任务 · 提醒、通知、顶上的提示
+    "scripts/tasks-detail.js",  # 定时任务 · 详情
+    "scripts/tasks-editor.js",  # 定时任务 · 新建和编辑
     "scripts/media.js",  # 多媒体
     "scripts/prompt.js",  # 提示词
     "scripts/extensions.js",  # 扩展对话框的壳
-    "scripts/skills.js",  # 扩展 · Skill
-    "scripts/mcp.js",  # 扩展 · MCP
-    "scripts/agents.js",  # 扩展 · Agent
+    "scripts/skills.js",  # 扩展 · Skill：共用的状态和小工具
+    "scripts/skills-list.js",  # 扩展 · Skill · 列表
+    "scripts/skills-detail.js",  # 扩展 · Skill · 打开一个、编辑 SKILL.md
+    "scripts/skills-add.js",  # 扩展 · Skill · 新建、从网址添加、上传
+    "scripts/skills-review.js",  # 扩展 · Skill · 从 Claude Code 导入、装之前的确认
+    "scripts/mcp.js",  # 扩展 · MCP：共用的状态和小工具
+    "scripts/mcp-list.js",  # 扩展 · MCP · 列表
+    "scripts/mcp-detail.js",  # 扩展 · MCP · 详情
+    "scripts/mcp-form.js",  # 扩展 · MCP · 添加和编辑
+    "scripts/mcp-import.js",  # 扩展 · MCP · 粘贴 JSON、从 Claude 导入
+    "scripts/agents.js",  # 扩展 · Agent：共用的状态和小工具
+    "scripts/agents-list.js",  # 扩展 · Agent · 列表
+    "scripts/agents-detail.js",  # 扩展 · Agent · 打开一个
+    "scripts/agents-editor.js",  # 扩展 · Agent · 编辑和新建
+    "scripts/agents-import.js",  # 扩展 · Agent · 从 Claude Code 导入
     "scripts/agent-picker.js",  # 新对话旁边的 Agent 选择
-    "scripts/channels.js",  # 扩展 · 通道
+    "scripts/channels.js",  # 扩展 · 通道：共用的状态和小工具
+    "scripts/channels-list.js",  # 扩展 · 通道 · 列表、顶上等你批准的提示
+    "scripts/channels-wizard.js",  # 扩展 · 通道 · 设置向导的框架
+    "scripts/channels-steps.js",  # 扩展 · 通道 · 设置向导的四步
     "scripts/language.js",  # 语言
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）

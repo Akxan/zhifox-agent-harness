@@ -35,6 +35,7 @@ from ..config import (
     Config,
 )
 from ..i18n import k, t
+from ..webui.token import forget_token
 from . import base
 from .base import State
 from .launchd import Launchd
@@ -360,6 +361,7 @@ def uninstall(config: Config, system: System) -> int:
     if plan is not None:
         if _wait_free(system, plan.data_dir):
             plan.web_address_file.unlink(missing_ok=True)  # 它要是没来得及删（被强行结束了），口令也不留着
+            forget_token(plan.data_dir)  # 存着的口令也删掉：下次再装上换一个新的（见 webui/token.py）
         else:
             system.warn(t("它还没完全退出；过一会儿就好。"))
     system.say(t("已经卸载了{name}的后台服务：它停下了，以后登录时也不会再自动启动。", name=APP_NAME))

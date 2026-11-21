@@ -40,6 +40,7 @@ from .providers import has_key
 from .safe import write_file
 from .webui import lifecycle
 from .webui.server import SHUTDOWN_WAIT_SECONDS, WebApp, claim_data_dir, create_server
+from .webui.token import stable_token
 from .webui.ui import WebUI
 
 logger = logging.getLogger("harness.serve")
@@ -91,7 +92,9 @@ def serve(
     server = None
     if web:
         try:
-            server, url = create_server(app, ui, port, service=service)  # 只监听 127.0.0.1（见 server.create_server）
+            # 只监听 127.0.0.1（见 server.create_server）。作为后台服务运行时，口令重启前后不变（见 webui/token.py）
+            token = stable_token(config.data_dir) if service else None
+            server, url = create_server(app, ui, port, token=token, service=service)
         except OSError as exc:
             logger.error("%s", t("无法在端口 {port} 上启动：{error}", port=port, error=exc))
             return EXIT_BUSY

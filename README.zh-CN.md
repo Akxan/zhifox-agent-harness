@@ -60,7 +60,7 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 收到 SIGTERM 时干净地退出，还附带一份 systemd 的配置；用 `harness channels setup` / `pair` 设置、配对好，
 之后在聊天软件里让它做服务器上的杂事。
 在自己的电脑上，`harness service install` 把它交给 launchd（macOS）或者 systemd（Linux）当后台服务：登录时自动启动、
-出错退出后自己重启，不用开着终端，网页和聊天机器人也一直在；`harness service open` 带着这一次的口令打开网页（见下面的"在后台一直运行"）。
+出错退出后自己重启，不用开着终端，网页和聊天机器人也一直在；`harness service open` 打开网页，口令重启前后不变，开着的标签页更新以后也能接着用（见下面的"在后台一直运行"）。
 还可以定制自己的 Agent：一个 Markdown 文件（和 Claude Code 的 subagent 是同一种格式）写着它擅长什么、能用哪些工具和模型、
 怎么做事。主助手可以把一项任务交给它（子 Agent：它在自己的一段新对话里做，只把结论交回来），你也可以直接用它开始一段对话
 （角色）。它能用的工具永远不会比叫它的那一方多，它要执行的命令照样先问你（见下面的"自定义 Agent：子 Agent 和角色"）。
@@ -824,7 +824,9 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 不加载任何外部的东西。但这不等于它得写成一个文件。页面的源码在 [harness/webui/page/](harness/webui/page/) 里，
 一个文件只讲一件事：`index.html` 是骨架（标记，外加几行占位符），`styles/` 里是按界面的部分分开的样式
 （`tokens.css`、`chat.css`、`memory.css`、`skills.css`……），`scripts/` 里是按小节分开的页面脚本
-（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
+（`i18n.js`、`motion.js`、`memory.js`、`tasks.js`、`browser.js`……）。一节长到几百行以上，就按它自己的小节拆成几个
+同一前缀的文件：`skills.js` 是 Skill 一页的总说明、共用的状态和小工具，后面接着 `skills-list.js`、`skills-detail.js`、
+`skills-add.js`、`skills-review.js`（`agents-*`、`mcp-*`、`channels-*`、`tasks-*` 也一样）。[page/\_\_init\_\_.py](harness/webui/page/__init__.py)
 里的清单按顺序列出这些块，服务器启动时把它们拼回同一个页面（演示每次刷新都重新拼）。顺序很要紧：样式里两条一样具体的规则，
 后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
 所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
@@ -1707,10 +1709,12 @@ WantedBy=default.target
 - **不继承你终端里的环境变量。** launchd 和 systemd 开智狐的时候，你的 `.zshrc`、`.bashrc` 都没有运行过。服务里只有数据目录、
   `.env` 的位置，以及装的时候的 `PATH` 和 `LANG`；别的（`HTTPS_PROXY`、`HARNESS_MODEL`、只 `export` 过的 API 密钥）都写进 `.env`。
   `install` 会列出只在终端里设置了、`.env` 里没有的那些，只说名字，从不打印值。
-- **网页和它的口令。** 网页照样只监听 127.0.0.1，口令也照样每次启动随机生成：一个永远不变的口令，就成了一直放在磁盘上的密码，
-  谁看到过一次，以后都能用。没有终端可以打印，地址就写在 `data/.web-address` 里（只有你的账号能读，退出时删掉），从不写进日志。
-  `uv run harness service open` 读它、打开浏览器，打印出来的地址不带口令；`open --print` 打印完整的地址，给另一台机器上的浏览器用
-  （走 SSH 隧道）。重启以后，开着的标签页里的旧口令就不能用了：再运行一次 `open`。
+- **网页和它的口令。** 网页照样只监听 127.0.0.1。后台服务的口令存在 `data/.web-token` 里（只有你的账号能读，导出时不带），
+  重启前后不变：更新代码、`harness service restart` 以后，开着的标签页刷新一下就能接着用。口令防的是这台电脑上的别的账号、
+  和你浏览器里别的网站；用你的账号运行的程序本来就读得到 `data/`，口令放在旁边并没有多给它什么。卸载服务时删掉口令，
+  下次装上换一个新的（也可以删掉这个文件再重启）。在终端里开的 `harness --web` 照旧每次启动换一个。
+  没有终端可以打印，地址就写在 `data/.web-address` 里（只有你的账号能读，退出时删掉），从不写进日志。
+  `uv run harness service open` 读它、打开浏览器，打印出来的地址不带口令；`open --print` 打印完整的地址，给另一台机器上的浏览器用（走 SSH 隧道）。
 - **日志。** macOS 上是 `data/logs/service.log`，每行带着日期。写到 1 MB 智狐就换一个新文件，旧的留三份（`service.log.1` 到 `.3`），
   所以日志不会超过 4 MB 左右；launchd 自己从来不管它多大。Linux 上在 journald 里：`journalctl --user -u zhifox -f`。
   两边都可以用 `status` 看最近几条警告和错误。API 密钥和机器人的 token 都换成 `<hidden>`，消息的内容从来不写进日志。
@@ -1827,7 +1831,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
 | `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
 | `data/logs/` | macOS 上后台服务的日志 `service.log`，以及最多三份旧的（见"在后台一直运行"） |
-| `data/.web-address` | 带着这一次口令的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
+| `data/.web-address`、`data/.web-token` | 后台服务的网页口令（重启前后不变，卸载服务时删掉），和带着它的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
 | `data/.lock` | 正在用这个数据目录的那个智狐占着它，里面记着是哪一种（网页界面、`serve`、后台服务）和进程编号，再开一个的时候好说清楚是谁挡着。导出时不带 |
 
 这些都是可以直接打开的普通文件。`data/` 和 `.env` 都写进了 `.gitignore`，不会被提交到 git。

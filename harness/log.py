@@ -121,6 +121,11 @@ def setup(stream: IO[str] | None = None, level: int = logging.INFO, file: Path |
     root.addHandler(handler)
     root.setLevel(level)
     root.propagate = False
+    if file is not None:
+        # 后台服务的日志里，每次开起来先写一行"从这里开始"：status 只列这一次运行的警告和错误（见 service/logs.since_start）
+        from .service.logs import START_MARK
+
+        root.info("%s%d ----", START_MARK, os.getpid())
     # 各家的 API key、聊天机器人的密钥可能在环境变量里，先登记上（名单和不让命令看到的是同一份）
     # 用到时才导入：这个文件很底层，别让它一导入就拉进工具
     from .tools.shell import SECRET_ENV_VARS

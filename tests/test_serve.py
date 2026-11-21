@@ -158,6 +158,29 @@ def test_serve_with_the_web_page_listens_only_on_this_machine(make_config, fake,
     assert not address.exists()  # 退出时删掉：口令只在这一次运行里有用
 
 
+def test_the_service_keeps_its_web_token_across_restarts(make_config, fake):
+    # 后台服务重启（出错了、更新代码以后 harness service restart）前后口令不变：浏览器里开着的页面刷新一下就能接着用
+    #（见 webui/token.py）。在终端里开的那一份（service 是 None）照旧每次换
+    config = make_config(telegram_api=fake.base_url)
+    address = config.data_dir / ".web-address"
+
+    def one_run(service: str | None) -> str:
+        stop = threading.Event()
+        thread = threading.Thread(target=lambda: serve(config, stop, web=True, port=0, service=service), daemon=True)
+        thread.start()
+        try:
+            url = until(lambda: address.is_file() and address.read_text(encoding="utf-8").strip(), what="网页的地址")
+        finally:
+            stop.set()
+            thread.join(15)
+        until(lambda: not address.exists(), what="退出时删掉地址")
+        return url.split("token=", 1)[1]
+
+    first = one_run("launchd")
+    assert one_run("launchd") == first
+    assert one_run(None) != first
+
+
 def test_serve_reports_a_busy_port(make_config, fake):
     config = make_config(telegram_api=fake.base_url)
     with socket.socket() as taken:

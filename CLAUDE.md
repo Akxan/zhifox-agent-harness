@@ -68,6 +68,10 @@
      `harness/webui/page/styles/` 里的新文件、脚本写成 `page/scripts/` 里的新文件，开头写清这一块管什么，再按顺序把文件名加进
      `page/__init__.py` 的清单（`STYLES` / `SCRIPTS`；漏了、写了两次 `tests/test_page.py` 会失败）。脚本各块共用一个作用域，
      用 const/let 定义的名字要排在用它的块前面；样式里后写的盖过先写的，`reduce-motion.css` 永远在最后。
+     一块长到几百行以上，就按它自己的小节拆成同一前缀的几个文件：`skills.js` 放这一页的总说明、共用的状态和小工具，
+     后面接着 `skills-list.js`、`skills-detail.js`……（`agents-*`、`mcp-*`、`channels-*`、`tasks-*` 也一样），在清单里挨着排、
+     保持原来的先后，挂到 `extensionTabs` 的那几行留在最后一个文件的末尾。用前缀、不用子文件夹。拆的时候先单独提交一次
+     只搬家，证明 `assemble()` 拼出来的页面一字不差，再另外提交改注释。
    - 同一条规则只写在一处：价格、时间、格式检查这类由助手程序算，页面不再复制一份（页面要用就请程序算好发过来）。
    - 每个功能都有测试；修 bug 先写一个能复现它的测试。
    - 有意破例的地方（比如压缩会改动前面的历史）在代码注释和本文件里都写明为什么、边界在哪。
@@ -263,7 +267,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
 - **后台服务（`harness service`）**：plist / unit 只照着 `service/plan.py` 的 Plan 写，只放路径和开关，不放密钥和口令
-  （口令每次启动随机，写在 `data/.web-address`，权限 600）。命令一律用参数列表、不经过 shell，launchctl 写完整路径 `/bin/launchctl`。
+  （口令存在 `data/.web-token`，权限 600，重启前后不变，浏览器里开着的页面刷新一下就能接着用；卸载服务时删掉，见 `webui/token.py`；
+  带口令的地址写在 `data/.web-address`；两个都不导出）。在终端里开的 `harness --web` 照旧每次换口令。命令一律用参数列表、不经过 shell，launchctl 写完整路径 `/bin/launchctl`。
   运行的是 `.venv/bin/python -P -m harness … serve --service launchd|systemd`。**开发和测试永远不运行真的 launchctl / systemctl / journalctl，
   也不打开浏览器**：conftest 把 `service.base.run_command`、`run_attached` 和 `service.cli._open_browser` 换成一调用就失败的函数，
   测试用 `tests/test_service.py` 里的假系统。数据目录的锁在 `instance.py`：`claim(data_dir, kind)` 写下进程编号和 kind，`in_use` 只看不改；
@@ -342,3 +347,6 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
   另外用户自己在 Telegram 里用过：截屏、文件工具看图片。
+  2026-11-21 用户装上后台服务（macOS launchd，给智狐用的 Python 授了"完整磁盘访问权限"和"屏幕与系统录音"）以后，
+  在 Telegram 里让它截屏并用 send_file 发回聊天，收到了：后台服务读"文稿"、截屏，和 Telegram 的 sendPhoto 都实际走通了。
+  没授权之前后台服务连 `.venv/pyvenv.cfg` 都读不了（Operation not permitted），所以项目在"文稿"里时必须授权。
