@@ -289,7 +289,7 @@ def test_reading_a_shot_only_accepts_64_hex_characters(tmp_path, shot_id):
     assert store.read(shot_id) is None
 
 
-def test_a_missing_shot_or_a_symlink_or_a_folder_reads_as_none(tmp_path):
+def test_a_missing_shot_or_a_symlink_or_a_folder_reads_as_none(symlinks, tmp_path):
     store = ShotStore(tmp_path / "shots")
     store.save(b"real")
     assert store.read("0" * 64) is None
@@ -595,7 +595,7 @@ def test_clear_profile_waits_until_the_browser_is_not_busy(browser):
     rig.manager.clear_profile()  # 没有可删的也没关系
 
 
-def test_clear_profile_removes_a_symlink_but_not_what_it_points_to(browser, tmp_path):
+def test_clear_profile_removes_a_symlink_but_not_what_it_points_to(symlinks, browser, tmp_path):
     rig = browser()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()

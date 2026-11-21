@@ -21,6 +21,7 @@ import unicodedata
 from pathlib import Path
 
 import pytest
+from conftest import NO_SYMLINKS, symlinks_work
 
 from harness.commands import Places, Unclear, classify
 from harness.commands import paths as paths_module
@@ -29,6 +30,10 @@ from harness.commands.words import stages
 from harness.config import READONLY_MAX_CHARS
 
 # ---- 工作目录 -----------------------------------------------------------------
+
+# _build 里符号链接的名字（mixed 是里面藏着一个链接的文件夹）。建不了链接的电脑上（见 conftest 的 symlinks_work），
+# 表里提到它们的行跳过：没有链接，这些行要测的东西就不存在了
+LINKS = ("envlink", "datalink", "innocent.txt", "mixed", "sshlink")
 
 
 def _build(root: Path) -> Places:
@@ -49,12 +54,13 @@ def _build(root: Path) -> Places:
     (ws / ".git" / "config").write_text('[remote "origin"]\n\turl = https://user:token@example.invalid/x.git\n')
     (ws / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
     (ws / "mixed" / "ok.txt").write_text("ok\n")
-    # 符号链接：名字看起来无害，指向的地方不能不问就读
-    (ws / "envlink").symlink_to(ws / ".env")
-    (ws / "datalink").symlink_to(ws / "data")
-    (ws / "innocent.txt").symlink_to(ws / "data" / "notes.md")
-    (ws / "mixed" / "inner").symlink_to(Path("..") / "data")  # 文件夹里藏着一个指向 data/ 的链接
-    # 硬链接：另一个名字，同一个文件
+    # 符号链接：名字看起来无害，指向的地方不能不问就读。建不了链接的电脑上不建，用到它们的行跳过（见 LINKS）
+    if symlinks_work():
+        (ws / "envlink").symlink_to(ws / ".env")
+        (ws / "datalink").symlink_to(ws / "data")
+        (ws / "innocent.txt").symlink_to(ws / "data" / "notes.md")
+        (ws / "mixed" / "inner").symlink_to(Path("..") / "data")  # 文件夹里藏着一个指向 data/ 的链接
+    # 硬链接：另一个名字，同一个文件（Windows 上也建得了）
     os.link(ws / ".env", ws / "linked" / "notes.txt")
     (home / ".ssh").mkdir(parents=True)
     (home / ".ssh" / "id_rsa").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")
@@ -62,7 +68,8 @@ def _build(root: Path) -> Places:
     (home / ".aws" / "credentials").write_text("[default]\n")
     (home / ".bashrc").write_text("alias ll='ls -l'\n")
     (home / "notes.txt").write_text("主目录里的普通文件\n")
-    (ws / "sshlink").symlink_to(home / ".ssh")
+    if symlinks_work():
+        (ws / "sshlink").symlink_to(home / ".ssh")
     # 工作目录旁边：同一个项目的另一份副本（也有 .env），以及一份只有 data/ 的"双胞胎"（没有像密钥的名字）
     (root / "copy").mkdir()
     (root / "copy" / ".env").write_text("ANTHROPIC_API_KEY=sk-old\n")
@@ -1040,6 +1047,8 @@ TABLE = [*QUOTING, *OPERATORS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILE
 
 @pytest.mark.parametrize("command, readonly", TABLE)
 def test_classify(spot, command, readonly):
+    if not symlinks_work() and any(name in command for name in LINKS):
+        pytest.skip(NO_SYMLINKS)
     places, fill = spot
     verdict = classify(fill(command), places)
     assert verdict.readonly is readonly, verdict.reason or "被当成了只读"
@@ -1142,7 +1151,7 @@ def test_missing_protected_files_are_fine(tmp_path):
     assert not classify("cat data/channels.json", places).readonly
 
 
-def test_symlink_loops_do_not_crash(tmp_path):
+def test_symlink_loops_do_not_crash(symlinks, tmp_path):
     workspace = tmp_path / "ws"
     workspace.mkdir()
     (workspace / "loop").symlink_to(workspace / "loop")

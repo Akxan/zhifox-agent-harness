@@ -387,7 +387,7 @@ def test_listing_getting_and_the_catalog(agents):
             agents.get(bad)
 
 
-def test_links_are_refused(agents, tmp_path):
+def test_links_are_refused(symlinks, agents, tmp_path):
     agents.create(agent_file("real"))
     outside = tmp_path / "outside.md"
     outside.write_text(agent_file("linked"), encoding="utf-8")
