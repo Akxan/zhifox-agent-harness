@@ -12,7 +12,6 @@ import re
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -73,12 +72,17 @@ def site(tmp_path_factory):
     server.server_close()
 
 
+# 导入这个文件的时候，conftest 还没有把 USERPROFILE 换掉：这是这台电脑真正的那个
+REAL_USERPROFILE = os.environ.get("USERPROFILE", "")
+
+
 @pytest.fixture(autouse=True)
-def windows_home_exists():
-    """Windows 上 conftest 把 USERPROFILE 换成了临时目录里一个还没建的文件夹（不读真正的家目录）。真的 Windows 上它总是在的；
-    指着不存在的地方时，真的 Chrome 启动以后一直不回答（CI 上 Browser.getVersion 等满了 45 秒）。所以这里先把它建好"""
-    if os.name == "nt":
-        Path(os.environ["USERPROFILE"]).mkdir(parents=True, exist_ok=True)
+def real_windows_profile(monkeypatch):
+    """Windows 上 conftest 把 USERPROFILE 换成了临时目录（免得读到真正的家目录）。可 Windows 上的 Chrome 只要 USERPROFILE
+    不是这个账号真正的那个文件夹（换成别的，哪怕那个文件夹在），启动以后就一直不回答（CI 上试过：Browser.getVersion 等满了 40 秒）。
+    这里测的是真的 Chrome，所以把它换回来。正式运行时智狐从不改 USERPROFILE"""
+    if os.name == "nt" and REAL_USERPROFILE:
+        monkeypatch.setenv("USERPROFILE", REAL_USERPROFILE)
 
 
 @pytest.fixture(scope="module")

@@ -1259,7 +1259,7 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
         process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **own_group())
     address = data / ".web-address"
     try:
-        url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=30, what="网页的地址")
+        url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=60, what="网页的地址")  # CI 上几个测试进程一起跑，一个新的 Python 进程开起来可能要很久
         assert re.fullmatch(r"http://127\.0\.0\.1:\d+/\?token=[\w-]+", url)
         assert has_mode(address, 0o600)
         # 数据目录的锁上记着：它是后台服务。Windows 上 .venv\Scripts\python.exe 只是一个启动器，它再开真正的 Python，

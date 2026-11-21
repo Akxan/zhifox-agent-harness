@@ -158,11 +158,12 @@ def test_the_terminal_says_why_a_step_was_not_asked(start, capsys):
 def test_the_web_page_marks_read_only_steps(serve):  # noqa: F811
     s = serve(
         reply(tool_use("toolu_1", SHELL, {"command": "ls"}), stop_reason="tool_use"),
-        reply(tool_use("toolu_2", SHELL, {"command": "npm test"}), stop_reason="tool_use"),
+        # 你加的命令用一个哪台电脑上都没有的名字：它真的会被执行，用 npm test 的话，装着 npm 的机器（CI 的 Windows）上要跑好几秒
+        reply(tool_use("toolu_2", SHELL, {"command": "zhifox-no-such-tool test"}), stop_reason="tool_use"),
         reply(text("都看过了。")),
     )
     assert set_approval(s, "readonly")["approval"] == "readonly"
-    assert s.browser.post("/api/commands/add", {"command": "npm test"})[0] == 200
+    assert s.browser.post("/api/commands/add", {"command": "zhifox-no-such-tool test"})[0] == 200
     say(s, "看一眼，再跑测试")
     assert [event["why"] for event in s.browser.of_type("auto_allowed")] == [WHY_READONLY, WHY_LISTED]
     assert s.browser.of_type("confirm") == []

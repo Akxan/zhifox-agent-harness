@@ -471,7 +471,10 @@ root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 # 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
 fake_home = root / "home"
 os.environ["HOME"] = str(fake_home)
-os.environ["USERPROFILE"] = str(fake_home)  # Windows 上 Python 找家目录看的是它，不是 HOME
+if os.name == "nt":
+    # Windows 上 Python 找家目录看的是 USERPROFILE，不是 HOME。但不能改 USERPROFILE：Windows 上的 Chrome 只要它不是这个账号
+    # 真正的那个文件夹，启动以后就一直不回答（演示里的浏览器就用不了了）。所以只换掉 Path.home（"从其他工具导入"看的就是它）
+    Path.home = lambda: fake_home  # type: ignore[method-assign]
 for name in import_places.VARIABLES:
     os.environ.pop(name, None)
 # 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
