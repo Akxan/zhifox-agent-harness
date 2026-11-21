@@ -40,7 +40,17 @@ from harness.tools.files import FileEditor
 
 @pytest.fixture(autouse=True)
 def zone():
-    """把这个进程的本地时区换成指定的那个，测试结束时换回来。默认用一个没有夏令时的时区，结果不随这台电脑变。"""
+    """把这个进程的本地时区换成指定的那个，测试结束时换回来。默认用一个没有夏令时的时区，结果不随这台电脑变。
+
+    Windows 上没有 time.tzset，程序里换不了时区：默认的那一个就用这台电脑自己的（CI 的 Windows 是 UTC，也没有夏令时），
+    要换成别的时区（测夏令时）的测试跳过。"""
+    if not hasattr(time, "tzset"):
+        def keep(name: str) -> None:
+            if name != "Asia/Shanghai":
+                pytest.skip(f"Windows 上不能在程序里换时区（没有 time.tzset），测不了 {name}")
+
+        yield keep
+        return
     old = os.environ.get("TZ")
 
     def use(name: str) -> None:

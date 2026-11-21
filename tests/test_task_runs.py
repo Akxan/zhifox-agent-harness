@@ -39,7 +39,10 @@ RUNNING_FIELDS = {"run_id", "started_at", "step", "max_steps", "cost", "activity
 
 @pytest.fixture(autouse=True)
 def zone():
-    """固定用一个没有夏令时的时区，结果不随这台电脑变。"""
+    """固定用一个没有夏令时的时区，结果不随这台电脑变。Windows 上换不了（没有 time.tzset），用这台电脑自己的。"""
+    if not hasattr(time, "tzset"):
+        yield
+        return
     old = os.environ.get("TZ")
     os.environ["TZ"] = "Asia/Shanghai"
     time.tzset()

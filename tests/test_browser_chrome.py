@@ -241,6 +241,9 @@ def test_a_crashing_chrome_closes_the_connection_and_calls_on_close_once(launch)
 
 
 def runnable(path: Path) -> Path:
+    """一个"能运行"的文件：macOS、Linux 上是带可执行权限的，Windows 上是 .exe（Windows 看扩展名，见 chrome.can_run）。"""
+    if WINDOWS:
+        path = path.with_name(path.name + ".exe")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("#!/bin/sh\n", encoding="utf-8")
     path.chmod(0o755)
@@ -275,14 +278,38 @@ def test_a_file_that_cannot_run_or_a_folder_is_not_chrome(tmp_path):
 def test_on_linux_commands_on_the_path_come_before_fixed_locations(tmp_path, monkeypatch):
     found = runnable(tmp_path / "bin" / "chromium")
     monkeypatch.delenv(chrome.PATH_ENV, raising=False)
+    monkeypatch.setattr(chrome, "WINDOWS", False)
     monkeypatch.setattr(chrome.platform, "system", lambda: "Linux")
     monkeypatch.setattr(chrome.shutil, "which", lambda name: str(found) if name == "chromium" else None)
-    assert chrome.find_chrome() == found
+    if not WINDOWS:
+        assert chrome.find_chrome() == found
+
+
+def test_on_windows_chrome_comes_first_and_edge_is_the_fallback(tmp_path, monkeypatch):
+    """Windows：先找装给所有人的 Chrome，再找只装给自己的；都没有时用每台 Windows 都有的 Edge。看的是扩展名，不是权限位。"""
+    monkeypatch.delenv(chrome.PATH_ENV, raising=False)
+    monkeypatch.setattr(chrome, "WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    for name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        monkeypatch.setenv(name, str(tmp_path / name))
+    edge = tmp_path / "ProgramFiles(x86)" / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+    edge.parent.mkdir(parents=True)
+    edge.write_bytes(b"MZ")
+    assert chrome.find_chrome() == edge
+    mine = tmp_path / "LOCALAPPDATA" / "Google" / "Chrome" / "Application" / "chrome.exe"
+    mine.parent.mkdir(parents=True)
+    mine.write_bytes(b"MZ")
+    assert chrome.find_chrome() == mine
+    notes = tmp_path / "notes.txt"
+    notes.write_text("x", encoding="utf-8")
+    assert chrome.find_chrome(str(notes)) is None  # 不是程序（扩展名不对）
+    assert chrome.needs_headless() is False  # Windows 总有桌面
 
 
 def test_needs_headless_only_on_linux_without_a_display(monkeypatch):
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(chrome, "WINDOWS", False)
     monkeypatch.setattr(chrome.platform, "system", lambda: "Darwin")
     assert chrome.needs_headless() is False
     monkeypatch.setattr(chrome.platform, "system", lambda: "Linux")

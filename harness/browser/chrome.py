@@ -67,20 +67,20 @@ LINUX_COMMANDS = [
     "brave-browser",
 ]
 LINUX_PATHS = ["/snap/bin/chromium", "/usr/bin/chromium", "/opt/google/chrome/chrome"]
-# Windows 上常见的几个位置：{文件夹的环境变量}\后面这一段。Chrome（装给所有人的、只装给自己的）排前面；
+# Windows 上常见的几个位置：哪个文件夹（环境变量的名字）下面的哪几层。Chrome（装给所有人的、只装给自己的）排前面；
 # Edge 是每台 Windows 10、11 都有的，同一个内核，所以没装 Chrome 也能用
 WINDOWS_APPS = [
-    ("ProgramFiles", r"Google\Chrome\Application\chrome.exe"),
-    ("ProgramFiles(x86)", r"Google\Chrome\Application\chrome.exe"),
-    ("LOCALAPPDATA", r"Google\Chrome\Application\chrome.exe"),
-    ("LOCALAPPDATA", r"Chromium\Application\chrome.exe"),
-    ("ProgramFiles", r"Google\Chrome Beta\Application\chrome.exe"),
-    ("ProgramFiles", r"Google\Chrome Dev\Application\chrome.exe"),
-    ("LOCALAPPDATA", r"Google\Chrome SxS\Application\chrome.exe"),
-    ("ProgramFiles(x86)", r"Microsoft\Edge\Application\msedge.exe"),
-    ("ProgramFiles", r"Microsoft\Edge\Application\msedge.exe"),
-    ("ProgramFiles", r"BraveSoftware\Brave-Browser\Application\brave.exe"),
-    ("LOCALAPPDATA", r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+    ("ProgramFiles", ("Google", "Chrome", "Application", "chrome.exe")),
+    ("ProgramFiles(x86)", ("Google", "Chrome", "Application", "chrome.exe")),
+    ("LOCALAPPDATA", ("Google", "Chrome", "Application", "chrome.exe")),
+    ("LOCALAPPDATA", ("Chromium", "Application", "chrome.exe")),
+    ("ProgramFiles", ("Google", "Chrome Beta", "Application", "chrome.exe")),
+    ("ProgramFiles", ("Google", "Chrome Dev", "Application", "chrome.exe")),
+    ("LOCALAPPDATA", ("Google", "Chrome SxS", "Application", "chrome.exe")),
+    ("ProgramFiles(x86)", ("Microsoft", "Edge", "Application", "msedge.exe")),
+    ("ProgramFiles", ("Microsoft", "Edge", "Application", "msedge.exe")),
+    ("ProgramFiles", ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")),
+    ("LOCALAPPDATA", ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")),
 ]
 WINDOWS = os.name == "nt"
 
@@ -96,17 +96,28 @@ def find_chrome(override: str = "") -> Path | None:
     chosen = override.strip() or os.environ.get(PATH_ENV, "").strip()
     if chosen:
         path = Path(chosen).expanduser()
-        return path if path.is_file() and os.access(path, os.X_OK) else None
+        return path if can_run(path) else None
     candidates: list[Path] = []
     if WINDOWS:
-        candidates += [Path(os.environ[folder]) / rest for folder, rest in WINDOWS_APPS if os.environ.get(folder)]
+        candidates += [Path(os.environ[folder]).joinpath(*rest) for folder, rest in WINDOWS_APPS if os.environ.get(folder)]
     elif platform.system() == "Darwin":
         for base in (Path("/Applications"), Path.home() / "Applications"):
             candidates += [base / app for app in MAC_APPS]
     else:
         candidates += [Path(found) for name in LINUX_COMMANDS if (found := shutil.which(name))]
         candidates += [Path(path) for path in LINUX_PATHS]
-    return next((path for path in candidates if path.is_file() and os.access(path, os.X_OK)), None)
+    return next((path for path in candidates if can_run(path)), None)
+
+
+def can_run(path: Path) -> bool:
+    """这个文件能不能当成程序运行。macOS、Linux 上看"可执行"的权限位；Windows 上没有这一位
+    （os.access 对任何文件都说能），看的是扩展名在不在 PATHEXT 里（.exe、.cmd……）。"""
+    if not path.is_file():
+        return False
+    if WINDOWS:
+        known = os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD"
+        return path.suffix.lower() in {suffix.strip().lower() for suffix in known.split(";") if suffix.strip()}
+    return os.access(path, os.X_OK)
 
 
 def needs_headless() -> bool:
@@ -172,35 +183,37 @@ class Chrome:
             if not self.connection.closed:
                 self.connection.call("Browser.close", timeout=1.5)
         if not self._wait(wait / 2):
-            self._signal(signal.SIGTERM)
+            self._signal(force=False)
             self._wait(wait / 2)
         self.discard()
 
     def discard(self) -> None:
         """结束整个进程组、收掉主进程（不留僵尸进程），关掉我们这一头的管道。已经退出了也可以调用。"""
-        self._signal(signal.SIGKILL)
+        self._signal(force=True)
         self._wait(1.0)
         self.connection.close()
 
     def kill(self) -> None:
         """立刻结束整个进程组，不等（程序退出时的最后一道保险：atexit 里不能慢）。"""
-        self._signal(signal.SIGKILL)
+        self._signal(force=True)
         if self._process is not None:
             self._process.poll()
             return
         with contextlib.suppress(ChildProcessError, OSError):
             os.waitpid(self.pid, os.WNOHANG)
 
-    def _signal(self, which: int) -> None:
+    def _signal(self, force: bool) -> None:
+        """请整个进程组退出（SIGTERM），或者立刻结束它（force：SIGKILL）。"""
         if self._process is not None:
             # Windows：没有信号。"请退出"是不带 /F 的 taskkill（给它的窗口发"关闭"），"立刻结束"是带 /F 的；/T 连同子进程。
             # 已经退出了的不再去结束：Popen 一直拿着它的句柄，进程号不会被别的程序用上，但也没有必要再打扰谁。
             # 它的子进程（渲染进程这些）在主进程没了以后会自己退出
             if self.alive():
-                _taskkill(self.pid, force=which != signal.SIGTERM)
+                _taskkill(self.pid, force=force)
             return
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(self.pid, which)  # 进程组的编号就是主进程的编号（启动时 setpgroup=0）
+            # 进程组的编号就是主进程的编号（启动时 setpgroup=0）。SIGKILL 只有 macOS、Linux 有，所以在这里才取
+            os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
 
     def _wait(self, seconds: float) -> bool:
         deadline = time.monotonic() + seconds

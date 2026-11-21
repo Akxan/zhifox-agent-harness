@@ -13,6 +13,9 @@ let commandsDeleting = null;   // 正在原地确认删除的那一条
 let commandsArmed = false;     // 提醒过"还有没保存的修改"
 let commandsBusy = false;      // 正在等助手程序回答：这期间按钮不能再点
 
+// Windows 上这一页暂时不起作用（命令是 PowerShell，助手程序一条都不算只读，见 harness/commands/__init__.py）：窗口最上面说清楚
+whenServerKnown(() => { $('commands-windows').hidden = serverSystem !== 'windows'; });
+
 function commandsSay(text, tone) {
   const box = $('commands-message');
   box.textContent = text || '';
