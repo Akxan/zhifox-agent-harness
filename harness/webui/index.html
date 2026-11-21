@@ -676,7 +676,10 @@ a.md-image:hover { color: var(--ink); border-color: var(--line-3); }
 .todo .due { flex: none; line-height: 1.5; }
 /* 待办的文字可能有好几行。按钮不给文字让位（让位会让整行重新排版、跳一下），而是浮在右上角，左边一段渐隐的底色盖住文字的末尾 */
 .todo-actions { position: absolute; right: 4px; top: 3px; display: flex; gap: 2px; padding-left: 20px; background: linear-gradient(90deg, transparent, var(--surface) 20px); border-radius: 0 10px 10px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.todo:hover .todo-actions, .todo:focus-within .todo-actions { opacity: 1; pointer-events: auto; }
+/* 只有按钮接点击，左边那段渐变不接：它盖在文字上，接住点击的话那一截就成了点了没反应的地方（任务、Skill、Agent、
+   浏览器的配置文件夹、多媒体那几行同样这么做） */
+.todo:hover .todo-actions, .todo:focus-within .todo-actions { opacity: 1; }
+.todo:hover .todo-actions > *, .todo:focus-within .todo-actions > * { pointer-events: auto; }
 .todo:hover .due, .todo:focus-within .due { visibility: hidden; }  /* 截止日期让位给按钮；文字照常显示 */
 @media (hover: none) { .todo-actions { position: static; transform: none; opacity: 1; pointer-events: auto; } .todo .due { display: none; } }
 .todo-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
@@ -874,8 +877,9 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
 .chip.running { color: var(--accent); background: var(--accent-soft); }
 /* 悬停时出现的按钮浮在文字上面（左边一段渐隐的底色），不去改文字的内边距：那样整行会重新排版、跳一下 */
 .task-actions { position: absolute; right: 6px; top: 7px; display: flex; gap: 2px; padding-left: 22px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 10px 10px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; pointer-events: auto; }
-@media (hover: none) { .task-actions { opacity: 1; pointer-events: auto; } .task-words > * { padding-right: 112px; } .task.running .task-words > * { padding-right: 0; } }  /* 触屏上一直显示，位置一直留着 */
+.task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; }
+.task:hover .task-actions > *, .task:focus-within .task-actions > * { pointer-events: auto; }  /* 渐变那一截不接点击，点在上面还是打开任务（见待办那里） */
+@media (hover: none) { .task-actions { opacity: 1; } .task-actions > * { pointer-events: auto; } .task-words > * { padding-right: 112px; } .task.running .task-words > * { padding-right: 0; } }  /* 触屏上一直显示，位置一直留着 */
 /* 标题那一行：名字（太长就省略）+ 放宽了确认方式的小标签 */
 .task-title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .task-title-line .task-title { flex: 0 1 auto; min-width: 0; }
@@ -1054,14 +1058,16 @@ body.tasks-tab .nav > .search, body.tasks-tab .conversations, body.media-tab .na
    它们浮在文字上面，左边一段渐隐的底色把底下的字盖住，所以出现的时候文字不用让位、整行不会重新排版。
    启用开关一直看得见：平时贴着右边（文字一直给它留着位置），按钮出现时它往左平移到三个按钮前面 */
 .skill-actions { position: absolute; z-index: 1; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 70px; background: linear-gradient(90deg, transparent, var(--surface) 24px); border-radius: 0 14px 14px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.skill-row:hover .skill-actions, .skill-row:focus-within .skill-actions { opacity: 1; pointer-events: auto; }
+.skill-row:hover .skill-actions, .skill-row:focus-within .skill-actions { opacity: 1; }
+.skill-row:hover .skill-actions > *, .skill-row:focus-within .skill-actions > * { pointer-events: auto; }  /* 左边 70 像素的渐变不接点击，点在说明上还是打开它（见待办那里） */
 .skill-row > .skill-switch { position: absolute; z-index: 2; right: 14px; top: 50%; margin-top: -11px; transition: transform .25s var(--ease); }
 .skill-row:hover > .skill-switch, .skill-row:focus-within > .skill-switch { transform: translateX(-82px); }
 /* 助手工作时编辑和删除藏起来（服务器这时也不让改），只剩"在访达中显示"，开关少挪一点 */
 .busy .skill-row:hover > .skill-switch, .busy .skill-row:focus-within > .skill-switch { transform: translateX(-26px); }
 @media (hover: none) {  /* 触屏上没有"悬停"：按钮一直显示，文字一直给按钮和开关留着位置 */
   .skill-open { padding-right: 160px; }
-  .skill-actions { opacity: 1; pointer-events: auto; background: none; }
+  .skill-actions { opacity: 1; background: none; }
+  .skill-actions > * { pointer-events: auto; }
   .skill-row > .skill-switch { transform: translateX(-82px); }
   .busy .skill-row > .skill-switch { transform: translateX(-26px); }
 }
@@ -2041,9 +2047,10 @@ a.chan-button.primary { color: var(--on-ink); }
 .browser-profile-name { font-size: 13px; font-weight: 600; }
 .browser-profile-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11.5px/1.5 var(--mono); color: var(--ink-3); }
 .browser-profile-actions { position: absolute; z-index: 1; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 60px; background: linear-gradient(90deg, transparent, var(--surface) 24px); border-radius: 0 14px 14px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.browser-profile:hover .browser-profile-actions, .browser-profile:focus-within .browser-profile-actions { opacity: 1; pointer-events: auto; }
+.browser-profile:hover .browser-profile-actions, .browser-profile:focus-within .browser-profile-actions { opacity: 1; }
+.browser-profile:hover .browser-profile-actions > *, .browser-profile:focus-within .browser-profile-actions > * { pointer-events: auto; }  /* 渐变那一截不接点击（见待办那里） */
 .browser-profile-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
-@media (hover: none) { .browser-profile-main { padding-right: 76px; } .browser-profile-actions { opacity: 1; pointer-events: auto; background: none; } }
+@media (hover: none) { .browser-profile-main { padding-right: 76px; } .browser-profile-actions { opacity: 1; background: none; } .browser-profile-actions > * { pointer-events: auto; } }
 .browser-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 10px 12px; font-size: 13px; }
 .browser-confirm span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
 
