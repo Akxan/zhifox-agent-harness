@@ -174,6 +174,15 @@ def close_extensions(page: Page) -> None:
     idle(page)
 
 
+def open_trace(page: Page, index: int = -1) -> None:
+    """点一轮上的"运行记录"（默认最后一轮），等它的窗口滑出来、横条长完（见 page/scripts/trace.js）。"""
+    count = page.js("document.querySelectorAll('#log .trace-open').length")
+    assert count, "对话里还没有运行记录的入口"
+    page.click("#log .trace-open", index % count)
+    page.wait(f"{is_open('trace-dialog')} && document.querySelector('#trace-body .trace-lane')", what="运行记录的窗口打开")
+    idle(page)
+
+
 def expand_capabilities(page: Page) -> None:
     """信息栏"智狐能做的事"：每一行都点开、每个"技术细节"都展开、"这段对话用不了的"也展开（查翻译、查文字有没有冲出去时用）。"""
     open_side(page)

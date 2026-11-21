@@ -153,16 +153,18 @@ class Ledger:
 
     # ---- 记一笔 ------------------------------------------------------------
 
-    def recorder(self, prices: Callable[[], dict[str, dict]], source: str = "chat") -> Callable[[str, str, Usage, datetime], None]:
+    def recorder(self, prices: Callable[[], dict[str, dict]], source: str = "chat") -> Callable[[str, str, Usage, datetime], float | None]:
         """给 Agent.on_call 用的回调：agent 每调用完一次模型，就按当时的价格记一笔。
 
         prices 是"用户自己填的价格"（每次记账时现取，你在设置里改了价格，下一笔就按新的算）。
         source 是这些调用算谁的：对话是 chat；定时任务给它自己的那个 agent 接上 recorder(..., source="task")。
+        回调交回这一笔的金额（见 record），运行记录（trace/）照着写，钱只在这里算一次。
         """
         return lambda provider, model, usage, moment: self.record(provider, model, usage, moment, prices(), source)
 
-    def record(self, provider: str, model: str, usage: Usage, moment: datetime, prices: dict[str, dict], source: str = "chat") -> None:
-        """记下一次模型调用。价格按 moment 这一刻算（见 pricing.usage_key）。
+    def record(self, provider: str, model: str, usage: Usage, moment: datetime, prices: dict[str, dict], source: str = "chat") -> float | None:
+        """记下一次模型调用。价格按 moment 这一刻算（见 pricing.usage_key）。返回这一笔的金额（美元，和写进账本的一样），
+        没有价格的模型返回 None。
 
         写不进文件也不抛异常：对话不能因为记账失败而中断。这一笔照样算进内存里的汇总（这次运行里看得到），
         失败的原因放在 self.error 里，页面上会显示出来。
@@ -192,6 +194,7 @@ class Ledger:
             except OSError as exc:
                 self.error = str(exc) or type(exc).__name__
             self._maybe_compact(day)
+        return row["cost"]
 
     def _append(self, line: str) -> None:
         """往文件末尾写一行。新文件只有自己的账号能读。"""

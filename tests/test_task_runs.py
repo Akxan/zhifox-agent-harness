@@ -287,8 +287,9 @@ def test_an_agent_task_runs_in_a_conversation_of_its_own(serve):
     conversation = s.app.store.load(run["conversation"])
     assert conversation.title == "每日安排 · 2026-11-21 09:00" and conversation.task == task_id
     assert conversation.events[0] == {"type": "user", "text": "看看我的待办，写一份今天的安排"}  # 会话里显示的是你写的指令
+    # 任务的每一轮也有运行记录（trace，见 harness/trace/），存在会话里，打开这段会话时照样看得到
     assert [event["type"] for event in conversation.events] == [
-        "user", "turn_start", "thinking", "block_end", "text", "block_end", "turn_end",
+        "user", "turn_start", "thinking", "block_end", "text", "block_end", "trace", "turn_end",
     ]
     # 记录写完和页面收到列出这段会话的那张状态之间有先后：慢的机器上要等一下那张状态
     until(lambda: any(item["id"] == run["conversation"] for item in latest_state(s)["conversations"]), what="会话列表里的这次运行")

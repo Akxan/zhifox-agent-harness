@@ -66,6 +66,7 @@ function applyLanguage(code) {
   retitleSettingsButton();  // 顶栏齿轮的提示：译好的"设置"后面接着快捷键
   retitleModelButton();     // 模型按钮的提示也一样（见 models.js）
   if (modelsFlyout.isOpen()) drawModels();  // 换模型的面板：价格的写法、按钮的提示跟着界面语言
+  relabelTraces();  // 每一轮上"运行记录"写的时长和金额；它的窗口开着的话重画
 }
 
 $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮

@@ -324,6 +324,7 @@ Each part of the harness has its own file or directory:
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
+| Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
@@ -382,6 +383,79 @@ comment in `AnthropicBackend.__init__` in [harness/providers/claude.py](harness/
 earlier content invalidates the cache (so requests cost more), and it makes the model's earlier thinking fail the API's
 validation (so requests are rejected). The one exception is compacting very long GPT, Gemini and DeepSeek
 conversations; see [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction).
+
+### Reading a turn: the run trace
+
+On the page you see one question and one answer, but behind it the loop may have gone round several times: a request,
+a tool, another request… The **run trace** (运行记录) draws every round of a turn on one time axis, so you can watch the
+loop from the previous section actually happen.
+
+**Where to find it.** In the web UI, the row of buttons under a turn's last reply has a **Run trace** button that shows how
+long the turn took and what it cost (when a turn didn't end in a reply, for example it failed, the button gets a line of
+its own at the end of the turn). Click it and a panel slides in from the right (on a phone it rises from the bottom). In
+the terminal, `/trace` prints the same record for the last turn. It survives a page reload and reopening an old
+conversation, and every turn of a scheduled task or a chat channel has one too.
+
+**How to read it.** The top of the panel has the totals: how long, how much, how much of the input came from the cache,
+how many model calls and tool calls, and a bar in four parts: the model answering, tools running, waiting for you to
+approve, and other overhead (saving, building requests). Below it is a waterfall chart with one row per step:
+
+```
+                           0          1 s          2 s
+Request 1     claude…      ███                          ← the paler start: sent, no first token yet (time to first token)
+To-dos                        ▌                         ← a tool on your computer often takes milliseconds
+Request 2     claude…         ███
+Run commands                     ░░░░░░░░░░▓            ← the hatched part: waiting for you to click Allow
+Request 3     claude…                       ██
+Handed to Researcher                          ▓▓▓▓▓▓▓    ← a step handed to a subagent…
+  │ Request 1     claude…                     ██
+  │ Read and edit files                         ▌        ← …with its own requests and tool calls indented under it
+  │ Request 2     claude…                       ████
+Request 4     claude…                               ███
+```
+
+Hover a row (or pick one with Tab and ↑↓) and the line above shows all of its numbers: which model, the time to first
+token, input tokens (and how many came from the cache), output tokens, the cost, the API's stop reason (`tool_use`,
+`end_turn`…); for a tool call, its real name and arguments, how big the result was, whether it asked you and how long it
+waited. Click to jump to that step's details below. **Copy as JSON** in the corner copies the record ZhiFox stored.
+
+**What it teaches.**
+
+- Every request sends the whole conversation to the model again (the model has no memory; see the previous section), so
+  the input grows with every round. But all of the earlier part is byte for byte what was sent last time, so it is read
+  from the cache and costs far less; that is where the cache-hit percentage comes from.
+- A turn's time often isn't the model's at all: it is you deciding whether to click Allow. The hatched part shows it at a glance.
+- The time to first token and the writing time are different things: the first is the wait before the model starts
+  (queueing, reading the context), the second grows with the length of the output.
+- The rounds handed to a subagent (the indented rows) never enter the main assistant's history; it only gets the
+  conclusion back. Their time and money still count toward this turn.
+
+**How it works.** The loop ([harness/agent.py](harness/agent.py)) tells a recorder at a handful of moments, one line
+each, named after the moment: a turn begins and ends (`turn_began`, `turn_ended`), a request is sent and answered
+(`request_began`, `request_ended`), a tool call starts and has its result (`tool_began`, `tool_ended`), a question
+waits for you and you answer (`approval_asked`, `approval_decided`). The recorder lives in
+[harness/trace/](harness/trace/): it notes only moments (with `time.monotonic`, which never runs backwards) and numbers,
+and at the end of the turn turns them into a record. It also works out the totals (the time split, the total cost, the
+cache-hit ratio); the page and the terminal just draw them and never compute them a second time. A few deliberate choices:
+
+- **Money is computed once.** Each request's cost is the entry the [spending record](#cost) wrote (`Ledger.record`
+  returns it); the recorder never prices anything itself.
+- **Time to first token without touching the providers.** The loop hands the provider a thin wrapper around the UI
+  (`Tracer.watch`) that notes when the first thinking or text arrives and passes everything through unchanged.
+- **Subagents hang under the step that started them.** A subagent reads the same clock as its caller; when its turn is
+  over, its record goes into the `children` of that `agent` call.
+- **It is a `trace` event in the conversation's `events`, not a separate table in the conversation file.** `events` is
+  already "what the page showed and must redraw on reload", and the trace's button is exactly that: kept there, it replays
+  on reload and when an old conversation opens (without entry animations), reaches every open tab at once, disappears with
+  its turn when you rewind the last turn (edit or regenerate) without a second table to keep in step with the events, and
+  comes for free in scheduled tasks and chat channels, which already store `events`. The price is a little more data on
+  replay, so the record holds only numbers and short notes (tool arguments cut to one line, results only as a size):
+  usually a kilobyte or two per turn, less than one tool result. A turn stores at most `config.TRACE_MAX_SPANS` steps;
+  the rest only count toward the totals.
+- **It never enters `messages`.** What is sent to the model doesn't change by a single byte (a test compares the requests
+  with and without tracing), so the cache and the thinking signatures are untouched.
+
+The record format, field by field, is at the top of [harness/trace/\_\_init\_\_.py](harness/trace/__init__.py).
 
 ### One loop, many models
 
@@ -1744,6 +1818,9 @@ This starts a small server on your computer and opens the chat page in your brow
   command, edited a file, called an MCP tool, operated the whole computer, clicked or typed in the browser), ZhiFox
   first lists those steps and asks once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
   (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)).
+- **Run trace.** The row of buttons under the last reply shows how long the turn took and what it cost; click it for a
+  waterfall chart of the turn: how many model calls, which tools, when each step started and ended, how long it waited
+  for your approval, tokens and cost (see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)).
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
   **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
   shown below the input.
@@ -2219,6 +2296,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/new` | Start a new conversation (memory and to-dos are kept) |
 | `/todos` | Show open to-dos |
 | `/tools` | Show what 智狐 can do: what's in use, whether it asks first, how to turn on what's off (the same list as the web UI's info panel) |
+| `/trace` | Show the last turn's run trace: how many model calls, which tools, how long each step took and what it cost, with a small waterfall drawn in block characters (the same numbers as the web UI's run trace) |
 | `/usage` | Show this run's token usage and estimated cost, plus what today and this month cost (and your monthly budget, if you set one) |
 | `/model` | Show every provider's models: which one is in use (✓), what each can do, its price, and which providers have no key yet (the same catalog as the web UI's model switcher; switch with its model button, ⌘. / Ctrl+.) |
 | `/mcp` | Show the connected MCP servers and their status (add and manage them in the web UI) |
@@ -2781,7 +2859,13 @@ reach another file, headers, the security policy, and the maskable fox staying i
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
-ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The model
+ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The run
+trace is in [tests/test_trace.py](tests/test_trace.py) (a fake clock, so every step's start, end, time to first token
+and wait for approval are compared to the millisecond; the cost is the ledger's entry; allowed, declined and
+auto-allowed calls; subagents nested under their step; how an open step is closed when you stop or an error hits; the
+requests sent are byte for byte the same with and without tracing; saving, reopening and regenerating; scheduled tasks
+and chat channels; the terminal's `/trace`), and its waterfall on the page in
+[tests/ui/test_ui_trace.py](tests/ui/test_ui_trace.py). The model
 catalog is in [tests/test_model_catalog.py](tests/test_model_catalog.py): the JSON the page gets (keys only as their
 last 4 characters, tags, entered and built-in prices, off-peak prices), the switch endpoint agreeing with it (the same
 provider continues, another provider starts anew and keeps the old conversation, refused while a chat channel holds the

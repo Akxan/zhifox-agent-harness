@@ -78,6 +78,7 @@ STYLES = (
     "styles/animations.css",  # 入场动画
     "styles/browser.css",  # 浏览器
     "styles/computer.css",  # 操作整台电脑
+    "styles/trace.css",  # 运行记录：每一轮上的入口、滑出来的窗口（合计、瀑布图、逐段的详情）
     "styles/service.css",  # 设置里的"后台运行"
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
 )
@@ -99,6 +100,8 @@ SCRIPTS = (
     "scripts/citations.js",  # 回答引用的网页：记号、浮出的卡片、来源列表、复制时带上来源
     "scripts/streaming.js",  # 逐字输出的文字
     "scripts/subagent-cards.js",  # 交给子 Agent 的卡片
+    "scripts/trace.js",  # 运行记录：每一轮上的入口、记录的检查、窗口的开和关
+    "scripts/trace-chart.js",  # 运行记录 · 窗口里画的东西：合计、瀑布图、逐段的详情
     "scripts/events.js",  # 每种事件怎么画
     "scripts/attachments.js",  # 附件
     "scripts/viewer.js",  # 查看器

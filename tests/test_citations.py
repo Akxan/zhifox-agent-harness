@@ -207,8 +207,9 @@ def test_a_cited_answer_becomes_cite_events_after_the_cited_text(start):
     h.agent.run_turn("香农是哪年出生的")
     saved = ui.export_events()
     paragraph = saved[next(index for index, event in enumerate(saved) if event["type"] == "text") :]
-    # 连着的文字块是同一段：中间没有 block_end，只在整段结束时有一个；引用的记号紧跟在被引用的那段文字后面
-    assert [event["type"] for event in paragraph] == ["text", "cite", "text", "cite", "text", "block_end"]
+    # 连着的文字块是同一段：中间没有 block_end，只在整段结束时有一个；引用的记号紧跟在被引用的那段文字后面。
+    # 最后是一轮结束时的运行记录（见 harness/trace/）
+    assert [event["type"] for event in paragraph] == ["text", "cite", "text", "cite", "text", "block_end", "trace"]
     assert paragraph[0] == {"type": "text", "text": "Based on the results, Shannon was born in 1916"}
     assert paragraph[1] == {
         "type": "cite",
@@ -231,7 +232,7 @@ def test_answers_without_citations_have_no_cite_events(start):
     h.agent.run_turn("你好")
     saved = ui.export_events()
     assert events_of("cite", saved) == []
-    assert [event["type"] for event in saved] == ["text", "block_end"]
+    assert [event["type"] for event in saved] == ["text", "block_end", "trace"]  # 最后是这一轮的运行记录
     # 引用列表是空的文字块也不算引用
     ui = WebUI()
     h = start(reply(text("没有来源。", [])), ui=ui)
@@ -282,7 +283,8 @@ def test_numbering_continues_across_a_paused_turn(start):
     h.agent.run_turn("查一查")
     assert len(h.api.requests) == 2
     saved = ui.export_events()
-    assert [event["type"] for event in saved] == ["text", "cite", "block_end", "text", "cite", "block_end"]
+    # 两次请求的运行记录在一起：只在整轮结束时有一个 trace（见 harness/trace/）
+    assert [event["type"] for event in saved] == ["text", "cite", "block_end", "text", "cite", "block_end", "trace"]
     first, second = events_of("cite", saved)
     assert first["marks"] == [{"n": 1, "quote": "w1"}]
     assert second["marks"] == [{"n": 2, "quote": "b"}, {"n": 1, "quote": "w2"}]

@@ -170,8 +170,9 @@ def test_regenerating_the_last_answer(rig):
 
     # 请求和这一轮当初的那一次一字不差（缓存照样命中），旧的回答不在里面
     assert dumps(s.api.requests[2]) == dumps(s.api.requests[1]) and "旧答二" not in dumps(s.api.requests[2])
-    # 页面：reset，重放留下的（第一轮、第二轮的用户消息），一个 state 结束重放；之后才是新的一轮（播放入场动画）
-    assert kinds(replayed) == ["user", "turn_start", "thinking", "block_end", "text", "block_end", "turn_end", "user"]
+    # 页面：reset，重放留下的（第一轮、第二轮的用户消息），一个 state 结束重放；之后才是新的一轮（播放入场动画）。
+    # 第一轮的运行记录（trace，见 harness/trace/）留着；第二轮旧的那一份跟着旧的回答一起去掉了
+    assert kinds(replayed) == ["user", "turn_start", "thinking", "block_end", "text", "block_end", "trace", "turn_end", "user"]
     assert texts(replayed, "user") == ["问一", "问二"] and replayed[-1]["mark"] == 2
     assert kinds(live)[0] == "turn_start" and "user" not in kinds(live)  # 用户消息不再显示一遍
     assert texts(live) == ["新答二"] and kinds(live)[-1] == "turn_end"
@@ -243,7 +244,8 @@ def test_the_replay_after_a_rewind_and_after_reopening(rig):
     assert backlog == len(late.events)
     shown = [event for event in late.events if event["type"] != "state"]
     assert kinds(shown) == [
-        "reset", "user", "turn_start", "text", "block_end", "turn_end", "user", "turn_start", "text", "block_end", "turn_end",
+        "reset", "user", "turn_start", "text", "block_end", "trace", "turn_end",
+        "user", "turn_start", "text", "block_end", "trace", "turn_end",
     ]  # fmt: skip
     assert texts(shown, "user") == ["问一", "改过的问二"] and texts(shown) == ["答一", "新答二"]  # 旧的那一轮不在了
     assert kinds(late.events).count("state") == 1  # 过时的状态只留最后一个
