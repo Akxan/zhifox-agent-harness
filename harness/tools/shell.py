@@ -11,7 +11,8 @@ Windows 上的几处不同：
     （C 运行库的规则，再加上 PowerShell 自己的），写进 -Command 很容易被拆错；编码以后一个字都不会变。
   - 命令前面先把 PowerShell 的输出编码设成 UTF-8，我们按 UTF-8 读：不然中文 Windows 上输出是 GBK，读出来是乱码。
   - -NoProfile：不运行你的 $PROFILE（那里可能打印东西、改提示符，每条命令都多花时间）。执行策略不改，照你的设置。
-  - 结束一条命令：Windows 没有进程组和信号，用 taskkill /T /F 结束它和它启动的所有子进程。
+  - 结束一条命令：Windows 没有进程组和信号。每条命令放进一个作业对象（winjob.py），结束时结束整个作业，
+    它和它启动的所有子孙进程一个不剩；作业没建成时退一步用 taskkill /T /F。
   - CREATE_NO_WINDOW：作为后台服务运行时（没有控制台），每条命令不会闪出一个黑色的窗口。
 """
 
@@ -24,6 +25,7 @@ import signal
 import subprocess
 from pathlib import Path
 
+from .. import winjob
 from .base import Tool, ToolError, function_tool
 
 TOOL_NAME = "run_command"
@@ -94,10 +96,15 @@ def kill_tree(pid: int) -> None:
         pass
 
 
-def _kill(process: subprocess.Popen) -> None:
-    kill_tree(process.pid)  # 连同它启动的子进程一起结束
+def _kill(process: subprocess.Popen, job: winjob.Job | None = None) -> None:
+    """连同它启动的子进程一起结束。Windows 上结束它所在的作业（见 winjob.py：中间一层先退出了，下面的也跑不掉），
+    作业没建成时退一步用 taskkill /T。"""
+    if job is not None and job.handle is not None:
+        job.terminate()
+    else:
+        kill_tree(process.pid)
     if WINDOWS and process.poll() is None:
-        process.kill()  # taskkill 没能结束它（极少见）：至少结束它自己
+        process.kill()  # 都没能结束它（极少见）：至少结束它自己
 
 
 class Shell:
@@ -106,6 +113,7 @@ class Shell:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self._running: subprocess.Popen | None = None
+        self._job: winjob.Job | None = None  # Windows：正在运行的命令所在的作业
         self._stopped = False  # 正在运行的命令是不是被 kill_running 结束的
 
     def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
@@ -125,19 +133,24 @@ class Shell:
             start_new_session=not WINDOWS,  # 独立的进程组，超时或中断时可以整组结束
             creationflags=subprocess.CREATE_NO_WINDOW if WINDOWS else 0,
         )
-        self._running = process
+        # Windows 上的"进程组"：这条命令和它开的子孙进程都在这个作业里。不设"关掉就结束"：
+        # 命令正常结束以后，它故意留在后台的程序（Start-Process）照样留着，和 macOS、Linux 上一样
+        job = winjob.Job()
+        job.add(process)
+        self._running, self._job = process, job
         self._stopped = False
         try:
             output, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            _kill(process)
+            _kill(process, job)
             output, _ = process.communicate()
             return f"{_clip(output)}\n[命令运行超过 {timeout} 秒，已被终止]"
         except KeyboardInterrupt:  # 终端里按了 Ctrl-C
-            _kill(process)
+            _kill(process, job)
             raise
         finally:
-            self._running = None
+            self._running, self._job = None, None
+            job.close()
         if self._stopped:
             raise ToolError(f"命令还没运行完，就被用户停止了。在那之前的输出：\n{_clip(output).rstrip() or '（没有输出）'}")
         result = _clip(output).rstrip("\n") or "（没有输出）"
@@ -147,10 +160,10 @@ class Shell:
 
     def kill_running(self) -> None:
         """结束正在运行的命令（如果有）。网页界面的"停止"按钮会调用它。"""
-        process = self._running
+        process, job = self._running, self._job
         if process is not None:
             self._stopped = True
-            _kill(process)
+            _kill(process, job)
 
 
 def describe() -> tuple[str, str]:

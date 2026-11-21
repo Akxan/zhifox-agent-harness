@@ -503,8 +503,8 @@ def test_a_crashed_chrome_leaves_no_pipes_open(browser):
     with pytest.raises(CDPClosed):
         connection.call("Fake.exit", timeout=5)
     wait_until(lambda: rig.manager._chrome is None, what="收拾完")
-    time.sleep(0.05)
-    assert fake_chrome.open_pipes() == before
+    # 收拾是在另一个线程里做的（manager._reap）：Windows 上结束进程要运行 taskkill，慢一些，等它做完
+    wait_until(lambda: fake_chrome.open_pipes() == before, what="管道都关上")
 
 
 def test_a_chrome_that_fails_to_start_is_reaped_and_its_pipes_closed(browser):
@@ -515,6 +515,10 @@ def test_a_chrome_that_fails_to_start_is_reaped_and_its_pipes_closed(browser):
     pid = rig.launched[0].pid
     wait_until(lambda: rig.launched[0].connection.closed, what="连接断开")  # 进程已经死了
     time.sleep(0.05)
+    if os.name == "nt":
+        # Windows 没有僵尸进程，也没有 waitpid：看它确实不在了、管道都关上了
+        wait_until(lambda: not rig.launched[0].alive() and fake_chrome.open_pipes() == before, what="进程退出、管道关上")
+        return
     leaked = fake_chrome.open_pipes() - before
     try:
         os.waitpid(pid, os.WNOHANG)  # 能收到的话，说明智狐自己没有收它（是个僵尸）

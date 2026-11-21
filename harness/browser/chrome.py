@@ -29,7 +29,8 @@ content/browser/devtools/devtools_agent_host_impl.cc）。所以 Windows 上的�
 这样 Windows 上也只走管道、不开端口：这台电脑上别的程序（包括你自己账号下的别的程序）没有办法连上它、替它点网页。
 不用 --remote-debugging-port 的理由和 macOS、Linux 上一样（见 cdp.py 开头）：端口谁都连得上。
 
-Windows 也没有进程组和信号：关的时候先礼貌地请它退出（Browser.close），不走就用 taskkill /T 结束它和它的子进程。
+Windows 也没有进程组和信号：启动时把 Chrome 放进一个作业对象（winjob.py），关的时候先礼貌地请它退出（Browser.close），
+不走就结束整个作业——它和它所有的子孙进程，主进程先退出了也一样。
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from .. import winjob
 from ..config import BROWSER_VIEWPORT
 from .cdp import Connection
 
@@ -156,13 +158,17 @@ def arguments(executable: Path, profile: Path, headless: bool) -> list[str]:
 class Chrome:
     """一个正在运行的 Chrome：进程号、和它说话的连接。process 只在 Windows 上有（subprocess 开的，靠它知道退出了没有）。"""
 
-    def __init__(self, pid: int, connection: Connection, executable: Path, headless: bool, process: subprocess.Popen | None = None):
+    def __init__(
+        self, pid: int, connection: Connection, executable: Path, headless: bool,
+        process: subprocess.Popen | None = None, job: winjob.Job | None = None,
+    ):
         self.pid = pid
         self.connection = connection
         self.executable = executable
         self.headless = headless
         self.started = time.time()
         self._process = process
+        self._job = job  # Windows：Chrome 和它所有的子孙进程都在这个作业里（见 winjob.py）
 
     def alive(self) -> bool:
         """进程还在不在。顺便把已经退出的收掉（不然它会变成僵尸进程）。"""
@@ -191,6 +197,8 @@ class Chrome:
         """结束整个进程组、收掉主进程（不留僵尸进程），关掉我们这一头的管道。已经退出了也可以调用。"""
         self._signal(force=True)
         self._wait(1.0)
+        if self._job is not None:
+            self._job.close()
         self.connection.close()
 
     def kill(self) -> None:
@@ -205,10 +213,11 @@ class Chrome:
     def _signal(self, force: bool) -> None:
         """请整个进程组退出（SIGTERM），或者立刻结束它（force：SIGKILL）。"""
         if self._process is not None:
-            # Windows：没有信号。"请退出"是不带 /F 的 taskkill（给它的窗口发"关闭"），"立刻结束"是带 /F 的；/T 连同子进程。
-            # 已经退出了的不再去结束：Popen 一直拿着它的句柄，进程号不会被别的程序用上，但也没有必要再打扰谁。
-            # 它的子进程（渲染进程这些）在主进程没了以后会自己退出
-            if self.alive():
+            # Windows：没有信号。"请退出"是不带 /F 的 taskkill（给它的窗口发"关闭"）。"立刻结束"是结束整个作业：
+            # 主进程已经退出了、留下的子孙进程也在里面（见 winjob.py）；作业没建成的话，退一步用 taskkill /T /F
+            if force and self._job is not None and self._job.handle is not None:
+                self._job.terminate()
+            elif self.alive():
                 _taskkill(self.pid, force=force)
             return
         with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -310,12 +319,15 @@ def _launch_windows(
     startup = subprocess.STARTUPINFO()
     startup.lpAttributeList = {"handle_list": given}  # 只继承这两个（subprocess 会再加上下面的三个标准输入输出）
     env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS}
+    job = winjob.Job(kill_on_close=True)  # 智狐退出（哪怕是崩溃）时，系统连同 Chrome 的子孙进程一起结束
     try:
         process = subprocess.Popen(
             args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,  # Chrome 往终端里写的日志很多，扔掉
             env=env, startupinfo=startup, close_fds=True, creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        job.add(process)  # 刚启动：它还没来得及开任何子进程
     except BaseException:
+        job.close()
         os.close(to_chrome_write)
         os.close(from_chrome_read)
         raise
@@ -324,4 +336,4 @@ def _launch_windows(
         os.close(to_chrome_read)
         os.close(from_chrome_write)
     connection = Connection(from_chrome_read, to_chrome_write, on_close=on_close)
-    return Chrome(process.pid, connection, executable, headless, process=process)
+    return Chrome(process.pid, connection, executable, headless, process=process, job=job)

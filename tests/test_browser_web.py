@@ -13,6 +13,7 @@ from __future__ import annotations
 import http.client
 import json
 import time
+from pathlib import Path
 
 import test_webui
 from fake_api import reply, text, tool_use
@@ -42,7 +43,7 @@ def test_the_state_says_where_the_browser_stands(serve):
     s = serve()
     browser = latest_state(s.browser)["browser"]
     assert browser["enabled"] is False and browser["running"] is False and browser["busy"] is False
-    assert browser["profile"].endswith("browser/profile") and browser["error"] is None
+    assert Path(browser["profile"]).parts[-2:] == ("browser", "profile") and browser["error"] is None  # Windows 上是反斜杠
     assert browser["shot_days"] > 0
 
 
