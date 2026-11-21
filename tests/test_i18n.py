@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from harness import i18n
+from harness.webui.page import assemble
 
-PAGE = Path(i18n.__file__).parent / "webui" / "index.html"
 CJK = re.compile(r"[㐀-鿿]")
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 # 页面上故意不翻译的几处：语言的名字（每种语言都用它自己的文字写）
@@ -60,7 +60,7 @@ _LITERAL = r"'((?:[^'\\\n]|\\.)*)'"
 
 def page_keys() -> dict[str, str]:
     """页面里所有要翻译的话，以及每一句是从哪儿找到的（出错时好定位）。"""
-    page = PAGE.read_text(encoding="utf-8")
+    page = assemble()
     keys: dict[str, str] = {}
     # 写死在标记里的：带 data-i18n 的元素的文字，带 data-i18n-xxx 的属性，建议卡片要填进输入框的那句话
     markup = re.sub(r"<!--.*?-->", "", page[page.index("<body>") : page.index("// 这个页面做的事情很少")], flags=re.DOTALL)
@@ -104,7 +104,7 @@ def test_every_python_text_is_translated(language):
 
 def test_every_chinese_text_in_the_script_goes_through_t_or_k():
     # 脚本里写死的中文，要么交给 t() 当场翻译，要么用 k() 标出来、之后再交给 t()。直接写的就翻译不到了
-    code = _without_comments(_main_script(PAGE.read_text(encoding="utf-8")))
+    code = _without_comments(_main_script(assemble()))
     wrapped = {match.span(1) for match in re.finditer(r"\b[tk]\(\s*" + _LITERAL, code)}
     stray = [
         match.group(1)
@@ -116,7 +116,7 @@ def test_every_chinese_text_in_the_script_goes_through_t_or_k():
 
 def test_elements_marked_for_translation_hold_only_text():
     # 换语言时，带 data-i18n 的元素整个换成译文（textContent）。它里面要是还有别的元素（图标之类），就会被冲掉
-    page = PAGE.read_text(encoding="utf-8")
+    page = assemble()
     markup = re.sub(r"<!--.*?-->", "", page[page.index("<body>") : page.index("// 这个页面做的事情很少")], flags=re.DOTALL)
     for match in re.finditer(r"<([a-z0-9]+)\b[^>]*\bdata-i18n\b(?!-)[^>]*>", markup):
         rest = markup[match.end() :]

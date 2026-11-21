@@ -1,0 +1,78 @@
+/* ---- 多媒体 ----
+   类名都以 media- 开头：别的地方已经有 .file、.chip 这些名字，撞上了会套上别人的样式。
+   上面是搜索框和按种类筛选的一排按钮，下面按天分组：图片排成三列的方格（裁成正方形），文件一行一个。
+   每一项鼠标移上去（或者键盘移到上面）出现三个按钮：在访达中显示、定位到会话、下载，和会话、记忆的那一排一样；触屏上一直显示 */
+.media-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.media-view[hidden] { display: none; }
+.media-search { flex: none; }
+/* 放不下就折到第二行（英文、西班牙语的"文档""图片"长一些），不横着滚：藏起来的那一个没人看得见 */
+.media-filters { flex: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 6px 6px; }
+.media-filter { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--ink-2); background: none; border: 1px solid var(--line-2); border-radius: 999px; transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s var(--ease); }
+.media-filter:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.media-filter:active:not(:disabled) { transform: scale(.95); }
+.media-filter[aria-checked="true"] { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.media-filter:disabled { opacity: .4; }
+.media-filter-count { font-weight: 400; font-variant-numeric: tabular-nums; opacity: .72; }
+.media-list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.media-day-head { position: sticky; top: 0; z-index: 3; display: flex; margin: 0; justify-content: space-between; gap: 8px; padding: 12px 4px 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); background: var(--bg); }
+.media-day-head span:last-child { font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; list-style: none; }
+.media-tile { position: relative; aspect-ratio: 1; overflow: hidden; background: var(--sunken); border-radius: 10px; }
+.media-tile::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--line); pointer-events: none; }
+.media-tile-open { display: grid; place-items: center; width: 100%; height: 100%; padding: 0; color: var(--ink-3); background: none; border: 0; border-radius: inherit; cursor: zoom-in; }
+.media-tile-open:focus-visible { outline-offset: -2px; }
+.media-tile img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .45s var(--ease); }
+.media-tile:hover img { transform: scale(1.06); }
+.media-tile-open .icon { width: 22px; height: 22px; }
+/* 方格里的三个按钮压在图片下沿：一条从透明到深色的渐变垫在后面，白色的图标在任何图片上都看得清 */
+.media-tile-actions { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: flex; justify-content: center; gap: 1px; padding: 16px 1px 2px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .6)); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+/* 只有按钮接点击，后面那条渐变不接：方格只有 84 像素见方，这一条有 44 像素高，盖住了方格的正中间。
+   整条都接点击的话，鼠标移到图片中间、按钮一淡入，再点下去点中的是这条底，图片打不开 */
+.media-tile:hover .media-tile-actions, .media-tile:focus-within .media-tile-actions { opacity: 1; }
+.media-tile:hover .media-tile-actions > *, .media-tile:focus-within .media-tile-actions > * { pointer-events: auto; }
+.media-tile-actions .icon-button { color: #fff; }
+.media-tile-actions .icon-button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, .2); }
+.media-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
+.media-grid + .media-rows { margin-top: 8px; }
+.media-row { position: relative; display: flex; align-items: center; min-height: 52px; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+.media-row:hover, .media-row:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.media-row-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.media-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.media-name { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.media-meta { font-size: 11.5px; line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 按钮浮在文字上面：左边垫一段从透明渐变到卡片底色的底，名字被盖住的那一截淡出去，文字不用挪位置 */
+.media-row-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 26px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 12px 12px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.media-row:hover .media-row-actions, .media-row:focus-within .media-row-actions { opacity: 1; }
+.media-row:hover .media-row-actions > *, .media-row:focus-within .media-row-actions > * { pointer-events: auto; }  /* 渐变的那一截不接点击，点在名字上还是打开它 */
+@media (hover: none) {  /* 触屏上没有"悬停"，按钮一直显示，所以一直给它们留好位置 */
+  .media-tile-actions, .media-row-actions { opacity: 1; }
+  .media-tile-actions > *, .media-row-actions > * { pointer-events: auto; }  /* 同样只有按钮接点击，点图片中间、点名字还是打开它 */
+  .media-row-actions { background: none; }
+  .media-words { padding-right: 82px; }
+}
+.media-missing .media-tile-open, .media-missing .media-row-open { opacity: .55; }
+/* 文件的标记：一块带颜色的小方块，写着 PDF、DOC、XLS…… */
+.media-badge { flex: none; display: grid; place-items: center; width: 34px; height: 34px; font: 650 9.5px/1 var(--sans); letter-spacing: .04em; color: var(--kind, var(--k-text)); background: color-mix(in srgb, var(--kind, var(--k-text)) 13%, transparent); border-radius: 9px; }
+.media-pdf { --kind: var(--k-pdf); }
+.media-word { --kind: var(--k-word); }
+.media-sheet { --kind: var(--k-sheet); }
+.media-slide { --kind: var(--k-slide); }
+.media-text { --kind: var(--k-text); }
+.media-more { display: block; width: calc(100% - 4px); height: 32px; margin: 10px 2px 0; color: var(--ink-2); }
+/* 空的时候：三张错开的小卡片，上面一层极光的颜色，说明这里会收些什么 */
+.media-empty { display: grid; justify-items: center; gap: 8px; padding: 30px 12px 18px; text-align: center; }
+.media-empty b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.media-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); text-wrap: pretty; }
+.media-art { position: relative; width: 112px; height: 80px; margin-bottom: 10px; }
+.media-art i { position: absolute; top: 10px; left: 32px; width: 48px; height: 60px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow-1); }
+.media-art i:nth-child(1) { transform: translateX(-26px) rotate(-12deg); }
+.media-art i:nth-child(3) { transform: translateX(26px) rotate(12deg); }
+.media-art i:nth-child(2) { z-index: 1; background: linear-gradient(150deg, color-mix(in srgb, var(--a1) 30%, var(--surface)), color-mix(in srgb, var(--a3) 26%, var(--surface))); }
+.media-empty.enter .media-art i:nth-child(1) { animation: fan-left .6s var(--ease) backwards; }
+.media-empty.enter .media-art i:nth-child(3) { animation: fan-right .6s var(--ease) backwards; }
+@keyframes fan-left { from { transform: none; } }
+@keyframes fan-right { from { transform: none; } }
+/* 正在读的时候：几块安静地闪着光的方格（光是一条斜着滑过去的渐变，只改 transform） */
+.media-skeleton { position: relative; overflow: hidden; aspect-ratio: 1; background: var(--hover); border-radius: 10px; }
+.media-skeleton::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, var(--hover) 50%, transparent 70%); transform: translateX(-100%); animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { to { transform: translateX(100%); } }

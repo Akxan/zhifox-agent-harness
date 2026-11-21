@@ -1,0 +1,216 @@
+/* ---- 扩展 · 通道 --------------------------------------------------------------
+   在 Telegram 这类聊天软件里和智狐说话。两种视图：列表（已经接上的通道、聊天里等你批准的操作、可以接入的平台），
+   和设置向导（建机器人 → 填 token → 配对 → 确认方式）。动画只改 transform 和 opacity：换视图时淡入、
+   配对码的数字一个个落下、倒计时的那根线从右往左收（scaleX）、配对成功时对勾弹一下。 */
+.chan-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.chan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chan-lead { flex: 1 1 260px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+.settings .chan-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0; border: 0; }  /* 设置面板的 section 自带一条分隔线和上下留白，这里不要 */
+.settings .chan-section h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.chan-note { display: flex; gap: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.6; border-radius: 12px; overflow-wrap: anywhere; }
+.chan-note .icon { flex: none; margin-top: 2px; width: 15px; height: 15px; }
+.chan-note.bad { color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); }
+.chan-note.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.chan-note.calm { color: var(--ink-2); background: var(--hover); }
+.chan-note.good { color: var(--ok); background: var(--ok-soft); }
+.chan-button { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; font-size: 13px; text-decoration: none; }
+.chan-button .icon { width: 14px; height: 14px; }
+a.chan-button { color: var(--ink); line-height: 30px; }
+a.chan-button.primary { color: var(--on-ink); }
+/* 平台的标记：一个圆角方块。Telegram 用纸飞机，别的写名字的第一个字（跟着界面语言：飞书 / Feishu）。
+   颜色只是区分用的淡淡一层，两套外观里文字都是 --ink，对比度够 */
+.chan-mark { position: relative; flex: none; display: grid; place-items: center; width: 34px; height: 34px; font: 600 14px/1 var(--sans); color: var(--ink); background: var(--chan-tint, var(--hover)); border-radius: 11px; }
+.chan-mark .icon { width: 17px; height: 17px; stroke-width: 2; }
+.chan-mark[data-platform="telegram"] { --chan-tint: rgba(42, 138, 230, .16); color: #1f6fbf; }
+:root[data-theme="dark"] .chan-mark[data-platform="telegram"] { color: #7cc0ff; }
+.chan-mark[data-platform="feishu"] { --chan-tint: rgba(13, 148, 136, .14); }
+.chan-mark[data-platform="qq"] { --chan-tint: rgba(79, 107, 255, .14); }
+.chan-mark[data-platform="dingtalk"] { --chan-tint: rgba(42, 138, 230, .12); }
+.chan-mark[data-platform="discord"] { --chan-tint: rgba(139, 92, 246, .14); }
+.chan-mark[data-platform="slack"] { --chan-tint: rgba(236, 72, 153, .12); }
+.chan-mark[data-platform="whatsapp"] { --chan-tint: rgba(12, 122, 83, .13); }
+.chan-mark[data-platform="wecom"] { --chan-tint: rgba(245, 158, 11, .16); }
+/* 状态圆点挂在标记的右下角：在线是绿的，连接中有一圈向外荡开的光，出错是红的，关着是空心的 */
+.chan-dot { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: var(--ink-3); border: 2px solid var(--surface); transition: background-color .3s ease; }
+.chan-dot.online { background: var(--ok); }
+.chan-dot.connecting { background: var(--accent); }
+.chan-dot.connecting::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--accent); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.chan-dot.error { background: var(--err); }
+.chan-dot.off { background: var(--surface); box-shadow: inset 0 0 0 1.6px var(--ink-3); }
+/* 还没有接上任何通道：一张说明卡片，右边一部"手机"，里面的气泡慢慢浮动（只改 transform，减少动画时不动） */
+.chan-hero { position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 26px 26px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; }
+.chan-hero::before { content: ""; position: absolute; right: -70px; top: -90px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(closest-side, var(--a1), transparent); opacity: .13; pointer-events: none; }
+.settings .chan-hero h3 { position: relative; margin: 0 0 8px; font: 600 21px/1.25 var(--serif); letter-spacing: 0; color: var(--ink); }
+.chan-hero p { position: relative; max-width: 42em; margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.chan-hero .row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+/* 首页上每个能用的平台一个按钮：小一号的平台标记加名字 */
+.chan-picks { gap: 8px; }
+.chan-pick { gap: 8px; padding: 0 12px 0 6px; }
+.chan-pick .chan-mark { width: 22px; height: 22px; font-size: 11px; border-radius: 7px; }
+.chan-pick .chan-mark .icon { width: 13px; height: 13px; }
+.chan-pick.primary .chan-mark { color: inherit; background: rgba(255, 255, 255, .18); }
+.chan-hero .chan-cli { position: relative; margin: 12px 0 0; }
+.chan-cli { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.chan-cli code, .chan-howto code, .chan-pane code { padding: 1px 5px; font: 12px var(--mono); color: var(--ink); background: var(--hover); border-radius: 5px; }
+.chan-phone { position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 7px; width: 118px; height: 156px; padding: 18px 11px 14px; background: var(--sheet); border: 1.5px solid var(--line-2); border-radius: 22px; box-shadow: var(--shadow-1); }
+.chan-phone::before { content: ""; position: absolute; top: 8px; left: 50%; width: 30px; height: 4px; border-radius: 4px; background: var(--line-2); transform: translateX(-50%); }
+.chan-phone i { display: block; height: 13px; border-radius: 8px 8px 8px 3px; background: var(--hover); animation: chan-float 3.6s ease-in-out infinite alternate; }
+.chan-phone i:nth-child(1) { width: 72%; }
+.chan-phone i:nth-child(2) { width: 58%; align-self: flex-end; border-radius: 8px 8px 3px 8px; background: var(--aurora-solid); opacity: .85; animation-delay: -1.2s; }
+.chan-phone i:nth-child(3) { width: 84%; animation-delay: -2.1s; }
+.chan-phone i:nth-child(4) { width: 46%; align-self: flex-end; border-radius: 8px 8px 3px 8px; background: var(--aurora-solid); opacity: .85; animation-delay: -.6s; }
+@keyframes chan-float { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+:root[data-motion="reduce"] .chan-phone i { animation: none !important; }
+/* 聊天里等你批准的操作：放在最上面，黄色的底，命令原样显示 */
+.chan-asks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.chan-ask { min-width: 0; padding: 13px 15px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; }
+.chan-ask-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--warn); }
+.chan-ask-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-ask-head .icon { flex: none; width: 15px; height: 15px; }
+.chan-ask pre { max-height: 220px; overflow: auto; margin: 10px 0; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+.chan-ask .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 已经接上的通道：一个平台一行，和 MCP 服务器、会话的行一个样子。右边是开关，最右边一格平时写着最后一次说话的时间，
+   悬停（或者键盘移到这一行）时淡出，换成按钮（重新配对，然后是在访达中显示、编辑、删除），只改透明度，开关不挪位置 */
+.chan-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chan-row { position: relative; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s ease, box-shadow .2s ease; }
+.chan-row:hover, .chan-row:focus-within { border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.chan-main { position: relative; display: flex; align-items: center; gap: 10px; min-height: 68px; }
+.chan-open { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 13px 0 13px 15px; font: inherit; color: inherit; text-align: left; background: none; border: 0; border-radius: 14px; }
+.chan-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.chan-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chan-name { min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-bot { min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-meta { font-size: 12px; line-height: 1.45; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-error { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 12px; line-height: 1.55; color: var(--err); overflow-wrap: anywhere; }
+.chan-flag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
+.chan-flag.calm { color: var(--ink-3); background: var(--hover); border-color: transparent; }
+.chan-slot { position: relative; flex: none; align-self: stretch; width: 150px; }
+.chan-when { position: absolute; right: 14px; top: 50%; max-width: 136px; transform: translateY(-50%); font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .15s ease; }
+.chan-main:hover .chan-when, .chan-main:focus-within .chan-when { opacity: 0; }
+.chan-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.chan-main:hover .chan-actions, .chan-main:focus-within .chan-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .chan-actions { opacity: 1; pointer-events: auto; } .chan-when { display: none; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+.chan-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.chan-switch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; background: var(--line-3); border: 0; border-radius: 999px; transition: background-color .2s ease; }
+.chan-switch::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .3s var(--spring); }
+.chan-switch[aria-checked="true"] { background: var(--ok); }
+.chan-switch[aria-checked="true"]::after { transform: translateX(15px); }
+.chan-switch:disabled { opacity: .45; }
+.chan-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px; font-size: 13px; }
+.chan-confirm span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+/* 这个通道里正在进行的对话：一行一个聊天，写着在做什么，旁边一个"停止" */
+.chan-chats { display: grid; gap: 4px; margin: 0; padding: 0 14px 12px 61px; list-style: none; }
+.chan-chat { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-2); }
+.chan-chat > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-chat i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+.chan-chat.waiting i { background: var(--warn-dot); }
+/* 可以接入的平台：一张卡片一个，现在能用的是实线、能点；以后才做的是虚线，写着要什么、为什么 */
+.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.chan-card { position: relative; display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 14px 15px 15px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; transition: transform .25s var(--ease), box-shadow .25s ease, border-color .15s ease; }
+.chan-card.ready:hover { transform: translateY(-2px); border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.chan-card.dim { background: none; border-style: dashed; border-color: var(--line-2); }
+.chan-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.chan-card-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-stage { flex: none; max-width: 60%; padding: 0 7px; font-size: 11px; line-height: 1.65; color: var(--ink-3); background: var(--hover); border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-stage.ready { color: var(--ok); background: var(--ok-soft); }
+.chan-stage.public_url { color: var(--warn); background: var(--warn-soft); }
+.chan-stage.unsupported { color: var(--err); background: var(--err-soft); }
+.chan-needs { margin: 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; text-wrap: pretty; }
+.chan-card .chan-button { align-self: flex-start; margin-top: auto; }
+/* 向导：顶上一行返回和标题，下面四步，再下面是这一步的内容，最下面一条贴底的按钮栏 */
+.chan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chan-back { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px 0 6px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 9px; }
+.chan-back:hover { color: var(--ink); background: var(--hover); }
+.chan-back .icon { transform: scaleX(-1); }
+.settings .chan-title { flex: 1 1 160px; min-width: 0; display: flex; align-items: center; gap: 10px; margin: 0; font-size: 17px; font-weight: 600; }
+.settings .chan-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-stepper { position: relative; padding-bottom: 10px; }
+.chan-stepper::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--hover); }
+.chan-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chan-progress { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--aurora-solid); transform-origin: left; transition: transform .5s var(--ease); }
+.chan-step { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 7px 8px; font-size: 12.5px; color: var(--ink-3); text-align: left; background: none; border: 0; border-radius: 10px; }
+.chan-step:disabled { opacity: 1; cursor: default; }
+.chan-step:not(:disabled):hover { color: var(--ink); background: var(--hover); }
+.chan-step b { flex: none; display: grid; place-items: center; width: 22px; height: 22px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; border: 1.5px solid var(--line-2); border-radius: 50%; transition: background-color .2s ease, color .2s ease, border-color .2s ease; }
+.chan-step b .icon { width: 12px; height: 12px; stroke-width: 2.6; }
+.chan-step span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chan-step[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.chan-step[aria-current="step"] b { color: var(--on-ink); background: var(--accent); border-color: transparent; }  /* --on-ink：浅色里是白字，深色里是深字，在两种强调色上对比度都够 */
+.chan-step.done b { color: var(--ok); border-color: var(--ok); }
+.chan-pane { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.settings .chan-pane h4 { margin: 0; font: 600 19px/1.3 var(--serif); color: var(--ink); }
+.chan-pane > p { max-width: 46em; margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.chan-howto { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: chan-how; }
+.chan-howto li { position: relative; min-height: 24px; padding-left: 36px; font-size: 13px; line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+.chan-howto li::before { counter-increment: chan-how; content: counter(chan-how); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 24px; height: 24px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 8px; }
+.chan-howto .chan-button { margin-top: 8px; }
+.chan-how-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.chan-howto .chan-how-tools .chan-button { margin-top: 8px; }
+.chan-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.chan-note > span { min-width: 0; }
+/* 要装 SDK 的说明里：命令和"复制命令"按钮排在一行（放不下就换行），命令很长也不冲出框 */
+.chan-sdk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.chan-sdk code { min-width: 0; padding: 3px 8px; font: 12px var(--mono); color: var(--ink); background: var(--surface); border-radius: 6px; overflow-wrap: anywhere; }
+.settings .chan-field { display: grid; align-items: stretch; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.chan-token { display: flex; gap: 6px; min-width: 0; }
+.chan-token .field { flex: 1; min-width: 0; font: 13px var(--mono); color: var(--ink); }
+.chan-token .icon-button { flex: none; width: 36px; height: 36px; border: 1px solid var(--line-2); border-radius: 10px; }
+.chan-token .icon-button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.chan-help { font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+/* 配对码：6 个数字分成两组，一个个落下来；下面一根线跟着剩下的时间从右往左收 */
+.chan-code { display: flex; align-items: center; justify-content: center; gap: clamp(4px, 1.4vw, 8px); padding: 22px 10px 18px; background: var(--sunken); border-radius: 18px; }
+.chan-digit { display: grid; place-items: center; width: clamp(32px, 8.6vw, 52px); height: clamp(44px, 11.5vw, 66px); font: 600 clamp(22px, 5.6vw, 34px)/1 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-1); }
+.chan-gap { flex: none; width: clamp(6px, 2vw, 14px); }
+.chan-timer { position: relative; height: 4px; overflow: hidden; background: var(--hover); border-radius: 4px; }
+.chan-timer i { position: absolute; inset: 0; background: var(--aurora-solid); border-radius: 4px; transform-origin: left; animation: chan-drain linear forwards; }
+@keyframes chan-drain { from { transform: scaleX(var(--from, 1)); } to { transform: scaleX(0); } }
+:root[data-motion="reduce"] .chan-timer i { animation: none !important; transform: scaleX(var(--left, 1)); }  /* 不播动画：每秒跟着剩下的时间停在那儿 */
+.chan-code-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chan-code-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.chan-paired { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 18px; color: var(--ok); background: var(--ok-soft); border-radius: 16px; }
+.chan-paired > div { min-width: 0; display: grid; gap: 2px; }
+.chan-paired b { font-size: 15px; overflow-wrap: anywhere; }
+.chan-paired span { font-size: 12.5px; color: var(--ink-2); }
+.chan-check { flex: none; display: grid; place-items: center; width: 40px; height: 40px; color: var(--on-ink); background: var(--ok); border-radius: 50%; }
+.chan-check .icon { width: 20px; height: 20px; stroke-width: 2.6; }
+/* 确认方式：三个选项，和定时任务里选的样子一样 */
+.chan-modes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.chan-mode { position: relative; display: grid; gap: 2px; min-width: 0; padding: 11px 42px 12px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 13px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s var(--ease); }
+.chan-mode:hover { border-color: var(--ink-3); }
+.chan-mode:active { transform: scale(.99); }
+.chan-mode b { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.chan-mode span { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.chan-mode .icon { position: absolute; right: 14px; top: 13px; width: 15px; height: 15px; color: var(--accent); opacity: 0; transform: scale(.5); transition: opacity .15s ease, transform .3s var(--spring); }
+.chan-mode[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chan-mode[aria-checked="true"] .icon { opacity: 1; transform: none; }
+.chan-mode[data-mode="all"][aria-checked="true"] { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.chan-mode[data-mode="all"][aria-checked="true"] .icon { color: var(--err); }
+/* 向导的底栏：贴在这一页的底部，和 MCP 的表单一样 */
+.chan-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 4px -22px 0; padding: 12px 22px 14px; background: var(--sheet); border-top: 1px solid var(--line); }
+.chan-foot .chan-help { flex: 1 1 200px; min-width: 0; margin: 0 auto 0 0; }
+.chan-foot .chan-help.bad { color: var(--err); }
+.chan-foot .chan-help.good { color: var(--ok); }
+.extensions:has(#panel-channels:not([hidden]) .chan-foot) #extensions-message { display: none; }
+.chan-link { padding: 0; font-size: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; white-space: nowrap; }
+.chan-link:hover { color: var(--ink); }
+/* 主区域顶上：聊天里有一个操作在等你批准（和定时任务的那条提示一个位置；两条都有时，这一条排在下面） */
+.chan-alert { position: absolute; z-index: 5; top: 62px; left: 50%; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 32px); padding: 5px 6px 5px 13px; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--warn-line); border-radius: 999px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
+.chan-alert[hidden] { display: none; }
+.task-alert:not([hidden]) ~ .chan-alert { top: 104px; }
+.chan-alert-open { display: inline-flex; align-items: center; gap: 7px; min-width: 0; padding: 0 4px 0 0; font: inherit; color: inherit; background: none; border: 0; }
+.chan-alert-open span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-alert-open .icon { flex: none; width: 14px; height: 14px; color: var(--warn); }
+.chan-alert .mini { flex: none; border-radius: 999px; }
+@media (max-width: 640px) {
+  /* 窄窗口：说明卡片里的"手机"收起来；一行放不下名字、开关和按钮时，开关和按钮挪到第二行；四步只留数字 */
+  .chan-hero { grid-template-columns: minmax(0, 1fr); padding: 22px 18px 20px; }
+  .chan-phone { display: none; }
+  .chan-main { flex-wrap: wrap; gap: 0; padding-bottom: 6px; }
+  .chan-open { flex: 1 0 100%; padding-right: 14px; padding-bottom: 4px; }
+  .chan-main > .chan-switch { margin-left: 61px; }
+  .chan-slot { flex: 1; align-self: center; height: 32px; width: auto; }
+  .chan-chats { padding-left: 15px; }
+  .chan-step { justify-content: center; }
+  .chan-step span { display: none; }
+  .chan-foot .chan-help { flex-basis: 100%; }
+}

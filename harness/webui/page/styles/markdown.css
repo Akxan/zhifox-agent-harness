@@ -1,0 +1,65 @@
+/* ---- 回复里的 Markdown ------------------------------------------------------
+   回复按 Markdown 画成标题、列表、表格、代码块（怎么解析、怎么建元素见 markdown.js），这里只管样子。
+   正文沿用消息的字号和行高；标题用和问候语一样的衬线字体；代码、表格、引用都是安静的灰色调，不和"极光"抢眼。
+   宽的代码和表格在自己的框里横向滚动，不把对话这一栏撑破。 */
+:root { --code-k: #6236d0; --code-s: #0b7350; --code-n: #a24a06; }  /* 代码着色：关键字、字符串、数字。在代码块的底色上对比度都在 5:1 以上 */
+:root[data-theme="dark"] { --code-k: #b7a8ff; --code-s: #5fd3a5; --code-n: #f3b061; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .75em; }
+.md h1, .md h2, .md h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em; }
+.md h1 { margin: 1.3em 0 .5em; font-size: 1.45em; line-height: 1.3; }
+.md h2 { margin: 1.25em 0 .45em; font-size: 1.24em; line-height: 1.38; }
+.md h3 { margin: 1.15em 0 .4em; font-size: 1.08em; line-height: 1.45; }
+.md h4, .md h5, .md h6 { margin: 1.05em 0 .35em; font-size: 1em; font-weight: 650; }
+.md h6 { color: var(--ink-2); }
+.md strong { font-weight: 650; }
+.md del { color: var(--ink-3); }
+.md a { text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.md a:hover { text-decoration-color: currentColor; }
+.md :not(pre) > code { padding: .1em .38em; font: .87em/1 var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; }
+.md ul, .md ol { margin: 0 0 .75em; padding-left: 1.6em; }
+.md li > p { margin: 0 0 .45em; }
+.md .md-tight > li > p { margin: 0; }
+.md .md-tight > li + li { margin-top: .12em; }
+.md li > ul, .md li > ol, .md li > blockquote, .md li > .md-code, .md li > .md-table { margin: .3em 0 .45em; }
+.md li::marker { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 任务列表：方框放在原来圆点的位置上，文字和别的项对齐。只显示，不能点 */
+.md .md-task { list-style: none; }
+.md .md-task input { appearance: none; display: inline-block; width: 15px; height: 15px; margin: 0 .5em 0 -1.5em; vertical-align: -2px; background: var(--surface) center / 11px no-repeat; border: 1.5px solid var(--line-3); border-radius: 5px; }
+.md .md-task input:checked { background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.3l2.4 2.3 4.6-5' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); border-color: var(--accent); }
+:root[data-theme="dark"] .md .md-task input:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.3l2.4 2.3 4.6-5' fill='none' stroke='%23121318' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.md blockquote { margin: 0 0 .75em; padding: .05em 0 .05em 1em; color: var(--ink-2); border-left: 2px solid var(--line-2); }
+.md hr { height: 1px; margin: 1.5em 0; background: var(--line-2); border: 0; }
+/* 代码块：上面一条写着语言和"复制"按钮，代码在下面，太宽就在框里横向滚动（不折行，缩进才看得清） */
+.md-code { margin: 1em 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.md-code-bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 14px; border-bottom: 1px solid var(--line); }
+.md-code-lang { flex: 1; min-width: 0; font: 500 11.5px/1 var(--mono); letter-spacing: .03em; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-code .md-copy { opacity: .72; transition: opacity .15s ease, transform .15s var(--ease); }
+.md-code:hover .md-copy, .md-code .md-copy:focus-visible { opacity: 1; }
+@media (hover: none) { .md-code .md-copy { opacity: 1; } }
+.md-code pre { padding: 12px 16px 14px; overflow-x: auto; font: 13px/1.65 var(--mono); white-space: pre; overflow-wrap: normal; tab-size: 4; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.md-code code { font: inherit; }
+.tk-k { color: var(--code-k); }
+.tk-s, .tk-add { color: var(--code-s); }
+.tk-n { color: var(--code-n); }
+.tk-c { color: var(--ink-3); }
+.tk-del { color: var(--err); }
+/* 表格：框跟着内容的宽度走，超过这一栏就在框里横向滚动。每格至少有五六个字宽，窄屏上中文不会被挤成一两个字一行 */
+.md-table { width: fit-content; max-width: 100%; margin: 1em 0; overflow-x: auto; overflow-wrap: normal; border: 1px solid var(--line); border-radius: 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.md-table table { border-collapse: collapse; font-size: 14px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { min-width: 6.5em; padding: 7px 14px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
+@media (max-width: 760px) { .md-table th, .md-table td { padding: 7px 10px; } }
+.md-table th { font-weight: 600; background: var(--sunken); }
+.md-table tbody tr > * { border-top: 1px solid var(--line); }
+.md-table th + th, .md-table td + td { border-left: 1px solid var(--line); }
+.md-table tbody tr:hover { background: var(--hover); }
+.md-table .md-center { text-align: center; }
+.md-table .md-right { text-align: right; }
+/* 图片不加载：一个虚线框里是图片的记号、说明文字和网址。网址安全的话整个框是链接，点开在新标签页里看 */
+.md-image { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0 10px 0 8px; vertical-align: bottom; font-size: .92em; color: var(--ink-2); text-decoration: none; background: var(--surface); border: 1px dashed var(--line-2); border-radius: 8px; }
+a.md-image:hover { color: var(--ink); border-color: var(--line-3); }
+.md-image .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.md-image-alt, .md-image-url { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-image-url { max-width: 24em; font: .88em var(--mono); color: var(--ink-3); }
+.md-plain { white-space: pre-wrap; }  /* 万一渲染出错，退回纯文字时保留换行 */

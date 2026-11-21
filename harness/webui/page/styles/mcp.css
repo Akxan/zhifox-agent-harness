@@ -1,0 +1,147 @@
+/* ---- 扩展 · MCP --------------------------------------------------------------
+   一页里有几种"视图"：服务器列表、一个服务器的详情、添加 / 编辑的表单、粘贴 JSON、从 Claude 导入。
+   换视图时内容淡入并稍微滑一下（只改 transform 和 opacity，见脚本里的 mcpEnter）。 */
+.mcp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.mcp-lead { flex: 1 1 240px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); text-wrap: pretty; }
+.mcp-tools-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.mcp-button { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; font-size: 13px; }
+.mcp-button .icon { width: 14px; height: 14px; }
+.mcp-note { display: flex; gap: 10px; margin: 0 0 12px; padding: 10px 14px; font-size: 12.5px; line-height: 1.6; border-radius: 12px; overflow-wrap: anywhere; }
+.mcp-note .icon { margin-top: 2px; }
+.mcp-note.bad { color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); }
+.mcp-note.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.mcp-note.calm { color: var(--ink-2); background: var(--hover); }
+.mcp-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }  /* minmax(0, …)：不然一行很长的命令会把整列撑宽 */
+/* 一个服务器一行。右边是启用开关，最右边一格平时写着有几个工具；鼠标移上去（或者键盘移到这一行），
+   那一格淡出、换成和会话行、记忆行一样的按钮（重启，然后是在访达中显示、编辑、删除），只改透明度，开关不挪位置 */
+.mcp-server { position: relative; display: flex; align-items: center; gap: 10px; min-height: 64px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s ease, box-shadow .2s ease; }
+.mcp-server:hover, .mcp-server:focus-within { border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.mcp-open { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 13px 0 13px 15px; text-align: left; background: none; border: 0; border-radius: 14px; }
+.mcp-slot { position: relative; flex: none; align-self: stretch; width: 116px; }
+.mcp-count { position: absolute; right: 14px; top: 50%; max-width: 104px; transform: translateY(-50%); font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; transition: opacity .15s ease; }
+.mcp-server:hover .mcp-count, .mcp-server:focus-within .mcp-count { opacity: 0; }
+.mcp-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mcp-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mcp-name { min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcp-kind { flex: none; padding: 0 6px; font: 10.5px/1.65 var(--mono); color: var(--ink-3); border: 1px solid var(--line-2); border-radius: 5px; }
+.mcp-meta { font-size: 12px; line-height: 1.45; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcp-command { font: 11.5px/1.45 var(--mono); }
+.mcp-error { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 12px; line-height: 1.55; color: var(--err); overflow-wrap: anywhere; }
+.mcp-said { display: block; margin-top: 1px; font: 11.5px/1.5 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.mcp-flag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
+.mcp-flag.calm { color: var(--ink-3); background: var(--hover); border-color: transparent; }
+.mcp-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.mcp-server:hover .mcp-actions, .mcp-server:focus-within .mcp-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .mcp-actions { opacity: 1; pointer-events: auto; } .mcp-count { display: none; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+.mcp-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.mcp-confirm { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 12px 16px; font-size: 13px; }
+.mcp-confirm span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+/* 状态圆点：已连接是绿的，连接中有一圈向外荡开的光（只改 transform 和 opacity），失败是红的，停用是空心的 */
+.mcp-dot { position: relative; width: 9px; height: 9px; flex: none; margin-top: 6px; border-radius: 50%; background: var(--ink-3); transition: background-color .3s ease, box-shadow .3s ease; }
+.mcp-dot.ready { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.mcp-dot.connecting { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.mcp-dot.connecting::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid var(--accent); border-radius: 50%; opacity: 0; animation: halo 1.6s var(--ease) infinite; }
+.mcp-dot.failed { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.mcp-dot.disabled { background: none; border: 1.6px solid var(--ink-3); }
+@keyframes halo { from { opacity: .8; transform: scale(.45); } to { opacity: 0; transform: scale(1.35); } }
+/* 开关：一个 role="switch" 的按钮。圆钮滑过去用 transform；关着的轨道用 --line-3，和底色有 3:1 以上的对比 */
+.mcp-switch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; background: var(--line-3); border: 0; border-radius: 999px; transition: background-color .2s ease; }
+.mcp-switch::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .3s var(--spring); }
+.mcp-switch[aria-checked="true"] { background: var(--ok); }
+.mcp-switch[aria-checked="true"]::after { transform: translateX(15px); }
+.mcp-switch.warn[aria-checked="true"] { background: var(--warn-dot); }
+.mcp-switch:disabled { opacity: .45; }
+.mcp-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.mcp-link { padding: 0; font-size: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; white-space: nowrap; }
+.mcp-link:hover { color: var(--ink); }
+/* 空的时候：说清楚 MCP 是什么，给一个例子，再给三个入口 */
+.mcp-empty { position: relative; overflow: hidden; padding: 26px 24px 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.mcp-empty::before { content: ""; position: absolute; right: -60px; top: -80px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(closest-side, var(--a1), transparent); opacity: .14; pointer-events: none; }
+.mcp-empty-mark { position: relative; display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 14px; color: #fff; background: var(--aurora-solid); border-radius: 14px; box-shadow: 0 8px 24px rgba(90, 69, 224, .28); }
+.mcp-empty-mark .icon { width: 22px; height: 22px; stroke-width: 2; }
+.settings .mcp-empty h3 { position: relative; margin: 0 0 8px; font: 600 19px/1.3 var(--serif); }
+.mcp-empty p { position: relative; max-width: 46em; margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.mcp-example { position: relative; margin: 4px 0 16px; padding: 12px 14px; font: 12px/1.65 var(--mono); color: var(--ink-2); background: var(--sunken); border-radius: 12px; overflow-x: auto; white-space: pre; scrollbar-width: thin; }
+.mcp-empty .row { position: relative; }
+/* 详情、表单这些"下一层"的视图：顶上一行是返回按钮和标题 */
+.mcp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.mcp-back { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px 0 6px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 9px; }
+.mcp-back:hover { color: var(--ink); background: var(--hover); }
+.mcp-back .icon { transform: scaleX(-1); }
+/* 前面带上 .settings：设置面板的 h3、label、section 都有自己的样式，不带的话盖不过它们 */
+.settings .mcp-title { flex: 1 1 160px; min-width: 0; display: flex; align-items: center; gap: 10px; margin: 0; font-size: 17px; font-weight: 600; }
+.settings .mcp-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings .mcp-title .mcp-dot { margin-top: 0; }
+.mcp-card { margin-bottom: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.mcp-card h4 { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.mcp-card h4 .sub { font-weight: 400; letter-spacing: 0; }
+.mcp-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 16px; margin: 0; font-size: 13px; }
+.mcp-facts dt { color: var(--ink-3); }
+.mcp-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.mcp-facts .mono { font: 12.5px/1.55 var(--mono); }
+.mcp-tool-list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 -6px; padding: 0; list-style: none; }
+.mcp-tool { display: flex; align-items: center; gap: 14px; padding: 9px 6px; border-radius: 10px; }
+.mcp-tool + .mcp-tool { border-top: 1px solid var(--line); }
+.mcp-tool-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mcp-tool-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 600 12.5px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.mcp-tool-desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.mcp-tool-desc.open { -webkit-line-clamp: unset; }
+.mcp-hint-tag { padding: 0 6px; font: 10.5px/1.6 var(--sans); font-weight: 400; color: var(--ink-3); background: var(--hover); border-radius: 5px; }
+.mcp-hint-tag.risky { color: var(--warn); background: var(--warn-soft); }
+.mcp-log { max-height: 260px; overflow: auto; margin: 0; padding: 10px 12px; font: 11.5px/1.65 var(--mono); color: var(--ink-2); background: var(--sunken); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+.mcp-log .ours { color: var(--accent); }
+.mcp-log time { color: var(--ink-3); }
+.mcp-skeleton { height: 13px; margin: 8px 0; border-radius: 6px; background: var(--hover); animation: breathe 1.4s ease-in-out infinite; }
+/* 表单 */
+.mcp-form { display: grid; gap: 16px; }
+.settings .mcp-field { display: grid; align-items: stretch; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.mcp-field .field, .mcp-area { width: 100%; font: 13px var(--mono); color: var(--ink); }
+.mcp-area { min-height: 92px; padding: 9px 12px; line-height: 1.6; resize: vertical; background: var(--surface); border: 1px solid var(--line-3); border-radius: 10px; outline: 0; }
+.mcp-area:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.mcp-area.paste { min-height: 220px; }
+.mcp-help { font-size: 12px; font-weight: 400; line-height: 1.55; color: var(--ink-3); }
+.mcp-help.warn { color: var(--warn); }
+.mcp-seg { display: inline-flex; gap: 3px; width: fit-content; max-width: 100%; padding: 3px; background: var(--hover); border-radius: 11px; }
+.mcp-seg button { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.mcp-seg button .icon { width: 14px; height: 14px; }
+.mcp-seg button[aria-checked="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
+.mcp-pairs { display: grid; gap: 6px; }
+.mcp-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 6px; align-items: center; }
+.mcp-pair .field { width: 100%; font: 12.5px var(--mono); }
+.mcp-pair-add { justify-self: start; height: 28px; padding: 0 10px; font-size: 12.5px; color: var(--accent); background: none; border: 0; border-radius: 8px; }
+.mcp-pair-add:hover { background: var(--accent-soft); }
+.settings .mcp-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.mcp-check input, .mcp-pick input { width: 16px; height: 16px; flex: none; margin: 0; accent-color: var(--accent); }
+/* 表单、导入、粘贴的底栏：贴在这一页的底部，长表单往下滚的时候也一直看得到"保存" */
+.mcp-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 18px -22px 0; padding: 12px 22px 14px; background: var(--sheet); border-top: 1px solid var(--line); }
+.mcp-foot .mcp-help { flex: 1 1 200px; margin-right: auto; }
+/* 有了这一条底栏，对话框自己最下面那一行提示就先收起来（这些视图的提示写在底栏里），免得叠成两条 */
+.extensions:has(#panel-mcp:not([hidden]) .mcp-foot) #extensions-message { display: none; }
+.mcp-foot .mcp-help.bad { color: var(--err); }
+/* 导入、粘贴：一个来源一组，一个服务器一个勾选框 */
+.mcp-pick-group { margin-bottom: 14px; }
+.mcp-pick-group h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.mcp-pick-group h4 .path { font: 400 11.5px/1.5 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.mcp-picks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.settings .mcp-pick { display: flex; align-items: flex-start; gap: 11px; padding: 11px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+.mcp-pick:hover { border-color: var(--line-2); }
+.mcp-pick:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.mcp-pick:has(input:disabled) { cursor: default; opacity: .7; }
+.mcp-pick input { margin-top: 2px; }
+.mcp-pick-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ink-3); }
+.mcp-pick-words b { font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.mcp-pick-words .mcp-command { overflow-wrap: anywhere; color: var(--ink-2); }
+.mcp-pick-words .bad { color: var(--err); }
+.mcp-pick-words .warn { color: var(--warn); }
+@media (max-width: 640px) {
+  /* 窄窗口：一行放不下名字、命令、开关和按钮，开关和按钮挪到第二行（按钮仍然在最右边），名字和出错的原因有地方完整显示 */
+  .mcp-server { flex-wrap: wrap; gap: 0; padding-bottom: 6px; }
+  .mcp-open { flex: 1 0 100%; padding-right: 14px; padding-bottom: 4px; }
+  .mcp-server > .mcp-switch { margin-left: 36px; }
+  .mcp-slot { flex: 1; align-self: center; height: 32px; width: auto; }
+  .mcp-foot .mcp-help { flex-basis: 100%; }
+  .mcp-pair { grid-template-columns: minmax(0, 1fr) auto; }
+  .mcp-pair .field:nth-child(2) { grid-column: 1; }
+  .mcp-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .mcp-facts dd { margin-bottom: 6px; }
+}

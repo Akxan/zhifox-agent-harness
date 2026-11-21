@@ -1,0 +1,19 @@
+/* ---- 动画 ---------------------------------------------------------------- */
+/* 入场动画只加在"此刻刚发生"的内容上（脚本负责判断）；重放旧对话时不加，整段一起淡入 */
+.enter { animation: enter .34s var(--ease) backwards; }
+.msg.user.enter { animation: send .42s var(--ease) backwards; }
+@keyframes enter { from { opacity: 0; transform: translateY(10px); } }
+@keyframes send { from { opacity: 0; transform: translateY(18px) scale(.94); } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes reveal { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes drop { from { opacity: 0; transform: translateY(-12px); } }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(14px) scale(.975); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop { from { opacity: 0; transform: scale(.4); } }
+@keyframes breathe { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes twinkle { 0%, 100% { opacity: .5; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.12) rotate(45deg); } }
+@keyframes glow { 50% { opacity: .3; } }
+@keyframes found { 12%, 55% { opacity: 1; } }
+@keyframes dot { 30% { opacity: 1; transform: translateY(-2px); } 60% { opacity: .3; transform: none; } }
+@keyframes ring { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.03, 1.16); } }

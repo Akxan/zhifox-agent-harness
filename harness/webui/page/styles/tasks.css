@@ -1,0 +1,137 @@
+.tasks-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.tasks-view[hidden] { display: none; }
+.task-new { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 8px; padding: 8px 12px; font-size: 13px; color: var(--ink-2); text-align: left; background: none; border: 1px dashed var(--line-3); border-radius: 12px; transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
+.task-new:hover { color: var(--ink); border-color: var(--ink-3); background: var(--hover); }
+.task-new .icon { width: 14px; height: 14px; }
+/* minmax(0, 1fr)：网格里的格子默认至少和里面最宽的东西一样宽，一条很长的命令就会把整列撑出栏外 */
+.task-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; padding: 0; list-style: none; }
+.task { position: relative; border-radius: 12px; transition: background-color .15s ease, box-shadow .15s ease; }
+.task:hover, .task:focus-within, .task.running { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.task.running::before { content: ""; position: absolute; left: 0; top: 14px; height: 22px; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(var(--a1), var(--a3)); }
+.task-main { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.task-main > .icon { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--ink-3); }
+/* 类型写成 kind-…：不能直接叫 reminder，那是"到点的提醒卡片"的样式名，撞上了，"只提醒"的任务那一行就会被画成一张提醒卡片 */
+.task.kind-agent .task-main > .icon { color: var(--accent); }
+.task.off .task-main { opacity: .55; }
+.task-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-title { font-size: 13.5px; line-height: 1.4; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-meta { font-size: 11.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.task-last { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 上次运行的时间、补跑、花费：只占一行，放不下就在末尾省略（不然悬停时右边让出位置，这几个字会被挤成一条窄竖条） */
+.task-last > span:last-child { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-last .chip { flex: none; }
+.chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1; color: var(--ink-2); background: var(--hover); border-radius: 6px; white-space: nowrap; }
+.chip.done { color: var(--ok, #1a7f37); background: color-mix(in srgb, var(--ok, #1a7f37) 12%, transparent); }
+.chip.failed, .chip.missed { color: var(--err); background: var(--err-soft); }
+.chip.waiting { color: var(--warn); background: var(--warn-soft); }
+.chip.running { color: var(--accent); background: var(--accent-soft); }
+/* 悬停时出现的按钮浮在文字上面（左边一段渐隐的底色），不去改文字的内边距：那样整行会重新排版、跳一下 */
+.task-actions { position: absolute; right: 6px; top: 7px; display: flex; gap: 2px; padding-left: 22px; background: linear-gradient(90deg, transparent, var(--surface) 22px); border-radius: 0 10px 10px 0; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; }
+.task:hover .task-actions > *, .task:focus-within .task-actions > * { pointer-events: auto; }  /* 渐变那一截不接点击，点在上面还是打开任务（见待办那里） */
+@media (hover: none) { .task-actions { opacity: 1; } .task-actions > * { pointer-events: auto; } .task-words > * { padding-right: 112px; } .task.running .task-words > * { padding-right: 0; } }  /* 触屏上一直显示，位置一直留着 */
+/* 标题那一行：名字（太长就省略）+ 放宽了确认方式的小标签 */
+.task-title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.task-title-line .task-title { flex: 0 1 auto; min-width: 0; }
+.chip.task-mode { flex: none; gap: 4px; height: 17px; padding: 0 6px; font-size: 10.5px; }
+.chip.task-mode .icon { width: 11px; height: 11px; }
+.chip.task-mode.edits { color: var(--warn); background: var(--warn-soft); }
+.chip.task-mode.all { color: var(--err); background: var(--err-soft); }
+.task-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.task-confirm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 9px 10px; font-size: 13px; }
+.task-confirm-row span { flex: 1 1 120px; min-width: 0; }
+/* 正在运行的那一项展开的进度 */
+.task-progress { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; margin: 0 10px; padding: 2px 0 11px; }
+.task-bar { position: relative; height: 3px; overflow: hidden; background: var(--hover); border-radius: 2px; }
+.task-bar i { position: absolute; inset: 0; width: 40%; border-radius: 2px; background: linear-gradient(90deg, var(--a1), var(--a3)); animation: task-slide 1.6s cubic-bezier(.4, 0, .2, 1) infinite; }
+.task.waiting .task-bar i { width: 100%; animation: none; background: var(--warn); opacity: .5; }
+.task.queued .task-bar i { width: 100%; animation: none; background: var(--line-3); }
+@keyframes task-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+:root[data-motion="reduce"] .task-bar i { width: 100%; transform: none; opacity: .45; animation: none; }
+.task-activity { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.task-figures { display: flex; gap: 10px; margin: 0; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.task-log { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font: 11.5px/1.45 var(--mono); color: var(--ink-3); }
+.task-log li { display: flex; gap: 6px; min-width: 0; }
+.task-log li span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-log .mark { flex: none; width: 12px; text-align: center; }
+.task-log .ok .mark { color: var(--ok, #1a7f37); }
+.task-log .task-log-auto { flex: none; font: 500 10.5px/1.6 var(--sans); color: var(--warn); }
+.task-log .bad .mark { color: var(--err); }
+.task-ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 11px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 10px; }
+.task-ask code { font: 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.task-ask .row, .task-progress .row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 到点的提醒 */
+.reminders { display: grid; gap: 6px; }
+.reminders:not(:empty) { margin-bottom: 10px; }
+.reminder { display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; padding: 10px 11px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 12px; }
+.reminder > .icon { grid-row: span 3; width: 15px; height: 15px; margin-top: 2px; color: var(--accent); }
+.reminder b { font-size: 13.5px; font-weight: 600; }
+.reminder p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.reminder .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--ink-3); }
+.reminders .all { justify-self: end; }
+.task-notify { display: grid; gap: 6px; margin-top: 12px; padding: 10px 11px; font-size: 12px; line-height: 1.55; color: var(--ink-3); border: 1px solid var(--line); border-radius: 12px; }
+.task-empty { padding: 6px 6px 2px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
+.task-example { display: block; width: 100%; margin-top: 8px; padding: 9px 11px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; transition: border-color .15s ease; }
+.task-example:hover { border-color: var(--ink-3); color: var(--ink); }
+.task-example b { display: block; font-weight: 600; color: var(--ink); }
+/* 主区域顶部：任务在等你确认或者正在运行 */
+.task-alert { position: absolute; z-index: 5; top: 62px; left: 50%; display: inline-flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 7px 14px; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--shadow-2); transform: translateX(-50%); animation: drop .4s var(--ease); }
+.task-alert[hidden] { display: none; }
+.task-alert span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-alert-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.task-alert.waiting .task-alert-dot { background: var(--warn); }
+/* 编辑任务 */
+.settings.task-editor { width: min(600px, calc(100vw - 32px)); }
+.task-form { display: grid; gap: 16px; padding-bottom: 16px; }
+.settings .task-field { display: grid; gap: 7px; }
+.task-label { font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.task-prompt { height: auto; min-height: 96px; padding: 9px 12px; line-height: 1.6; resize: vertical; }
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 3px; width: fit-content; max-width: 100%; padding: 3px; background: var(--hover); border-radius: 11px; }
+.segmented button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: 8px; transition: color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+.segmented button .icon { width: 14px; height: 14px; }
+.segmented button[aria-checked="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
+.task-when { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.task-when [hidden] { display: none !important; }
+.settings .task-inline { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); }
+.task-inline input { width: 74px; }
+.task-inline select { width: auto; }
+.task-days { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-days button { min-width: 38px; height: 32px; padding: 0 8px; font-size: 12.5px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-3); border-radius: 9px; }
+.task-days button[aria-pressed="true"] { color: var(--on-ink); background: var(--ink); border-color: transparent; }
+.task-preview { margin: 2px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.task-preview.bad { color: var(--err); }
+.settings .task-check { gap: 9px; font-size: 13px; color: var(--ink-2); }
+/* 要不要先问你：和对话里的"助手动手之前，要不要先问你"同样的三档、同样的说法，排得紧凑一些 */
+#task-approval-field[hidden], .task-approval-warning[hidden] { display: none; }
+.task-approval { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.task-approval-option { position: relative; display: grid; gap: 2px; min-width: 0; padding: 9px 40px 10px 12px; text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s var(--ease); }
+.task-approval-option:hover { border-color: var(--ink-3); }
+.task-approval-option:active { transform: scale(.99); }
+.task-approval-option b { font-size: 13px; font-weight: 600; color: var(--ink); }
+.task-approval-option span { font-size: 12px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.task-approval-option .icon { position: absolute; right: 13px; top: 11px; width: 15px; height: 15px; color: var(--accent); opacity: 0; transform: scale(.5); transition: opacity .15s ease, transform .3s var(--spring); }
+.task-approval-option[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.task-approval-option[aria-checked="true"] .icon { opacity: 1; transform: none; }
+.task-approval-option[data-approval="all"][aria-checked="true"] { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.task-approval-option[data-approval="all"][aria-checked="true"] .icon { color: var(--err); }
+.task-approval-warning { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 0; padding: 9px 12px; font-size: 12.5px; line-height: 1.55; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 10px; }
+.task-approval-warning .icon { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.task-approval-hint { margin-top: 2px; }
+/* 任务详情里的"要不要先问你" */
+.task-mode-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
+.task-mode-line .chip.task-mode { height: 20px; font-size: 11.5px; }
+.task-mode-line .chip.task-mode.ask { color: var(--ink-2); background: var(--hover); }
+/* 任务详情 */
+.settings.task-detail { width: min(680px, calc(100vw - 32px)); }
+.task-detail-body { display: grid; gap: 4px; padding-bottom: 16px; }
+.task-detail-body section { padding: 14px 0; }
+.task-detail-body section:first-child { border-top: 0; padding-top: 4px; }
+.task-detail-body pre { margin: 0; padding: 12px 14px; font: 13px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.task-next { margin: 0; font-size: 13.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.task-next small { color: var(--ink-3); font-size: 12px; }
+.runs { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.run { display: grid; gap: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.run .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.run .row .open { margin-left: auto; }
+.run p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); overflow-wrap: anywhere; }
+.run p.bad { color: var(--err); }
