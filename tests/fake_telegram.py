@@ -236,10 +236,15 @@ class FakeTelegram:
         chat: int | None = None,
         private: bool = True,
         photo: bytes | None = None,
+        photo_sizes: list[tuple[int, bytes]] | None = None,
         document: tuple[str, str, bytes] | None = None,
         extra: dict | None = None,
     ) -> dict:
-        """你（或者别人）给机器人发了一条消息。document 是（文件名，类型，内容）。"""
+        """你（或者别人）给机器人发了一条消息。document 是（文件名，类型，内容）。
+
+        photo_sizes：一张照片的几种尺寸，[(长边的像素, 内容), ...]，从小到大（真的 Telegram 就是这样给的）。
+        只给 photo 的话，是 90 和 800 两种尺寸、内容相同的一张。
+        """
         chat_id = chat if chat is not None else user
         message: dict = {
             "message_id": self._next_update + 1000,
@@ -247,13 +252,16 @@ class FakeTelegram:
             "chat": {"id": chat_id, "type": "private" if private else "group"},
             "date": int(time.time()),
         }
-        if photo is not None:
-            small, big = f"photo-small-{self._next_update}", f"photo-big-{self._next_update}"
-            self.files[small], self.files[big] = photo, photo
-            message["photo"] = [
-                {"file_id": small, "file_unique_id": small, "width": 90, "height": 90, "file_size": len(photo)},
-                {"file_id": big, "file_unique_id": big, "width": 800, "height": 800, "file_size": len(photo)},
-            ]
+        if photo is not None and photo_sizes is None:
+            photo_sizes = [(90, photo), (800, photo)]
+        if photo_sizes is not None:
+            message["photo"] = []
+            for edge, content in photo_sizes:
+                file_id = f"photo-{edge}-{self._next_update}"
+                self.files[file_id] = content
+                # 横着拍的照片：长边是宽
+                size = {"file_id": file_id, "file_unique_id": file_id, "width": edge, "height": edge * 3 // 4, "file_size": len(content)}
+                message["photo"].append(size)
             if text:
                 message["caption"] = text
         elif document is not None:
