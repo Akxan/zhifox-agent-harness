@@ -347,3 +347,6 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
   另外用户自己在 Telegram 里用过：截屏、文件工具看图片。
+  2026-11-21 用户装上后台服务（macOS launchd，给智狐用的 Python 授了"完整磁盘访问权限"和"屏幕与系统录音"）以后，
+  在 Telegram 里让它截屏并用 send_file 发回聊天，收到了：后台服务读"文稿"、截屏，和 Telegram 的 sendPhoto 都实际走通了。
+  没授权之前后台服务连 `.venv/pyvenv.cfg` 都读不了（Operation not permitted），所以项目在"文稿"里时必须授权。
