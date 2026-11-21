@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from pilot import Page
+from .pilot import Page
 
 # 用户自己的内容（或者模型、工具写的内容）：可以是任何语言，"没翻译的中文"检查不看它们。
 # 加新功能时，新的列表里显示用户内容的地方加在这里

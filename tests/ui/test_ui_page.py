@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import checks
-import steps
+from . import checks, steps
 
 # WCAG 的对比度：正文至少 4.5:1
 CONTRAST = r"""
@@ -35,6 +34,8 @@ def test_page_loads_without_errors_or_outside_resources(page):
     # 页面亮相了，状态也到了（右上角显示着模型），会话列表画出来了
     page.wait("document.getElementById('model-label').textContent.includes('claude')", what="状态到了")
     page.wait("document.querySelector('#conversation-rows .conv')", what="会话列表画好")
+    # 这一套测试是按"有鼠标的电脑"写的（悬停才出现的按钮）：先确认浏览器也这么认为（见 pilot.Browser.ARGS）
+    assert page.js("matchMedia('(hover: hover) and (pointer: fine)').matches")
     # 只从自己这里拿东西：页面的安全策略不允许外部资源，离线也要能用
     origin = page.js("location.origin")
     outside = page.js(f"performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => !name.startsWith({origin!r}) && !name.startsWith('data:'))")

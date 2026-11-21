@@ -33,10 +33,11 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from pilot import Browser, Page, until
 
 from harness.browser import chrome
 from harness.tools.shell import SECRET_ENV_VARS
+
+from .pilot import Browser, Page, until
 
 HERE = Path(__file__).parent
 DEMO = HERE.parent / "demo_web.py"

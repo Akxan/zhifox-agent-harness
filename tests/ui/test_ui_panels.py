@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import steps
+from . import steps
 
 
 def test_extension_tabs_open_with_keyboard_and_mouse(page):

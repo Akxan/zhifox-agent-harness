@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import checks
 import pytest
-import steps
 from fake_telegram import TOKEN
+
+from . import checks, steps
 
 
 @dataclass

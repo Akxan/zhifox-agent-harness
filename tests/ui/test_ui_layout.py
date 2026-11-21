@@ -7,10 +7,10 @@ CLAUDE.md 的规矩："文字永远不能冲出容器……三种语言都要看
 
 from __future__ import annotations
 
-import checks
 import pytest
-import steps
-from pilot import PHONE_WIDTH
+
+from . import checks, steps
+from .pilot import PHONE_WIDTH
 
 LONG_MESSAGE = "[ui:todo] 这是一条故意写得特别长的消息，好让会话的标题和对话里的文字都长到放不下：" + "很长的标题" * 8
 LONG_TASK = "每周五下午把这一周所有项目的进展、遇到的问题和下周的计划整理成一份周报并发给团队里的每一个人"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import steps
+from . import steps
 
 # 一边回复一边记下最后那条回复的长度：长度一点点变大，才说明是逐字出现的
 WATCH_REPLY = (

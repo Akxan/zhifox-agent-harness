@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import checks
 import pytest
-import steps
+
+from . import checks, steps
 
 
 def _translation(page, code: str, text: str) -> str:

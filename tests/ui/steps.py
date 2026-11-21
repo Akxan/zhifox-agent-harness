@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from pilot import Page
+from .pilot import Page
 
 # 页面上没有正在播的动画了（无限循环的不算，比如背景的极光和"正在工作"的圈）
 IDLE = (

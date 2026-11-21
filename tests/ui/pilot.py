@@ -38,9 +38,17 @@ class PageError(AssertionError):
 class Browser:
     """一个专门给测试用的无界面 Chrome。整个测试会话共用一个，每个测试开一个新的标签页。"""
 
+    # 窗口大小由每个标签页自己设（Emulation.setDeviceMetricsOverride），这几个参数让截图、坐标在每台机器上都一样。
+    # 最后一个是说"这是一台有鼠标的电脑"：无界面的 Chrome 在没有显示器的 Linux（CI 的机器）上可能认为自己没有鼠标，
+    # (hover: hover) 不成立，页面就按触屏的样子画（行右边的按钮一直显示），悬停的检查全都不对了
+    ARGS = (
+        "--force-device-scale-factor=1",
+        "--hide-scrollbars",
+        "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+    )
+
     def __init__(self, executable: Path, profile: Path):
-        # 窗口大小由每个标签页自己设（Emulation.setDeviceMetricsOverride），这里的参数只是让截图、坐标稳定
-        self.process = chrome.launch(executable, profile, headless=True, extra_args=["--force-device-scale-factor=1", "--hide-scrollbars"])
+        self.process = chrome.launch(executable, profile, headless=True, extra_args=list(self.ARGS))
         self.connection: Connection = self.process.connection
 
     def new_page(self) -> Page:
