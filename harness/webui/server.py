@@ -62,7 +62,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -80,7 +79,7 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import parse_qs, urlsplit
 
-from .. import export, i18n, media, memories, rewind
+from .. import export, i18n, instance, media, memories, rewind
 from .. import prompt as prompts
 from ..agents import AgentError
 from ..app import App, build_app, retry_turn, run_turn
@@ -184,10 +183,14 @@ def reveal_in_file_manager(path: Path) -> None:
 class WebApp:
     """把助手接到网页界面上，并保证同一时间只进行一轮对话。"""
 
-    def __init__(self, app: App, ui: WebUI, token: str):
+    def __init__(self, app: App, ui: WebUI, token: str, service: str | None = None):
         self.app = app
         self.ui = ui
         self.token = token
+        # 智狐是怎么开着的，设置里"后台运行"一节照着它说（见 page/scripts/service.js）：
+        # "launchd" / "systemd" 是 harness service install 装的后台服务；"terminal" 是在终端里开的 harness --web；
+        # None 是不清楚（在终端或者系统服务里开的 harness serve），那一节就不显示
+        self.service = service
         self._turn = threading.Lock()  # 谁拿着这把锁，谁就在进行一轮对话（或者正在改设置）
         # 发状态快照时用的小锁："算出快照"和"发出去"要一口气做完。同步模型、改价格这些不拿对话锁的操作
         # 可能和一轮对话同时发快照，不这样的话，先算的旧快照可能反而后发出去，把新的盖掉。
@@ -304,6 +307,7 @@ class WebApp:
             channels=self.channels.snapshot(),
             # 这台电脑能不能打开文件管理器。服务器上不能：页面上"在访达中显示"之后改成告诉你文件在哪儿
             file_manager=has_file_manager(),
+            service=self.service,  # 智狐是作为后台服务开着的，还是跟着终端（见 __init__ 里的说明）
             # 浏览器：开没开、在不在运行、正在操作没有、找到的 Chrome、配置文件夹（见 browser_api.py）
             browser=self.browser.state(),
             # 操作整台电脑：开没开、这台电脑上能不能用、权限、谁正在操作、截图留几天（见 computer_api.py）
@@ -1855,8 +1859,8 @@ def _valid_price(price: object) -> bool:
     return all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 100_000 for v in price.values())
 
 
-def create_server(app: App, ui: WebUI, port: int | None = None, token: str | None = None) -> tuple[Server, str]:
-    """创建服务器（还没有开始运行）。返回（服务器，在浏览器里打开的地址）。"""
+def create_server(app: App, ui: WebUI, port: int | None = None, token: str | None = None, service: str | None = None) -> tuple[Server, str]:
+    """创建服务器（还没有开始运行）。返回（服务器，在浏览器里打开的地址）。service 见 WebApp.service。"""
     if port is not None:
         server = Server(("127.0.0.1", port), Handler)  # 指定了端口：被占用就直接报错
     else:
@@ -1864,27 +1868,14 @@ def create_server(app: App, ui: WebUI, port: int | None = None, token: str | Non
             server = Server(("127.0.0.1", DEFAULT_PORT), Handler)
         except OSError:
             server = Server(("127.0.0.1", 0), Handler)  # 默认端口被占用：让系统挑一个空闲的
-    server.web = WebApp(app, ui, token or secrets.token_urlsafe(16))
+    server.web = WebApp(app, ui, token or secrets.token_urlsafe(16), service)
     return server, f"http://127.0.0.1:{server.server_address[1]}/?token={server.web.token}"
 
 
-def claim_data_dir(data_dir: Path) -> IO | None:
-    """占住数据目录：同一个数据目录同一时间只给一个网页界面用。占到了返回锁文件（要一直留着不关），已经被别人占了返回 None。
-
-    两个同时运行的程序各自在内存里记着会话列表，看不见对方的改动：同一段会话，后存盘的会把先存的那一轮盖掉；
-    一边删掉的会话，另一边一存盘又冒出来。
-    锁由操作系统管着，程序退出时（哪怕是崩溃）自动放开，不会出现"程序没了、锁还在"的情况。
-    """
-    data_dir.mkdir(parents=True, exist_ok=True)
-    handle = open(data_dir / ".lock", "a")  # noqa: SIM115 —— 故意不用 with：这个文件要开着直到程序退出
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        return None
-    except OSError:
-        pass  # 少数文件系统（比如某些网络盘）不支持这种锁：那就不拦了，照常启动
-    return handle
+def claim_data_dir(data_dir: Path, kind: str = "web") -> IO | None:
+    """占住数据目录：同一个数据目录同一时间只给一个智狐用。占到了返回锁文件（要一直留着不关），已经被别人占了返回 None。
+    为什么、怎么占，见 instance.py。"""
+    return instance.claim(data_dir, kind)
 
 
 def shut_down(server: Server, app: App) -> None:
@@ -1896,8 +1887,9 @@ def shut_down(server: Server, app: App) -> None:
 def run_web(config: Config, port: int | None = None, open_browser: bool = True) -> int:
     lock = claim_data_dir(config.data_dir)
     if lock is None:
-        print(t("已经有一个{name}的网页界面在运行，用的是同一个数据目录：{path}", name=APP_NAME, path=config.data_dir))
-        print(t("两个一起运行会互相覆盖对方保存的会话。请直接用已经打开的那个页面，或者先到它的终端里按 Ctrl-C 把它关掉。"))
+        # 说清楚是谁占着：作为后台服务在运行的话，告诉你怎么打开它的页面、怎么停下它（见 instance.py）
+        for line in instance.busy_lines(config.data_dir):
+            print(line)
         return 1
     try:
         return _serve(config, port, open_browser)
@@ -1909,7 +1901,8 @@ def _serve(config: Config, port: int | None, open_browser: bool) -> int:
     ui = WebUI()
     app = build_app(config, ui)
     try:
-        server, url = create_server(app, ui, port)
+        # "terminal"：跟着这个终端，终端关了它也停（设置里会说怎么装成后台服务，见 page/scripts/service.js）
+        server, url = create_server(app, ui, port, service="terminal")
     except OSError as exc:
         print(t("无法在端口 {port} 上启动：{error}", port=port, error=exc))
         return 1

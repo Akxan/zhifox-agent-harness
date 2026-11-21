@@ -95,3 +95,18 @@ def test_switch_to_another_provider_in_settings(page):
     page.wait("!document.getElementById('settings').open && document.getElementById('model-label').textContent.includes('deepseek')", what="换到 DeepSeek")
     steps.send(page, "你好")
     steps.reply(page, "我是 DeepSeek")
+
+
+def test_settings_say_how_to_keep_zhifox_running(page):
+    """设置里"后台运行"一节：演示和 harness --web 一样是跟着终端开的，所以给出装成后台服务的命令，可以复制
+    （见 page/scripts/service.js）。复制的结果写在设置面板里（窗口里的提示写在窗口里）。"""
+    steps.open_dialog(page, "#model", "settings")
+    page.wait("!document.getElementById('service-section').hidden", what="后台运行这一节")
+    assert page.text("#service-card b") == "跟着启动它的终端"
+    assert page.text("#service-card .service-command code") == "uv run harness service install"
+    assert not page.js("document.getElementById('service-card').classList.contains('on')")
+    page.js("document.querySelector('#service-card .service-command .button').scrollIntoView({ block: 'center' })")
+    page.click("#service-card .service-command .button")
+    # 无界面的 Chrome 里剪贴板可能不给用：复制成了、没成，都要在面板里说一声
+    page.wait("['已复制。', '没能复制，请手动选中复制。'].includes(document.getElementById('settings-message').textContent)", what="复制的结果")
+    steps.escape_closes(page, "settings")

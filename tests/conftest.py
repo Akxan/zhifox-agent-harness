@@ -18,6 +18,8 @@ from harness import i18n
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.service import base as service_base
+from harness.service import cli as service_cli
 
 
 class RecordingUI:
@@ -131,6 +133,14 @@ def isolated_environment(monkeypatch, tmp_path):
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
     # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
     monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
+    # 后台服务：测试永远不在这台电脑上真的装上、开起一个服务（会改动系统，还可能对着真正的数据再开一个智狐）。
+    # launchctl、systemctl、journalctl 一律不许运行，浏览器也不许打开；要测的给一个假的系统（tests/test_service.py 的 FakeSystem）
+    def forbidden(*args, **kwargs):
+        raise AssertionError(f"测试里不许运行真的系统命令或者打开浏览器：{args}")
+
+    monkeypatch.setattr(service_base, "run_command", forbidden)
+    monkeypatch.setattr(service_base, "run_attached", forbidden)
+    monkeypatch.setattr(service_cli, "_open_browser", forbidden)
 
 
 @pytest.fixture

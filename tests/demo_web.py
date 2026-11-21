@@ -82,6 +82,7 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
+parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -692,7 +693,7 @@ if fresh:
         app.tasks.add_run(plan["id"], run)
     app.tasks.add({"title": "整理下载文件夹", "kind": "agent", "prompt": "把下载文件夹里超过 30 天的文件列出来，按类型分好，先别删", "schedule": {"type": "weekly", "days": [5], "time": "18:00"}, "enabled": False})
     app.tasks.add({"title": "站起来活动一下", "kind": "reminder", "prompt": "", "schedule": {"type": "interval", "minutes": 45}})
-server, url = server_module.create_server(app, ui, port=options.port)
+server, url = server_module.create_server(app, ui, port=options.port, service=options.service)  # service：设置里"后台运行"一节（见 page/scripts/service.js）
 for name in ("feishu", "dingtalk"):  # 收消息的长连接换成假的（不用装 SDK）；发消息照常走 HTTP，连的是假服务器
     server.web.channels.factories[name] = others[name].factory
 lifecycle.start(server.web)  # 和正式程序一样，定时任务和聊天通道只在网页界面开着的时候运行

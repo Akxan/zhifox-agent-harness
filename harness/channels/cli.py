@@ -29,6 +29,7 @@ import threading
 import time
 from typing import IO
 
+from .. import instance
 from ..config import APP_NAME, Config
 from ..i18n import fill, k, t
 from ..permissions import MODES
@@ -118,16 +119,8 @@ def _yes(question: str) -> bool:
 
 
 def _running(config: Config) -> bool:
-    """智狐是不是正在运行（网页界面或者服务）：数据目录被占着就是。"""
-    from ..webui.server import (
-        claim_data_dir,  # 用到时才导入：只是看一眼，不需要整个网页服务器
-    )
-
-    lock = claim_data_dir(config.data_dir)
-    if lock is None:
-        return True
-    lock.close()
-    return False
+    """智狐是不是正在运行（网页界面或者服务）：数据目录被占着就是（见 instance.py）。"""
+    return instance.in_use(config.data_dir)
 
 
 def _when(moment: float | None) -> str:
@@ -246,9 +239,7 @@ def _wait_for_owner(store: ChannelStore, platform: str, before: dict | None, exp
 
 def _pair_here(store: ChannelStore, config: Config, platform: str, before: dict | None, expires: float, out: IO[str]) -> int:
     """智狐没开着：自己临时连上平台收配对码，配好（或者过期）就断开。"""
-    from ..webui.server import claim_data_dir
-
-    lock = claim_data_dir(config.data_dir)  # 占着数据目录，这期间别人启动不了智狐，不会两处同时收消息
+    lock = instance.claim(config.data_dir, "channels")  # 占着数据目录，这期间别人启动不了智狐，不会两处同时收消息
     if lock is None:
         return _wait_for_owner(store, platform, before, expires, out)
     channel = FACTORIES[platform](config, store)

@@ -67,6 +67,7 @@ STYLES = (
     "styles/animations.css",  # 入场动画
     "styles/browser.css",  # 浏览器
     "styles/computer.css",  # 操作整台电脑
+    "styles/service.css",  # 设置里的"后台运行"
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
 )
 
@@ -108,6 +109,7 @@ SCRIPTS = (
     "scripts/settings.js",  # 设置面板
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑
+    "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端
     "scripts/keyboard.js",  # 键盘
     "scripts/start.js",  # 开始：连上事件流
 )
