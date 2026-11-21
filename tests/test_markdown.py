@@ -48,7 +48,7 @@ def test_the_renderer_can_be_inlined_into_the_page_safely():
     # 它被原样填进页面的一个 <script> 里：里面要是出现 </script 或 <!--，浏览器会提前结束这段脚本
     assert "</script" not in code.lower() and "<!--" not in code
     # 页面里要填的那几个占位符也不能出现在它里面
-    for placeholder in ("__NONCE__", "__I18N__", "__MARKDOWN__"):
+    for placeholder in ("__NONCE__", "__TOKEN__", "__I18N__", "__MARKDOWN__"):
         assert placeholder not in code
     # 页面里给它留了位置：一个带 nonce 的 <script>，排在页面主脚本前面
     page = server.PAGE

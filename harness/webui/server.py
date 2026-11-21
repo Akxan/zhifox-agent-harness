@@ -5,6 +5,8 @@
   GET  /               页面本身（page/ 里的几块拼成的一页，见 page/__init__.py）
   GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去。
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
+  GET  /manifest.webmanifest  网页应用的清单：书签、"创建快捷方式 / 安装成应用"用的名字、图标和打开的地址（见 manifest.py）
+  GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
   POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）
@@ -59,6 +61,7 @@
      别的网站不知道口令，请求会被拒绝。
   3. 检查 Host 和 Origin 请求头，拒绝从别的网站发起的请求。
   4. 页面带有内容安全策略（CSP）：只运行我们自己的脚本，不加载任何外部资源。
+     为了能装成应用多放行了两样，都是写死的完整地址：清单那一个（manifest-src），和自带的那几张图标（img-src，见 manifest.py）。
 """
 
 from __future__ import annotations
@@ -79,7 +82,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import export, i18n, instance, media, memories, rewind
 from .. import prompt as prompts
@@ -115,6 +118,7 @@ from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
 from . import lifecycle
+from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
 from .capabilities_api import page_state as capabilities_state
@@ -1183,6 +1187,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_page()
         elif url.path == "/events":
             self._send_events()
+        elif url.path == web_manifest.MANIFEST_PATH:
+            self._send_manifest()
+        elif url.path.startswith(web_manifest.ICON_PREFIX):
+            self._send_icon(url.path.removeprefix(web_manifest.ICON_PREFIX))
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -1714,24 +1722,53 @@ class Handler(BaseHTTPRequestHandler):
         # nonce 是一个一次性的随机数：只有带着它的 <script> 和 <style> 才会被浏览器执行，
         # 这样即使页面里混进了别的脚本（比如模型输出里夹带的），浏览器也不会运行。
         nonce = secrets.token_urlsafe(16)
+        # 图片和清单这两项由 manifest.policy 写：img-src 除了 data: 只多了自带的那几张图标的地址，manifest-src 只有清单那一个地址
+        # （为什么要放行、为什么这样就够窄，见那里）。Host 已经在 _allowed 里查过，只能是 127.0.0.1:端口 或 localhost:端口
         policy = (
-            f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-            "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; "
+            f"{web_manifest.policy('http://' + self.headers.get('Host', ''))}; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
         # 翻译表和 Markdown 渲染器也在这时塞进页面（翻译表放在一段 JSON 数据里，浏览器不会执行）。
+        # 口令填进头上清单和图标的地址里：只是把打开这一页的地址里已有的东西再写一遍，quote 之后只剩字母、数字和 %-_.~。
         # 几处一次填完（re.sub 不会回头再扫一遍填进去的内容）：翻译表里万一出现 "__NONCE__"，
         # 或者 nonce 里碰巧有 "__I18N__"，都不会被当成要填的地方。
         fills = {
             "__NONCE__": nonce,
+            "__TOKEN__": quote(self.server.web.token, safe=""),
             "__I18N__": i18n.page_payload(self.server.web.app.settings.language),
             "__MARKDOWN__": MARKDOWN,
         }
-        page = re.sub("__NONCE__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
+        page = re.sub("__NONCE__|__TOKEN__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
         self._send(
             200,
             "text/html; charset=utf-8",
             page.encode(),
             {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"},
+        )
+
+    def _send_manifest(self) -> None:
+        """网页应用的清单（见 manifest.py）。里面的地址带着口令，所以和页面一样不进缓存。"""
+        self._send(
+            200,
+            "application/manifest+json; charset=utf-8",
+            to_json(web_manifest.manifest(self.server.web.token), readable=True).encode(),
+            {"Content-Security-Policy": "default-src 'none'; sandbox"},
+        )
+
+    def _send_icon(self, name: str) -> None:
+        """一张图标。name 是地址里 /icons/ 后面的那一段，原样拿去查表（不解码、不拼路径），
+        不是 manifest.ICONS 里一字不差的文件名就是 404。内容是程序自带的固定的几张图，不是你的数据，
+        所以让浏览器缓存一天（地址里带着口令，换了口令就是另一个地址）；类型写死成 image/png，不让浏览器猜。"""
+        data = web_manifest.icon_bytes(name)
+        if data is None:
+            self._send_json(404, {"error": "not found"})
+            return
+        self._send(
+            200,
+            "image/png",
+            data,
+            {"Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'; sandbox"},
         )
 
     def _send_events(self) -> None:
@@ -1822,13 +1859,13 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, "text/plain; charset=utf-8", text.encode())
 
     def _send(self, status: int, content_type: str, body: bytes, headers: dict | None = None) -> None:
+        # 默认不进缓存、不让浏览器猜类型；headers 里另写了 Cache-Control 的（图标）用它自己的
+        headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", **(headers or {})}
         self._responded = True
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        for name, value in (headers or {}).items():
+        for name, value in headers.items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)

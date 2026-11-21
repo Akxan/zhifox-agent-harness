@@ -251,6 +251,13 @@ uv run harness --web
 也不要把带地址栏的截图发到公开的地方：拿到它的人可以通过这个页面让助手在你的电脑上执行命令。
 服务器只接受本机的连接。
 
+**加个书签，或者放进程序坞。** 页面带着自己的图标和网页应用清单（manifest），标签页、书签和快捷方式上都是那只小狐狸。
+在 Chrome 里点 **⋮ → 投放、保存和分享 → 创建快捷方式**，勾上 **在窗口中打开**（或者选同一个菜单里的"安装"）：
+智狐就会在自己的窗口里打开，像别的应用一样待在程序坞（macOS）或任务栏里。macOS Sonoma 以后，程序坞里是一块奶油色圆角方块上的小狐狸。
+书签和快捷方式记住的是整个地址，口令和端口都在里面，所以请从后台服务打开的页面去做（见下面的"在后台一直运行"）：
+它的口令重启前后不变。在终端里开的 `harness --web` 每次启动都换一个口令，旧的快捷方式会打开"链接无效或已经过期"，
+那就重新做一个，或者换成后台服务。
+
 ### 智狐能做的事：功能清单
 
 信息栏里列的不是模型手里那些工具的内部名字（`todo_add`、`str_replace_based_edit_tool`、`mcp__files__echo`……），
@@ -509,6 +516,7 @@ uv run --project "/这个项目的完整路径" harness
 | 只读的命令 | [harness/commands/](harness/commands/) | 每个 `ls` 都问太烦，全部放开又太危险。一个保守的判断：一条 shell 命令是不是只是看。一个只认最简单写法的拆词器（有任何 shell 特殊含义的就不认）、每个程序一条选项的规矩、检查有没有碰到密钥的路径；还有你自己加的"不用问的命令"（见[只读的命令](#只读的命令以及为什么判断得这么保守)） |
 | 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
 | 回复里的 Markdown | [harness/webui/markdown.js](harness/webui/markdown.js) | 模型用 Markdown 回答。一个手写的小渲染器在回复逐字输出的同时把它画成标题、列表、表格、代码块，从不把模型的输出当作 HTML |
+| 应用图标 | [harness/webui/manifest.py](harness/webui/manifest.py)、[harness/webui/icons/](harness/webui/icons/)、[tests/make_icons.py](tests/make_icons.py) | 书签、Chrome 的快捷方式、装成的应用都要一张够大的图标和一份网页应用清单，不然只有一个灰底的字。几张 PNG 由无界面的 Chrome 从标志画一次、提交进仓库；服务器只发这几张，而且要带口令 |
 | 联网回答的来源 | [harness/citations.py](harness/citations.py)、[harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | 联网搜索以后，Claude 会说明每句话出自哪个网页。这些引用按每段回答编号，画成小小的记号，回答末尾列出来源（网页、终端、聊天软件里都有），跟着会话保存；发回给 API 的历史一个字不动 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
@@ -831,6 +839,18 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
 所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
 文件漏列了或者列了两次，测试会失败。
+
+应用图标是唯一一样由浏览器自己去取、不经过页面脚本的东西：判断这个页面能不能装成应用、做快捷方式的时候，它要读一份
+网页应用清单，再下载清单里列出的图标。所以它们得是真的地址：`/manifest.webmanifest` 和 `/icons/<名字>`
+（[harness/webui/manifest.py](harness/webui/manifest.py)）。两样都要带口令，和页面一样检查 Host 和 Origin。
+图标的名字拿去查一张固定的名单（智狐自带的六张 PNG），从不拼成路径，所以请求里写什么都碰不到别的文件。
+安全策略也只多放行了这几个地址：`manifest-src` 写的是清单自己的地址，`img-src` 在 `data:` 后面逐个写出这六张图的地址。
+CSP 里带路径的来源只匹配那一个路径（`?` 后面的口令不算），比 `'self'` 窄。为什么图标也要放行：Chrome 下载清单里的图标时
+同样按页面的 `img-src` 检查，不放行，它就说"找不到合适的图标"，装不成应用。清单的 `start_url` 带着口令，
+从快捷方式一点就进到页面里；`id` 只是一个 `/`，换了口令，浏览器也还认得是同一个应用。几张 PNG 由无界面的 Chrome
+从 [docs/assets/logo.svg](docs/assets/logo.svg) 画一次、提交进仓库（`uv run python tests/make_icons.py`，加上
+`--preview 某个文件夹` 还会存一张对照图）：透明底的给标签页、书签和任务栏；maskable 的那张铺着奶油色的底，狐狸整个在中间的安全区里，
+macOS Sonoma 以后的 Chrome 拿它当程序坞里的图标。应用窗口的标题栏是 `<meta name="theme-color">` 的颜色，它跟着你在页面里选的外观走，不跟系统走。
 
 页面上的动画只给"此刻正在发生"的内容：新来的消息会浮现出来，而刷新页面、打开旧会话时重放出来的内容直接显示，
 不会把几百条消息的入场动画挨个播一遍。页面怎么分辨这两种内容？服务器在补发完已有的事件之后，会多发一个名叫
@@ -1855,6 +1875,8 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 （`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`），写着 HTML 的文本文件也只当成文字。
 浏览器截图的大图也是这样取的：页面只给它的编号（64 个十六进制字符，拼不出任何路径），回答一律是 `image/jpeg`，
 带着同样的响应头，再加上 `Content-Security-Policy: default-src 'none'; sandbox`；操作电脑的截图大图从 `/api/computer/shot` 取，规矩一模一样。
+除此以外，服务器只会把应用图标（`/icons/<名字>`）的字节发给浏览器：智狐自带的六张 PNG，按名字在一张固定的名单里查（从不拼路径），
+一律是 `image/png`，带着 `nosniff` 和 `Content-Security-Policy: default-src 'none'; sandbox`；里面没有一样是你的数据。
 Linux 上没有通用的"选中某个文件"的办法，打开的是文件所在的文件夹。
 还有一个按钮会启动别的程序：macOS 上"操作整台电脑"一栏里的"打开系统设置"，它用 `open` 打开两个固定的 `x-apple.systempreferences:`
 地址之一（屏幕录制或者辅助功能）。页面只能说 `screen` 或 `input`，地址由服务器定；它只是打开那一页，从不改任何设置。
@@ -2006,7 +2028,8 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
-会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
+应用图标的清单和几张 PNG 在 [tests/test_web_manifest.py](tests/test_web_manifest.py)（口令、Host 和 Origin，名字只认固定的名单、碰不到别的文件，
+响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
 花费账本和预算在 [tests/test_ledger.py](tests/test_ledger.py)（用固定的钟测 DeepSeek 的高峰、闲时价，文件末尾的半行，
 旧明细的合并），导出在 [tests/test_export.py](tests/test_export.py)（压缩包里一个密钥都没有），
 它们在网页上的接口在 [tests/test_spending_web.py](tests/test_spending_web.py)。
@@ -2093,7 +2116,8 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 每一种存在本地的东西（会话、待办、定时任务、记忆、Skill、MCP 服务器、Agent、聊天通道）悬停和键盘移进来时都有
 "在访达中显示 / 编辑 / 删除"，删除先在原地确认；有没保存的修改时关窗口先问（Esc、×、取消、点外面、焦点不在窗口里时按 Esc）；
 下拉框的箭头是页面自己画的；扩展的四页和空状态；多媒体库和查看器；在设置里换到另一家模型；浏览器每一步的小截图；
-编辑最后一条消息和重新生成（按钮在哪儿、输入框空着时按 ↑、改过了按 Esc 先提醒、这一轮执行过命令时先确认、失败的那一轮单独一排"重新生成"、
+Chrome 自己怎么看网页应用清单（`Page.getAppManifest` 没有错、`Page.getInstallabilityErrors` 是空的、每张图标都取得到且尺寸对、
+别的图片照样被安全策略拦下）和标题栏的颜色跟着选的外观走；编辑最后一条消息和重新生成（按钮在哪儿、输入框空着时按 ↑、改过了按 Esc 先提醒、这一轮执行过命令时先确认、失败的那一轮单独一排"重新生成"、
 另一个标签页跟着变并留住它没发出去的修改）。
 这些测试里演示的回复按 [tests/demo_scripts.py](tests/demo_scripts.py) 里的剧本走（一段对话的第一条消息写着 `[ui:名字]`），
 所以测试之间不依赖先后顺序。测试失败时会存下截图、控制台输出和页面的 HTML（路径会打印出来；CI 会把它们传上去）。

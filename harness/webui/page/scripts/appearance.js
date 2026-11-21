@@ -15,8 +15,14 @@ if (!THEMES.includes(theme)) theme = 'light';
 let motion = recall('harness.motion');
 if (!MOTIONS.includes(motion)) motion = 'auto';
 
+// 装成应用（或者做成"在窗口中打开"的快捷方式）以后，窗口的标题栏是 <meta name="theme-color"> 的颜色。
+// 它跟着这里选的外观走，不跟系统走（默认是浅色，系统是深色也一样），所以不用 media 查询，而是每次换外观时改一下：
+// 取的是样式里窗口底色 --bg 的值（颜色只写在 styles/tokens.css 一处）
+const themeColor = document.querySelector('meta[name="theme-color"]');
+
 function applyTheme() {
   root.dataset.theme = theme === 'dark' || (theme === 'auto' && systemDark.matches) ? 'dark' : 'light';
+  if (themeColor) themeColor.content = getComputedStyle(root).getPropertyValue('--bg').trim();
   themeButton.dataset.mode = theme;  // 按钮上显示太阳、月亮还是显示器
   for (const tile of appearance.querySelectorAll('[data-theme-pick]')) {
     tile.setAttribute('aria-pressed', String(tile.dataset.themePick === theme));
