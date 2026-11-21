@@ -333,7 +333,8 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 @media (hover: none) { .turn-edit-open { opacity: 1; } }  /* 触屏上没有"悬停"：一直显示 */
 .turn-off .icon { opacity: .4; }  /* 现在倒不回去（点一下说为什么）：图标淡一些 */
 .turn-off:hover:not(:disabled) { color: var(--ink-3); background: none; }
-.msg.assistant.turn-last .msg-actions { opacity: 1; }
+/* 最后一个回答下面那排一直亮着。直接亮，不渐显：刷新、打开会话重放出来时也会加上这个类，重放的内容不播动画 */
+.msg.assistant.turn-last .msg-actions { opacity: 1; transition: none; }
 .turn-actions { display: flex; align-items: center; gap: 8px; margin-top: -4px; }
 .turn-actions .button { height: 32px; padding: 0 12px; font-size: 13px; }
 .turn-again .icon { transition: transform .45s var(--ease); }

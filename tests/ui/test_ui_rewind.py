@@ -37,10 +37,10 @@ def test_regenerate_and_edit_the_last_turn_in_place(page):
     # "重新生成"在最后一个回答下面那一排里，一直看得见；"编辑"浮在最后一条消息左边，悬停才出现、不占位置
     assert page.js("document.querySelector('#log .msg.assistant.turn-last .msg-actions .turn-retry') !== null")
     page.wait("getComputedStyle(document.querySelector('#log .msg.assistant.turn-last .msg-actions')).opacity === '1'", what="最后一个回答下面那排按钮一直亮着")
-    width = page.js("document.querySelector('#log > .msg.user').getBoundingClientRect().width")
+    width = page.js("document.querySelector('#log > .msg.user').offsetWidth")  # 排版的宽度（不受入场动画的缩放影响）
     page.hover("#log > .msg.user")
     page.wait("getComputedStyle(document.querySelector('.turn-edit-open')).opacity === '1'", what="悬停时编辑按钮出现")
-    assert page.js("document.querySelector('#log > .msg.user').getBoundingClientRect().width") == width  # 没有把消息挤动
+    assert page.js("document.querySelector('#log > .msg.user').offsetWidth") == width  # 没有把消息挤动
 
     # 重新生成：同一条消息，模型再答一次；对话里还是一问一答
     page.click("#log .turn-retry")
