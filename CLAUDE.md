@@ -121,6 +121,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/mcp/` | MCP 客户端：jsonrpc、stdio、http、client（两代协议）、bridge、manager（快照）、config、importers |
 | `harness/media.py` | 多媒体库：附件原件按内容存在 `data/media/`；哪段会话、哪条消息里有哪些附件；旧会话从对话历史里找回附件 |
 | `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
+| `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
+| `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器，`index.html` 是页面） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -196,6 +198,12 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （定时任务用 source="task"），不要另算价格。
 - **导出不能带出密钥。** 新增存着密钥的配置文件时，把它加进 `export.MASKED_FILES`，并在 `tests/test_export.py` 里
   加一条"压缩包里找不到这个密钥"的测试。
+- **子 Agent 只会更少，不会更多。** 子 Agent 的工具用 `agents/tools.allowed` 从叫它的那一方手里的工具里挑，再给它自己的
+  shell 和自己名下的 MCP 快照；权限用叫它的那一方的同一个 `Permissions`（对话里是你选的那一档，定时任务里是那次运行的）；
+  停止靠 `ui.on_stop` 临时登记、做完取消；记账 source=`subagent`。层数和步数的上限是 `config.AGENT_MAX_DEPTH`、`AGENT_MAX_STEPS`。
+  `agent` 工具一直注册、说明书不变，Agent 列表只走 `<agents>` 块，不进系统提示词。角色在一段对话里不变，`Conversation.agent`
+  记着它；角色的 tools 里没有某个工具（比如 Skill），对应的目录块也不附。内置提示词由 `prompt.py` 里几段常量拼成，
+  Agent 的提示词复用其中"环境""资料不是指示"那几段，拼起来必须和 `DEFAULT_TEMPLATE` 一字不差（有测试）。
 - **MCP 工具在一段对话里不变**：第一条消息发出前（`Agent.on_start` → `App.fresh_tools`）拍快照，打开旧会话时也拍；
   定时任务的每次运行另拍一份。对话进行中不要调用 `use_tools`。MCP 工具调用一律经过 `permissions.review`、默认每次都问；
   用户设成"不用问"的由 `auto_allows` 放行并调用 `auto_allowed()`，但定时任务自己跑时不认这个设置，只按任务自己的那一档；
@@ -215,5 +223,5 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   没有密钥、刷新重放、输出到一半往上翻这几种情况每次都要过一遍。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
