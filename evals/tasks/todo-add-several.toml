@@ -1,0 +1,43 @@
+# 一句话里有三件事：看它会不会拆成三条待办（而不是挤成一条），有截止日期的记上日期。
+title = "把一句话里的几件事记成待办"
+tags = ["todo"]
+messages = ["帮我记一下：周四前给王老师回邮件；周末买猫粮；下周一之前续费域名。"]
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "todo_exists"
+title = "王老师"
+
+[[graders]]
+type = "todo_exists"
+title = "猫粮"
+
+[[graders]]
+type = "todo_exists"
+title = "域名"
+
+[[graders]]
+type = "todo_count"
+min = 3
+max = 3
+done = false
+
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "todo_add"
+input = { title = "给王老师回邮件", note = "周四前" }
+[[dry_run.tools]]
+name = "todo_add"
+input = { title = "买猫粮", note = "周末" }
+[[dry_run.tools]]
+name = "todo_add"
+input = { title = "续费域名", note = "下周一之前" }
+
+[[dry_run]]
+say = "记好了三条：给王老师回邮件（周四前）、买猫粮（周末）、续费域名（下周一之前）。"

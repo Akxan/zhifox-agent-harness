@@ -1,0 +1,37 @@
+# 以前记过的事：看它会不会先去翻记忆（而不是说"我不知道你住在哪"）。城市是编的，模型不可能凭常识猜中。
+title = "想起以前记住的事"
+tags = ["memory"]
+messages = ["我住在哪个城市来着？你应该记得。"]
+
+[[memories]]
+path = "user.md"
+text = """# 关于用户
+
+- 住在乐山市（四川），在市中心上班
+- 周末喜欢爬山
+- 对花生过敏
+"""
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "reply_contains"
+text = "乐山"
+
+[[graders]]
+type = "tool_called"
+name = "memory"
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "memory"
+input = { command = "view", path = "/memories" }
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "memory"
+input = { command = "view", path = "/memories/user.md" }
+
+[[dry_run]]
+say = "记得，你住在四川乐山。"

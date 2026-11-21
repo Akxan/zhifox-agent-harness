@@ -1,0 +1,32 @@
+# 用户明确让它记住一件以后还用得上的事：看它会不会真的写进记忆（而不是嘴上说"记住了"）。
+title = "记住一个长期的偏好"
+tags = ["memory"]
+messages = ["记住：我对花生过敏。以后给我推荐吃的都要避开。"]
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "memory_contains"
+text = "花生"
+
+[[graders]]
+type = "memory_contains"
+any = ["过敏", "不能吃", "避开"]
+
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "memory"
+input = { command = "view", path = "/memories" }
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "memory"
+input = { command = "create", path = "/memories/user.md", file_text = "# 关于用户\n\n- 对花生过敏：推荐吃的时一律避开花生和含花生的东西。\n" }
+
+[[dry_run]]
+say = "记住了：你对花生过敏，以后推荐吃的都会避开。"
