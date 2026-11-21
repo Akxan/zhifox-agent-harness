@@ -1577,7 +1577,7 @@ This starts a small server on your computer and opens the chat page in your brow
   text); for old Office files only the extracted text is left, and the library says so. A single attachment can't be
   deleted, because it is part of the conversation's record; deleting the conversation deletes its originals unless
   another conversation uses the same file.
-- **Settings** (the button at the top right that shows the current model). Add or delete each provider's API key, sync
+- **Settings** (the gear at the top right, or ⌘, / Ctrl+,; the button showing the current model opens it too). Add or delete each provider's API key, sync
   each provider's model list, choose and switch models, enter model prices, and **edit the system prompt** (the text
   that tells the assistant who it is and how to work). The prompt editor has a preview of exactly what the model receives
   and a list of placeholders such as `{name}` and `{workspace}` that are filled in before sending; other braces are left

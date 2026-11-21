@@ -41,6 +41,7 @@ function applyLanguage(code) {
   if (taskEditor.open) { drawEditor(); previewSoon(); }  // 编辑任务的窗口：星期几的按钮、接下来几次的时间
   renderBrowser(browserStatus, true);  // 顶上的提示、设置里的"浏览器"一节
   renderComputer(computerStatus, true);  // 顶上的"智狐正在控制这台电脑"、设置里的"操作整台电脑"一节
+  retitleSettingsButton();  // 顶栏齿轮的提示：译好的"设置"后面接着快捷键
 }
 
 $('language').hidden = !I18N.tables;  // 助手程序是旧版本、不支持多语言时，不显示这个按钮

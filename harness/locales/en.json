@@ -1821,6 +1821,7 @@
  "设置里填的路径不对：找不到这个 Chrome。": "The path in Settings is wrong: that Chrome can't be found.",
  "设置里已经打开，下一段对话开始生效。": "Turned on in Settings; takes effect in the next conversation.",
  "设置里没有允许定时任务和聊天通道使用它。": "Settings don't allow scheduled tasks and chat channels to use it.",
+ "设置（{key}）": "Settings ({key})",
  "设置：换模型、填写 API 密钥": "Settings: change model, enter API keys",
  "试试：": "Try:",
  "语音": "voice messages",

@@ -169,6 +169,15 @@ function openSettings() {
 }
 
 $('model').addEventListener('click', openSettings);
+// 顶栏上专门的"设置"按钮（齿轮）。上面那个模型按钮也能打开，但它看起来只是"现在用的模型"，用户找不到设置在哪儿
+// （"我的设置在哪里 没看见啊"）。快捷键 ⌘, / Ctrl+, 见 keyboard.js
+$('settings-open').addEventListener('click', openSettings);
+// 齿轮的提示里写上快捷键：Mac 上是 ⌘,，别的系统是 Ctrl+,
+retitleSettingsButton();
+
+function retitleSettingsButton() {
+  $('settings-open').title = t('设置（{key}）', { key: ON_MAC ? '⌘,' : 'Ctrl+,' });
+}
 $('setup-open').addEventListener('click', openSettings);
 $('close-settings').addEventListener('click', () => settings.close());
 // 点面板外面的暗处也能关掉。按下和松开都要在暗处才算，免得在输入框里拖选文字时拖出去就关了

@@ -9,6 +9,13 @@ document.addEventListener('keydown', (key) => {
   }
   const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
   const letter = key.key.toLowerCase();
+  if (command && !key.altKey && !key.shiftKey && key.key === ',') {
+    // ⌘, / Ctrl+,：打开设置（Mac 上几乎所有程序都是这个键）。已经开着别的窗口时不抢
+    const busyDialog = settings.open || approvalDialog.open || languageDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open || taskEditor.open || taskDetail.open || promptDialog.open || spendDialog.open || commandsDialog.open;
+    key.preventDefault();
+    if (!busyDialog) openSettings();
+    return;
+  }
   if (command && !key.altKey && !key.shiftKey && (letter === 'f' || letter === 'k')) {
     // ⌘F / Ctrl+F：搜索会话（"查找"大家最熟的就是这个键）；⌘K / Ctrl+K 也照样能用。
     // 搜的是所有会话，当前这一段也在里面，比浏览器自带的"在页面里查找"管用。但浏览器那个不该就此没了：

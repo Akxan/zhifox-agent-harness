@@ -1821,6 +1821,7 @@
  "设置里填的路径不对：找不到这个 Chrome。": "La ruta de los ajustes no es correcta: no se encuentra ese Chrome.",
  "设置里已经打开，下一段对话开始生效。": "Activado en Ajustes; se aplica a partir de la próxima conversación.",
  "设置里没有允许定时任务和聊天通道使用它。": "En Ajustes no está permitido que lo usen las tareas programadas y los canales de chat.",
+ "设置（{key}）": "Ajustes ({key})",
  "设置：换模型、填写 API 密钥": "Ajustes: cambiar de modelo, introducir claves de API",
  "试试：": "Prueba:",
  "语音": "mensajes de voz",
