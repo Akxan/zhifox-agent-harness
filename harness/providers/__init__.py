@@ -245,20 +245,21 @@ def switch_model(backend: Any, provider: Provider, model: str) -> None:
 # ---- 连接、模型列表、适配层 ------------------------------------------------------------
 
 
-def make_client(provider: Provider) -> Any:
-    """按当前环境变量里的 key 创建一个连接这家的客户端。
+def make_client(provider: Provider, timeout: float | None = None) -> Any:
+    """按当前环境变量里的 key 创建一个连接这家的客户端。timeout：一次请求最多等多久（秒），不给用 SDK 默认的。
 
     还没有 key 时也能创建（填一个占位的），这样程序可以先启动，让用户在界面上填写；
     真正发请求时服务器会回答"key 无效"，界面会提示去设置。
     自定义接口的客户端由 endpoints/client.py 建：别的几家的密钥不带过去、不跟重定向。
+    它不能再用 SDK 的 with_options 改：那会照着环境变量重建一个客户端，OPENAI_ORG_ID 这些又回来了，所以 timeout 在这里给。
     """
     if provider.endpoint is not None:
-        return endpoint_client.make(provider.endpoint)
+        return endpoint_client.make(provider.endpoint, timeout=timeout)
     if provider.kind == "anthropic":
-        if has_key(provider):
-            return anthropic.Anthropic()  # 自己从环境变量里读取凭证
-        return anthropic.Anthropic(api_key="missing")
-    return openai.OpenAI(api_key=os.environ.get(provider.key_env) or "missing", base_url=provider.base_url)
+        client = anthropic.Anthropic() if has_key(provider) else anthropic.Anthropic(api_key="missing")  # 有的话自己从环境变量里读取凭证
+    else:
+        client = openai.OpenAI(api_key=os.environ.get(provider.key_env) or "missing", base_url=provider.base_url)
+    return client.with_options(timeout=timeout) if timeout is not None else client
 
 
 def list_models(provider: Provider, client: Any) -> list[str]:

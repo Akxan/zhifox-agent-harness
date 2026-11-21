@@ -316,6 +316,7 @@ def test_message_round_trip(serve):
         "text",
         "block_end",
         "state",  # 模型一答完，用量和费用就更新一次
+        "trace",  # 一轮结束时的运行记录（见 harness/trace/）：在存盘之前，所以会存进会话
         "state",  # 会话存盘之后再刷新一次
         "turn_end",  # 最后才是"这一轮结束了"：收到它时锁已经要放开，可以马上发下一个请求
     ]
@@ -324,7 +325,7 @@ def test_message_round_trip(serve):
     assert s.browser.of_type("text")[0]["text"] == "你好！"
     assert s.api.requests[0]["messages"][0]["content"][1]["text"] == "你好"
     # 事件编号连续递增，浏览器靠它在断线后接着收
-    assert [event["id"] for event in s.browser.events] == list(range(1, 12))
+    assert [event["id"] for event in s.browser.events] == list(range(1, 13))
 
 
 def test_state_reports_todos_usage_and_tools(serve):
@@ -509,15 +510,18 @@ def test_reloading_the_page_replays_the_conversation(serve):
     # 重放出来的和当初实时收到的一样，只有"状态"例外：它是快照，旧的已经被新的取代，只补发最新的一份
     latest = s.browser.of_type("state")[-1]
     assert reloaded.events == [event for event in s.browser.events if event["type"] != "state" or event is latest]
-    assert kinds(reloaded.events) == ["user", "turn_start", "thinking", "block_end", "text", "block_end", "state", "turn_end"]
+    # 运行记录（trace，见 harness/trace/）和别的内容一样重放：刷新页面以后还在
+    assert kinds(reloaded.events) == [
+        "user", "turn_start", "thinking", "block_end", "text", "block_end", "trace", "state", "turn_end",
+    ]  # fmt: skip
 
     # 每条事件的 id 行和它的编号一致（_dispatch 里检查），浏览器记住的是最后一条的编号
     assert s.browser.last_event_id == str(s.browser.events[-1]["id"]) == reloaded.last_event_id
 
     resumed = Browser(s.url, last_event_id=6)  # 断线重连：只补发没收到的（其中过时的状态同样略去）
     resumed.wait_for("turn_end")
-    assert [event["id"] for event in resumed.events] == [7, 8, 10, 11]
-    assert kinds(resumed.events) == ["text", "block_end", "state", "turn_end"]
+    assert [event["id"] for event in resumed.events] == [7, 8, 10, 11, 12]
+    assert kinds(resumed.events) == ["text", "block_end", "trace", "state", "turn_end"]
 
 
 def test_the_stream_marks_where_the_backlog_ends(serve):
@@ -528,7 +532,7 @@ def test_the_stream_marks_where_the_backlog_ends(serve):
 
     late = Browser(s.url)  # 这时才打开页面：先收到补发的旧内容，然后是 synced 标记
     backlog = late.wait_synced()
-    assert kinds(late.events[:backlog]) == ["user", "turn_start", "text", "block_end", "state", "turn_end"]
+    assert kinds(late.events[:backlog]) == ["user", "turn_start", "text", "block_end", "trace", "state", "turn_end"]
     assert backlog == len(late.events)  # 标记之后还没有任何新事件
 
     # 标记之后收到的，都是此刻正在发生的事件
@@ -891,7 +895,8 @@ def test_a_conversation_is_listed_at_once_and_saved_after_its_first_turn(serve):
     # messages 是发给模型的历史，原样保存；events 是页面上显示过的内容
     assert saved["messages"] == s.app.agent.messages
     assert [message["role"] for message in saved["messages"]] == ["user", "assistant", "user", "assistant"]
-    assert kinds(saved["events"]) == ["user", "turn_start", "tool_call", "confirm", "tool_result", "text", "block_end"]
+    # 存盘在 turn_end 之前，所以最后一个是这一轮的运行记录（见 harness/trace/）
+    assert kinds(saved["events"]) == ["user", "turn_start", "tool_call", "confirm", "tool_result", "text", "block_end", "trace"]
     assert saved["events"][3] == {
         "type": "confirm",
         "description": confirm["description"],
@@ -923,7 +928,7 @@ def test_each_new_conversation_gets_its_own_file_and_the_newest_is_listed_first(
     assert saved_ids(s.config) == sorted([first, second])
     # 两段各存各的：第二段里没有第一段的内容，第一段的文件也没有被动过
     assert [message["role"] for message in s.api.requests[1]["messages"]] == ["user"]
-    assert kinds(saved_file(s.config, second)["events"]) == ["user", "turn_start", "text", "block_end"]
+    assert kinds(saved_file(s.config, second)["events"]) == ["user", "turn_start", "text", "block_end", "trace"]
     assert saved_file(s.config, second)["events"][0]["text"] == "第二段"
     assert (s.config.conversations_dir / f"{first}.json").read_bytes() == first_file
 
@@ -932,7 +937,7 @@ def test_each_new_conversation_gets_its_own_file_and_the_newest_is_listed_first(
     assert listed(state) == [(second, "第二段"), (first, "第一段")] and saved_ids(s.config) == sorted([first, second])
     assert len(saved_file(s.config, second)["messages"]) == 4
     assert kinds(saved_file(s.config, second)["events"]) == [
-        "user", "turn_start", "text", "block_end", "turn_end", "user", "turn_start", "text", "block_end",
+        "user", "turn_start", "text", "block_end", "trace", "turn_end", "user", "turn_start", "text", "block_end", "trace",
     ]
 
 
@@ -960,7 +965,7 @@ def test_opening_a_conversation_replays_it_and_restores_its_history(serve):
     # 页面先清空，然后把第一段重新画出来：事件的种类、顺序、内容都和当初一样
     assert kinds(replayed) == [
         "user", "turn_start", "thinking", "block_end", "tool_call", "confirm", "confirm_done", "tool_result",
-        "text", "block_end", "turn_end",
+        "text", "block_end", "trace", "turn_end",
     ]
 
     def content(event: dict) -> dict:  # 编号是重新分配的，不参与比较
@@ -992,7 +997,7 @@ def test_opening_a_conversation_replays_it_and_restores_its_history(serve):
     assert len(saved["messages"]) == len(history) + 2 and saved["title"] == "建个文件"
     assert kinds(saved["events"]) == [
         "user", "turn_start", "thinking", "block_end", "tool_call", "confirm", "tool_result", "text", "block_end",
-        "turn_end", "user", "turn_start", "text", "block_end",
+        "trace", "turn_end", "user", "turn_start", "text", "block_end", "trace",
     ]
     assert listed(state) == [(first, "建个文件"), (second, "另一段")]
     assert len(saved_file(s.config, second)["messages"]) == 2
@@ -1058,7 +1063,7 @@ def test_saved_conversations_are_there_after_a_restart(serve):
     replayed, state = open_conversation(restarted, first)
     assert [(event["type"], event.get("text")) for event in replayed] == [
         ("user", "记住暗号是 42"), ("turn_start", None), ("thinking", "记一下"), ("block_end", None),
-        ("text", "暗号记住了。"), ("block_end", None), ("turn_end", None),
+        ("text", "暗号记住了。"), ("block_end", None), ("trace", None), ("turn_end", None),
     ]
     assert (state["conversation"], state["title"], state["usage"]["context"]) == (first, "记住暗号是 42", 170)
 
@@ -1197,7 +1202,8 @@ def test_conversations_cannot_be_opened_renamed_or_deleted_during_a_turn(serve):
     assert [message["role"] for message in s.api.requests[-1]["messages"]] == ["user", "assistant", "user"]
     # 结束之后就可以了
     replayed, state = open_conversation(s, first)
-    assert state["conversation"] == first and kinds(replayed) == ["user", "turn_start", "text", "block_end", "turn_end"]
+    assert state["conversation"] == first
+    assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "trace", "turn_end"]
 
 
 def test_unknown_and_malformed_conversation_ids_are_refused(serve):
@@ -1357,11 +1363,11 @@ def test_opening_a_large_conversation_shows_a_cost_hint_that_is_not_saved(serve)
         return open_conversation(s, first)
 
     replayed, state = reopen(LARGE_CONTEXT_TOKENS - 1)
-    assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "turn_end"]  # 还不算大：没有提示
+    assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "trace", "turn_end"]  # 还不算大：没有提示
     assert state["usage"]["context"] == LARGE_CONTEXT_TOKENS - 1
 
     replayed, state = reopen(LARGE_CONTEXT_TOKENS)
-    assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "turn_end", "notice"]
+    assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "trace", "turn_end", "notice"]
     hint = replayed[-1]
     # 提示排在重放的内容之后，带着"只显示、不保存"的记号
     assert (hint["level"], hint["transient"]) == ("info", True)
@@ -1372,7 +1378,7 @@ def test_opening_a_large_conversation_shows_a_cost_hint_that_is_not_saved(serve)
     say(s, "接着聊")
     saved = saved_file(s.config, first)
     assert kinds(saved["events"]) == [
-        "user", "turn_start", "text", "block_end", "turn_end", "user", "turn_start", "text", "block_end",
+        "user", "turn_start", "text", "block_end", "trace", "turn_end", "user", "turn_start", "text", "block_end", "trace",
     ]
     assert "transient" not in json.dumps(saved["events"]) and "计费" not in json.dumps(saved["events"], ensure_ascii=False)
     assert saved["context_tokens"] == 170  # 换成了这次请求实际的大小
@@ -2154,8 +2160,12 @@ def test_auto_allowed_calls_are_marked_live_and_when_the_conversation_is_reopene
 
     assert (s.config.workspace / "made.txt").exists()
     assert s.browser.of_type("confirm") == []  # 没有弹出确认卡片
-    # "自动允许"紧跟在它说的那次工具调用后面、结果之前。本来就不用问的操作（查看待办）没有这个标记
-    shown = ["user", "turn_start", "tool_call", "auto_allowed", "tool_result", "tool_call", "tool_result", "text", "block_end"]
+    # "自动允许"紧跟在它说的那次工具调用后面、结果之前。本来就不用问的操作（查看待办）没有这个标记。
+    # 最后是一轮结束时的运行记录（见 harness/trace/），在存盘之前，所以也存进了会话
+    shown = [
+        "user", "turn_start", "tool_call", "auto_allowed", "tool_result", "tool_call", "tool_result", "text", "block_end",
+        "trace",
+    ]  # fmt: skip
     assert without_states(s.browser) == [*shown, "turn_end"]
     (mark,) = s.browser.of_type("auto_allowed")
     assert set(mark) == {"id", "type", "why"} and mark["why"] == "mode"  # 说的就是它前面那一次调用；why：为什么没问（这里是选了"全部自动允许"）
@@ -2194,7 +2204,7 @@ def test_approval_can_be_changed_while_a_confirmation_is_waiting(serve):
     assert not (s.config.workspace / "first.txt").exists() and (s.config.workspace / "second.txt").exists()
     assert without_states(s.browser) == [
         "user", "turn_start", "tool_call", "confirm", "confirm_done", "tool_result",
-        "tool_call", "auto_allowed", "tool_result", "text", "block_end", "turn_end",
+        "tool_call", "auto_allowed", "tool_result", "text", "block_end", "trace", "turn_end",
     ]
     first, second = last_results(SimpleNamespace(messages=s.api.requests[1]["messages"]))
     assert first["is_error"] is True and "这个不要" in first["content"] and "is_error" not in second
@@ -2224,7 +2234,7 @@ def test_edits_mode_in_the_page_still_asks_before_running_commands(serve):
     s.browser.wait_for("turn_end")
     assert without_states(s.browser) == [
         "user", "turn_start", "tool_call", "auto_allowed", "tool_result",
-        "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "turn_end",
+        "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "trace", "turn_end",
     ]
 
 

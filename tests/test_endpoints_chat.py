@@ -333,3 +333,32 @@ def test_the_choice_falls_back_when_the_endpoint_is_gone(make_config):
     Settings(config.settings_file, "anthropic", "claude-opus-5-5").choose("custom-gone", "x")
     app = build_app(config, RecordingUI(), client_factory=lambda provider: None)
     assert (app.settings.provider, app.settings.model) == ("anthropic", "claude-opus-5-5")
+
+
+# ---- 评测（harness eval）--------------------------------------------------------
+
+
+def test_an_eval_can_target_a_local_endpoint(make_config, tmp_path, monkeypatch):
+    """harness eval run --model custom-ollama/qwen3:8b：评一个本地模型。本地的接口不花钱，所以"真的运行"也是 0 元；
+    每一遍的数据目录里都抄了一份 endpoints.json（不然 build_app 不认得这个接口）。"""
+    from test_evals import SIMPLE, cli, write_task
+
+    from harness.evals import results
+
+    monkeypatch.delenv("CI", raising=False)
+    server = FakeOpenAI([chat("你好！我在本地。")], models=["qwen3:8b"]).start()
+    try:
+        config = make_config()
+        EndpointStore(config.endpoints_file).save({"name": "Ollama", "base_url": server.base_url + "/v1", "api_key": "", "models": [QWEN]})
+        write_task(tmp_path / "tasks", "hello", SIMPLE)
+        code, out = cli(config, "run", "--real", "--yes", "--model", "custom-ollama/qwen3:8b", "--tasks-dir", str(tmp_path / "tasks"), interactive=False)
+        assert code == 0, out
+        assert "$0" in out  # 估算：本地的模型不花钱
+        (request,) = server.requests
+        assert request["model"] == "qwen3:8b" and set(server.keys) == {NO_KEY}
+        run = results.find_run(config.data_dir / "evals", "latest")
+        assert run.meta["provider"] == "custom-ollama" and run.rows[0]["passed"] and run.rows[0]["cost"] == 0
+        rows = [json.loads(line) for line in config.ledger_file.read_text().splitlines()]
+        assert [(row["provider"], row["source"], row["cost"]) for row in rows] == [("custom-ollama", "eval", 0)]
+    finally:
+        server.stop()

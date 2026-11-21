@@ -1,0 +1,18 @@
+# 用英文问：看它会不会用英文回答，并且按系统提示词的规定称自己 ZhiFox（不是"智狐"，也不是音译的 Zhihu）。
+title = "用英文问就用英文答，称自己 ZhiFox"
+tags = ["prompt"]
+messages = ["Hi! Who are you, and what can you help me with? Two or three sentences, please."]
+
+[budget]
+requests = 1
+
+[[graders]]
+type = "reply_contains"
+text = "ZhiFox"
+
+[[graders]]
+type = "reply_lacks"
+regex = '[\u4e00-\u9fff]|Zhihu'
+
+[[dry_run]]
+say = "I'm ZhiFox, a personal assistant running on your own computer. I can read and edit files, run commands with your approval, keep to-dos and reminders, and remember things across conversations."

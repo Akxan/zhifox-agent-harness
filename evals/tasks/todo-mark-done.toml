@@ -1,0 +1,49 @@
+# 用户说"买好了"：看它会不会先查到是哪一条，把它标成完成（而不是删掉、或者新加一条"已买猫粮"），别的不动。
+title = "把做完的待办标成完成"
+tags = ["todo"]
+messages = ["猫粮买好了。"]
+
+[[todos]]
+title = "给王老师回邮件"
+
+[[todos]]
+title = "买猫粮"
+
+[[todos]]
+title = "续费域名"
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "todo_exists"
+title = "猫粮"
+done = true
+
+[[graders]]
+type = "todo_exists"
+title = "王老师"
+done = false
+
+[[graders]]
+type = "todo_exists"
+title = "域名"
+done = false
+
+[[graders]]
+type = "todo_count"
+min = 3
+max = 3
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "todo_list"
+input = {}
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "todo_update"
+input = { id = 2, done = true }
+
+[[dry_run]]
+say = "好的，“买猫粮”已经标成完成了。还剩两件：给王老师回邮件、续费域名。"

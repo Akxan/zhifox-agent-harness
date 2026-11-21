@@ -1,0 +1,35 @@
+# 要助手到时间自己去做一件事：看它会不会用 agent 那种任务、时间表写对（每周一 9 点），
+# 指令写成一条到时候不用追问就能做完的完整的话（到时候用户多半不在电脑前）。
+title = "每周让助手自己整理一次"
+tags = ["tasks"]
+messages = ["以后每周一早上 9 点，你自己把工作目录里 inbox 文件夹的文件整理一个清单给我。"]
+
+[[files]]
+path = "inbox/报价单.pdf"
+size = 2000
+
+[budget]
+requests = 2
+
+[[graders]]
+type = "task_exists"
+kind = "agent"
+schedule = { type = "weekly", days = [1], time = "09:00" }
+
+[[graders]]
+type = "task_exists"
+kind = "agent"
+title = "inbox"
+
+# 添加 agent 任务一定会问你一次（以后每次运行都花钱），这是程序定的。问得更多就是它在别处多做了事
+[[graders]]
+type = "approvals"
+max = 1
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "task_add"
+input = { kind = "agent", title = "整理 inbox 清单", prompt = "列出工作目录里 inbox 文件夹中的全部文件（文件名、大小、修改时间），整理成一份清单交给用户。", schedule = { type = "weekly", days = [1], time = "09:00" } }
+
+[[dry_run]]
+say = "加好了：每周一早上 9:00，我会把 inbox 文件夹里的文件整理成一份清单。每次运行都要花一点 API 费用，网页界面开着的时候才会运行。"

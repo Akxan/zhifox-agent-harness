@@ -6,6 +6,7 @@
     harness channels ...          设置聊天通道（见 channels/cli.py）
     harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
+    harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -23,6 +24,7 @@ from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
+from .evals import cli as eval_cli
 from .i18n import k, t
 from .permissions import MODES
 from .pricing import estimate
@@ -30,6 +32,7 @@ from .providers import has_key
 from .service import cli as service_cli
 from .settings import Settings
 from .tools.todo import format_todos
+from .trace import text as trace_text
 from .ui import TerminalUI
 
 SETUP_HELP = k("""\
@@ -47,6 +50,7 @@ HELP = k("""\
 /new     开始一段新对话（记忆和待办不受影响）
 /todos   查看未完成的待办
 /tools   查看智狐能做的事：哪些在用、会不会先问你、关着的怎么打开
+/trace   查看最后一轮的运行记录：调用了几次模型、用了哪些工具、每一步花了多久、多少钱
 /usage   查看本次运行的 token 用量和估算费用
 /model   查看各家的模型：现在用的是哪个、能做什么、多少钱、哪一家还没有密钥
 /mcp     查看接入的 MCP 服务器（添加和管理在网页界面的"扩展"里）
@@ -55,7 +59,7 @@ HELP = k("""\
 /edit    改最后一条消息再发：上一条会填在输入行里，改完按回车；也可以直接写 /edit 新的文字
 /exit    退出""")
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/usage", "/model", "/mcp", "/auto"}
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto"}
 
 # MCP 服务器的几种状态，给人看的说法
 MCP_STATUS = {"connecting": k("连接中"), "ready": k("已连接"), "failed": k("连接失败"), "disabled": k("已停用")}
@@ -106,11 +110,11 @@ class LastTurn:
     text: str
 
 
-def ask_turn(app: App, ui: TerminalUI, text: str) -> LastTurn:
-    """跑一轮新的对话，返回记下的这一轮。"""
+def ask_turn(app: App, ui: TerminalUI, text: str, again: bool = False) -> LastTurn:
+    """跑一轮新的对话，返回记下的这一轮。again：这是 /retry 把上一次没答出来的那一轮整条再发一次（运行记录上标出来）。"""
     mark = app.agent.backend.mark()
     ui.turn_events = []
-    run_turn(app.agent, ui, text)
+    run_turn(app.agent, ui, text, again=again)
     return LastTurn(mark, text)
 
 
@@ -152,7 +156,7 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
         return last
     # 编辑：连那条消息一起倒回去；再试一次（上一次没答出第一步就失败了，消息已经撤回）：本来就不在历史里，什么都不用去掉
     backend.rollback(last.mark)
-    return ask_turn(app, ui, text)
+    return ask_turn(app, ui, text, again=command == "/retry")
 
 
 # "智狐能做的事"里每一项的状态，在终端里的说法（网页上的样子见 page/scripts/capabilities.js）
@@ -196,9 +200,13 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
         ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
         show_capabilities(app, ui)
+    elif command == "/trace":
+        # 最后一轮的运行记录（见 trace/）：和网页上"运行记录"那个窗口是同一份数，这里写成字
+        for text, style in trace_text.lines(ui.last_trace):
+            (ui.plain if style == "plain" else ui.info)(text)
     elif command == "/usage":
         usage = app.agent.usage
-        cost, unpriced = estimate(app.agent.usage_by_model, app.settings.prices)
+        cost, unpriced = estimate(app.agent.usage_by_model, app.prices())
         note = t("（不含 {models}：没有设置价格）", models=t("、").join(unpriced)) if unpriced else ""
         ui.plain(
             t(
@@ -299,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
     service_cli.add_parser(commands)
+    eval_cli.add_parser(commands)
     args = parser.parse_args(argv)
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
@@ -316,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         return commands_cli.run(args, config)
     if args.command == "service":
         return service_cli.run(args, config)
+    if args.command == "eval":
+        return eval_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

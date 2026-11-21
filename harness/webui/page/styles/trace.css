@@ -1,0 +1,157 @@
+/* ---- 运行记录（脚本在 scripts/trace.js 和 trace-chart.js） ----------------------------------------
+   这一块管两处：每一轮上的入口（回答下面那排按钮里的"运行记录"，或者这一轮最后单独的一行），
+   和点开以后从右边滑出来的窗口（窄屏上从底下升起来）：合计、瀑布图、逐段的详情。
+   四种颜色在两套外观里都是同一个意思：模型 = 强调色，工具 = 青色，等你确认 = 琥珀色的斜线，别的零碎 = 灰。
+   颜色之外都另有区别（图标、名字、斜线、虚线框），不靠颜色也分得清。
+   会动的只有 transform 和 opacity：窗口滑进来、横条从左往右长出来；大面积滚动的地方不用 backdrop-filter。 */
+
+/* ---- 入口 ---- */
+.trace-open { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; height: 26px; padding: 0 8px; font: 500 12px/1 var(--sans); color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; background: none; border: 0; border-radius: 7px; transition: color .15s ease, background-color .15s ease; }
+.trace-open .icon { width: 14px; height: 14px; transition: transform .3s var(--spring); }
+.trace-open:hover { color: var(--ink); background: var(--hover); }
+.trace-open:hover .icon { transform: translateX(1px) scaleX(1.12); }
+.trace-open-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.trace-open.trace-new { animation: fade .5s ease backwards .1s; }  /* 实时这一轮刚结束：淡淡地出现；重放出来的不播 */
+.turn-trace { display: flex; min-width: 0; margin: -6px 0 0 -6px; }
+.turn-trace .trace-open { color: var(--ink-2); }
+
+/* ---- 窗口 ---- */
+.trace-drawer { position: fixed; inset: 10px 10px 10px auto; width: min(760px, calc(100vw - 20px)); height: auto; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; font-size: 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--line-2); border-radius: 22px; box-shadow: var(--shadow-2); }
+.trace-drawer[open] { display: flex; flex-direction: column; animation: trace-in .42s var(--ease); }
+.trace-drawer::backdrop { background: var(--scrim); animation: fade .25s ease; }
+@keyframes trace-in { from { opacity: 0; transform: translateX(28px); } }
+@keyframes trace-up { from { opacity: 0; transform: translateY(32px); } }
+.trace-head { flex: none; display: flex; align-items: flex-start; gap: 4px; padding: 18px 14px 6px 24px; }
+.trace-heading { flex: 1; min-width: 0; }
+.trace-head h2 { margin: 0; font: 600 22px/1.2 var(--serif); letter-spacing: -.01em; }
+.trace-sub { margin: 4px 0 0; overflow: hidden; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.trace-status { flex: none; min-height: 0; margin: 0 24px; font-size: 12.5px; color: var(--ink-2); }
+.trace-status:not(:empty) { margin-bottom: 4px; }
+.trace-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 24px 22px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.trace-body h3 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.trace-body h3 small { font-size: 12px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.trace-chart, .trace-section { padding: 18px 0 4px; border-top: 1px solid var(--line); }
+
+/* ---- 合计 ---- */
+.trace-hero { padding: 6px 0 20px; }
+.trace-figures { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 34px; }
+.trace-big { min-width: 0; }
+.trace-big small, .trace-stats dt { display: block; font-size: 12px; color: var(--ink-3); }
+.trace-big b { display: block; font-size: 50px; font-weight: 680; line-height: 1.02; letter-spacing: -.045em; white-space: nowrap; font-variant-numeric: tabular-nums; color: transparent; -webkit-text-fill-color: transparent; background: var(--aurora-text); -webkit-background-clip: text; background-clip: text; }
+.trace-stats { flex: 1 1 280px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; min-width: 0; margin: 0 0 4px; }
+.trace-stats div { min-width: 0; }
+.trace-stats dd { margin: 2px 0 0; overflow: hidden; font-size: 18px; font-weight: 620; letter-spacing: -.015em; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.trace-stats .muted dd { font-size: 14px; font-weight: 500; color: var(--ink-3); }
+/* 时间怎么分的：一根横条，四段，每段之间留一道缝 */
+.trace-split { position: relative; height: 12px; margin: 22px 0 12px; overflow: hidden; background: var(--hover); border-radius: 6px; transform-origin: 0 50%; }
+.trace-split i { position: absolute; top: 0; bottom: 0; left: calc(var(--from) * 1%); width: calc(var(--size) * 1%); box-shadow: inset -2px 0 0 var(--sheet); }
+.trace-hero.grow-in .trace-split { animation: trace-grow .8s var(--ease) backwards .08s; }
+@keyframes trace-grow { from { opacity: 0; transform: scaleX(0); } }
+.seg-model i, .trace-split .seg-model { background: var(--accent); }
+.seg-tools i, .trace-split .seg-tools { background: var(--teal); }
+.seg-waiting i, .trace-split .seg-waiting { background: repeating-linear-gradient(135deg, var(--warn-dot) 0 3px, color-mix(in srgb, var(--warn-dot) 30%, transparent) 3px 6px); }
+.seg-other i, .trace-split .seg-other { background: var(--line-3); }
+.trace-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
+.trace-legend li { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; font-variant-numeric: tabular-nums; }
+.trace-legend li > i { flex: none; width: 10px; height: 10px; border-radius: 3px; transform: translateY(1px); }
+.trace-legend b { font-weight: 620; color: var(--ink); }
+.trace-legend small { font-size: 11.5px; color: var(--ink-3); }
+.trace-hint { margin: 12px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
+
+/* ---- 瀑布图 ---- */
+.trace-chart { --name: minmax(0, 13.5rem); --time: 4.6rem; }
+/* 悬停、选中一行时写着它的数字。高度是定死的（两行，窄屏三行），多的截掉：字数变了也不会把下面的行往下推——
+   不然鼠标底下的那一行被推走，悬停落到另一行上，字又变回去，来回跳（全部的数字在下面的详情里，读屏软件读的是每一行的说明） */
+.trace-readout { display: -webkit-box; height: calc(1.55em * 2); margin: -2px 0 10px; overflow: hidden; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.trace-plot { position: relative; display: grid; gap: 2px; }
+.trace-axis, .trace-lane { display: grid; grid-template-columns: var(--name) minmax(0, 1fr) var(--time); align-items: center; gap: 12px; }
+.trace-axis { height: 18px; }
+.trace-scale { position: relative; grid-column: 2; height: 100%; }
+.trace-scale i { position: absolute; bottom: 4px; left: calc(var(--at) * 1%); font: 10.5px/1 var(--mono); font-style: normal; color: var(--ink-3); white-space: nowrap; transform: translateX(-50%); }
+.trace-scale i.first { transform: none; }
+.trace-scale i.last { transform: translateX(-100%); }
+.trace-lane { position: relative; min-width: 0; min-height: 32px; padding: 0 8px; margin: 0 -8px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 9px; transition: background-color .15s ease; }
+.trace-lane:hover, .trace-lane:focus-visible { background: var(--hover); }
+.trace-lane:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.trace-lane-name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; }
+.trace-lane-name .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.kind-model .trace-lane-name .icon { color: var(--accent); }
+.kind-tool .trace-lane-name .icon { color: var(--teal); }
+.trace-lane-title { flex: none; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.trace-lane-sub { min-width: 0; overflow: hidden; font: 11.5px/1.2 var(--mono); color: var(--ink-3); white-space: nowrap; text-overflow: ellipsis; }
+.trace-lane-time { font-size: 12px; color: var(--ink-3); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 子 Agent 的那几段：名字往里缩，左边一道细线连着交给它的那一步 */
+.trace-lane.depth-1 .trace-lane-name { padding-left: 16px; }
+.trace-lane.depth-2 .trace-lane-name, .trace-lane.depth-3 .trace-lane-name { padding-left: 30px; }
+.trace-lane:not(.depth-0) .trace-lane-name::before { content: ""; position: absolute; left: 13px; top: -1px; bottom: -1px; border-left: 1.5px solid var(--line-2); }
+.trace-lane:not(.depth-0) .trace-lane-title { font-size: 12.5px; color: var(--ink-2); }
+/* 时间轴：刻度的竖线画在每一行的轨道上（同一组位置），横条按 --from / --size 摆好，长出来只是 scaleX */
+.trace-track { position: relative; height: 32px; min-width: 0; }
+.trace-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--line); }
+.trace-bar { position: absolute; top: 9px; height: 14px; left: min(calc(var(--from) * 1%), calc(100% - 4px)); width: calc(var(--size) * 1%); min-width: 4px; overflow: hidden; border-radius: 5px; transform-origin: 0 50%; transition: transform .2s var(--ease); }
+.trace-lane:not(.depth-0) .trace-bar { top: 11px; height: 10px; border-radius: 4px; }
+.kind-model .trace-bar { background: var(--accent); }
+.kind-tool .trace-bar { background: var(--teal); }
+.trace-first { position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--size) * 1%); background: var(--sheet); opacity: .62; }
+.trace-wait { position: absolute; top: 0; bottom: 0; left: calc(var(--from) * 1%); width: calc(var(--size) * 1%); background: repeating-linear-gradient(135deg, var(--warn-dot) 0 3px, color-mix(in srgb, var(--warn-dot) 35%, var(--sheet)) 3px 6px); }
+.trace-lane.is-error .trace-bar { background: var(--err); }
+.trace-lane.is-skipped .trace-bar { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-3); }
+.trace-lane.is-stopped .trace-bar { background: repeating-linear-gradient(90deg, var(--line-3) 0 4px, transparent 4px 7px); }
+.trace-lane.is-error .trace-lane-time, .trace-lane.is-error .trace-lane-title { color: var(--err); }
+.trace-lane:hover .trace-bar, .trace-lane:focus-visible .trace-bar { transform: scaleY(1.22); }
+.trace-chart.grow-in .trace-bar { animation: trace-grow .7s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 28ms + .12s); }
+
+/* ---- 每一段的详情 ---- */
+.trace-steps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.trace-step { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2px 10px; padding: 10px 10px 11px 6px; border-radius: 12px; transition: background-color .15s ease; }
+.trace-step:hover { background: var(--hover); }
+.trace-step::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--accent-soft); opacity: 0; pointer-events: none; }
+.trace-step.flash::after { animation: found 1.8s ease-out; }
+.trace-step.depth-1 { margin-left: 26px; }
+.trace-step.depth-2, .trace-step.depth-3 { margin-left: 46px; }
+.trace-step:not(.depth-0)::before { content: ""; position: absolute; left: -12px; top: 4px; bottom: 4px; border-left: 1.5px solid var(--line-2); }
+.trace-step-n { padding-top: 1px; font: 11.5px/1.6 var(--mono); color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.trace-step-main { min-width: 0; }
+.trace-step-head { display: flex; align-items: center; gap: 7px; min-width: 0; margin: 0; font-size: 13.5px; }
+.trace-step-head .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.trace-step.kind-model .trace-step-head .icon { color: var(--accent); }
+.trace-step.kind-tool .trace-step-head .icon { color: var(--teal); }
+.trace-step-head b { min-width: 0; overflow: hidden; font-weight: 620; white-space: nowrap; text-overflow: ellipsis; }
+.trace-step-time { margin-left: auto; padding-left: 10px; font-size: 12.5px; font-weight: 620; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trace-step-when, .trace-step-meta { margin: 3px 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trace-call { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; margin: 4px 0 0; }
+.trace-raw { margin: 4px 0 0; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.trace-call .trace-raw { margin: 0; padding: 1px 6px; background: var(--sunken); border-radius: 5px; }
+.trace-detail { min-width: 0; font: 12px/1.5 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.trace-note { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--err); overflow-wrap: anywhere; }
+.trace-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 0; }
+.trace-tag { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 2px 8px; font-size: 11.5px; line-height: 1.5; color: var(--ink-2); background: var(--hover); border-radius: 999px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.trace-tag.tag-ok { color: var(--ok); background: var(--ok-soft); }
+.trace-tag.tag-auto, .trace-tag.tag-note { color: var(--accent); background: var(--accent-soft); }
+.trace-tag.tag-warn { color: var(--warn); background: var(--warn-soft); }
+.trace-tag.tag-bad { color: var(--err); background: var(--err-soft); }
+.trace-foot { margin: 16px 0 0; padding-top: 14px; font-size: 12.5px; line-height: 1.65; color: var(--ink-3); border-top: 1px solid var(--line); }
+
+/* ---- 窄屏：从底下升起来；瀑布图变成一列（名字在上，时间轴在下） ---- */
+@media (max-width: 560px) {
+  .trace-drawer { inset: auto 0 0 0; width: 100%; max-height: 90vh; height: 90vh; border-width: 1px 0 0; border-radius: 22px 22px 0 0; }
+  .trace-drawer[open] { animation-name: trace-up; }
+  .trace-head { padding: 16px 10px 4px 16px; }
+  .trace-status { margin: 0 16px; }
+  .trace-body { padding: 4px 16px 18px; }
+  .trace-big b { font-size: 40px; }
+  .trace-stats { flex-basis: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trace-readout { height: calc(1.55em * 3); -webkit-line-clamp: 3; }
+  .trace-axis, .trace-lane { grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; }
+  .trace-axis .trace-scale, .trace-track { grid-column: 1 / -1; }
+  .trace-axis .trace-scale { grid-row: 1; }
+  .trace-scale i:not(.first):not(.last) { display: none; }
+  .trace-lane { padding-top: 6px; }
+  .trace-lane-name { grid-column: 1; grid-row: 1; }
+  .trace-lane-time { grid-column: 2; grid-row: 1; }
+  .trace-track { grid-row: 2; height: 22px; }
+  .trace-bar { top: 4px; }
+  .trace-lane:not(.depth-0) .trace-bar { top: 6px; }
+  .trace-step.depth-1 { margin-left: 16px; }
+  .trace-step.depth-2, .trace-step.depth-3 { margin-left: 28px; }
+}

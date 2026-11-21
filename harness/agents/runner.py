@@ -64,6 +64,7 @@ from ..tools import shell as shell_tools
 from ..tools.agent import make_agent_tool
 from ..tools.base import Tool, ToolError, ToolOutput
 from ..tools.shell import Shell, make_shell_tool
+from ..trace import Tracer
 from . import tools as agent_tools
 from .catalog import notifier as agent_notifier
 from .prompt import subagent_prompt
@@ -205,6 +206,8 @@ class Delegator:
         run_id = secrets.token_hex(4)
         ui = SubUI(parent.ui, run_id, agent.name)
         sub = Agent(backend=backend, config=sub_config, tools=ToolRegistry([]), permissions=parent.permissions, ui=ui, clock=parent.clock)
+        # 运行记录：和叫它的那一方读同一个表（timer），它的每一段才画得在同一条时间轴上（做完挂到那一方的这次调用下面，见 finally）
+        sub.trace = Tracer(timer=parent.trace.timer, wall=parent.trace.wall)
         # 它还能不能再往下交：叫它的那一方手里有 agent 工具、它自己的 tools 放开了、层数也没到上限
         nested = self.tool_for(sub, depth + 1) if parent.tools.get(agent_tools.AGENT_TOOL) is not None else None
         if nested is not None:
@@ -237,6 +240,7 @@ class Delegator:
             return self._failed(parent, sub, ui, f"{type(exc).__name__}: {exc}")
         finally:
             forget()
+            parent.trace.adopt(sub.trace, agent.name)  # 它的那一轮（请求、工具调用）挂在主助手这次 agent 调用的下面
         return self._result(parent, sub, ui, agent, model)
 
     def _find(self, name: str) -> CustomAgent:
@@ -279,18 +283,19 @@ class Delegator:
         """MCP 的工具从第几个开始（agent 工具放在它们前面，和主助手的顺序一样）。"""
         return next((index for index, tool in enumerate(tools) if tool.name.startswith(MCP_PREFIX)), len(tools))
 
-    def _recorder(self, parent: Agent) -> Callable[[str, str, Usage, datetime], None]:
-        """每调用一次模型：记一笔账（来源 subagent），再加进叫它的那一方的合计里。"""
+    def _recorder(self, parent: Agent) -> Callable[[str, str, Usage, datetime], float | None]:
+        """每调用一次模型：记一笔账（来源 subagent），再加进叫它的那一方的合计里。交回这一笔的金额（运行记录用）。"""
         record = self.ledger.recorder(self.prices, source="subagent")
 
-        def on_call(provider: str, model: str, usage: Usage, moment: datetime) -> None:
-            record(provider, model, usage, moment)
+        def on_call(provider: str, model: str, usage: Usage, moment: datetime) -> float | None:
+            cost = record(provider, model, usage, moment)
             # 不算"调用了几次模型"（那是叫它的那一方自己的步数，定时任务的进度靠它），也不碰上下文的大小
             spent = dataclasses.replace(usage, requests=0, context_tokens=0)
             parent.usage.add(spent)
             parent.usage_by_model.setdefault(usage_key(model, moment, provider), Usage()).add(spent)
             if parent.on_usage is not None:
                 parent.on_usage()
+            return cost
 
         return on_call
 

@@ -56,6 +56,11 @@ def is_offpeak(moment: datetime) -> bool:
     return not (1 <= utc.hour < 4 or 6 <= utc.hour < 10)
 
 
+def price_key(model: str, provider: str = "") -> str:
+    """在价格表里找这个模型用的名字：内置的几家就是模型名，自定义接口的是"接口/模型名"（见 usage_key 的说明）。"""
+    return f"{provider}/{model}" if provider.startswith(CUSTOM) else model
+
+
 def usage_key(model: str, moment: datetime, provider: str = "") -> str:
     """记用量时用的名字：价格分时段的模型，闲时的用量记在"模型名@offpeak"下面，算钱时按闲时价。
 
@@ -64,7 +69,7 @@ def usage_key(model: str, moment: datetime, provider: str = "") -> str:
     endpoints.json 里，由 EndpointStore.prices 按同样的名字交出来，和你填的价格合在一起（见 App.prices）。
     """
     if provider.startswith(CUSTOM):
-        return f"{provider}/{model}"
+        return price_key(model, provider)
     price = BUILTIN_PRICES.get(ALIASES.get(model, model))
     if price and "offpeak" in price and is_offpeak(moment):
         return model + OFFPEAK

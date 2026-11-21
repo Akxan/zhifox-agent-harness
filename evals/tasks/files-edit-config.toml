@@ -1,0 +1,54 @@
+# 改文件里的两处，别的一个字都不动。看它会不会只改该改的（而不是把整个文件重写一遍、顺手"整理"了别的行）。
+title = "改配置文件里的两项"
+tags = ["files"]
+approval = "edits"
+messages = ["把 config.yaml 里的端口改成 9090，debug 关掉，别的别动。"]
+
+[[files]]
+path = "config.yaml"
+text = """# 商城的接口服务
+name: shop-api
+port: 8080
+debug: true
+workers: 4
+database:
+  host: db.internal
+  pool: 10
+"""
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "file_contains"
+path = "config.yaml"
+regex = '(?m)^port:\s*9090\s*$'
+
+[[graders]]
+type = "file_contains"
+path = "config.yaml"
+regex = '(?m)^debug:\s*false\s*$'
+
+[[graders]]
+type = "file_lacks"
+path = "config.yaml"
+text = "8080"
+
+# 别的行原样留着（包括注释和缩进）
+[[graders]]
+type = "file_contains"
+path = "config.yaml"
+text = ["# 商城的接口服务", "name: shop-api", "workers: 4", "  host: db.internal", "  pool: 10"]
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "config.yaml" }
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "str_replace", path = "config.yaml", old_str = "port: 8080\ndebug: true", new_str = "port: 9090\ndebug: false" }
+
+[[dry_run]]
+say = "改好了：port 是 9090，debug 是 false，别的没动。"

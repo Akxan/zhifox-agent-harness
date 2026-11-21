@@ -285,7 +285,7 @@ class OpenAICompatBackend:
         finally:
             ui.end_stream()  # 出错（openai.APIError）由 step 接住：看要不要退一步，不退就翻译成 ProviderError
 
-        step = Step(status="done", usage=_usage(raw_usage), truncated=finish == "length")
+        step = Step(status="done", usage=_usage(raw_usage), truncated=finish == "length", stop_reason=finish or "")
         self._context_tokens = step.usage.context_tokens  # 下一次请求之前，看它决定要不要先压缩
         if finish == "content_filter":
             step.status = "refused"

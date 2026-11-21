@@ -34,6 +34,8 @@ USER_CONTENT = [
     "#log .turn-confirm-list li:not(.more)", "#log .turn-editor-atts",
     # 联网搜索的回答引用的网页：标题、网站、被引的原文都是网页自己的（"资料来源"这几个字是界面的，要翻译）
     "#log .cite-title", "#log .cite-site", ".cite-card",
+    # 运行记录：工具的参数、出错时工具写的那一句（写给模型的中文原文），悬停时那一行里也带着参数
+    "#trace-body .trace-detail", "#trace-body .trace-note", "#trace-body .trace-readout",
 ]
 # 用户起的名字：既不检查它们自己，它们的文字也算"认得的"——按钮的说明里带着名字（"编辑任务：每日安排"）不算没翻译
 NAMES = [

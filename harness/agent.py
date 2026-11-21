@@ -11,12 +11,18 @@
 
 "下一步做什么"每次都由模型决定，循环只负责照办并把结果告诉它。这就是 agent。
 
+循环在几个时刻告诉运行记录一声（self.trace，见 trace/）："记录点"。每个只占一行，名字说明是哪个时刻：
+发出一次请求（request_began）、模型答完这一次（request_ended）、开始一次工具调用（tool_began）、
+开始等你答复（approval_asked）、你答复了或者没问就放行了（approval_decided）、这次调用有结果了（tool_ended）、
+一轮开始和结束（turn_began、turn_ended）。以后要在这些时刻做别的事（比如钩子），也挂在这几处。
+
 这个循环不关心背后是哪家的模型。和具体厂商打交道的细节（请求怎么发、历史怎么存）
 都在 providers/ 目录里，循环只通过 backend 的几个方法使用它们。
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -33,7 +39,9 @@ from .tools import ToolError, ToolRegistry
 from .tools.base import ToolOutput
 from .tools.computer import HALTED as COMPUTER_HALTED
 from .tools.computer import TOOLSET as COMPUTER
+from .trace import Tracer
 
+logger = logging.getLogger("harness.agent")
 WEEKDAYS = "一二三四五六日"
 # 同一轮里一串工具包的调用（"点这里、输入、按回车"），前面一个失败了，后面的都不执行，结果写这句话。
 # 原文是 Anthropic 的文档规定的（https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool 的 Batch actions），一字不改。
@@ -78,8 +86,13 @@ class Agent:
         # 比如"可用的 Skill 变了"（见 skills/catalog.py）：这类会变的信息和时间一样，不能写进系统提示词
         self.notes: list[Callable[[list], str]] = []
         # 每调用完一次模型，把"哪一家、哪个模型、用了多少、什么时候"交出去（记账用，见 ledger.py 和 app.py）。
-        # 循环自己不管钱怎么算、记在哪儿，只负责在每次调用之后说一声
-        self.on_call: Callable[[str, str, Usage, datetime], None] | None = None
+        # 循环自己不管钱怎么算、记在哪儿，只负责在每次调用之后说一声。它交回这一次算出来的钱（没有价格是 None），
+        # 运行记录照着写，不另算一遍
+        self.on_call: Callable[[str, str, Usage, datetime], float | None] | None = None
+        # 运行记录（见 trace/）：这一轮每一次请求、每一次工具调用的时刻和数字。一轮结束时把整理好的记录交给 on_trace
+        # （网页界面存进会话，终端界面留给 /trace，见 app.py）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
+        self.trace = Tracer()
+        self.on_trace: Callable[[dict], None] | None = None
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
@@ -103,11 +116,13 @@ class Agent:
 
     # ---- 一轮对话 ---------------------------------------------------------
 
-    def run_turn(self, user_text: str, attachments: Sequence[Attachment] | None = None) -> None:
-        """处理用户的一条消息，直到模型给出最终答复。attachments 是随消息发来的附件（已经检查过，见 attachments.py）。"""
+    def run_turn(self, user_text: str, attachments: Sequence[Attachment] | None = None, again: bool = False) -> None:
+        """处理用户的一条消息，直到模型给出最终答复。attachments 是随消息发来的附件（已经检查过，见 attachments.py）。
+        again：这是在"重新生成"上一次没答出来的那一轮（那条消息没留在历史里，所以整条再发一次），运行记录上标出来。"""
         # 粘贴进来的文字里可能有半个表情这样编码不了的字符。它一旦进了历史，之后每次请求都发不出去，
         # 所以在入口处换掉（见 safe.py）
         user_text = clean_text(user_text)
+        self.trace.turn_began(again)  # 记录点：一轮开始（从这里算起，包括下面拍 MCP 快照的时间）
         if self.on_start is not None and not self.backend.export():
             self.on_start()
         start = self.backend.mark()
@@ -130,25 +145,46 @@ class Agent:
         只能是最后一轮。去掉的只是历史的末尾，前面的一个字都不动：要是改了中间的某一轮，它后面的缓存全部作废，
         后面每一块思考的签名也都对不上了，API 会拒绝请求（原因见 providers/claude.py 开头的规矩）。
         """
+        self.trace.turn_began(again=True)  # 记录点：一轮开始（重新生成的）
         self.backend.rollback(start + 1)
         self.outcome = ""
         self._finish_turn(start)
 
     def _finish_turn(self, start: int) -> None:
         """用户消息已经在 start 这个位置上了：跑循环，直到这一轮结束。"""
+        ended = "error"
         try:
             self._loop(start)
-        except BaseException:
+            ended = self.outcome
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                ended = "stopped"
             # 出错或被打断时，如果模型还一步都没走完，就撤回这条用户消息，
             # 这样用户重新输入时对话里不会出现两遍。已经走完的步骤则保留在历史里。
             if self.backend.mark() == start + 1:
                 self.backend.rollback(start)
             raise
+        finally:
+            self._end_trace(ended)
+
+    def _end_trace(self, ended: str) -> None:
+        """一轮结束：把这一轮的运行记录整理好交出去。不管这一轮是怎么结束的（答完了、停下了、出错了）都交。"""
+        record = self.trace.turn_ended(ended)  # 记录点：一轮结束
+        if self.on_trace is None:
+            return
+        try:
+            self.on_trace(record)
+        except Exception:
+            # 运行记录只是给人看的：交不出去也不能让这一轮（和它可能正在抛出的错误）跟着变。记进日志，别的照旧
+            logger.exception("运行记录没能交给界面")
 
     def _loop(self, start: int) -> None:
         for _ in range(self.config.max_steps):
-            step = self.backend.step(self.ui)  # 调用一次模型；回复已经由 backend 追加进历史
-            self._record(step.usage)
+            self.trace.request_began(self.backend.provider, self.backend.model)  # 记录点：发出一次请求
+            # 调用一次模型；回复已经由 backend 追加进历史。界面外面包一层 watch：第一段输出到的时候记下"首字时间"
+            step = self.backend.step(self.trace.watch(self.ui))
+            cost = self._record(step.usage)
+            self.trace.request_ended(step, cost)  # 记录点：模型答完这一次
 
             if step.status == "refused":
                 # 被拒绝的内容留在历史里的话，后面多半还会被拒，所以整轮撤销
@@ -177,15 +213,18 @@ class Agent:
         self.outcome = "steps"
         self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
 
-    def _record(self, usage: Usage) -> None:
+    def _record(self, usage: Usage) -> float | None:
+        """记下一次调用的用量。返回账本算出来的钱（没有接账本、没有价格时是 None），运行记录照着写。"""
         now = self.clock()  # 只看一次钟：本次运行的估算和账本按同一个时刻算价格
         self.usage.add(usage)
         # 按模型分开记。价格分时段的模型（DeepSeek），闲时的用量另记一份，算钱时按闲时价（见 pricing.usage_key）
         self.usage_by_model.setdefault(usage_key(self.backend.model, now, self.backend.provider), Usage()).add(usage)
+        cost = None
         if self.on_call is not None:  # 先记账再通知界面：界面刷新时，"今天""本月"已经包括这一次了
-            self.on_call(self.backend.provider, self.backend.model, usage, now)
+            cost = self.on_call(self.backend.provider, self.backend.model, usage, now)
         if self.on_usage is not None:
             self.on_usage()
+        return cost
 
     def _context_note(self) -> str:
         now = self.clock()
@@ -206,6 +245,8 @@ class Agent:
         try:
             for call in step.tool_calls:
                 self.ui.tool_call(call.shown, call.input)
+                self.trace.tool_began(call, self.tools.get(call.name, call.toolset))  # 记录点：开始一次工具调用
+                ran = not (step.truncated or halted)
                 if step.truncated:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
                     output = ToolOutput("这次调用的参数在生成中途被截断，没有执行。请重新调用。", is_error=True)
@@ -216,6 +257,7 @@ class Agent:
                     halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
                 text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
                 results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
+                self.trace.tool_ended(text, output.is_error, len(output.images), ran)  # 记录点：这次调用有结果了
                 # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言
                 shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else text
                 self.ui.tool_result(shown, output.is_error, output.preview)
@@ -251,8 +293,11 @@ class Agent:
             why = self.permissions.allowance(call.name, call.input, tool)
             if why is not None:
                 self.ui.auto_allowed(why)  # 没有问用户就放行了：告诉界面一声（为什么也说上），记录里要看得出来
+                self.trace.approval_decided("auto", why)  # 记录点：没问你就放行了
             else:
+                self.trace.approval_asked()  # 记录点：开始等你答复
                 allowed, feedback = self.ui.confirm(question)
+                self.trace.approval_decided("allowed" if allowed else "refused")  # 记录点：你答复了
                 if not allowed:
                     return ToolOutput("用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), is_error=True)
 

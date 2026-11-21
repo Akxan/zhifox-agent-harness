@@ -120,6 +120,7 @@ __STYLES__
   <symbol id="i-browser" viewBox="0 0 24 24"><path d="M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4zM3 8.5h18M6 6.3h.01M8.5 6.3h.01M11.5 11.5l6 2.2-2.6 1-1 2.6z"/></symbol>
   <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
+  <symbol id="i-trace" viewBox="0 0 24 24"><path d="M4 4v16M7.5 7h6M10.5 12h8M15.5 17h4.5"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 19 10.5H5A1.5 1.5 0 0 1 3.5 9V6A1.5 1.5 0 0 1 5 4.5zM5 13.5h14a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18v-3A1.5 1.5 0 0 1 5 13.5zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
@@ -665,6 +666,20 @@ __STYLES__
     <button id="close-spend" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
   <div id="spend-body" class="settings-body spend-body"></div>
+</dialog>
+
+<!-- 运行记录：一轮对话里每一次请求、每一次工具调用（脚本在 scripts/trace.js 和 trace-chart.js，样子在 styles/trace.css） -->
+<dialog id="trace-dialog" class="trace-drawer" aria-labelledby="trace-title" aria-describedby="trace-sub">
+  <div class="trace-head">
+    <div class="trace-heading">
+      <h2 id="trace-title" data-i18n>运行记录</h2>
+      <p id="trace-sub" class="trace-sub"></p>
+    </div>
+    <button id="trace-copy" class="icon-button" type="button" title="复制为 JSON" aria-label="复制为 JSON" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+    <button id="close-trace" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <p id="trace-status" class="trace-status" role="status" aria-live="polite"></p>
+  <div id="trace-body" class="trace-body"></div>
 </dialog>
 
 <dialog id="approval-dialog" class="settings approval-dialog" aria-labelledby="approval-title">

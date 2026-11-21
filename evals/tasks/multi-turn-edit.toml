@@ -1,0 +1,41 @@
+# 两轮对话：第二句话接着第一句说（"再加上……把……删掉"）。看它记不记得上一轮建的是哪个文件、改得对不对。
+title = "接着上一句改文件"
+tags = ["files", "multi-turn"]
+approval = "edits"
+messages = [
+  "帮我建一个 购物清单.md，写上牛奶、鸡蛋。",
+  "再加上面包，鸡蛋不要了。",
+]
+
+[budget]
+requests = 5
+
+[[graders]]
+type = "file_contains"
+path = "购物清单.md"
+text = ["牛奶", "面包"]
+
+[[graders]]
+type = "file_lacks"
+path = "购物清单.md"
+text = "鸡蛋"
+
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "create", path = "购物清单.md", file_text = "# 购物清单\n\n- 牛奶\n- 鸡蛋\n" }
+
+[[dry_run]]
+say = "建好了：购物清单.md，有牛奶和鸡蛋。"
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "str_replace", path = "购物清单.md", old_str = "- 鸡蛋\n", new_str = "- 面包\n" }
+
+[[dry_run]]
+say = "改好了：现在是牛奶、面包，鸡蛋去掉了。"

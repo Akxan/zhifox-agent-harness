@@ -122,6 +122,11 @@ class Step:
     truncated: bool = False  # 回复达到长度上限被截断了
     note: str = ""  # 补充说明，比如拒绝的类别
     usage: Usage = field(default_factory=Usage)
+    # 下面几项循环不用，只给运行记录看（见 trace/）：这一次请求为什么停下、有没有重试、服务器上做了什么
+    stop_reason: str = ""  # API 原样给的停止原因（Claude 的 end_turn、tool_use……，OpenAI 格式的 stop、tool_calls……）
+    retries: int = 0  # 这一步在适配层里重新请求了几次（比如工具参数不是合法的 JSON，见 claude.py 的 _send）
+    compacted: bool = False  # 这次请求里，服务器顺便把较早的对话压缩成了摘要（Claude 的服务器端压缩）
+    server_tools: dict[str, int] = field(default_factory=dict)  # 服务器端的工具用了几次：{"web_search": 2}
 
 
 class StreamUI(Protocol):
