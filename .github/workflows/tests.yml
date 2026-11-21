@@ -5,7 +5,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci-windows]  # 临时：ci-windows 分支上调 Windows
   pull_request:
 
 permissions:
@@ -19,8 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.11", "3.13"]
+        exclude:
+          - os: ubuntu-latest
+          - os: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -29,13 +32,16 @@ jobs:
       - name: Install
         run: uv sync --locked
       - name: Chrome
+        shell: bash
         # 只是打印出来，方便看是哪个版本。找不到的话下面的页面测试会失败（HARNESS_UI_REQUIRED），不会悄悄跳过
         run: |
           if command -v google-chrome >/dev/null; then google-chrome --version
           elif [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+          elif [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ]; then powershell -c "(Get-Item 'C:/Program Files/Google/Chrome/Application/chrome.exe').VersionInfo.ProductVersion"
           else echo "没有找到 Chrome"; fi
       - name: Tests
-        run: uv run pytest -q
+        run: uv run pytest -q --continue-on-collection-errors -p no:cacheprovider
+        shell: bash
         env:
           HARNESS_UI_REQUIRED: "1"  # 页面测试找不到 Chrome 时算失败，而不是跳过
           HARNESS_UI_ARTIFACTS: ${{ runner.temp }}/ui-artifacts  # 页面测试失败时的截图、控制台输出、页面 HTML
