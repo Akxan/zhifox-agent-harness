@@ -121,6 +121,9 @@ function finishSub(sub, event) {
       sub.answer.classList.add('md-plain');
       sub.answer.textContent = String(event.answer);
     }
+    // 它联网搜索过：回答里的 [1] 指的是哪个网页，列在回答下面（和主助手的回复同一个样子，见 citations.js）
+    const sources = keepCiteSources(new Map(), event.sources);
+    if (sources.size) sub.answer.after(citeList(sources));
   }
   if (event.error) {
     sub.error.hidden = false;

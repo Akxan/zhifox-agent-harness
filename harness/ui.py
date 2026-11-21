@@ -14,6 +14,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit import prompt as ask
 from prompt_toolkit.history import FileHistory
 
+from . import citations
 from .config import APP_NAME
 from .display import describe_call, short
 from .i18n import k, t
@@ -46,6 +47,8 @@ class TerminalUI:
                 history = FileHistory(str(history_file))  # 按上方向键可以找回以前输入过的话
             self._session = PromptSession(history=history)
         self._streaming: str | None = None  # 正在逐字输出的内容类型："thinking" 或 "text"
+        self._held = ""  # 回答末尾还没写出来的空白（见 text）
+        self._sources = citations.Numbering()  # 这段回答引用的网页（联网搜索后才有），结束时列出来
         # 这一轮里的工具调用和确认，记成和网页界面一样的事件。/retry、/edit 倒回这一轮之前，
         # 靠它看这一轮做过什么可能改动了电脑的事（见 rewind.effects），要先问你一次
         self.turn_events: list[dict] = []
@@ -136,7 +139,17 @@ class TerminalUI:
 
     def text(self, text: str) -> None:
         self._begin("text")
-        self._write(text)
+        # 末尾的空白和换行先留着不写：这段文字要是引用了网页，记号 [1] 要紧跟在最后一个字后面，不能跑到下一行的开头
+        chunk = self._held + text
+        body = chunk.rstrip()
+        self._held = chunk[len(body) :]
+        self._write(body)
+
+    def cite(self, sources: list[dict]) -> None:
+        """联网搜索的回答引用了网页（见 citations.py）：在刚写完的那段文字后面写上 [1]，这段回答结束时列出来源。"""
+        marks, _ = self._sources.add(sources)
+        if marks and self._streaming == "text":
+            self._write(self._paint(DIM, citations.marker(marks)))
 
     def _begin(self, kind: str) -> None:
         if self._streaming == kind:
@@ -148,8 +161,20 @@ class TerminalUI:
 
     def end_stream(self) -> None:
         if self._streaming is not None:
-            self._write("\n")
+            self._write(self._held + "\n")
+            self._held = ""
             self._streaming = None
+        if self._sources.sources:
+            self._write(self._paint(DIM, self._listing()) + "\n")
+            self._sources.clear()
+
+    def _listing(self) -> str:
+        """来源列成几行：编号、标题、网站，下面一行是完整的网址（大多数终端里按住 ⌘ 或 Ctrl 点它就能打开）。"""
+        lines = citations.listing(self._sources.sources).split("\n")
+        out = [lines[0]]
+        for line, source in zip(lines[1:], self._sources.sources):
+            out += [f"  {line}", f"     {source['url']}"]
+        return "\n".join(out)
 
     def notice(self, level: str, text: str) -> None:
         """一行提示。level：tool 服务器工具开始执行，result 它的结果，error 出错，info 其他。"""

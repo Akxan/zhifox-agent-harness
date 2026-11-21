@@ -6,7 +6,8 @@ agent 循环只认那几个方法（thinking、text、tool_call、confirm……�
 
 区别是这份日志不推给浏览器，而是在几个时刻告诉 session.py 一声，由它把话发到聊天里：
 
-  一段文字写完了（end_stream）      → 把这段文字发出去。模型边想边写，写完一段发一段，不用等整轮结束
+  一段文字写完了（end_stream）      → 把这段文字发出去。模型边想边写，写完一段发一段，不用等整轮结束。
+                                      联网搜索的回答引用了网页的（cite），文字里写上 [1]，末尾列出来源
   要你确认一个操作（confirm）       → 发一条带"允许 / 拒绝"按钮的消息，然后等答复（网页上也能答）
   确认答复了（confirm_done）        → 把那条消息上的按钮去掉，写上结果
   没问你就放行了（auto_allowed）    → 发一行"已自动允许：$ 命令"（只读的命令写"已自动允许（只读）"），在聊天里也看得到它做了什么
@@ -21,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from .. import citations
 from ..display import short
 from ..i18n import t
 from ..webui.ui import WebUI
@@ -43,6 +45,7 @@ class ChannelUI(WebUI):
         self._on_settled = on_settled
         self._on_auto = on_auto
         self._pending = ""  # 正在写、还没发出去的那段文字
+        self._chat_sources = citations.Numbering()  # 这段文字引用的网页（联网搜索的回答才有），发出去时列在末尾
         self.activity = ""  # 现在在做什么（最近一次工具调用的一行说明），/status 用
         self.answer = ""  # 最后一次调用工具之后写的文字
         self._replaying = False  # 正在把保存过的会话重放进日志（load_events）：重放出来的确认请求不能再发到聊天里
@@ -107,11 +110,23 @@ class ChannelUI(WebUI):
         self._pending += text
         self.answer += text
 
+    def cite(self, sources: list[dict]) -> None:
+        """联网搜索的回答引用了网页（见 citations.py）：网页上照常画（父类发事件），聊天里在那段文字后面写上 [1]，
+        这条消息的末尾列出来源。编号一条消息一数：聊天里每段文字各发成一条消息，和网页上的段落不一定一样长"""
+        super().cite(sources)
+        marks, _ = self._chat_sources.add(sources)
+        if marks:
+            self._pending = citations.insert(self._pending, citations.marker(marks))
+
     def end_stream(self) -> None:
         super().end_stream()
         if self._pending.strip():
+            if self._chat_sources.sources:
+                # 来源跟在这段文字后面、发在同一条消息里。太长的话 router 照常按平台的上限拆成几条（见 markup.split）
+                self._pending = self._pending.rstrip() + "\n\n" + citations.listing(self._chat_sources.sources, markdown=True)
             self._on_text(self._pending)
         self._pending = ""
+        self._chat_sources.clear()
 
     def auto_allowed(self, why: str = "mode") -> None:
         super().auto_allowed(why)

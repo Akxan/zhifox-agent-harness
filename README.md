@@ -85,6 +85,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🖧 **Runs on a server.** `harness serve` runs the chat channels and scheduled tasks with no browser, logs in a
   journald-friendly format, stops cleanly on SIGTERM, and comes with a systemd unit; set it up and pair it with
   `harness channels setup` / `pair`, then do server chores from your chat app.
+- ♻️ **Always on, no terminal needed.** `harness service install` hands ZhiFox to launchd (macOS) or systemd (Linux):
+  it starts at login, restarts itself after a crash, keeps the web page and your chat bot up with no terminal open, and
+  `harness service open` opens the page with this run's token.
 - 📎 **Attachments.** Paste a screenshot or drop in images, PDFs, Word, Excel, PowerPoint and text files. What a model
   can't take is converted first (SVG to PNG, Office files to text, GBK text to Unicode) or refused with a note on how to
   convert it, in all three interface languages.
@@ -253,12 +256,14 @@ Each part of the harness has its own file or directory:
 | Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply, and `send_file` ([tools/send.py](harness/tools/send.py)) to send photos and files back into the chat (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
 | WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects, plus a `multipart/form-data` encoder for uploading files ([multipart.py](harness/net/multipart.py)) |
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
+| Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
+| Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
@@ -608,6 +613,42 @@ drawn once, in its final form, with no animation.
 Search still works: results come from the Markdown source, and when the hit includes syntax that isn't visible
 (`**`, `` ` ``), the page drops those marks before looking for it on the page. A hit that only exists in the source
 (such as a link's address) scrolls to the reply. The terminal shows the Markdown source as is.
+
+### Sources of web-search answers
+
+When Claude answers from a web search, the API cuts the answer into consecutive `text` blocks at every citation, and
+each cited block carries a `citations` list: the page's address, its title, the quoted text (up to 150 characters) and
+an `encrypted_index` that must be sent back unchanged. While streaming, each citation is a `citations_delta`; the SDK
+collects them on the block, so ZhiFox reads them when the block ends
+([harness/providers/claude.py](harness/providers/claude.py)). Anthropic asks that answers shown to people keep their
+sources, so they are no longer dropped:
+
+- **Two copies, one untouched.** The conversation history (`messages`) keeps the blocks exactly as the API returned
+  them, `citations` and all, so the next request is byte-for-byte the same prefix and the cache still hits. The
+  display copy is made separately by [harness/citations.py](harness/citations.py): only `http` and `https` addresses,
+  titles and quotes cleaned and shortened, the same page in one answer given one number, in order of first appearance.
+- **One event per cited span.** In the web UI each cited span becomes a `cite` event right after its text:
+  `{"type": "cite", "marks": [{"n": 1, "quote": "…"}], "sources": [{"n": 1, "url": "…", "title": "…", "site": "…"}]}`.
+  `marks` are the numbers for this spot; `sources` lists only the pages that appear for the first time in this answer.
+  The numbers are worked out by the program, and the page only draws them. The events are saved with the conversation,
+  so an old conversation shows its sources again when you open it.
+- **Drawing.** The page keeps the reply's text as it is (search and Copy use it) and inserts a private marker
+  wherever a citation goes when it hands the text to the Markdown renderer, which asks the page to build the element.
+  The marker skips trailing spaces and line breaks, and never goes inside code or link text, so it can't break a code
+  fence or add a table column. The number is drawn by CSS, not as text, so selecting a sentence or searching for it
+  isn't thrown off by stray digits.
+- **Copy** copies plain text: `[1]` after each cited sentence and the titles and full addresses at the end, so a
+  pasted answer still says where each claim came from.
+- **Terminal and chat apps** get the same thing as text: `[1]` after the cited sentence and a short
+  "Sources:" list with the title and site (the terminal adds the full address on the next line; chat apps make the
+  title a link). The chat message is split by the platform's length limit as usual.
+- **Old, fragmented answers.** Before the paragraph fix, every one of those blocks ended with a `block_end`, so saved
+  conversations replayed as many tiny paragraphs (". Anuncia", "," on lines of their own, each with its own Copy
+  button). Now a `block_end` only pauses a reply: if the next event is more text, it is the same paragraph; anything
+  else (a tool call, a notice, your next message, the end of the turn) ends it. Live streaming goes through the same
+  code, so a reply that resumes after `pause_turn` looks the same live and after a refresh.
+
+GPT, Gemini and DeepSeek have no web search, so their answers never carry sources.
 
 ### Scheduled tasks: running when nobody is watching
 
@@ -1478,6 +1519,10 @@ This starts a small server on your computer and opens the chat page in your brow
   label, light syntax colors and a **Copy code** button. Links open in a new tab; images aren't loaded, you see their
   description and address instead. You can expand the model's thinking. Each tool call is a card you can open to see
   its parameters and result; a browser or computer use step also carries a small screenshot you can click to enlarge. Hovering over a reply shows a **Copy** button, which copies the reply's Markdown source.
+  An answer written after a web search carries its sources: a small number after each cited sentence (hover it, or
+  move to it with the keyboard, to see the site, the page title and the quoted text; click it to open the page in a new
+  tab) and a **Sources** list under the answer. **Copy** then writes the numbers as `[1]` and adds the titles and
+  addresses at the end (see [Sources of web-search answers](#sources-of-web-search-answers)).
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
@@ -1903,6 +1948,156 @@ uv run --project "/full/path/to/this/project" harness
 
 The keys and data still come from the project's own `.env` and `data/`.
 
+## Run it in the background
+
+Started with `uv run harness --web`, ZhiFox is a child of that terminal: close the terminal, or end the Claude Code
+session that started it, and ZhiFox stops too, taking the web page and your chat bot with it. To keep it up all the
+time, hand it to the program your operating system already uses for that job, its *service manager*: **launchd** on
+macOS, **systemd** on Linux. One command does it:
+
+```bash
+uv run harness service install     # install and start it: from now on it starts at login and restarts itself after a crash
+uv run harness service open        # open its web page (reads the address with this run's token for you)
+uv run harness service status      # running or not, process id, port, folders, the log, recent warnings and errors
+uv run harness service logs -f     # follow the log (Ctrl-C stops following); -n 200 shows more lines
+uv run harness service stop        # stop it now (it starts again at your next login)
+uv run harness service start       # start it again
+uv run harness service restart     # restart it, for example after editing .env or updating ZhiFox
+uv run harness service uninstall   # stop it and don't start it at login any more (data and logs stay)
+```
+
+Run them in the project folder. `install` takes `--no-web` (chat channels and scheduled tasks only, no web page),
+`--port 9000` (default 8765; when 8765 is taken, a free port is picked) and `--workspace /some/folder` (the assistant's
+working folder; default: the current folder). Running `install` again is safe: the same settings change nothing, and new
+settings stop the old service and start the new one. **Settings → Run in the background** on the web page shows which
+way ZhiFox is running, with the install command to copy when it's tied to a terminal.
+
+**Switching from a ZhiFox you started by hand.** Only one ZhiFox can use a data folder at a time, so stop that one
+first, then install:
+
+```bash
+# In the terminal where `uv run harness --web` is running, press Ctrl-C.
+# Started from a Claude Code session? End that session, or find the process and stop it:
+pgrep -fl "harness --web"          # prints the process id
+kill -INT <pid>                    # the same as pressing Ctrl-C: ZhiFox saves and exits
+cd /path/to/zhifox-agent-harness
+uv run harness service install
+uv run harness service open
+```
+
+If the data folder is still in use, `install` refuses and says who holds it (what kind of ZhiFox and its process id),
+rather than starting a service that would exit at once and be restarted every ten seconds. It works the other way
+round too: running `uv run harness --web` while the service runs says that ZhiFox is running as a background service,
+with `uv run harness service open` to reach it and `uv run harness service stop` to stop it first.
+
+### How launchd and systemd keep it running
+
+Both read one small settings file per program and look after that program:
+
+| | macOS: launchd | Linux: systemd |
+|---|---|---|
+| The file | `~/Library/LaunchAgents/io.github.akxan.zhifox.plist`, a property list (XML) | `~/.config/systemd/user/zhifox.service`, a unit (INI style) |
+| Start at login | `RunAtLoad`: started as soon as launchd reads the file, and it reads that folder at every login | `WantedBy=default.target` plus `systemctl --user enable`: started with your user session |
+| Restart after a crash | `KeepAlive` with `SuccessfulExit: false`: restart unless it exited with code 0 | `Restart=on-failure`: the same rule |
+| Pause between restarts | `ThrottleInterval`: 10 seconds | `RestartSec=10` |
+| Logs | `StandardOutPath` and `StandardErrorPath`: `data/logs/service.log` | the journal: `journalctl --user -u zhifox` |
+| Commands ZhiFox runs | `launchctl bootstrap gui/<uid> <plist>`, `bootout`, `kickstart -k`, `list` (before macOS 10.10: `load`, `unload`) | `systemctl --user daemon-reload`, `enable --now`, `stop`, `restart`, `disable --now`, `show` |
+
+"Restart only after a failure" is what lets `stop` work: on SIGTERM, ZhiFox finishes what it's doing, saves and exits
+with 0, so the manager doesn't bring it straight back, while a crash, a `kill -9` or an error exit is restarted. Exit
+code 2 means a broken setting, such as a `channels.json` that can't be read; restarting can't fix that, so systemd
+doesn't retry it (`RestartPreventExitStatus=2`), and `status` explains each exit code. A LaunchAgent runs while you're
+logged in: it starts when you log in, not at boot. While the Mac sleeps, ZhiFox sleeps too, and it picks up waiting
+messages when the Mac wakes.
+
+The plist for a project in `/Users/you/zhifox` (condensed here; the real file has one key or value per line, sorted):
+
+```xml
+<dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HARNESS_DATA_DIR</key> <string>/Users/you/zhifox/data</string>
+    <key>HARNESS_ENV_FILE</key> <string>/Users/you/zhifox/.env</string>
+    <key>LANG</key>             <string>en_US.UTF-8</string>
+    <key>PATH</key>             <string>(your terminal's PATH at install time)</string>
+    <key>PYTHONUTF8</key>       <string>1</string>
+  </dict>
+  <key>KeepAlive</key>         <dict><key>SuccessfulExit</key><false/></dict>
+  <key>Label</key>             <string>io.github.akxan.zhifox</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/zhifox/.venv/bin/python</string> <string>-P</string> <string>-m</string> <string>harness</string>
+    <string>--workspace</string> <string>/Users/you/zhifox</string>
+    <string>serve</string> <string>--web</string> <string>--service</string> <string>launchd</string>
+  </array>
+  <key>RunAtLoad</key>         <true/>
+  <key>StandardErrorPath</key> <string>/Users/you/zhifox/data/logs/service.log</string>
+  <key>StandardOutPath</key>   <string>/Users/you/zhifox/data/logs/service.log</string>
+  <key>ThrottleInterval</key>  <integer>10</integer>
+  <key>WorkingDirectory</key>  <string>/Users/you/zhifox</string>
+</dict>
+```
+
+The unit for a project in `/home/you/zhifox`:
+
+```ini
+[Unit]
+Description=ZhiFox (智狐)
+Documentation=https://github.com/Akxan/zhifox-agent-harness#run-it-in-the-background
+
+[Service]
+Type=simple
+WorkingDirectory=/home/you/zhifox
+ExecStart="/home/you/zhifox/.venv/bin/python" "-P" "-m" "harness" "--workspace" "/home/you/zhifox" "serve" "--web" "--service" "systemd"
+Environment="HARNESS_DATA_DIR=/home/you/zhifox/data"
+Environment="HARNESS_ENV_FILE=/home/you/zhifox/.env"
+Environment="LANG=en_US.UTF-8"
+Environment="PATH=…"
+Environment="PYTHONUTF8=1"
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=2
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+- **What runs.** The project's own virtual environment: `.venv/bin/python -P -m harness … serve --web`. `uv` isn't
+  involved at startup, so nothing is synced or downloaded when you log in. `-P` keeps the working folder off Python's
+  import path, so a `json.py` lying in your workspace can't take the place of the standard library's. Each argument is
+  its own list item, and nothing goes through a shell, so spaces in paths are fine. `--service` tells ZhiFox it is the
+  background service: the data folder's lock says so, the web page shows it, and on macOS ZhiFox writes its own log
+  file. `KillMode=mixed` sends SIGTERM to ZhiFox alone first, so it stops the commands it started itself and saves.
+- **No secrets in these files.** They hold paths and switches only, with mode 644 as launchd and systemd expect. The
+  API keys stay in `.env` (or the file `HARNESS_ENV_FILE` points to), which ZhiFox reads when it starts, and the bot
+  tokens stay in `data/channels.json`.
+- **Your terminal's environment isn't inherited.** launchd and systemd start ZhiFox without running your `.zshrc` or
+  `.bashrc`. The service gets the data folder, the `.env` location, and `PATH` and `LANG` as they were when you
+  installed. Anything else (`HTTPS_PROXY`, `HARNESS_MODEL`, an API key you only `export`ed) belongs in `.env`. `install`
+  lists the ones set in your terminal but missing from `.env`, by name only, never their values.
+- **The web page and its token.** The page still listens on 127.0.0.1 only, and the token is still random for every
+  start: a token that never changed would be a password left on disk for good, and anyone who saw it once could use it
+  later. With no terminal to print it in, the address is written to `data/.web-address` (readable by your account only,
+  deleted on exit), never to the log. `uv run harness service open` reads it and opens your browser, printing the
+  address without the token; `open --print` prints the whole address, for a browser on another machine through an SSH
+  tunnel. After a restart, an open tab's token no longer works: run `open` again.
+- **Logs.** On macOS: `data/logs/service.log`, with the date on every line. ZhiFox starts a new file at 1 MB and keeps
+  three old ones (`service.log.1` to `.3`), so the log stays under about 4 MB; launchd itself never trims it. On Linux:
+  the journal, `journalctl --user -u zhifox -f`. Either way, `status` shows the last few warnings and errors. API keys
+  and bot tokens are replaced with `<hidden>`, and message content is never logged.
+- **macOS and protected folders.** If the project or the working folder is inside Documents, Desktop, Downloads or
+  iCloud Drive, macOS may ask the first time whether python can open that folder (click OK), or simply block it
+  (`Operation not permitted` in the log). `install` and `status` warn about it. The simplest fix is keeping the project
+  somewhere else, such as `~/zhifox`. The alternative is adding the python binary that `status` names to **System
+  Settings → Privacy & Security → Full Disk Access**, but that lets every program run with that python read all your
+  files.
+- **Linux without a login session.** By default systemd stops your user services when you log out. To keep ZhiFox
+  running when nobody is logged in, and start it at boot: `sudo loginctl enable-linger $USER`. `status` says whether
+  it's on. On a server with a dedicated account, the system unit in [Deploying to a server](#deploying-to-a-server) is
+  the other way to do it.
+
 ## Deploying to a server
 
 ZhiFox can live on a Linux server and take orders from your bot ("how much disk is left?", "any errors in the
@@ -1929,7 +2124,10 @@ for each field (secrets aren't echoed); it also reads them from the environment 
 DingTalk need their SDK: `uv sync --extra feishu --extra dingtalk` (and pass the same `--extra` flags to later
 `uv sync` runs, which otherwise remove them).
 
-Then run it as a service. A systemd unit, `/etc/systemd/system/zhifox.service`:
+Then run it as a service. If you log in to the server as yourself, `uv run harness service install` sets up a systemd
+*user* unit for you (see [Run it in the background](#run-it-in-the-background); add `sudo loginctl enable-linger $USER`
+so it keeps running after you log out). For a dedicated, unprivileged account, write a system unit,
+`/etc/systemd/system/zhifox.service`:
 
 ```ini
 [Unit]
@@ -2015,6 +2213,9 @@ unprivileged user for the service.
 | `data/desktop/shots/` | Full-size screenshots of computer use steps (your whole screen), named by the SHA-256 of their content. Deleted after 7 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
+| `data/logs/` | The background service's log on macOS, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
+| `data/.web-address` | The web page's address with this run's token, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
+| `data/.lock` | Held by the ZhiFox that is using this data folder, with its kind (web page, `serve`, background service) and process id, so a second one can say who's in the way. Never exported |
 
 These are all ordinary files you can open. Both `data/` and `.env` are listed in `.gitignore`, so they never get
 committed to git. The folders and conversation files in `data/` are readable and writable by your account only, so other
@@ -2265,6 +2466,11 @@ dispatcher and the real DingTalk Stream client are also run against the fakes; o
 The WebSocket client and the HTTPS helper have their own tests against a local fake server and proxy
 ([tests/test_websocket.py](tests/test_websocket.py), [tests/test_net_http.py](tests/test_net_http.py)). The server mode and the CLI, including a real `harness serve`
 process stopped with SIGTERM, are in [tests/test_serve.py](tests/test_serve.py).
+The background service is in [tests/test_service.py](tests/test_service.py): the generated plist (checked with
+`plistlib` and `plutil -lint`) and unit, quoting of awkward paths, the exact `launchctl` and `systemctl` command lines
+against a fake, installing twice, refusing a busy data folder, status parsing, `open` and the logs, plus one real
+`serve --service launchd` process writing its own log file. No test ever runs the real `launchctl` or `systemctl`, or
+opens a browser: `tests/conftest.py` makes them fail.
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
 Custom agents are in [tests/test_agents.py](tests/test_agents.py) (the file format and its checks, the tool allow-list
@@ -2377,6 +2583,8 @@ integration test runs there against a virtual display. The result is the Tests b
 ## Limitations
 
 - macOS and Linux only (running commands depends on bash).
+- The background service (`harness service`) is tested against a fake `launchctl` and `systemctl` only; the tests never
+  install a real one. On macOS, a project inside Documents, Desktop or Downloads may need a privacy permission first.
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
 - With GPT, Gemini and DeepSeek there is no web search.
 - Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
@@ -2509,8 +2717,9 @@ demo cost nothing. See [Cost](#cost).
 ### Can I use it from my phone?
 
 Yes, through your own bot on Telegram, Discord, Slack, Feishu, DingTalk or QQ (see [Chat channels](#chat-channels)). Only the account you pair can use it,
-and anything that would change your computer still asks you first, in the chat. On a server, run `harness serve` (see
-[Deploying to a server](#deploying-to-a-server)).
+and anything that would change your computer still asks you first, in the chat. To keep the bot answering when no
+terminal is open, run `uv run harness service install` (see [Run it in the background](#run-it-in-the-background)). On a
+server, run `harness serve` (see [Deploying to a server](#deploying-to-a-server)).
 
 ### Does it run on Windows?
 

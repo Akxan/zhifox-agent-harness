@@ -132,6 +132,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
+| `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -255,6 +256,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **有意的破例**：`i18n.fill` 和页面的 `t()` 填 `{platform}` 时，汉字和中文平台名之间的那个空格去掉（"连接飞书"）；别的值不动。
 - **调度器和聊天通道只从 `webui/lifecycle.py` 启动和停止**（网页界面和 `harness serve` 都走它）。
   `harness serve --web` 照样只监听 127.0.0.1，带口令的地址不写进日志（没有终端时写进 `data/.web-address`，600，退出时删掉）。
+- **后台服务（`harness service`）**：plist / unit 只照着 `service/plan.py` 的 Plan 写，只放路径和开关，不放密钥和口令
+  （口令每次启动随机，写在 `data/.web-address`，权限 600）。命令一律用参数列表、不经过 shell，launchctl 写完整路径 `/bin/launchctl`。
+  运行的是 `.venv/bin/python -P -m harness … serve --service launchd|systemd`。**开发和测试永远不运行真的 launchctl / systemctl / journalctl，
+  也不打开浏览器**：conftest 把 `service.base.run_command`、`run_attached` 和 `service.cli._open_browser` 换成一调用就失败的函数，
+  测试用 `tests/test_service.py` 里的假系统。数据目录的锁在 `instance.py`：`claim(data_dir, kind)` 写下进程编号和 kind，`in_use` 只看不改；
+  装、开、重启之前先看锁。launchd 下的日志由 `log.ServiceLog` 写。能调的数在 `config.SERVICE_*`。
+  `harness --web` 和 `harness serve` 一样接住 SIGTERM，和 Ctrl-C 走同一条收尾的路（存好盘再退出），而且在打印地址之前就接上。
 - **操作整台电脑是进阶选项，默认关着**；打开必须经过页面上的风险确认，服务器要求 `acknowledge: true`；定时任务和聊天通道要另外打开才有。
   **测试和演示永远不碰真的屏幕、鼠标和键盘**：conftest 把 `desktop.backend.detect` 换成"用不了"，要测的用 `tests/fake_desktop.py` 的 `install`，
   演示页面用的也是假电脑；真后端只在 Xvfb 上测（`tests/test_desktop_x11.py`，CI 只在 ubuntu 跑）。macOS 上只能调用不弹窗的预检函数
@@ -267,6 +275,12 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   看不了图的模型（DeepSeek）靠 `Tool.vision` 拿不到这些工具。
 - **i18n 里的嵌套**：值本身是一句 `t()` 时，`Message.nested` 记着它的原文，页面的 `t()` 递归重译。拼确认文字时让每一段都保持是 Message，
   不要用 `+` 把它们拼成普通字符串，否则换语言时会半中半英。
+- **联网回答的来源**（`harness/citations.py`、`page/scripts/citations.js`）：`messages` 里 API 给的 `citations` 原样不动，给人看的另抄一份
+  （只认 http、https，标题和原文洗过、截短）。网页上每一处引用一个 `cite` 事件（`marks`、`sources`），编号由程序按"一段回复"算：
+  `webui/ui.py` 的 `PARAGRAPH` 必须和页面 `streaming.js` 里哪些事件结束一段回复保持一致，改了一边要改另一边。终端和聊天通道各自一段（一条消息）一数。
+  `block_end` 只是让回复停一下（`pauseBlock`）：紧接着还是文字就算同一段，别的内容事件到来才收尾（新的内容事件的处理要先调用 `endBlock`），
+  这是为了以前存下的、被切成好几块的联网回答。markdown.js 认 `\uE000编号\uE001` 这个记号，交给 `hooks.cite` 建元素；只能由页面插入
+  （模型写的这两个字符先换成 �），代码和链接文字里不放；原文 `block.text` 不插记号，搜索跳转和复制都靠它。
 - **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
   用过浏览器的旧会话照样带上。Claude 用 Anthropic 的 `browser_toolset_20260801`（`Tool.toolset` / `member` / `stands_in_for`，
   适配层合成一项），结果写回 `toolset_name`；`browser_state` 不放在出错的结果上；一轮里工具包的一步失败了，后面的结果是
@@ -317,5 +331,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。浏览器工具包没有用真实的 Claude 请求测过，真的 Chrome 只在 macOS 上测过。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
+  2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
+  浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
+  另外用户自己在 Telegram 里用过：截屏、文件工具看图片。

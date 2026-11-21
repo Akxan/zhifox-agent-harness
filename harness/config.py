@@ -68,6 +68,13 @@ MAX_REWIND_EFFECTS = 6
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
 MAX_PROMPT_CHARS = 20_000
 
+# 联网搜索的回答引用的网页（见 citations.py）：每一处引用旁边一个编号，整段回答的末尾列出来源。
+# 网页标题、被引用的那段原文最多显示这么多个字（API 给的原文本身最多 150 个字）；网址再长的不要（多半是写坏了的，
+# 页面上的 Markdown 链接也是这个上限，见 webui/markdown.js 的 MAX_URL）
+SOURCE_TITLE_CHARS = 120
+SOURCE_QUOTE_CHARS = 150
+SOURCE_URL_CHARS = 2048
+
 # 定时任务最多同时运行几个（你自己的对话不算在里面，它照常进行）。每个运行都在调用模型、花钱，还可能开着命令，
 # 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
 MAX_PARALLEL_TASKS = 3
@@ -219,6 +226,25 @@ ALLOWED_COMMANDS_DEFAULT: tuple[str, ...] = ()
 MAX_ALLOWED_COMMANDS = 100
 MAX_ALLOWED_COMMAND_CHARS = 200
 
+# 后台服务（见 service/）：`harness service install` 把智狐装成登录时自动启动、出错退出后自己重启的服务
+# （macOS 上是 launchd 的 LaunchAgent，Linux 上是 systemd 的用户服务）。
+# 出错退出以后，最少隔这么多秒再重启（launchd 的 ThrottleInterval、systemd 的 RestartSec）。
+# 太短的话，一个一启动就出错的问题（比如数据目录被别人占着）会每秒重启一次、把日志刷满
+SERVICE_RESTART_SECONDS = 10
+# macOS 上服务的日志写进数据目录里的这个文件（Linux 上交给 journald）。写到这么大就换一个新文件，
+# 旧的改名成 service.log.1、.2……，最多留这么多份：日志最多占 (1 + 份数) × 大小
+SERVICE_LOG = Path("logs") / "service.log"
+# 后台服务没有终端可以打印网页的地址（里面有口令），就写在数据目录里的这个文件里（见 serve.py），harness service open 读它
+WEB_ADDRESS = ".web-address"
+SERVICE_LOG_BYTES = 1_000_000
+SERVICE_LOG_BACKUPS = 3
+# 装好、重启之后，最多等这么多秒看它开起来没有（开起来了就告诉你可以打开网页；没开起来就把日志里的错误给你看）
+SERVICE_START_SECONDS = 15
+# 换掉、卸载旧的服务时，最多等这么多秒让它退出、放开数据目录
+SERVICE_STOP_SECONDS = 30
+# 一个 launchctl、systemctl 命令最多等这么久（秒）。停下服务的那一个要等智狐收尾存盘，所以比上面的再长一点
+SERVICE_COMMAND_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class Config:
@@ -308,11 +334,22 @@ class Config:
     def commands_file(self) -> Path:
         return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
 
+    @property
+    def web_address_file(self) -> Path:
+        """`harness serve --web` 没有终端时（作为后台服务运行），把带口令的网页地址写在这里（权限 600，退出时删掉，见 serve.py）。"""
+        return self.data_dir / WEB_ADDRESS
 
-def load_env_file(path: Path) -> None:
-    """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""
+    @property
+    def service_log(self) -> Path:
+        """macOS 上后台服务的日志（见 SERVICE_LOG）。"""
+        return self.data_dir / SERVICE_LOG
+
+
+def _env_entries(path: Path) -> list[tuple[str, str]]:
+    """.env 文件里的每一行 KEY=VALUE（去掉了 export、引号和注释行）。文件不存在时是空的。"""
     if not path.is_file():
-        return
+        return []
+    entries = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -321,7 +358,19 @@ def load_env_file(path: Path) -> None:
         key = key.strip().removeprefix("export ").strip()
         value = value.strip().strip("'\"")
         if key and value:
-            os.environ.setdefault(key, value)
+            entries.append((key, value))
+    return entries
+
+
+def load_env_file(path: Path) -> None:
+    """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""
+    for key, value in _env_entries(path):
+        os.environ.setdefault(key, value)
+
+
+def env_file_names(path: Path) -> set[str]:
+    """.env 文件里设置了哪些变量（只要名字，不碰值）。装后台服务时用来看：哪些只在终端里设置了、服务读不到（见 service/plan.py）。"""
+    return {key for key, _ in _env_entries(path)}
 
 
 def _int_env(name: str, default: int) -> int:

@@ -17,6 +17,10 @@
 // 链接只认 http、https、mailto 三种，别的（javascript:、data:、file:、相对路径）按原文显示成文字。
 // 图片一律不加载（页面的安全策略也不允许）：只显示说明文字和网址，网址安全的话可以点开。
 //
+// 来源的记号：联网搜索的回答里，页面在被引用的那段文字后面插一个"记号"——两个私用区的字符包着一个编号
+// （CITE_OPEN 编号 CITE_CLOSE，见 page/scripts/citations.js）。这里认出它，交给页面的 hooks.cite(编号) 去建元素
+// （这个文件自己不建链接）；代码里、链接文字里不放记号。记号只由页面插入：模型写出来的这两个字符，页面先换成了 �。
+//
 // 服务器发页面时，把这个文件原样填进页面里一个带 nonce 的 <script>（见 server.py 的 _send_page），
 // 所以它和页面的其他脚本守同一套安全策略。测试（tests/markdown.test.mjs）用 Node 直接加载这个文件。
 (function (scope) {
@@ -50,6 +54,9 @@
   }
 
   const isBlank = (line) => /^[ \t]*$/.test(line);
+  const CITE_OPEN = '\uE000', CITE_CLOSE = '\uE001';
+  const CITE_ANY = /\uE000\d*\uE001|[\uE000\uE001]/g;
+  const unmark = (text) => text.replace(CITE_ANY, '');  // 代码里不放来源的记号
   const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
   const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
   const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
@@ -174,7 +181,7 @@
         // 没写完的代码块一直到原文末尾。原文以换行结尾时最后那个空行不算（不然代码块下面会多出一行，写完时又缩回去）
         if (!closed && body.length && body[body.length - 1] === '') body.pop();
         const done = closed || final;
-        block = { type: 'code', lang: fence.lang, text: body.join('\n'), done, shape: fence.lang + '\u0002' + done };
+        block = { type: 'code', lang: fence.lang, text: unmark(body.join('\n')), done, shape: fence.lang + '\u0002' + done };
       } else if ((m = ATX.exec(line))) {
         const text = (m[2] || '').replace(/(?:^|[ \t]+)#+$/, '');
         block = { type: 'heading', level: m[1].length, text, shape: String(m[1].length) };
@@ -307,15 +314,15 @@
   //
   // 做法照着 CommonMark 的规范：从左到右扫一遍，文字攒起来；* _ ~ 这类记号先当文字放着，记下它们能不能开始、
   // 能不能结束一段强调；[ 也先记下，遇到 ] 时往回找配对的 [。最后再把记号两两配对，套成粗体、斜体。
-  // 结果是一串普通对象：{t: 'text' | 'br' | 'code' | 'em' | 'strong' | 'del' | 'link' | 'img', ...}。
+  // 结果是一串普通对象：{t: 'text' | 'br' | 'code' | 'em' | 'strong' | 'del' | 'link' | 'img' | 'cite', ...}。
 
   const ESCAPABLE = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~';
   const WHITESPACE = /\s/;
   const PUNCTUATION = /[\p{P}\p{S}]/u;
   const WIDE = /[⺀-鿿가-힯豈-﫿＀-￯]/;  // 汉字、假名、谚文和全角符号
-  const AUTOLINK = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*)>/y;
+  const AUTOLINK = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>\uE000\uE001]*)>/y;
   const EMAIL = /<([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)>/y;
-  const BARE_URL = /https?:\/\/[^\s<>"'`[\]（）【】《》「」，。；！？、]+/y;
+  const BARE_URL = /https?:\/\/[^\s<>"'`[\]（）【】《》「」，。；！？、\uE000\uE001]+/y;  // 网址到来源的记号为止
   const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/y;
   const NAMED = {
     amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', copy: '©', reg: '®', trade: '™', hellip: '…',
@@ -370,7 +377,7 @@
         const c = src[i];
         if (c === '\\' && ESCAPABLE.includes(src[i + 1])) i += 1;
         else if (c === '(') depth += 1;
-        else if (c === ')') { if (!depth) break; depth -= 1; } else if (c <= ' ') break;
+        else if (c === ')') { if (!depth) break; depth -= 1; } else if (c <= ' ' || c === CITE_OPEN || c === CITE_CLOSE) break;
       }
       if (depth) return null;
       url = src.slice(start, i);
@@ -489,7 +496,7 @@
           if (close < 0) noTicks[size] = end;
         }
         if (close < 0) { text += src.slice(i, end); i = end; continue; }
-        let code = src.slice(end, close).replace(/\n/g, ' ');
+        let code = unmark(src.slice(end, close)).replace(/\n/g, ' ');
         if (code.length >= 2 && code[0] === ' ' && code[code.length - 1] === ' ' && /[^ ]/.test(code)) code = code.slice(1, -1);
         flush();
         push({ t: 'code', v: code });
@@ -549,6 +556,16 @@
           i += (m || mail)[0].length;
           continue;
         }
+      } else if (c === CITE_OPEN || c === CITE_CLOSE) {
+        // 来源的记号：CITE_OPEN 编号 CITE_CLOSE。不成对的半个记号（不该有）直接丢掉
+        const close = c === CITE_OPEN ? src.indexOf(CITE_CLOSE, i + 1) : -1;
+        const digits = close > i ? src.slice(i + 1, close) : '';
+        if (/^\d{1,6}$/.test(digits)) {
+          flush();
+          push({ t: 'cite', v: Number(digits) });
+          i = close + 1;
+        } else i += 1;
+        continue;
       } else if (c === '&') {
         ENTITY.lastIndex = i;
         const m = ENTITY.exec(src);
@@ -711,6 +728,11 @@
       if (node.t === 'text') parent.appendChild(doc.createTextNode(node.v));
       else if (node.t === 'br') parent.appendChild(make(doc, 'br'));
       else if (node.t === 'code') parent.appendChild(make(doc, 'code', null, node.v));
+      else if (node.t === 'cite') {
+        // 来源的记号由页面建（hooks.cite 返回一个元素，见 page/scripts/citations.js）。链接里不放：链接里不能再套链接
+        const mark = !inLink && ctx.hooks.cite ? ctx.hooks.cite(node.v) : null;
+        if (mark) parent.appendChild(mark);
+      }
       else if (node.t === 'link') {
         if (inLink) { inline(parent, node.c, ctx, true); continue; }  // 链接里的链接：只留文字
         const a = parent.appendChild(link(doc, node.href));
@@ -933,7 +955,8 @@
   }
 
   // root 是放这段回复的元素；hooks 是页面提供的几样东西：icon(名字) 返回一个图标，codeTools() 返回放在代码块
-  // 右上角的按钮（"复制"）。返回的对象只有一个方法：update(全文, 是否已经完整)。
+  // 右上角的按钮（"复制"），cite(编号) 返回来源的记号（没有这一项的话，记号什么都不画）。
+  // 返回的对象只有一个方法：update(全文, 是否已经完整)。
   function createView(root, hooks) {
     const ctx = { doc: root.ownerDocument, hooks: hooks || {} };
     let done = 0;      // 原文的前多少个字已经定稿

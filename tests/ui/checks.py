@@ -32,6 +32,8 @@ USER_CONTENT = [
     "#task-detail-body pre", "#task-detail-body .run p",  # 任务详情里：你写的指令、每次运行交回的总结
     # 倒回最后一轮之前的确认里列出的工具调用（模型写的参数），编辑框里那条消息的附件（文件名是你的）
     "#log .turn-confirm-list li:not(.more)", "#log .turn-editor-atts",
+    # 联网搜索的回答引用的网页：标题、网站、被引的原文都是网页自己的（"资料来源"这几个字是界面的，要翻译）
+    "#log .cite-title", "#log .cite-site", ".cite-card",
 ]
 # 用户起的名字：既不检查它们自己，它们的文字也算"认得的"——按钮的说明里带着名字（"编辑任务：每日安排"）不算没翻译
 NAMES = [

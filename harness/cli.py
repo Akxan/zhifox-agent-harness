@@ -5,6 +5,7 @@
     harness serve [--web]         服务器上的服务：定时任务和聊天通道，没有浏览器（见 serve.py）
     harness channels ...          设置聊天通道（见 channels/cli.py）
     harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
+    harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -26,6 +27,7 @@ from .i18n import k, t
 from .permissions import MODES
 from .pricing import estimate
 from .providers import has_key
+from .service import cli as service_cli
 from .settings import Settings
 from .tools.todo import format_todos
 from .ui import TerminalUI
@@ -276,8 +278,10 @@ def main(argv: list[str] | None = None) -> int:
     serve = commands.add_parser("serve", help=t("在服务器上一直运行：定时任务和聊天通道，不开浏览器"))
     serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))
     serve.add_argument("--port", dest="serve_port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
+    serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
+    service_cli.add_parser(commands)
     args = parser.parse_args(argv)
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
@@ -288,11 +292,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from .serve import run_serve  # 用到时才导入
 
-        return run_serve(config, web=args.serve_web, port=args.serve_port)
+        return run_serve(config, web=args.serve_web, port=args.serve_port, service=args.serve_service)
     if args.command == "channels":
         return channels_cli.run(args, config)
     if args.command == "commands":
         return commands_cli.run(args, config)
+    if args.command == "service":
+        return service_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

@@ -18,6 +18,8 @@ from harness import i18n
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.service import base as service_base
+from harness.service import cli as service_cli
 
 
 class RecordingUI:
@@ -36,6 +38,7 @@ class RecordingUI:
         self.infos: list[str] = []
         self.askers: list[str] = []  # 每一次确认是谁在问（子 Agent 的名字；主助手自己问时是空的）
         self.subagents: list[tuple[str, dict]] = []  # 子 Agent 的每一步进展：(step, data)
+        self.cites: list[list[dict]] = []  # 每一次"这段文字引用了这些网页"（联网搜索的回答，见 harness/citations.py）
         self.stop_after: str | None = None  # 测试想在子 Agent 的某一步之后"点停止"时，写那一步的名字
         self._stop = False
         self._stop_callbacks: list = []
@@ -45,6 +48,9 @@ class RecordingUI:
 
     def text(self, text: str) -> None:
         self.streamed.append(("text", text))
+
+    def cite(self, sources: list[dict]) -> None:
+        self.cites.append(sources)
 
     def notice(self, level: str, text: str) -> None:
         self.infos.append(text)
@@ -133,6 +139,14 @@ def isolated_environment(monkeypatch, tmp_path):
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
     # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
     monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
+    # 后台服务：测试永远不在这台电脑上真的装上、开起一个服务（会改动系统，还可能对着真正的数据再开一个智狐）。
+    # launchctl、systemctl、journalctl 一律不许运行，浏览器也不许打开；要测的给一个假的系统（tests/test_service.py 的 FakeSystem）
+    def forbidden(*args, **kwargs):
+        raise AssertionError(f"测试里不许运行真的系统命令或者打开浏览器：{args}")
+
+    monkeypatch.setattr(service_base, "run_command", forbidden)
+    monkeypatch.setattr(service_base, "run_attached", forbidden)
+    monkeypatch.setattr(service_cli, "_open_browser", forbidden)
 
 
 @pytest.fixture

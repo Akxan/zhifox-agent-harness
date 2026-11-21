@@ -235,6 +235,43 @@ def test_sigterm_stops_the_service_cleanly(tmp_path, fake, journal):
         assert all(re.match(r"\d\d:\d\d:\d\d (info|warning|error) ", line) for line in lines), lines
 
 
+def test_sigterm_stops_the_web_ui_cleanly_too(tmp_path):
+    # `harness --web` 以前只在 Ctrl-C（SIGINT）时收尾存盘：普通的 kill（SIGTERM）会直接把它杀掉，
+    # 正在进行的一轮、还没写完的会话就丢了，数据目录的锁也来不及好好放开。现在两种信号走同一条收尾的路
+    workspace = tmp_path / "web-work"
+    workspace.mkdir()
+    env = {
+        **os.environ,
+        "HARNESS_DATA_DIR": str(tmp_path / "web-data"),
+        "HARNESS_ENV_FILE": str(tmp_path / "no-such.env"),
+        "HOME": str(tmp_path / "home"),
+        "PYTHONPATH": str(ROOT),
+        "PYTHONUNBUFFERED": "1",  # 输出接的是管道：不加的话 print 攒在缓冲区里，这里等不到那个地址
+        "NO_PROXY": "*",
+        "no_proxy": "*",
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-m", "harness", "--web", "--no-browser", "--port", "0"], cwd=workspace, env=env,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        seen = []
+        deadline = time.monotonic() + 30
+        for line in process.stdout:  # 等它打印出地址：说明已经开始服务了
+            seen.append(line)
+            if "?token=" in line or time.monotonic() > deadline:
+                break
+        assert process.poll() is None, "".join(seen)
+        process.send_signal(signal.SIGTERM)
+        out, _ = process.communicate(timeout=15)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
+    assert process.returncode == 0, out
+    assert out.rstrip().endswith("再见。"), out
+
+
 # ---- harness channels ...（命令行）-----------------------------------------------------
 
 

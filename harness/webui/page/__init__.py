@@ -43,6 +43,7 @@ STYLES = (
     "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
     "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
     "styles/markdown.css",  # 回复里的 Markdown
+    "styles/citations.css",  # 回答引用的网页：记号、浮出的卡片、来源列表
     "styles/welcome.css",  # 空白页：问候语和建议
     "styles/composer.css",  # 输入框和附件
     "styles/viewer.css",  # 查看器
@@ -68,6 +69,7 @@ STYLES = (
     "styles/animations.css",  # 入场动画
     "styles/browser.css",  # 浏览器
     "styles/computer.css",  # 操作整台电脑
+    "styles/service.css",  # 设置里的"后台运行"
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
 )
 
@@ -83,6 +85,7 @@ SCRIPTS = (
     "scripts/approval-modes.js",  # 要不要先问你：几档的名字和说明（对话、任务、通道三处共用）
     "scripts/settle.js",  # 空白页和收尾，定位到搜索命中的地方
     "scripts/markdown-view.js",  # 回复里的 Markdown（接上 markdown.js）
+    "scripts/citations.js",  # 回答引用的网页：记号、浮出的卡片、来源列表、复制时带上来源
     "scripts/streaming.js",  # 逐字输出的文字
     "scripts/subagent-cards.js",  # 交给子 Agent 的卡片
     "scripts/events.js",  # 每种事件怎么画
@@ -111,6 +114,7 @@ SCRIPTS = (
     "scripts/settings.js",  # 设置面板
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑
+    "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端
     "scripts/keyboard.js",  # 键盘
     "scripts/start.js",  # 开始：连上事件流
 )

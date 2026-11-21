@@ -1,6 +1,6 @@
 // ---- 设置面板 ------------------------------------------------------------
 // 右上角的设置面板：换模型、填或清除密钥、改这个模型的价格，以及在面板里说结果的 say()。面板里浏览器、操作整台电脑、
-// 预算和导出那几节，各自在 browser.js、computer.js、spending.js 里画。
+// 后台运行、预算和导出那几节，各自在 browser.js、computer.js、service.js、spending.js 里画。
 
 let settingsDrawn = '';
 
@@ -164,6 +164,7 @@ function openSettings() {
   drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）
   showComputerConfirm(false);
   drawComputerSettings(true);
+  renderService();  // "后台运行"一节（见 service.js）
   settings.showModal();
 }
 

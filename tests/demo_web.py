@@ -82,6 +82,7 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
+parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -100,7 +101,7 @@ import fake_qq
 import fake_slack
 import openai
 from demo_phone import Phone
-from fake_api import _events, reply, text, thinking, tool_use
+from fake_api import _events, reply, text, thinking, tool_use, web_cite
 from fake_desktop import FakeDesktop, install, window_or_desktop
 from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
@@ -411,7 +412,15 @@ claude = SlowClaude(
         reply(text("记下了：周五（11 月 27 日）下午交报告。")),
         reply(text("我来建这个文件。"), tool_use("toolu_2", "run_command", {"command": "touch made.txt && ls -la"}), stop_reason="tool_use"),
         reply(text("文件建好了。")),
-        reply(*WEB_SEARCH, text("查到了两条资料：harness 是包在模型外面的那层程序。")),
+        # 联网搜索后带引用的回答：API 按引用切成几个文字块（见 harness/citations.py）。页面上看记号和末尾的来源
+        reply(
+            *WEB_SEARCH,
+            text("查到了两条资料："),
+            text("harness 是包在模型外面的那层程序", [web_cite("https://example.com/a", "A", "An agent harness is the program around the model.")]),
+            text("，"),
+            text("负责循环、工具和权限", [web_cite("https://example.com/b", "B", "It runs the loop, the tools and the permissions."), web_cite("https://example.com/a", "A", "the loop")]),
+            text("。"),
+        ),
         reply(tool_use("toolu_3", "todo_update", {"id": 99, "done": True}), stop_reason="tool_use"),
         reply(text("没有编号为 99 的待办，所以没有改动。")),
         reply(thinking("用户想看看各种 Markdown 的样子。"), text(MARKDOWN_TOUR)),
@@ -543,6 +552,26 @@ if not (root / "data").exists():
     }
     (root / "data" / "conversations").mkdir(parents=True, exist_ok=True)
     (root / "data" / "conversations" / f"{legacy['id']}.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    # 以前存下的联网搜索回答：API 按引用切成的每个文字块后面都跟着一个 block_end，中间什么都没有（那时还不记来源）。
+    # 页面打开它时要把这几块拼回同一段（见 page/scripts/streaming.js 的 pauseBlock），不能一块一行。页面测试按这个编号打开它
+    fragments = ["Perfect Items (Madrid): es el más similar. Se describe como ", "proveedor B2B líder en España", ". Anuncia",
+                 " más de 1.200 empresas clientes", ",", " y envíos en 24 h."]
+    shattered = {
+        "id": demo_scripts.FRAGMENTED_ID, "provider": "anthropic", "model": "claude-opus-5-5", "title": "联网搜索的旧回答",
+        "created_at": old + 60, "updated_at": old + 60, "context_tokens": 0, "version": 1,
+        "events": [
+            {"type": "user", "text": "busca proveedores B2B de regalos promocionales en Madrid"}, {"type": "turn_start"},
+            {"type": "notice", "level": "tool", "text": 'web_search {"query": "proveedores B2B regalos promocionales Madrid"}'},
+            {"type": "notice", "level": "result", "text": "找到 3 条结果", "key": "找到 {n} 条结果", "values": {"n": 3}},
+            *(event for piece in fragments for event in ({"type": "text", "text": piece}, {"type": "block_end"})),
+            {"type": "turn_end"},
+        ],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "<context>当时的时间</context>"}, {"type": "text", "text": "busca proveedores B2B de regalos promocionales en Madrid"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": piece} for piece in fragments]},
+        ],
+    }
+    (root / "data" / "conversations" / f"{demo_scripts.FRAGMENTED_ID}.json").write_text(json.dumps(shattered, ensure_ascii=False), encoding="utf-8")
     fake_mcp = str(Path(__file__).parent / "fake_mcp.py")
     servers = {
         "files": {"command": sys.executable, "args": [fake_mcp, "--era", "modern"]},
@@ -692,7 +721,7 @@ if fresh:
         app.tasks.add_run(plan["id"], run)
     app.tasks.add({"title": "整理下载文件夹", "kind": "agent", "prompt": "把下载文件夹里超过 30 天的文件列出来，按类型分好，先别删", "schedule": {"type": "weekly", "days": [5], "time": "18:00"}, "enabled": False})
     app.tasks.add({"title": "站起来活动一下", "kind": "reminder", "prompt": "", "schedule": {"type": "interval", "minutes": 45}})
-server, url = server_module.create_server(app, ui, port=options.port)
+server, url = server_module.create_server(app, ui, port=options.port, service=options.service)  # service：设置里"后台运行"一节（见 page/scripts/service.js）
 for name in ("feishu", "dingtalk"):  # 收消息的长连接换成假的（不用装 SDK）；发消息照常走 HTTP，连的是假服务器
     server.web.channels.factories[name] = others[name].factory
 lifecycle.start(server.web)  # 和正式程序一样，定时任务和聊天通道只在网页界面开着的时候运行

@@ -12,6 +12,10 @@
   [ui:approve]  先执行一条要你批准的命令；批准了说"执行完了"，拒绝了说"不执行了"
   [ui:todo]     加一条标题很长的待办，然后交代一句
   [ui:flaky]    每一条消息第一次请求都失败（400，不会自动重试），再请求一次就回答（看"重新生成"怎么再试一次）
+  [ui:cite]     联网搜索后一段带引用的回答：API 按引用切成的一串文字块，有粗体、表格、括号里的网址、很长的标题、
+                同一个网页引了几次、一个不安全的网址（不该出现在页面上）。看记号、浮出的卡片、末尾的来源列表、复制
+  [ui:pause]    一段带引用的回答写到一半停下（pause_turn，服务器上的搜索跑得太久时会这样），接着的一次请求把它写完。
+                页面实时收到的是"文字、block_end、（状态）、文字"：要和重放时一样，拼成同一段，来源接着编号
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
                 用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
                 所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
@@ -26,7 +30,7 @@ import re
 from collections.abc import Callable
 from datetime import date, timedelta
 
-from fake_api import failure, reply, text, thinking, tool_use
+from fake_api import failure, reply, text, thinking, tool_use, web_cite, web_search
 
 MARKER = re.compile(r"\[ui:([a-z][a-z0-9-]*)\]")
 
@@ -115,6 +119,48 @@ def flaky(body: dict) -> dict:
     return reply(text(f"这次成功了（第 {_asked(body)} 条消息）。"))
 
 
+# 演示的数据目录里一段以前存下的联网搜索回答（demo_web.py 启动时写进去）：每个文字块后面都跟着一个 block_end。
+# 页面测试按这个编号打开它（tests/ui/test_ui_citations.py）
+FRAGMENTED_ID = "20261101-090000-c17e0d"
+
+# [ui:cite] 引用的三个网页。第二个的网址里有括号（维基百科常这样），第三个的标题和网址都很长（窄屏上看会不会冲出去）
+CITE_A = ("https://perfect-items.example/sobre-nosotros", "Perfect Items · Sobre nosotros")
+CITE_B = ("https://es.wikipedia.org/wiki/Regalo_promocional_(marketing)", "Regalo promocional (marketing) - Wikipedia, la enciclopedia libre")
+CITE_C = (
+    "https://directorio-empresas.example/catalogo/b2b/articulos-promocionales/madrid?pagina=2&orden=relevancia",
+    "Directorio de empresas de artículos promocionales y regalos corporativos en Madrid y alrededores: listado completo",
+)
+
+
+def cite(body: dict) -> dict:
+    a, b, c = (web_cite(url, title, quote) for (url, title), quote in (
+        (CITE_A, "Somos el proveedor B2B líder en España de artículos promocionales personalizados."),
+        (CITE_B, "Un regalo promocional es un artículo con la marca de una empresa que se reparte con fines publicitarios."),
+        (CITE_C, "Más de 1.200 empresas confían en sus catálogos de regalos corporativos."),
+    ))
+    unsafe = web_cite("javascript:alert(1)", "No debería aparecer", "xss")  # 不安全的网址：助手程序不交给页面
+    return reply(
+        *web_search("srvtoolu_ui_cite", "proveedores B2B regalos promocionales Madrid", [CITE_A, CITE_B, CITE_C]),
+        text("查到了三家和你说的最像的公司。\n\n**Perfect Items（马德里）**：最接近。"),
+        text("它自称是西班牙领先的 B2B 促销品供应商", [a]),
+        text("，"),
+        text("目录里有一千两百多家企业客户", [c, a]),
+        text("。\n\n| 公司 | 城市 |\n|---|---|\n| Perfect Items | "),
+        text("Madrid", [a, unsafe]),
+        text(" |\n| Regalos Corporativos | Barcelona |\n\n促销品本身的意思是"),
+        text("印着公司标志、拿来做宣传的东西", [b]),
+        text("。"),
+    )
+
+
+def pause(body: dict) -> dict:
+    a = web_cite(*CITE_A, "Somos el proveedor B2B líder en España.")
+    b = web_cite(*CITE_B, "Un regalo promocional es un artículo con la marca de una empresa.")
+    if _steps(body) == 0:  # 这一轮的第一次请求：写到一半停下
+        return reply(text("先说结论："), text("Perfect Items 是最像的一家", [a]), text("，"), stop_reason="pause_turn")
+    return reply(text("它卖的是"), text("印着公司标志的促销品", [b, a]), text("。"))
+
+
 CJK = re.compile(r"[㐀-䶿一-鿿]")
 WEEKDAYS = "一二三四五六日"
 
@@ -188,7 +234,8 @@ def readme(body: dict) -> dict:
 
 
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
-    "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme,
+    "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
+    "pause": pause,
 }
 
 

@@ -16,8 +16,29 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-def text(value: str) -> dict:
-    return {"type": "text", "text": value}
+def text(value: str, citations: list[dict] | None = None) -> dict:
+    """一个文字块。citations：这段文字引用的网页（web_cite 的结果），联网搜索后的回答才有。"""
+    block = {"type": "text", "text": value}
+    if citations is not None:
+        block["citations"] = citations
+    return block
+
+
+def web_cite(url: str, title: str | None, cited_text: str, index: str = "enc-idx") -> dict:
+    """一条联网搜索的引用（web_search_result_location），和真实的 API 一样带着要原样发回去的 encrypted_index。"""
+    return {"type": "web_search_result_location", "url": url, "title": title, "encrypted_index": index, "cited_text": cited_text}
+
+
+def web_search(id: str, query: str, results: list[tuple[str, str]]) -> list[dict]:
+    """一次联网搜索：server_tool_use 和它的结果 web_search_tool_result（results 是 [(网址, 标题)]）。返回两个块。"""
+    found = [
+        {"type": "web_search_result", "url": url, "title": title, "encrypted_content": f"enc-{n}", "page_age": None}
+        for n, (url, title) in enumerate(results)
+    ]
+    return [
+        {"type": "server_tool_use", "id": id, "name": "web_search", "input": {"query": query}},
+        {"type": "web_search_tool_result", "tool_use_id": id, "content": found},
+    ]
 
 
 def thinking(value: str, signature: str = "sig-1") -> dict:
@@ -68,6 +89,10 @@ def _events(scripted: dict) -> list[dict]:
         if block["type"] == "text":
             start = {"type": "text", "text": ""}
             deltas = [{"type": "text_delta", "text": block["text"]}]
+            if "citations" in block:
+                # 和真实的 API 一样：块开始时 citations 是空的列表，每一条引用是一个 citations_delta，SDK 把它们攒在块上
+                start["citations"] = []
+                deltas += [{"type": "citations_delta", "citation": citation} for citation in block["citations"]]
         elif block["type"] == "thinking":
             start = {"type": "thinking", "thinking": "", "signature": ""}
             deltas = [

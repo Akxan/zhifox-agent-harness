@@ -59,6 +59,8 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 它也能在服务器上一直运行：`harness serve` 不开浏览器，照样运行聊天通道和定时任务，日志按 journald 的习惯写，
 收到 SIGTERM 时干净地退出，还附带一份 systemd 的配置；用 `harness channels setup` / `pair` 设置、配对好，
 之后在聊天软件里让它做服务器上的杂事。
+在自己的电脑上，`harness service install` 把它交给 launchd（macOS）或者 systemd（Linux）当后台服务：登录时自动启动、
+出错退出后自己重启，不用开着终端，网页和聊天机器人也一直在；`harness service open` 带着这一次的口令打开网页（见下面的"在后台一直运行"）。
 还可以定制自己的 Agent：一个 Markdown 文件（和 Claude Code 的 subagent 是同一种格式）写着它擅长什么、能用哪些工具和模型、
 怎么做事。主助手可以把一项任务交给它（子 Agent：它在自己的一段新对话里做，只把结论交回来），你也可以直接用它开始一段对话
 （角色）。它能用的工具永远不会比叫它的那一方多，它要执行的命令照样先问你（见下面的"自定义 Agent：子 Agent 和角色"）。
@@ -112,6 +114,9 @@ uv run harness --web
   横向滚动）、代码块（标着语言，有简单的着色和"复制代码"按钮）。链接在新标签页里打开；图片不加载，只显示说明文字和网址。
   模型的思考过程可以点开查看；每次工具调用是一张卡片，点开能看到参数和结果，浏览器和操作电脑的每一步还带着一张小截图，点开看大图；鼠标移到助手的回复上会出现"复制"按钮，
   复制的是这条回复的 Markdown 原文。往上翻看旧内容时，新内容不会把你拽回底部。
+  联网搜索以后写的回答带着来源：每句被引用的话后面有一个小小的编号（鼠标停在上面、或者用键盘移到它上面，会浮出网站、
+  网页标题和被引的原文；点它在新标签页里打开那个网页），回答下面列出"资料来源"。这时"复制"会把编号写成 `[1]`，
+  末尾附上标题和网址（见[联网回答的来源](#联网回答的来源)）。
 - 确认卡片：助手要写文件或执行命令时出现，带"允许"和"拒绝"两个按钮。拒绝时可以顺便写一句原因。
 - 编辑和重新生成：鼠标移到你的最后一条消息上，左边会出现"编辑"（输入框是空的时候按 ↑ 也行）。消息原地变成一个输入框，
   附件也在，可以一个个去掉；Enter 把改过的消息当作新的一轮发出去，Esc 或"取消"在丢掉改动之前先提醒一次。
@@ -474,12 +479,14 @@ uv run --project "/这个项目的完整路径" harness
 | 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（Telegram、Discord、Slack、飞书、钉钉、QQ）：每个平台一个小小的客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、用按钮或者回复文字答复的确认，还有把照片和文件发回聊天里的 `send_file`（[tools/send.py](harness/tools/send.py)；见[聊天通道：在聊天软件里和智狐说话](#聊天通道在聊天软件里和智狐说话)） |
 | WebSocket 和 HTTP | [harness/net/](harness/net/) | Discord、Slack、QQ 的消息顺着机器人自己连出去的一条 WebSocket 推过来。一个用 `socket` + `ssl` 写的小小的 RFC 6455 客户端（掩码、分片、ping/pong、关闭握手、大小上限、超时、HTTP 代理），和一个"发 JSON、收 JSON"的 HTTPS 帮手（出错信息和重定向里都不带 token），还有上传文件用的 `multipart/form-data` 编码（[multipart.py](harness/net/multipart.py)） |
 | 无界面模式 | [harness/serve.py](harness/serve.py)、[harness/log.py](harness/log.py)、[harness/webui/lifecycle.py](harness/webui/lifecycle.py) | 服务器上没有浏览器。`harness serve` 不开浏览器就启动调度器和通道，日志按 journald 的习惯写、密钥都遮住，收到 SIGTERM 时干净地退出；网页界面和无界面模式在同一个地方启动、停下这些后台的部分 |
+| 后台服务 | [harness/service/](harness/service/)、[harness/instance.py](harness/instance.py) | 在终端里开的智狐，终端一关它也停了。`harness service` 把它交给 launchd（macOS）或者 systemd（Linux）：登录时自动启动、出错退出后自己重启；数据目录的锁上记着是谁占着，再开一个的时候能说清楚是谁挡着（见"在后台一直运行"） |
 | 编辑和重新生成 | [harness/rewind.py](harness/rewind.py) | 你打错了字，或者回答不对。最后一轮可以倒回去再跑一遍：倒到哪儿、这一轮哪些事可能改动了东西（要先提醒）、附件怎么原样取回来 |
 | 会话的认领 | [harness/claims.py](harness/claims.py) | 同一段会话可能同时开在网页上和聊天软件里。每一轮开始前先"认领"这段会话，两边就不会同时往里写、把对方的那一轮冲掉 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
 | 只读的命令 | [harness/commands/](harness/commands/) | 每个 `ls` 都问太烦，全部放开又太危险。一个保守的判断：一条 shell 命令是不是只是看。一个只认最简单写法的拆词器（有任何 shell 特殊含义的就不认）、每个程序一条选项的规矩、检查有没有碰到密钥的路径；还有你自己加的"不用问的命令"（见[只读的命令](#只读的命令以及为什么判断得这么保守)） |
 | 界面 | [harness/ui.py](harness/ui.py)（终端）、[harness/webui/](harness/webui/)（网页） | 把过程显示给你，把你的输入交给循环 |
 | 回复里的 Markdown | [harness/webui/markdown.js](harness/webui/markdown.js) | 模型用 Markdown 回答。一个手写的小渲染器在回复逐字输出的同时把它画成标题、列表、表格、代码块，从不把模型的输出当作 HTML |
+| 联网回答的来源 | [harness/citations.py](harness/citations.py)、[harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | 联网搜索以后，Claude 会说明每句话出自哪个网页。这些引用按每段回答编号，画成小小的记号，回答末尾列出来源（网页、终端、聊天软件里都有），跟着会话保存；发回给 API 的历史一个字不动 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
@@ -837,6 +844,33 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 
 搜索照样能用：搜索结果来自 Markdown 原文，命中的原文里夹着页面上看不到的记号（`**`、`` ` ``）时，页面先去掉这些记号
 再去对；只在原文里有的命中（比如链接的网址）就滚到那条回复。终端界面照原样显示 Markdown 原文。
+
+### 联网回答的来源
+
+Claude 根据联网搜索回答时，API 在每一处引用的地方把回答切开，切成一串连着的 `text` 块，被引用的那一块带一个
+`citations` 列表：网页的地址、标题、被引用的原文（最多 150 个字），还有一个要原样发回去的 `encrypted_index`。
+流式输出时每一条引用是一个 `citations_delta`，SDK 把它们攒在那个块上，所以智狐在块结束时读它们
+（[harness/providers/claude.py](harness/providers/claude.py)）。Anthropic 要求把回答给人看时带上原始来源，所以现在不再丢掉：
+
+- **两份，有一份不动。** 对话历史（`messages`）里的块和 API 给的一模一样，`citations` 也在，下一次请求的开头一个字节都不差，
+  缓存照样命中。给人看的那一份由 [harness/citations.py](harness/citations.py) 另外抄：只要 `http`、`https` 的地址，
+  标题和原文洗过、截短；一段回答里同一个网页只编一个号，按第一次出现的先后编。
+- **每一处引用一个事件。** 网页界面里，每一处被引用的文字后面紧跟一个 `cite` 事件：
+  `{"type": "cite", "marks": [{"n": 1, "quote": "…"}], "sources": [{"n": 1, "url": "…", "title": "…", "site": "…"}]}`。
+  `marks` 是这一处要标的编号；`sources` 只列这段回答里第一次出现的网页。编号由程序算好，页面只管画。
+  事件跟着会话保存，以后打开旧会话，来源照样在。
+- **怎么画。** 页面里回复的原文不动（搜索跳转和"复制"都用它），交给 Markdown 渲染器之前，在每一处引用的地方插一个私用的记号，
+  渲染器认出它、请页面建出元素。记号跳过末尾的空格和换行，从不放进代码和链接文字里，所以不会弄坏代码块的围栏、
+  也不会让表格多出一列。编号是样式画出来的，不是页面上的字：选中一句话复制、搜索这句话，都不会被几个数字打断。
+- **"复制"** 复制的是纯文字：被引用的话后面写上 `[1]`，末尾附上每个来源的标题和完整网址，贴到别处也知道每句话出自哪里。
+- **终端和聊天软件** 用文字表示同样的东西：被引用的话后面写上 `[1]`，最后列一小段"资料来源："，写着标题和网站
+  （终端在下一行写上完整网址，聊天软件把标题做成链接）。聊天里太长的消息照常按平台的上限拆开。
+- **以前存下的、被切碎的回答。** 修好"连着的文字块算同一段"之前，这些块每一块后面都跟着一个 `block_end`，所以存下来的会话
+  重放时是一堆很小的段落（". Anuncia"、"," 各占一行，每段一个"复制"）。现在 `block_end` 只是让回复停一下：
+  下一个事件还是文字的话，就是同一段；别的事件（工具调用、提示、你的下一条消息、这一轮结束）才让它结束。
+  实时输出走的是同一段代码，所以 `pause_turn` 之后接着写完的回答，实时看和刷新以后看都一样。
+
+GPT、Gemini、DeepSeek 没有联网搜索，它们的回答不会带来源。
 
 ### 定时任务：没人看着的时候怎么运行
 
@@ -1531,6 +1565,140 @@ MCP 的调用也会停下来等你批准。
 要知道的局限：像密钥的名字是猜的，所以它只会让命令多问，从不放行；在智狐之外建的、指向 `data/` 里文件的硬链接认不出来
 （指向密钥文件的认得出）；这一档会让模型读到工作目录之外的文件，"每次确认"和"自动允许改文件"不会。
 
+## 在后台一直运行
+
+用 `uv run harness --web` 开起来的智狐，是那个终端的子进程：终端关了，或者开它的 Claude Code 会话结束了，它也跟着退出，
+网页打不开，聊天机器人也没人应。想让它一直开着，就把它交给操作系统里本来就管这件事的程序，也就是"服务管家"：
+macOS 上是 **launchd**，Linux 上是 **systemd**。一条命令就够了：
+
+```bash
+uv run harness service install     # 装上并启动：以后每次登录都自动启动，出错退出后自己重启
+uv run harness service open        # 打开它的网页（带口令的地址替你读出来）
+uv run harness service status      # 在不在运行、进程编号、端口、几个文件夹、日志在哪儿、最近的警告和错误
+uv run harness service logs -f     # 跟着看日志（Ctrl-C 不看了）；-n 200 多看几行
+uv run harness service stop        # 现在停下（下次登录时还会自动启动）
+uv run harness service start       # 再开起来
+uv run harness service restart     # 重启，比如改了 .env、升级了智狐之后
+uv run harness service uninstall   # 停下，以后登录时也不再自动启动（数据和日志都留着）
+```
+
+在项目文件夹里运行它们。`install` 可以加 `--no-web`（只运行聊天通道和定时任务，不开网页）、`--port 9000`（默认 8765；
+8765 被占用时自动换一个空闲的）和 `--workspace /某个/文件夹`（助手的工作目录，默认是现在所在的目录）。
+`install` 重复运行也没关系：设置没变就什么都不动，变了就停下旧的、换上新的。网页上的 **设置 → 后台运行** 会显示智狐现在是哪种开法；
+跟着终端的时候，那里有装成后台服务的命令，可以直接复制。
+
+**从手动开的智狐换过来。** 一个数据目录同一时间只能给一个智狐用，所以先把手动开的那个关掉，再装：
+
+```bash
+# 在运行着 `uv run harness --web` 的那个终端里按 Ctrl-C。
+# 是在 Claude Code 的会话里开的？结束那个会话；或者找到它的进程，让它停下：
+pgrep -fl "harness --web"          # 打印出进程编号
+kill -INT <进程编号>               # 和按 Ctrl-C 一样：智狐存好盘再退出
+cd /path/to/zhifox-agent-harness
+uv run harness service install
+uv run harness service open
+```
+
+数据目录还被占着的话，`install` 不装，并且说清楚是谁占着（哪一种智狐、进程编号），免得装上一个一开起来就退出、
+每隔十秒又被重新开一次的服务。反过来也一样：服务开着的时候，你在终端里运行 `uv run harness --web`，它会告诉你智狐正作为后台服务运行，
+用 `uv run harness service open` 打开它的页面，想在终端里另开一个就先 `uv run harness service stop`。
+
+### launchd 和 systemd 是怎么让它一直开着的
+
+两个服务管家的做法一样：每个程序一个小小的设置文件，照着它开、照着它看着：
+
+| | macOS：launchd | Linux：systemd |
+|---|---|---|
+| 设置文件 | `~/Library/LaunchAgents/io.github.akxan.zhifox.plist`，plist（XML 写的） | `~/.config/systemd/user/zhifox.service`，unit（INI 的写法） |
+| 登录时启动 | `RunAtLoad`：launchd 读到这个文件就开起来，而每次登录它都会读这个文件夹 | `WantedBy=default.target` 加上 `systemctl --user enable`：跟着你的登录会话开起来 |
+| 出错后重启 | `KeepAlive` 里的 `SuccessfulExit: false`：只要不是以退出码 0 退出的，就再开 | `Restart=on-failure`：同样的规矩 |
+| 两次重启之间 | `ThrottleInterval`：10 秒 | `RestartSec=10` |
+| 日志 | `StandardOutPath` 和 `StandardErrorPath`：`data/logs/service.log` | journald：`journalctl --user -u zhifox` |
+| 智狐用到的命令 | `launchctl bootstrap gui/<uid> <plist>`、`bootout`、`kickstart -k`、`list`（macOS 10.10 以前是 `load`、`unload`） | `systemctl --user daemon-reload`、`enable --now`、`stop`、`restart`、`disable --now`、`show` |
+
+"只有出错退出才重启"正是 `stop` 能停得下来的原因：收到 SIGTERM 时，智狐把手上的事收好尾、存好盘，以退出码 0 退出，
+服务管家就不会马上又把它开起来；崩溃了、被 `kill -9` 了、出错退出了，才会被重新开起来。退出码 2 的意思是设置有问题
+（比如 `channels.json` 读不出来），重启也没用，所以 systemd 不再重试（`RestartPreventExitStatus=2`），`status` 会说清楚每个退出码是怎么回事。
+LaunchAgent 在你登录着的时候运行：登录时开起来，不是开机时。Mac 睡着的时候智狐也睡着，醒来以后接着收那段时间里的消息。
+
+项目在 `/Users/you/zhifox` 时写出来的 plist（这里排得紧凑一些；真正的文件一行一个键或者值，按字母排）：
+
+```xml
+<dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HARNESS_DATA_DIR</key> <string>/Users/you/zhifox/data</string>
+    <key>HARNESS_ENV_FILE</key> <string>/Users/you/zhifox/.env</string>
+    <key>LANG</key>             <string>zh_CN.UTF-8</string>
+    <key>PATH</key>             <string>（装的时候你终端里的 PATH）</string>
+    <key>PYTHONUTF8</key>       <string>1</string>
+  </dict>
+  <key>KeepAlive</key>         <dict><key>SuccessfulExit</key><false/></dict>
+  <key>Label</key>             <string>io.github.akxan.zhifox</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/zhifox/.venv/bin/python</string> <string>-P</string> <string>-m</string> <string>harness</string>
+    <string>--workspace</string> <string>/Users/you/zhifox</string>
+    <string>serve</string> <string>--web</string> <string>--service</string> <string>launchd</string>
+  </array>
+  <key>RunAtLoad</key>         <true/>
+  <key>StandardErrorPath</key> <string>/Users/you/zhifox/data/logs/service.log</string>
+  <key>StandardOutPath</key>   <string>/Users/you/zhifox/data/logs/service.log</string>
+  <key>ThrottleInterval</key>  <integer>10</integer>
+  <key>WorkingDirectory</key>  <string>/Users/you/zhifox</string>
+</dict>
+```
+
+项目在 `/home/you/zhifox` 时写出来的 unit：
+
+```ini
+[Unit]
+Description=ZhiFox (智狐)
+Documentation=https://github.com/Akxan/zhifox-agent-harness#run-it-in-the-background
+
+[Service]
+Type=simple
+WorkingDirectory=/home/you/zhifox
+ExecStart="/home/you/zhifox/.venv/bin/python" "-P" "-m" "harness" "--workspace" "/home/you/zhifox" "serve" "--web" "--service" "systemd"
+Environment="HARNESS_DATA_DIR=/home/you/zhifox/data"
+Environment="HARNESS_ENV_FILE=/home/you/zhifox/.env"
+Environment="LANG=zh_CN.UTF-8"
+Environment="PATH=…"
+Environment="PYTHONUTF8=1"
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=2
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+- **运行的是什么。** 项目自己的虚拟环境：`.venv/bin/python -P -m harness … serve --web`。启动时不经过 `uv`，所以登录的时候
+  不会去同步、下载什么。`-P` 让 Python 找模块时不看工作目录：你的工作目录里要是放着一个 `json.py`，它顶替不了标准库里的那个。
+  每个参数单独一项，不经过 shell，路径里有空格也没事。`--service` 告诉智狐"你是后台服务"：数据目录的锁上记着这一点，
+  网页上会显示出来，macOS 上日志由智狐自己写进文件。`KillMode=mixed` 是停下时先只给智狐发 SIGTERM，由它自己停下它开的命令、存好盘。
+- **这两个文件里没有密钥。** 只有路径和开关，权限 644（launchd 和 systemd 都要求这样）。API 密钥留在 `.env` 里
+  （或者 `HARNESS_ENV_FILE` 指的那个文件），智狐启动时自己读；机器人的 token 留在 `data/channels.json` 里。
+- **不继承你终端里的环境变量。** launchd 和 systemd 开智狐的时候，你的 `.zshrc`、`.bashrc` 都没有运行过。服务里只有数据目录、
+  `.env` 的位置，以及装的时候的 `PATH` 和 `LANG`；别的（`HTTPS_PROXY`、`HARNESS_MODEL`、只 `export` 过的 API 密钥）都写进 `.env`。
+  `install` 会列出只在终端里设置了、`.env` 里没有的那些，只说名字，从不打印值。
+- **网页和它的口令。** 网页照样只监听 127.0.0.1，口令也照样每次启动随机生成：一个永远不变的口令，就成了一直放在磁盘上的密码，
+  谁看到过一次，以后都能用。没有终端可以打印，地址就写在 `data/.web-address` 里（只有你的账号能读，退出时删掉），从不写进日志。
+  `uv run harness service open` 读它、打开浏览器，打印出来的地址不带口令；`open --print` 打印完整的地址，给另一台机器上的浏览器用
+  （走 SSH 隧道）。重启以后，开着的标签页里的旧口令就不能用了：再运行一次 `open`。
+- **日志。** macOS 上是 `data/logs/service.log`，每行带着日期。写到 1 MB 智狐就换一个新文件，旧的留三份（`service.log.1` 到 `.3`），
+  所以日志不会超过 4 MB 左右；launchd 自己从来不管它多大。Linux 上在 journald 里：`journalctl --user -u zhifox -f`。
+  两边都可以用 `status` 看最近几条警告和错误。API 密钥和机器人的 token 都换成 `<hidden>`，消息的内容从来不写进日志。
+- **macOS 和受保护的文件夹。** 项目或者工作目录在"文稿""桌面""下载"或者 iCloud 云盘里的话，macOS 可能会在第一次时问你
+  要不要允许 python 访问这个文件夹（点"好"），也可能直接拦下（日志里会出现 `Operation not permitted`）。`install` 和 `status`
+  都会提醒。最省事的办法是把项目放到别处，比如 `~/zhifox`；另一个办法是在 **系统设置 → 隐私与安全性 → 完整磁盘访问权限** 里
+  加上 `status` 给出的那个 python，不过这样一来，用这个 python 运行的所有程序都能读你全部的文件。
+- **Linux 上没人登录的时候。** 默认情况下，你退出登录时 systemd 会把你这个账号的服务一起停掉。想让智狐没人登录时也开着、
+  开机就开起来：`sudo loginctl enable-linger $USER`。`status` 会告诉你开了没有。服务器上用一个专门的账号的话，
+  也可以用下面[部署到服务器](#部署到服务器)里的系统服务。
+
 ## 部署到服务器
 
 智狐可以住在一台 Linux 服务器上，听你的机器人吩咐（"磁盘还剩多少？""今天早上以来 nginx 的日志里有没有报错？"
@@ -1555,7 +1723,9 @@ uv run harness channels status
 飞书和钉钉要先装它们的 SDK：`uv sync --extra feishu --extra dingtalk`（以后运行 `uv sync` 时也带上同样的 `--extra`，
 不然它们会被卸掉）。
 
-然后把它作为服务运行。systemd 的配置文件 `/etc/systemd/system/zhifox.service`：
+然后把它作为服务运行。如果你是用自己的账号登录这台服务器的，`uv run harness service install` 会替你装好 systemd 的
+*用户服务*（见上面的"在后台一直运行"；再加上 `sudo loginctl enable-linger $USER`，退出登录以后它也照样开着）。
+要用一个专门的、没有特权的账号运行，就写一个系统服务，配置文件是 `/etc/systemd/system/zhifox.service`：
 
 ```ini
 [Unit]
@@ -1633,6 +1803,9 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/desktop/shots/` | 操作电脑每一步截图的大图（你的整个屏幕），文件名是内容的 SHA-256。7 天后删掉，对话里的小图还在 |
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
 | `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
+| `data/logs/` | macOS 上后台服务的日志 `service.log`，以及最多三份旧的（见"在后台一直运行"） |
+| `data/.web-address` | 带着这一次口令的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
+| `data/.lock` | 正在用这个数据目录的那个智狐占着它，里面记着是哪一种（网页界面、`serve`、后台服务）和进程编号，再开一个的时候好说清楚是谁挡着。导出时不带 |
 
 这些都是可以直接打开的普通文件。`data/` 和 `.env` 都写进了 `.gitignore`，不会被提交到 git。
 `data/` 里的文件夹和会话文件都设成只有你的账号能读写，同一台电脑上的其他账号看不到。
@@ -1838,6 +2011,10 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 也会对着假服务器跑一遍；没装就跳过这几个。WebSocket 客户端和 HTTPS 帮手有自己的测试，对着本地的假服务器和假代理
 （[tests/test_websocket.py](tests/test_websocket.py)、[tests/test_net_http.py](tests/test_net_http.py)）。
 服务器模式和命令行在 [tests/test_serve.py](tests/test_serve.py)，其中有一个测试启动真实的 `harness serve` 进程，再用 SIGTERM 停下它。
+后台服务在 [tests/test_service.py](tests/test_service.py)：写出来的 plist（用 `plistlib` 和 `plutil -lint` 检查）和 unit、
+怪路径的引号、对着假的 `launchctl` 和 `systemctl` 发出的每一条命令、装两次、数据目录被占着时不装、读状态、`open` 和日志，
+还有一个真的 `serve --service launchd` 进程自己写日志文件。没有任何测试会运行真的 `launchctl`、`systemctl`，或者打开浏览器：
+`tests/conftest.py` 让它们一调用就失败。
 Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 自定义 Agent 在 [tests/test_agents.py](tests/test_agents.py)（文件格式和检查、只会变少的工具 allow-list、在假的家目录下存取和从 Claude Code 导入、
 提示词、`<agents>` 目录、对着假 API 的委派：新的历史、放开的工具、换模型、确认、"停止"停到子 Agent 自己的 shell 和 MCP 调用、
@@ -1922,6 +2099,8 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](tests/markdown.
 ## 局限
 
 - 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
+- 后台服务（`harness service`）只对着假的 `launchctl` 和 `systemctl` 测过，测试从来不真的装上一个。macOS 上项目在"文稿""桌面""下载"里的话，
+  可能要先给一个隐私权限。
 - GPT 和 Gemini 没有用真实的密钥实测过（见上面"支持的模型"）。
 - 用 GPT、Gemini、DeepSeek 时没有联网搜索。
 - GPT、Gemini、DeepSeek 的压缩是智狐自己做的，还没有用真实的密钥测过。摘要难免丢掉细节；切口只能落在两轮之间，
