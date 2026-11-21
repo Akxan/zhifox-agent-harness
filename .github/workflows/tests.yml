@@ -1,11 +1,12 @@
 # 每次推送到 main、每个 pull request 都把测试和代码检查跑一遍。
 # 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 README 的 Testing 一节）。
-# 页面测试（tests/ui/）用 runner 上预装的 Chrome（Ubuntu 是 google-chrome，macOS 在 /Applications 里），无界面运行。
+# 页面测试（tests/ui/）用 runner 上预装的 Chrome（Ubuntu 是 google-chrome，macOS 在 /Applications 里，Windows 在 Program Files 里），无界面运行。
+# 三个系统都跑（CLAUDE.md 第 9 条）：Windows 上命令是 PowerShell、后台服务是任务计划程序、文件权限是 ACL，只在那里才有的测试在那里才跑。
 name: tests
 
 on:
   push:
-    branches: [main, ci-windows]  # 临时：ci-windows 分支上调 Windows
+    branches: [main, ci-windows]  # 临时：ci-windows 分支上调 Windows，合并前去掉
   pull_request:
 
 permissions:
@@ -15,15 +16,15 @@ jobs:
   test:
     name: pytest · ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45  # 并行跑（见 pyproject 的 addopts），平时几分钟；万一哪里卡住了，不让它一直占着机器
+    timeout-minutes: 30  # 并行跑（见 pyproject 的 addopts），平时几分钟；万一哪里卡住了，不让它一直占着机器
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.11", "3.13"]
-        exclude:
-          - os: ubuntu-latest
-          - os: macos-latest
+    defaults:
+      run:
+        shell: bash  # 下面的几行是 bash 的写法；Windows 的 runner 上是 Git 带的 bash（测试里的命令照样在 PowerShell 里跑）
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -32,7 +33,6 @@ jobs:
       - name: Install
         run: uv sync --locked
       - name: Chrome
-        shell: bash
         # 只是打印出来，方便看是哪个版本。找不到的话下面的页面测试会失败（HARNESS_UI_REQUIRED），不会悄悄跳过
         run: |
           if command -v google-chrome >/dev/null; then google-chrome --version
@@ -40,8 +40,7 @@ jobs:
           elif [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ]; then powershell -c "(Get-Item 'C:/Program Files/Google/Chrome/Application/chrome.exe').VersionInfo.ProductVersion"
           else echo "没有找到 Chrome"; fi
       - name: Tests
-        run: uv run pytest -q -rfE --tb=short --durations=20 -p no:cacheprovider
-        shell: bash
+        run: uv run pytest -q
         env:
           HARNESS_UI_REQUIRED: "1"  # 页面测试找不到 Chrome 时算失败，而不是跳过
           HARNESS_UI_ARTIFACTS: ${{ runner.temp }}/ui-artifacts  # 页面测试失败时的截图、控制台输出、页面 HTML
