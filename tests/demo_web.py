@@ -54,6 +54,7 @@
 发什么消息都行，回复只看顺序（主助手和子 Agent 共用这一串回复）。
 例外是第一条消息里写着 [ui:名字] 的对话：整段按 tests/demo_scripts.py 里同名的剧本回答（页面的自动化测试用它，
 手动试也行，比如发 "[ui:approve] 试试" 就会弹出一张确认卡片）。
+加 --script 名字（比如 --script readme），没写暗号的对话也按那段剧本回答：截 README 的图时用，消息里不出现暗号。
 """
 
 from __future__ import annotations
@@ -81,6 +82,7 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
+parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
 # 这个脚本绝不能碰到真正的密钥：先把环境变量里的都清掉，再放一个编造的
@@ -114,6 +116,9 @@ from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
+
+if options.script and options.script not in demo_scripts.SCRIPTS:
+    parser.error(f"没有叫 {options.script} 的剧本，有这几个：{'、'.join(demo_scripts.SCRIPTS)}")
 
 
 def in_small_pieces(events: list[dict]) -> list[dict]:
@@ -280,6 +285,8 @@ class SlowClaude:
                         scripted = browser_reply(body, shop.url)
                     elif "演示电脑" in first:
                         scripted = computer_reply(body)
+                    elif options.script:  # --script：没写暗号的对话也按这段剧本回答
+                        scripted = demo_scripts.SCRIPTS[options.script](body)
                     else:
                         scripted = api.replies.pop(0) if api.replies else None
                 if scripted is None:

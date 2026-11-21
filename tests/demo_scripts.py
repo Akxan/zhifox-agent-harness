@@ -12,6 +12,9 @@
   [ui:approve]  先执行一条要你批准的命令；批准了说"执行完了"，拒绝了说"不执行了"
   [ui:todo]     加一条标题很长的待办，然后交代一句
   [ui:flaky]    每一条消息第一次请求都失败（400，不会自动重试），再请求一次就回答（看"重新生成"怎么再试一次）
+  [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
+                用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
+                所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
 
 要加新的剧本：写一个 body → 回复 的函数，放进下面的 SCRIPTS。body 是这次请求的内容（里面有整段历史）。
 """
@@ -21,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from datetime import date, timedelta
 
 from fake_api import failure, reply, text, thinking, tool_use
 
@@ -111,7 +115,81 @@ def flaky(body: dict) -> dict:
     return reply(text(f"这次成功了（第 {_asked(body)} 条消息）。"))
 
 
-SCRIPTS: dict[str, Callable[[dict], dict]] = {"hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky}
+CJK = re.compile(r"[㐀-䶿一-鿿]")
+WEEKDAYS = "一二三四五六日"
+
+
+def _steps(body: dict) -> int:
+    """这一轮里助手已经回答了几次（从用户最后一次自己说话往后数，工具结果不算用户说话）。"""
+    count = 0
+    for message in reversed(body.get("messages") or []):
+        content = message.get("content") or []
+        if message.get("role") == "user" and not any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content):
+            break
+        count += message.get("role") == "assistant"
+    return count
+
+
+def _result_text(block: dict) -> str:
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    return "".join(part.get("text", "") for part in content or [] if isinstance(part, dict))
+
+
+def _todos(body: dict) -> list[dict]:
+    """todo_list 交回的待办（工具结果是 JSON 列表）。读不懂就当没有。"""
+    for block in _results(body):
+        if block.get("tool_use_id") == "toolu_readme_todos":
+            try:
+                items = json.loads(_result_text(block))
+            except ValueError:
+                return []
+            return [item for item in items if isinstance(item, dict) and item.get("title")] if isinstance(items, list) else []
+    return []
+
+
+def _day(due: str | None, zh: bool) -> str:
+    try:
+        day = date.fromisoformat((due or "")[:10])
+    except ValueError:
+        return "—"
+    return f"{day.month} 月 {day.day} 日（周{WEEKDAYS[day.weekday()]}）" if zh else f"{day:%a, %b} {day.day}"
+
+
+def readme(body: dict) -> dict:
+    zh = bool(CJK.search(_last_said(body)))
+    month = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")  # 上个月
+    step = _steps(body)
+    if step == 0:
+        return reply(
+            thinking("先看看有哪些待办，排好这周的计划，再归档上个月的笔记。" if zh else "Look at the to-dos first, plan the week, then archive last month's notes."),
+            tool_use("toolu_readme_todos", "todo_list", {}),
+            stop_reason="tool_use",
+        )
+    if step == 1:
+        todos = _todos(body)
+        if todos:
+            head = "| 截止 | 待办 |\n|:--|:--|" if zh else "| Due | To-do |\n|:--|:--|"
+            rows = "\n".join(f"| {_day(item.get('due'), zh)} | {item['title']} |" for item in todos)
+            first = todos[0]["title"]
+            plan = (f"这周的待办，按截止时间排：\n\n{head}\n{rows}\n\n先做 **{first}**：它最早到期。" if zh
+                    else f"Here's your week, by due date:\n\n{head}\n{rows}\n\nStart with **{first}**: it's due first.")
+        else:
+            plan = "这周没有待办。" if zh else "You have no open to-dos this week."
+        return reply(
+            text(plan + ("上个月的笔记我挪进 `archive/`。" if zh else " I'll move last month's notes into `archive/`.")),
+            tool_use("toolu_readme_archive", "run_command", {"command": f"mkdir -p archive && mv notes/{month}-*.md archive/"}),
+            stop_reason="tool_use",
+        )
+    if any(block.get("is_error") for block in _results(body)):
+        return reply(text("好的，笔记先不动。" if zh else "OK, I'll leave the notes where they are."))
+    return reply(text("好了：上个月的笔记都在 `archive/` 里了。" if zh else "Done: last month's notes are now in `archive/`."))
+
+
+SCRIPTS: dict[str, Callable[[dict], dict]] = {
+    "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme,
+}
 
 
 def scripted(first_message: str, body: dict) -> dict | None:
