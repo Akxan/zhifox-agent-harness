@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import IO
 
 TAIL_BYTES = 256_000  # 看最后几行时，只读文件最后这么多字节（足够几千行）
+# 后台服务每次开起来，在日志里先写一行"从这里开始"（见 log.setup）。不翻译：程序要靠它认出"这一次运行"从哪儿开始
+START_MARK = "---- zhifox started, pid "
 _LEVEL = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (warning|error|critical) ")
 _CRASH = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception)\b")  # 没接住的异常的最后一行
 DENIED = "Operation not permitted"  # macOS 拦住了对某个文件夹的访问时，系统给的那句话
@@ -38,8 +40,21 @@ def tail(path: Path, lines: int) -> list[str]:
 
 
 def problems(lines: list[str], count: int) -> list[str]:
-    """这些行里最后 count 条警告和错误。"""
-    return [line for line in lines if _LEVEL.match(line) or _CRASH.match(line)][-count:]
+    """最后一次开起来以后（见 since_start），最后 count 条警告和错误。"""
+    return [line for line in since_start(lines) if _LEVEL.match(line) or _CRASH.match(line)][-count:]
+
+
+def since_start(lines: list[str]) -> list[str]:
+    """最后一次"从这里开始"（START_MARK）之后的那些行；一次都没有的话（比如开不起来、一直在出错）是全部。
+
+    为什么：status 里列"最近的警告和错误"，是想告诉你现在这一次有没有问题。装好之前那几次失败
+    （比如还没授权读"文稿"时的 Operation not permitted）要是也列出来，看着像是现在还有问题。
+    开不起来时，出错是在写下这一行之前，所以照样列得出来。
+    """
+    for index in range(len(lines) - 1, -1, -1):
+        if START_MARK in lines[index]:
+            return lines[index + 1 :]
+    return lines
 
 
 def follow(path: Path, out: IO[str], keep_going: Callable[[], bool] = lambda: True, sleep: Callable[[float], None] = time.sleep) -> None:

@@ -1112,7 +1112,11 @@ def test_the_service_log_rotates_keeps_dates_and_hides_secrets(tmp_path, monkeyp
     logger = logging.getLogger("harness.test")
     logger.warning("token 是 super-secret-token-123")
     first = path.read_text(encoding="utf-8")
-    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d warning token 是 <hidden>\n", first)
+    # 第一行是"从这里开始"（status 靠它只列这一次运行的问题，见 service/logs.since_start），后面才是写进去的那一行
+    assert re.fullmatch(
+        r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d info ---- zhifox started, pid \d+ ----\n\d{4}-\d\d-\d\d \d\d:\d\d:\d\d warning token 是 <hidden>\n",
+        first,
+    )
     assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     for n in range(80):
         logger.info("第 %d 行：写满了就换一个新文件", n)
@@ -1235,3 +1239,21 @@ def test_config_has_one_place_for_the_address_and_the_log(make_config):
     assert config.web_address_file == config.data_dir / config_module.WEB_ADDRESS
     assert config.service_log == make_plan(config, environ={}).log_file
     assert config.web_address_file == make_plan(config, environ={}).web_address_file
+
+
+def test_status_lists_only_the_problems_of_the_latest_run():
+    # 装好之前那几次失败（比如还没授权读"文稿"时的 Operation not permitted）不该在服务好好运行以后还列出来：
+    # 用户装上服务、授了权、服务也开起来了，status 却还写着一串权限错误，看着像是没好（2026-11-21 用户装服务时遇到的）
+    from harness.service import logs
+
+    old = [
+        "Traceback (most recent call last):",
+        "PermissionError: [Errno 1] Operation not permitted: '/Users/x/Documents/p/.venv/pyvenv.cfg'",
+        "2026-11-21 15:20:00 error 上一次出过的错",
+    ]
+    started = [f"2026-11-21 15:27:16 info {logs.START_MARK}97264 ----", "2026-11-21 15:27:16 info 智狐已作为服务启动"]
+    assert logs.problems(old + started, 5) == []
+    later = ["2026-11-21 15:30:00 warning 这一次的警告"]
+    assert logs.problems(old + started + later, 5) == later
+    # 还没写过"从这里开始"（开不起来，或者是这个改动之前的日志）：照旧全部都算
+    assert len(logs.problems(old, 5)) == 2
