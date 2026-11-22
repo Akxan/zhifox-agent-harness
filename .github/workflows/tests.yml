@@ -6,7 +6,7 @@ name: tests
 
 on:
   push:
-    branches: [main, ci-windows]  # 临时：ci-windows 分支上调 Windows，合并前去掉
+    branches: [main]
   pull_request:
 
 permissions:
