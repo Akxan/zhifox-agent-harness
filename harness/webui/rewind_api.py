@@ -110,7 +110,7 @@ class RewindActions:
         session = self.sessions.viewed
         if not self._take(session):
             return self._busy(t("上一轮对话还没有结束")), {}
-        started = claimed = False
+        started = claimed = counted = False
         try:
             elsewhere = self._claim(session)
             if elsewhere:
@@ -131,9 +131,10 @@ class RewindActions:
                 extra = {"effects": effects, "more": more, "operated": rewind.operated(turn.events)}
                 return t("这一轮做过可能改动了电脑的事，倒回去之前要先确认。"), extra
             # 重新生成、编辑都会开始新的一轮：同时在跑的到了上限，就先不倒回去（不然倒回去了却开始不了，那一轮白白没了）。
-            # 只有你正看着的这一段能开始新的一轮，它的锁在我们手里，所以这里数的和下面真的开始时一样
-            if self.sessions.running() >= self._parallel_limit():
+            # 在这里就算上它（Sessions.start）；后面因为别的原因没开始的话，在 finally 里再去掉
+            if not self.sessions.start(session, self._parallel_limit()):
                 return self._too_many(), {}
+            counted = True
             backend = self.app.agent.backend
             kept = action == "retry" and backend.turn_at(mark)  # 重新生成、用户消息还在历史里：原样留着它
             attachments: list[Attachment] = []
@@ -160,12 +161,13 @@ class RewindActions:
             self.ui.rewind(keep_user=action == "retry")
             self._save(session)
             self.publish_state()  # 重放到这里结束：之后新的一轮照常播放入场动画
-            self.sessions.start(session, self._parallel_limit())
             threading.Thread(target=self._run_turn, args=(session, turn.text if kept else text, attachments, mark if action == "retry" else None), daemon=True).start()
             started = True
             return "", {}
         finally:
             if not started:
+                if counted:
+                    self.sessions.finish(session, "")  # 没开始：不算在"同时在跑"里（它是正看着的那一段，不会被拿掉）
                 if claimed:
                     self.claims.release(session.id, "web")
                 self.sessions.unlock(session)
