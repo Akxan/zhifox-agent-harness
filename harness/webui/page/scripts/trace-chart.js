@@ -149,7 +149,8 @@ function traceLane(lane, record, index) {
   if (span.approval) row.classList.add('was-asked');
   const name = row.appendChild(el('span', 'trace-lane-name'));
   name.append(icon(span.kind === 'model' ? 'spark' : span.icon), traceTitleEl('span', 'trace-lane-title', lane));
-  if (span.kind === 'model' && span.model) name.appendChild(el('span', 'trace-lane-sub', span.model));
+  // 用的是备用模型（原来那个暂时用不了，见 harness/fallback.py）：模型名后面标一句
+  if (span.kind === 'model' && span.model) name.appendChild(el('span', 'trace-lane-sub', span.fallback ? t('{model}（备用）', { model: span.model }) : span.model));
   const track = row.appendChild(el('span', 'trace-track'));
   const bar = track.appendChild(el('span', 'trace-bar'));
   const duration = Math.max(0, span.end - span.start);
@@ -240,6 +241,7 @@ function traceStep(lane, number) {
     else if (TRACE_STATUS[span.status]) facts.push(t(TRACE_STATUS[span.status]));
     if ('cost' in span) facts.push(traceCost(span.cost));
     if (facts.length) main.appendChild(el('p', 'trace-step-meta', facts.join(' · ')));
+    if (span.fallback) tags.appendChild(traceTag(t('备用模型：替 {model}', { model: span.fallback }), 'warn'));
     if (span.compaction) tags.appendChild(traceTag(t('压缩了较早的对话'), 'note'));
     if (span.retries) tags.appendChild(traceTag(t('重试了 {n} 次', { n: span.retries }), 'warn'));
     if (span.truncated) tags.appendChild(traceTag(t('回复被截断了'), 'warn'));
@@ -247,6 +249,7 @@ function traceStep(lane, number) {
     for (const [tool, count] of Object.entries(span.tools)) {
       tags.appendChild(traceTag(tool === 'web_search' ? t('联网搜索 {n} 次', { n: count }) : tool === 'web_fetch' ? t('读网页 {n} 次', { n: count }) : tool + ' × ' + count, 'note'));
     }
+    if (span.note) main.appendChild(el('p', 'trace-note', span.note));  // 失败了、改用备用模型的那一次：为什么失败
   } else {
     const call = main.appendChild(el('p', 'trace-call'));
     call.append(el('code', 'trace-raw', span.name || ''), el('span', 'trace-detail', span.detail || ''));

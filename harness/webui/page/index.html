@@ -376,6 +376,16 @@ __STYLES__
       </div>
       <p class="hint" data-i18n>每个模型能做什么、多少钱，都写在换模型的面板里。</p>
     </section>
+    <!-- 备用模型：这个模型暂时用不了时改用的同一家的模型（scripts/fallback.js 画，规矩在 harness/fallback.py） -->
+    <section id="fallback-section">
+      <h3><span data-i18n>备用模型</span> <small id="fallback-state"></small></h3>
+      <p class="hint fallback-hint" data-i18n>现在这个模型暂时用不了（服务器过载、出错、请求太频繁）时，这一轮接下来按顺序改用下面的模型，对话里会说一声，下一轮再换回来。只能选同一家的：换到另一家要开始新的对话。</p>
+      <ol id="fallback-list" class="fallback-list" hidden></ol>
+      <p id="fallback-empty" class="fallback-empty" data-i18n>没有备用模型：出错时就停下，告诉你是什么错。</p>
+      <div class="row">
+        <select id="fallback-add" class="field" aria-label="添加备用模型" data-i18n-aria-label></select>
+      </div>
+    </section>
     <section>
       <h3 data-i18n>API 密钥</h3>
       <div id="keys"></div>

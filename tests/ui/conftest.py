@@ -118,6 +118,7 @@ class Demo:
             ("/api/language", {"language": "zh"}),
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
+            ("/api/fallbacks", {"provider": "anthropic", "models": []}),  # 备用模型：测试里选过的不留给下一个测试
         ):
             status, reply = self.api(path, data)
             assert status == 200, f"{path} 失败：{reply}"

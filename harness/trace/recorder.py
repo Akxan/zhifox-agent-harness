@@ -3,9 +3,10 @@
 agent 循环在几个时刻告诉它一声（"记录点"，agent.py 里每个只占一行），它记下时刻和数字，一轮结束时整理成一份记录：
 
     turn_began(again)                    一轮开始（again：这是"重新生成"）
-      request_began(provider, model)     发出一次请求
+      request_began(provider, model, fallback)  发出一次请求（fallback：用的是备用模型的话，它替的是哪个模型，见 fallback.py）
         first_output()                   模型的第一段输出到了（watch 包着界面交给适配层，看到第一段思考或文字时自动调用）
       request_ended(step, cost)          这次请求答完了（cost 是账本记的那一笔，见 ledger.py）
+      request_failed(note)               这次请求失败了（模型暂时用不了），循环改用备用模型再发一次
       tool_began(call, tool)             开始一次工具调用
         approval_asked()                 要问你：开始等你答复
         approval_decided(decision, why)  你答复了，或者没问你就放行了
@@ -77,10 +78,22 @@ class Tracer:
         self._again = again
         self._request = self._tool = None
 
-    def request_began(self, provider: str, model: str) -> None:
+    def request_began(self, provider: str, model: str, fallback: str = "") -> None:
         span = Span("model", self.timer(), data={"provider": clean_text(provider)[:40], "model": clean_text(model)[:80]})
+        if fallback:
+            span.data["fallback"] = clean_text(fallback)[:80]
         self.spans.append(span)
         self._request = span
+
+    def request_failed(self, note: str) -> None:
+        """正在进行的那次请求失败了，循环要换一个模型再发（见 agent.py 的 _request）：这一段到这里结束，标成 error，
+        写上出错的原因。没有用量、没有花费（失败的请求不计费，账本里也没有这一笔）。"""
+        span, self._request = self._request, None
+        if span is None:
+            return
+        span.end = self.timer()
+        span.data["status"] = "error"
+        span.data["note"] = short(next((line for line in clean_text(note).splitlines() if line.strip()), ""), TRACE_SUMMARY_CHARS)
 
     def first_output(self) -> None:
         span = self._request

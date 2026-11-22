@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import budget, i18n
+from . import budget, fallback, i18n
 from .agent import Agent
 from .agents import AgentError, AgentStore, CustomAgent
 from .agents import tools as agent_tools
@@ -243,6 +243,7 @@ class App:
         agent.use_tools(ToolRegistry(agent_tools.allowed(persona.spec.tools, everything) if persona is not None else everything))
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source=source)
+        agent.fallbacks = self.agent.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
         # 也能用 Skill：历史是空的话，第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
@@ -593,6 +594,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
     ledger = Ledger(config.ledger_file)
     agent.on_call = ledger.recorder(lambda: settings.prices)
+    # 模型暂时用不了时改用的同一家的备用模型（见 fallback.py）：每次现读设置，你在设置里改了，下一次就按新的来
+    agent.fallbacks = lambda provider, model: fallback.candidates(settings, provider, model)
     # 每一轮结束时的运行记录（见 trace/）：网页界面存进会话的事件里，终端界面留着给 /trace。界面没有这一项（测试用的界面）就不交
     agent.on_trace = getattr(ui, "trace", None)
     # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）

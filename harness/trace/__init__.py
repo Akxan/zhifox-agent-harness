@@ -45,10 +45,13 @@
      "output": 20, "cost": 0.00123, "calls": 1, "compaction": true, "retries": 1, "truncated": true,
      "server_tools": {"web_search": 1}}
     status   done / tools（要调用工具）/ paused（服务器上的搜索还没做完，接着请求）/ refused /
-             compacted（这次是写摘要、压缩历史，见 providers/compaction.py）/ stopped / error（没有答完）
+             compacted（这次是写摘要、压缩历史，见 providers/compaction.py）/ stopped / error（没有答完；
+             模型暂时用不了、改用了备用模型的那一次也是 error，下一段就是用备用模型重发的同一个请求）
     first    从发出请求到第一段输出（思考或文字）过了多少毫秒；一个字都没写就调用工具的没有这一项
     cost     这次请求的钱（美元），就是账本里的那一笔；没有价格的模型是 null；没答完的没有这一项
-    后面几项只在有的时候才写：calls 要调用几个工具、compaction、retries、truncated、server_tools（服务器端的工具各用了几次）
+    后面几项只在有的时候才写：calls 要调用几个工具、compaction、retries、truncated、server_tools（服务器端的工具各用了几次）、
+             fallback（这次用的是备用模型：写的是它替的那个模型，就是你选的那个，见 fallback.py）、
+             note（status 是 error、而且循环接着改用了备用模型时：出错的原因，第一行、截短）
 
   一段工具调用：
     {"kind": "tool", "start": 1834, "end": 4750, "name": "run_command", "group": "shell", "icon": "terminal",

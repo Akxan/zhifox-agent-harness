@@ -2,7 +2,7 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关、备用模型。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -17,6 +17,7 @@ from pathlib import Path
 
 from . import i18n
 from .budget import valid_budget
+from .fallback import fallback_settings
 from .safe import private_dir, to_json, write_file
 
 
@@ -49,6 +50,8 @@ class Settings:
         self.browser: dict = browser_settings(saved.get("browser"))
         # 操作整台电脑（见 desktop/）：开没开、定时任务和聊天通道能不能用、哪些程序不许碰。默认关着，打开要你在设置里确认一次
         self.computer: dict = computer_settings(saved.get("computer"))
+        # 备用模型（见 fallback.py）：{提供方: [模型, …]}，一个模型暂时用不了时按顺序改用。默认没有：不换
+        self.fallbacks: dict[str, list[str]] = fallback_settings(saved.get("fallbacks"))
 
     def save(self) -> None:
         with self._lock:
@@ -108,6 +111,12 @@ class Settings:
             self.computer = computer_settings({**self.computer, **changes})
             self._write()
 
+    def set_fallbacks(self, provider: str, models: list[str]) -> None:
+        """记下一家的备用模型（按顺序；空的列表表示这一家不用备用模型）。"""
+        with self._lock:
+            self.fallbacks = fallback_settings({**self.fallbacks, provider: models})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -127,6 +136,8 @@ class Settings:
             data["browser"] = self.browser
         if self.computer != COMPUTER_DEFAULTS:
             data["computer"] = self.computer
+        if self.fallbacks:
+            data["fallbacks"] = self.fallbacks
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

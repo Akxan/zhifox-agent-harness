@@ -28,6 +28,7 @@ def _surfaces(page):
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
         ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], "settings"),
+        ("设置 · 备用模型", lambda: _fallbacks(page), ["#settings"], "settings"),
         # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
         ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
@@ -47,6 +48,13 @@ def _surfaces(page):
         ("重新生成之前的确认", lambda: (steps.close_nav(page), _retry_confirm(page)), ["#log"], None),
         ("编辑最后一条消息", lambda: _edit_confirm(page), ["#log"], None),
     ]
+
+
+def _fallbacks(page) -> None:
+    """设置里选了两个备用模型：一行一个，序号、模型名、两个按钮，窄屏上模型名省略、不冲出去。"""
+    page.demo.api("/api/fallbacks", {"provider": "anthropic", "models": ["claude-sonnet-5-5", "claude-fable-5-2"]})
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.wait("document.querySelectorAll('#fallback-list .fallback-row').length === 2", what="备用模型的名单画出来")
 
 
 def _commands(page) -> None:

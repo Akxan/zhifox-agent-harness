@@ -67,6 +67,7 @@ STYLES = (
     "styles/agents.css",  # 自定义 Agent
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
+    "styles/fallback.css",  # 设置 · 备用模型
     "styles/commands.css",  # 不用问的命令
     "styles/spending.css",  # 花费
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
@@ -146,6 +147,7 @@ SCRIPTS = (
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）
     "scripts/settings.js",  # 设置面板
+    "scripts/fallback.js",  # 设置 · 备用模型（规矩在 harness/fallback.py）
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑

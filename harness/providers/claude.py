@@ -38,6 +38,7 @@ from .base import (
     StreamUI,
     ToolCall,
     ToolResult,
+    Unavailable,
     Usage,
     brief,
     too_large,
@@ -182,6 +183,16 @@ class AnthropicBackend:
             return tool.toolset in self.toolsets
         return not (tool.stands_in_for and tool.stands_in_for in self.toolsets)
 
+    def can_switch_to(self, model: str) -> bool:
+        """能不能换成 model 接着这段对话（备用模型，见 fallback.py）。
+
+        工具说明书在一段对话里不能变（见 __init__ 里的规矩），而发哪些工具包是开始时按那个模型定下的（use_tools）。
+        所以换过去的模型必须用得了这段对话里发出去的每一个工具包，不然 API 会拒绝这份说明书。
+        反过来没关系：它用得了、这段对话却发的是替身（browser_* 这些普通的函数工具），照样能用。
+        思考块的签名不用管：换模型不会让请求失败，新模型读不了的思考块 API 会自己去掉（见 fallback.py 开头）。
+        """
+        return all(model in TOOLSET_MODELS[name] for name in self.toolsets)
+
     def tool_names(self) -> list[tuple[str, bool]]:
         """真正发给模型的那些：工具包只算一个（用包名），用得了工具包时它的替身不算。"""
         names: list[tuple[str, bool]] = []
@@ -267,7 +278,7 @@ class AnthropicBackend:
                     raise ProviderError(message) from exc
                 ui.info(t("模型返回的工具参数格式有误，正在重试……"))
             except anthropic.APIError as exc:
-                raise ProviderError(_explain(exc, self.model)) from exc
+                raise failure(exc)(_explain(exc, self.model)) from exc
             except transport.HTTPError as exc:
                 # 连上了、也开始收回复了，但中途断了（网络抖动、电脑休眠、代理超时）。
                 # 已经显示出来的半截内容不算数：这一步没有走完，循环会把它撤掉。
@@ -383,6 +394,33 @@ def _usage(response: Any) -> Usage:
     return usage
 
 
+# 回复收到一半时服务器发来的错误事件（SSE 的 error）：SDK 把它变成一个状态码是 200 的 APIStatusError，
+# 只能看里面写的错误类型。这几种是"暂时用不了"（https://platform.claude.com/docs/en/api/errors）
+_TEMPORARY_TYPES = {"overloaded_error", "api_error", "rate_limit_error"}
+
+
+def failure(exc: anthropic.APIError) -> type[ProviderError]:
+    """这个错误算不算"这个模型暂时用不了"（Unavailable：可以换同一家的备用模型接着做，见 fallback.py）。
+    算的：过载（529）、服务器出错（5xx）、请求太频繁（429），以及回复到一半时服务器说的这几种。SDK 已经重试过了。"""
+    if isinstance(exc, (anthropic.RateLimitError, anthropic.InternalServerError)):
+        return Unavailable
+    if isinstance(exc, anthropic.APIStatusError) and (exc.status_code >= 500 or _error_type(exc) in _TEMPORARY_TYPES):
+        return Unavailable
+    return ProviderError
+
+
+def _error_type(exc: anthropic.APIStatusError) -> str:
+    """API 的错误里写的类型（overloaded_error……）。"""
+    kind = _error_field(exc, "type")
+    return kind if isinstance(kind, str) else ""
+
+
+def _error_field(exc: anthropic.APIStatusError, name: str) -> object:
+    body = exc.body
+    error = body.get("error") if isinstance(body, dict) else None
+    return error.get(name) if isinstance(error, dict) else None
+
+
 def _explain(exc: anthropic.APIError, model: str) -> str:
     """把 API 的错误翻译成看得懂的提示。"""
     if isinstance(exc, anthropic.AuthenticationError):
@@ -397,6 +435,10 @@ def _explain(exc: anthropic.APIError, model: str) -> str:
         return t("请求被 API 拒绝：{error}", error=brief(exc.message))
     if isinstance(exc, anthropic.APIStatusError) and exc.status_code == 413:
         return too_large("Claude")
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code < 400 and _error_type(exc):
+        # 回复收到一半时服务器发来的错误：HTTP 的状态码是 200，写出来只会误导人，写错误的类型
+        said = _error_field(exc, "message")
+        return t("API 出错（{kind}）：{error}", kind=_error_type(exc), error=brief(said if isinstance(said, str) and said else exc.message))
     if isinstance(exc, anthropic.APIStatusError):
         return t("API 出错（状态码 {status}）：{error}", status=exc.status_code, error=brief(exc.message))
     if isinstance(exc, anthropic.APIConnectionError):

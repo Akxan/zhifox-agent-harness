@@ -264,6 +264,10 @@ uv run harness --web
 "换过去会怎样"（接着聊、直接开始新的、先问一声）由程序在 [harness/model_catalog.py](harness/model_catalog.py) 里算，
 和真正换模型的 `App.select_model` 是同一条规矩；页面只照着画，不自己判断，规矩就只写在一处。
 
+**备用模型。** **设置 → 备用模型**里按顺序列着现在这一家的模型：你选的模型暂时用不了（过载、服务器出错、请求太频繁）时，
+这一轮剩下的步骤改用它们。从下拉框里选一个就加上，箭头往前挪，× 去掉，每一下都马上存好。空着就是不用，默认就是空的。
+见[模型暂时用不了：备用模型](#模型暂时用不了备用模型)。
+
 刷新页面不会丢失当前对话。关闭页面后程序仍在运行，回到终端按 Ctrl-C 才会退出；
 如果这时助手正在回复，程序会先停下它、把这一轮存好（最多等 5 秒）再退出。
 同一个数据目录同时只能开一个网页版：已经有一个在运行时，再启动会提示你去用已经打开的那个。
@@ -558,6 +562,7 @@ uv run --project "/这个项目的完整路径" harness
 | 联网回答的来源 | [harness/citations.py](harness/citations.py)、[harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | 联网搜索以后，Claude 会说明每句话出自哪个网页。这些引用按每段回答编号，画成小小的记号，回答末尾列出来源（网页、终端、聊天软件里都有），跟着会话保存；发回给 API 的历史一个字不动 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
 | 模型目录 | [harness/model_catalog.py](harness/model_catalog.py)、[harness/webui/models_api.py](harness/webui/models_api.py) | 光看模型的名字，不知道它能做什么、多少钱。一份由程序算好的目录：每一家有没有密钥（只露最后 4 位）、能选哪些模型、每个模型能做什么、价格（来自 `pricing.py`）、换过去会怎样；网页上换模型的面板（`POST /api/model/catalog`）和终端的 `/model` 都只是照着它画 |
+| 备用模型 | [harness/fallback.py](harness/fallback.py)、[harness/webui/fallback_api.py](harness/webui/fallback_api.py)、[harness/webui/page/scripts/fallback.js](harness/webui/page/scripts/fallback.js) | 模型过载（529）、服务器出错（5xx）、请求太频繁（429）时，SDK 自己重试过以后这一轮还是会停下。选了备用模型的话，这一轮接下来改用同一家的下一个，对话里说一声，下一轮再试你选的那个（见[模型暂时用不了：备用模型](#模型暂时用不了备用模型)） |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
@@ -722,7 +727,7 @@ harness 看到后去执行，再把结果作为一条新消息放回历史里：
 - 交给子 Agent 的那几圈（缩进的那几行）不进主助手的历史，主助手只收到它交回的结论；但它们的时间和钱都算在这一轮里。
 
 **怎么做的。** 循环（[harness/agent.py](harness/agent.py)）在几个时刻告诉记录器一声，每处只有一行，名字说明是哪个时刻：
-一轮开始和结束（`turn_began`、`turn_ended`）、发出一次请求和它答完（`request_began`、`request_ended`）、
+一轮开始和结束（`turn_began`、`turn_ended`）、发出一次请求和它答完（`request_began`、`request_ended`）、一次请求失败了、改用备用模型再试（`request_failed`，见[备用模型](#模型暂时用不了备用模型)）、
 开始一次工具调用和它有结果（`tool_began`、`tool_ended`）、开始等你答复和你答复了（`approval_asked`、`approval_decided`）。
 记录器在 [harness/trace/](harness/trace/)：它只记时刻（用只往前走的 `time.monotonic`）和数字，一轮结束时整理成一份记录，
 合计（时间怎么分、一共多少钱、缓存命中率）也由它算好，页面和终端只照着画，不各自再算一遍。几处有意的取舍：
@@ -765,6 +770,35 @@ GPT、Gemini、DeepSeek 都支持这套格式，只是服务器地址不同，�
 | 缓存 | 由我们在请求里标记 | 各家自动处理 |
 
 要接入另一家支持 OpenAI 格式的厂商，在 [harness/providers/\_\_init\_\_.py](harness/providers/__init__.py) 的 `PROVIDERS` 里加一项就够了。
+
+### 模型暂时用不了：备用模型
+
+有时候请求失败和你没关系：厂商的服务器过载了（Anthropic 回答 529 `overloaded_error`）、他们那边出错了（5xx）、
+或者短时间里请求太多了（429）。SDK 自己会等一下再重试两次；还是不行的话，以前这一轮就停下来报错。
+换个模型也没用的错误（密钥不对、请求写错了、OpenAI 账号的额度用完了 `insufficient_quota`）照旧停下。
+
+**会怎样。** 在**设置 → 备用模型**里，可以按顺序选最多三个**同一家**的别的模型（比如 Claude Opus 5.5 → Claude Sonnet 5.5
+→ Claude Fable 5.2）。一次请求因为上面这几种原因失败时，循环把一模一样的请求发给这一轮还没试过的第一个备用模型，
+在对话里说一声（"Opus 5.5 暂时不可用，这一轮接下来改用 Sonnet 5.5。"），这一轮剩下的步骤都用它。
+下一轮又从你选的那个开始（它可能已经好了），这段会话记着的也还是你选的那个。默认一个都没有：换模型会改变回答的质量和价格，
+换不换、换成哪个由你决定。定时任务、聊天通道、子 Agent 用的是同一份设置。
+
+**为什么只能选同一家的。** 另一家的模型接不上这段对话：历史的格式不一样（Claude 的内容块不是 OpenAI 那种消息），
+系统提示词不一样（"能联网"那一行只写给 Claude），工具也不一样（Claude 用 Anthropic 定义的浏览器、电脑工具包，
+别家用我们自己写的 `browser_*`、`computer_*` 替身）。一轮做到一半换过去，等于扔掉这一轮已经做过的工具调用和结果，
+还悄悄换了提示词和工具，[只在末尾追加](#循环)的规矩不允许。同一家之内，`App.select_model` 本来就允许对话中途换模型：
+历史、系统提示词、工具一字不变，只有请求里的 `model` 变了。这段对话开始时定下的工具包它用不了的备用模型，跳过不选
+（`Backend.can_switch_to`）。
+
+**Claude 思考内容的签名怎么办？** Claude 的思考块带着签名，签名里记着是哪个模型写的。换请求里的 `model` 不算改了历史，
+所以换模型从不让请求失败；新模型读不了的思考块，API 会在它看到之前去掉，不计费。智狐照样把历史原样发过去
+（自己去删反而会出错）。所以 Opus 5.5 换成 Sonnet 5.5 时，Sonnet 做的那几步看不到 Opus 之前的思考（Sonnet 5.5 读不了
+Opus 5.5 的），但请求照常成功；下一轮换回 Opus 5.5，它读得了 Sonnet 5.5 留下的（在 Claude API 上），什么都不丢。
+
+**在哪儿看得到。** 对话里的那一句；[运行记录](#看懂一轮对话运行记录)里，失败的那次请求标成出错、写着原因，用备用模型发的每一次标着
+"备用"和它替的是哪个；[花费账本](#费用)按实际回答的那个模型记钱。失败的那次什么都没留在历史里（两家的适配层都是收完整个回复才追加）；
+已经显示在页面上的半截文字留着，和工具参数不是合法 JSON 时的重试一样。规矩在 [harness/fallback.py](harness/fallback.py)，
+循环里的那一段是 [harness/agent.py](harness/agent.py) 的 `Agent._request`。
 
 ### 对话太长了怎么办：压缩历史
 

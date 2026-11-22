@@ -38,6 +38,7 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/fallbacks  用户排好了一家的备用模型（模型暂时用不了时改用的同一家的模型，见 fallback_api.py）
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
@@ -121,7 +122,7 @@ from ..settings import key_hint, valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
-from . import lifecycle, models_api
+from . import fallback_api, lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
@@ -280,6 +281,7 @@ class WebApp:
             ],
             price=price,
             price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
+            fallbacks=fallback_api.state(self.app),  # 每一家的备用模型（按顺序，见 fallback.py）；没设的不出现
             todos=[
                 {"id": item["id"], "title": item["title"], "due": item["due"]}
                 for item in self.app.todos.items("pending")
@@ -1490,6 +1492,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":
             self._send_export()
+        elif path == "/api/fallbacks":
+            status, payload = fallback_api.save(web.app, body)
+            if status == 200:
+                web.publish_state()
+            self._send_json(status, payload)
         elif path == "/api/price":
             model, price = body.get("model"), body.get("price")
             if not isinstance(model, str) or not model or not _valid_price(price):
