@@ -3792,7 +3792,17 @@ A few notes:
 ```bash
 uv run pytest          # in parallel, one process per CPU core (pytest-xdist): about a minute for everything
 uv run pytest -n 0     # one test at a time, e.g. while debugging or to see print output
+uvx ruff@0.17.6 check harness tests                # lint
+uv run --with mypy==1.19.0 mypy                    # type check (settings in pyproject.toml)
+uv run --with mypy==1.19.0 mypy --platform win32   # the same, as Windows sees the code (also linux, darwin)
 ```
+
+The same commands work in zsh, bash and PowerShell. Neither checker is a project dependency: `uvx` and `uv run --with`
+borrow a pinned version for one run. mypy runs inside the project's environment (`uv run --with`, not `uvx`) so it sees
+the types that ship with the Anthropic and OpenAI SDKs. Code that differs between systems checks `sys.platform`, which
+mypy understands, so `--platform` checks the Windows-only branches from a Mac and the other way round; CI checks all
+three. New code should pass, and a `# type: ignore` has to name its error code and say why on the same line.
+`harness/webui/` and `harness/app.py` are left out for now (`ignore_errors` in pyproject.toml).
 
 The tests need no API key and cost nothing. They run in parallel by default (`addopts` in
 [pyproject.toml](pyproject.toml)); each worker process gets its own fake servers and temporary folders, and the page tests
@@ -4023,7 +4033,7 @@ greets you, and `[ui:flaky]` fails the first attempt at every message (so you ca
 
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu, macOS and Windows with
 Python 3.11 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome
-that comes with GitHub's runners. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer
+that comes with GitHub's runners, and the type checker (mypy) once for each of the three systems. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer
 use integration test runs there against a virtual display, and bubblewrap, so the sandbox's real Linux backend is tested
 there too. The result is the Tests badge at the top of this page.
 
