@@ -78,6 +78,11 @@ _ATTACHMENT_TEXT = re.compile(r'<attachment name="([^"]*)"(?: note="([^"]*)")?>\
 _DATA_URL = re.compile(r"data:([\w.+/-]+);base64,([A-Za-z0-9+/]*={0,2})")
 
 
+def item_id(conversation_id: str, turn: int, index: int) -> str:
+    """一个附件的编号：哪段会话、第几排（带附件的第几条消息）、这一排的第几个。格式见 ID。"""
+    return f"{conversation_id}/{turn}/{index}"
+
+
 class MediaError(Exception):
     """附件找不到、或者内容没有保存下来。错误信息可以直接显示给用户。"""
 
@@ -472,7 +477,7 @@ def _item(entry: Entry, conversation_id: str, title: str, stored: dict[str, tupl
     original = stored.get(entry.sha256) if entry.sha256 else None
     suffix = original[0].suffix[1:] if original else ""
     item = {
-        "id": f"{conversation_id}/{entry.turn}/{entry.index}",
+        "id": item_id(conversation_id, entry.turn, entry.index),
         "conversation": conversation_id,
         "conversation_title": title,
         "at": entry.at,

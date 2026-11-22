@@ -16,6 +16,7 @@
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
+  POST /api/fork       从某一轮分叉成一段新对话、换过去（原来那段一字不动，见 fork_api.py 和 ../fork.py）
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
@@ -153,6 +154,7 @@ from .changes_api import ChangesAPI, issues
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .endpoints_api import EndpointsAPI
+from .fork_api import ForkAPI
 from .hooks_api import HooksAPI
 from .page import assemble as assemble_page
 from .sandbox_api import SandboxAPI
@@ -276,6 +278,7 @@ class WebApp:
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
         self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
+        self.fork = ForkAPI(self)  # 从某一轮分叉成一段新对话（见 fork_api.py）
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -388,6 +391,8 @@ class WebApp:
             voice=self.voice.state(),
             # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
             rewind=self._rewind_state(),
+            # 每一轮上的"分叉"能不能点、这段会话是从哪儿分叉来的（见 fork_api.py）
+            fork=self.fork.state(),
         )
 
     def _mcp_state(self) -> dict:
@@ -1681,6 +1686,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/sandbox/"):
             status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
+        elif path == "/api/fork":
+            status, payload = web.fork.route(body)
             self._send_json(status, payload)
         elif path.startswith("/api/changes/"):
             status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)

@@ -1,6 +1,6 @@
 // ---- 空白页和收尾 --------------------------------------------------------
 // 空白页（还没有内容时，问候语和输入框摆在中间）和它的切换；一批旧内容画完以后的收尾（settle）；
-// 从搜索结果、多媒体库打开会话时，找到命中的那一块，滚过去、亮一下（reveal）；往对话里加一块内容（add）。
+// 从搜索结果、多媒体库打开会话时，找到命中的那一块，滚过去、亮一下（reveal；从分叉出来的会话回到原会话时也是）；往对话里加一块内容（add）。
 
 function greeting() {
   const hour = new Date().getHours();
@@ -88,6 +88,7 @@ let highlightTimer = 0;
 
 function reveal(target) {
   if (target.media) { revealAttachment(target.media); return; }
+  if (target.turn) { revealTurn(target.turn); return; }  // 分叉出来的会话顶上点"打开原会话"：滚到分叉的那一轮（见 fork.js）
   const find = (target.find || '').trim();
   const wanted = squash(find), loose = bare(find);
   if (!wanted || !FOUND_IN[target.kind]) return;

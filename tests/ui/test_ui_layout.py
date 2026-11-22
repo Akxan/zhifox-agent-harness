@@ -20,6 +20,8 @@ def _surfaces(page):
     """(名字, 打开它, 要查的范围, 查完要关上的窗口：窗口的 id，或者一个收起它的函数)。"""
     return [
         ("对话", lambda: None, [".stage"], None),
+        # 分叉出来的会话：顶上那一行（很长的标题要折行），之后几处都在这一段上看（它带着同样的那一轮）
+        ("分叉出来的会话", lambda: _forked(page), [".stage"], None),
         # 运行记录：窄屏上从底下升起来，瀑布图变成一列（名字在上，时间轴在下）
         ("运行记录", lambda: steps.open_trace(page), ["#trace-dialog"], "trace-dialog"),
         ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
@@ -114,6 +116,12 @@ def _endpoint_editor(page) -> None:
     page.wait(steps.is_open("endpoint-dialog"), what="编辑接口的窗口打开")
     page.click("#endpoint-test")
     page.wait("document.getElementById('endpoint-result').classList.contains('good')", timeout=15, what="测试连接的结果")
+
+
+def _forked(page) -> None:
+    """在最后一个回答上分叉，换到新的一段。"""
+    page.click("#log > .msg.assistant:has(.fork-reply) .fork-reply")
+    page.wait("!document.getElementById('fork-origin').hidden && !document.body.classList.contains('busy')", what="换到分叉出来的那一段")
 
 
 def _retry_confirm(page) -> None:

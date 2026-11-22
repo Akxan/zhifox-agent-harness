@@ -147,6 +147,16 @@ class OpenAICompatBackend:
         index = mark - self._dropped
         return 1 <= index < len(self._messages) and compaction.is_turn_start(self._messages[index])
 
+    @staticmethod
+    def saved_before(saved: list, dropped: int, mark: int) -> list | None:
+        """保存下来的历史（export 的样子）里 mark 这个位置之前的那一截：mark 是一轮的开头（turn_at 认的），
+        或者正好是末尾（那就是全部）。落在压缩掉的那一段、摘要上、一轮中间的，返回 None。从某一轮分叉时用（见 fork.py）。
+        和 turn_at 是同一笔账：位置减去压缩掉的条数是在内存里的第几条，保存的历史没有第 0 条的系统提示词，再减一。"""
+        index = mark - dropped - 1
+        if index == len(saved):
+            return list(saved)
+        return list(saved[:index]) if 0 <= index < len(saved) and compaction.is_turn_start(saved[index]) else None
+
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
         self._compaction_failed = False  # 新的一轮：上一轮没压缩成的话，这一轮可以再试
         text = "\n\n".join(parts)

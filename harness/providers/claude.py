@@ -48,6 +48,15 @@ from .base import (
 TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS, "computer": COMPUTER_TOOLSET_MODELS}
 
 
+def starts_turn(message: object) -> bool:
+    """这条消息是不是一轮对话的开头。用户消息有两种：用户说的话，和工具结果（content 里全是 tool_result 块）。开始一轮的是前一种。
+    倒回最后一轮（turn_at）和从某一轮分叉（saved_before）都按它认。"""
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(message, dict) or message.get("role") != "user" or not isinstance(content, list) or not content:
+        return False
+    return not all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
+
+
 class AnthropicBackend:
     provider = "anthropic"
     tools_supported = True  # Claude 的模型都能用工具（自定义接口上的模型不一定，见 openai_compat.py）
@@ -120,14 +129,16 @@ class AnthropicBackend:
         return 0  # Claude 的历史从不在本地压缩（压缩在 Anthropic 的服务器上做，历史照样只追加）
 
     def turn_at(self, mark: int) -> bool:
-        # 用户消息有两种：用户说的话，和工具结果（content 里全是 tool_result 块）。开始一轮的是前一种
-        if not 0 <= mark < len(self._messages):
-            return False
-        message = self._messages[mark]
-        content = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(message, dict) or message.get("role") != "user" or not isinstance(content, list) or not content:
-            return False
-        return not all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
+        return 0 <= mark < len(self._messages) and starts_turn(self._messages[mark])
+
+    @staticmethod
+    def saved_before(saved: list, dropped: int, mark: int) -> list | None:
+        """保存下来的历史（export 的样子）里 mark 这个位置之前的那一截：mark 是一轮的开头（turn_at 认的），
+        或者正好是末尾（那就是全部）。别的位置返回 None。从某一轮分叉一段新对话时用（见 fork.py）。
+        Claude 的历史从不在本地压缩（dropped 总是 0），位置就是下标。"""
+        if mark == len(saved):
+            return list(saved)
+        return list(saved[:mark]) if 0 <= mark < len(saved) and starts_turn(saved[mark]) else None
 
     def add_user(self, parts: list[str], attachments: Sequence[Attachment] = ()) -> None:
         # 附件放在文字前面：文档建议先给图片和文档、再提问题，模型读得更好。

@@ -80,20 +80,21 @@ const handlers = {
       if (synced) settle();
     }
     renderTurnTools();  // "编辑""重新生成"摆在最后一轮上（见 rewind.js）
+    renderForkState();  // 每一轮上的"分叉"能不能点、顶上"从哪儿分叉来的"那一行（见 fork.js）
   },
 
   user(event) {
     endBlock();  // 上一段回复停在 block_end 上（见 pauseBlock）：到这里一定结束了。平时 turn_end 已经收过尾
     const attachments = Array.isArray(event.attachments) ? event.attachments : [];
-    if (attachments.length) add(attachmentRow(attachments, event.at));
-    if (!event.text && attachments.length) return;
+    const row = attachments.length ? add(attachmentRow(attachments, event.at)) : null;
+    if (!event.text && row) { forkTurn(row, event); return; }  // 记下这是哪一轮：这一轮结束时在它上面放"分叉"（见 fork.js）
     const bubble = el('div', 'msg user', event.text);
     if (typeof event.voice === 'number') {
       // 聊天里的一段语音转出来的（见 voice.js）：前面一个小标记。原文另记一份，编辑这条消息时只拿原文（见 rewind.js）
       bubble.dataset.text = String(event.text || '');
       bubble.prepend(voiceTag(event.voice));
     }
-    add(bubble);
+    forkTurn(add(bubble), event);
   },
   // 重放旧会话时不在每一轮都刷新"正在工作"：一段 150 轮的会话会把 body.busy 来回切换 300 次，
   // 而 Chrome 在用户真的在输入框里打过字之后，每切换一次就同步重算一遍整页的样式（实测卡 1.4 秒）。
@@ -104,6 +105,7 @@ const handlers = {
     endBlock();
     if (toolCard) finishTool('stopped', k('没有执行完'));  // 这一轮结束时工具还没给出结果（比如被中断了）
     busy = stopping = false;
+    forkTurnEnded();  // 结束了的一轮才能分叉：在它上面放两个"分叉"（重放出来的也一样，见 fork.js）
     if (!replaying) { refreshStatus(); renderTurnTools(); }
   },
 

@@ -136,6 +136,7 @@ __STYLES__
   <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5 5 5M15.5 9.5h.01"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 13.5L4.5 9 9 4.5M4.5 9h10a5 5 0 0 1 0 10H11"/></symbol>
   <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 13.5L19.5 9 15 4.5M19.5 9h-10a5 5 0 0 0 0 10H13"/></symbol>
+  <symbol id="i-fork" viewBox="0 0 24 24"><path d="M6 3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM18 3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM12 16.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 7.5v1a3.5 3.5 0 0 0 3.5 3.5h5A3.5 3.5 0 0 0 18 8.5v-1M12 12v4.5"/></symbol>
   <symbol id="i-diff" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9.5 11.5h5M12 9v5M9.5 17h5"/></symbol>
 </svg>
 
@@ -275,6 +276,8 @@ __STYLES__
             </div>
           </div>
           <div class="column">
+            <!-- 这段会话是从哪儿分叉来的（scripts/fork.js）：不是分叉出来的会话一直藏着 -->
+            <div id="fork-origin" class="fork-origin" role="note" hidden></div>
             <div id="log" class="log"></div>
             <div id="working" class="working"><svg class="loop" aria-hidden="true"><use href="#i-loop"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
           </div>

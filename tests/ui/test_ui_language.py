@@ -81,6 +81,12 @@ def _sweep(page) -> dict[str, list[str]]:
     page.key("Escape")  # 回到修改
     page.key("Escape")  # 没改过：直接关上
     page.wait("!document.querySelector('.turn-editor')", what="编辑框关上")
+    # 分叉：点了以后换到新的一段，顶上一行"从哪儿分叉来的"、会话栏里一个小图标（按钮上的说明在 test_ui_fork.py 里查：
+    # 它们在对话的消息里，这里当作用户的内容不看）
+    page.click("#log > .msg.assistant:has(.fork-reply) .fork-reply")
+    page.wait("!document.getElementById('fork-origin').hidden && !document.body.classList.contains('busy')", what="换到分叉出来的那一段")
+    steps.idle(page)
+    look("分叉出来的会话", ["#fork-origin", "#conversation-rows"])
 
     steps.open_side(page)
     look("信息栏", ["#side"])
