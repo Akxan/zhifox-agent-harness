@@ -207,6 +207,7 @@ def page(request, demo, browser, artifacts) -> Page:
     opened = browser.new_page()
     opened.demo = demo  # 测试里要直接调接口时用：page.demo.api(...)
     try:
+        opened.emulate()  # 不跟着这台机器的"减少动态效果"（见 Page.emulate），每个测试从同一个样子开始
         opened.goto(demo.url)
         opened.wait("document.body.classList.contains('ready')", what="页面亮相")
         yield opened
