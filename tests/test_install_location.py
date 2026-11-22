@@ -376,7 +376,9 @@ def test_the_wheel_ships_everything_the_program_reads():
 
 def test_no_runtime_path_points_outside_the_package_except_the_documented_ones():
     # PROJECT_ROOT 之外（仓库根目录）的东西，装成工具时都没有：只许出现在说明过的几处
-    allowed = {"config.py", "evals/cli.py", "evals/dryrun.py", "sandbox/policy.py", "service/plan.py"}
+    # doctor 的两处都先看过运行方式：版本号先问装好的包、提交号不是 git 仓库就是空的、"在智狐的文件夹里运行"
+    # 只在 FROM_SOURCE 时才说、.env.example 先看在不在（见 doctor/environment.py、doctor/fixes.py）
+    allowed = {"config.py", "evals/cli.py", "evals/dryrun.py", "sandbox/policy.py", "service/plan.py", "doctor/environment.py", "doctor/fixes.py"}
     users = set()
     for file in (PROJECT_ROOT / "harness").rglob("*.py"):
         tree = ast.parse(file.read_text(encoding="utf-8"))

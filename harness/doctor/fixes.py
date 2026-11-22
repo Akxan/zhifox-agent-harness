@@ -18,7 +18,7 @@ import shlex
 from pathlib import Path
 
 from .. import machine, winacl
-from ..config import PROJECT_ROOT
+from ..config import COMMAND, FROM_SOURCE, PROJECT_ROOT
 from ..i18n import Message, t
 
 # PowerShell 里不用加引号的参数：只有字母、数字和这几个符号
@@ -47,13 +47,18 @@ def run(line: str) -> Message:
 
 
 def in_project(line: str) -> Message:
-    """要在智狐的文件夹里运行的（uv 的命令要找到 pyproject.toml）。"""
+    """要在智狐的文件夹里运行的（uv 的命令要找到 pyproject.toml）。
+
+    装成了工具（config.FROM_SOURCE 为假，见 install.py）时没有这个文件夹：PROJECT_ROOT 是 site-packages，
+    命令（harness …、uv tool install --force …）在哪儿运行都一样，所以只说在哪个 shell 里运行。"""
+    if not FROM_SOURCE:
+        return run(line)
     return t("在智狐的文件夹（{path}）里，用 {shell} 运行：{command}", path=PROJECT_ROOT, shell=shell(), command=line)
 
 
 def harness(*args: str) -> Message:
-    """一条 uv run harness … 命令：三个系统上写法一样，只是 shell 的名字不同。"""
-    return in_project(command("uv", "run", "harness", *args))
+    """一条 harness … 命令（从仓库运行时是 uv run harness …，见 config.COMMAND）：三个系统上写法一样，只是 shell 的名字不同。"""
+    return in_project(command(*COMMAND.split(), *args))
 
 
 # ---- 只有你自己能读 ----------------------------------------------------------------
@@ -135,7 +140,7 @@ def find_program(name: str) -> str:
 
 def add_key(key_env: str, env_file: Path) -> list[Message]:
     """还没有某一家的密钥：两种填法（和第一次启动时终端里的说明一样，见 cli.SETUP_HELP）。"""
-    lines = [t("最省事的：运行 uv run harness --web，在右上角的“设置”里填。")]
+    lines = [t("最省事的：运行 {command} --web，在右上角的“设置”里填。", command=COMMAND)]
     example = PROJECT_ROOT / ".env.example"
     if not env_file.exists() and example.is_file():
         lines.append(t("或者先建好 .env：{run}", run=run(copy(example, env_file))))

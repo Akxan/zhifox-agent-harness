@@ -20,7 +20,7 @@ import tomllib
 from pathlib import Path
 
 from .. import instance, machine, winacl
-from ..config import PROJECT_ROOT, Config, env_file_names
+from ..config import COMMAND, FROM_SOURCE, PROJECT_ROOT, Config, env_file_names
 from ..i18n import Message, k, t
 from . import fixes
 from .report import OK, PROBLEM, UNUSED, Check, Section
@@ -105,7 +105,10 @@ def system_label() -> str:
 def environment() -> Section:
     python = ".".join(map(str, sys.version_info[:3]))
     venv = Path(sys.prefix).resolve() == (PROJECT_ROOT / ".venv").resolve()
-    where = t("{path}（项目的 .venv）", path=sys.executable) if venv else t("{path}（不是项目的 .venv）", path=sys.executable)
+    if not FROM_SOURCE:
+        where = t("{path}（装成了工具）", path=sys.executable)  # uv tool 自己的环境，没有"项目的 .venv"
+    else:
+        where = t("{path}（项目的 .venv）", path=sys.executable) if venv else t("{path}（不是项目的 .venv）", path=sys.executable)
     checks = [
         Check(
             "python", "Python", OK if sys.version_info >= MIN_PYTHON else PROBLEM, f"{python} · {where}",
@@ -162,10 +165,10 @@ def _workspace(config: Config) -> Check:
     path = config.workspace
     facts = {"path": str(path)}
     if not path.is_dir():
-        return Check("workspace", t("工作目录"), PROBLEM, t("{path} 不存在", path=path), [t("换一个工作目录：uv run harness --workspace 文件夹")], facts)
+        return Check("workspace", t("工作目录"), PROBLEM, t("{path} 不存在", path=path), [t("换一个工作目录：{command} --workspace 文件夹", command=COMMAND)], facts)
     if not os.access(path, os.W_OK):
         detail = t("{path}：你的账号写不了这里，助手建不了文件、改不了文件", path=path)
-        return Check("workspace", t("工作目录"), PROBLEM, detail, [t("换一个工作目录：uv run harness --workspace 文件夹")], facts)
+        return Check("workspace", t("工作目录"), PROBLEM, detail, [t("换一个工作目录：{command} --workspace 文件夹", command=COMMAND)], facts)
     return Check("workspace", t("工作目录"), OK, str(path), facts=facts)
 
 

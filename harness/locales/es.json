@@ -3368,7 +3368,7 @@
  "你的账号写不了它：会话、设置都存不下来": "tu cuenta no puede escribir en ella, así que no se pueden guardar ni las conversaciones ni los ajustes",
  "{where}：{problems}": "{where}: {problems}",
  "{where}：还没有。在网页的“设置”里填密钥时会建好它": "{where}: todavía no existe. Se crea cuando introduces una clave de API en «Ajustes» de la página web",
- "换一个工作目录：uv run harness --workspace 文件夹": "Usa otra carpeta de trabajo: uv run harness --workspace tu-carpeta",
+ "换一个工作目录：{command} --workspace 文件夹": "Usa otra carpeta de trabajo: {command} --workspace tu-carpeta",
  "把它挪走，或者用 HARNESS_DATA_DIR 换一个数据目录。": "Muévelo a otro sitio o usa HARNESS_DATA_DIR para elegir otra carpeta de datos.",
  "它属于另一个账号（是不是用 sudo 运行过智狐？），你自己改不动里面的东西": "pertenece a otra cuenta (¿has ejecutado 智狐 con sudo?), así que no puedes cambiar lo que hay dentro",
  "别的账号也能进：权限是 {mode}，应该是 700": "otras cuentas también pueden entrar: los permisos son {mode} y deberían ser 700",
@@ -3436,7 +3436,7 @@
  "在智狐的文件夹（{path}）里，用 {shell} 运行：{command}": "En la carpeta de 智狐 ({path}), ejecuta en {shell}: {command}",
  "{run}（写在 shell 的配置文件里的，也要从那里删掉）": "{run} (si está en el archivo de configuración de tu shell, quítalo también de ahí)",
  "装上它们（Debian、Ubuntu 上）：{run}": "Instálalos (en Debian o Ubuntu): {run}",
- "最省事的：运行 uv run harness --web，在右上角的“设置”里填。": "Lo más sencillo: ejecuta uv run harness --web e introdúcela en «Ajustes», arriba a la derecha.",
+ "最省事的：运行 {command} --web，在右上角的“设置”里填。": "Lo más sencillo: ejecuta {command} --web e introdúcela en «Ajustes», arriba a la derecha.",
  "装一个 Chrome（Chromium、Edge、Brave 也行）：{run}": "Instala Chrome (también valen Chromium, Edge o Brave): {run}",
  "已经装了、只是不在常见的位置：在“设置 → 浏览器”里填上它的路径，或者 {line}": "Si ya está instalado pero no en el sitio habitual: escribe su ruta en «Ajustes → Navegador» o ejecuta {line}",
  "或者先建好 .env：{run}": "O crea antes el .env: {run}",
@@ -3475,6 +3475,7 @@
  "{problems} 项有问题，{ok} 项好，{unused} 项没用上。": "{problems} con problemas, {ok} bien, {unused} sin usar.",
  "{name}自检（{version}）": "Autodiagnóstico de {name} ({version})",
  "只看不改：不联网，不改任何文件、权限和设置；密钥只说有没有。": "Solo mira, no cambia nada: no se conecta a internet ni toca archivos, permisos o ajustes; de las claves de API solo dice si están o no.",
- "要贴给别人帮你看的话，用 uv run harness doctor --json：里面没有密钥和口令。": "Si quieres pegárselo a alguien para que te ayude, usa uv run harness doctor --json: no contiene claves de API ni tokens.",
- "各家的接口地址": "Direcciones de las API"
+ "要贴给别人帮你看的话，用 {command} doctor --json：里面没有密钥和口令。": "Si quieres pegárselo a alguien para que te ayude, usa {command} doctor --json: no contiene claves de API ni tokens.",
+ "各家的接口地址": "Direcciones de las API",
+ "{path}（装成了工具）": "{path} (instalado como herramienta)"
 }

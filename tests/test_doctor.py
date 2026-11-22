@@ -573,3 +573,16 @@ def test_the_columns_line_up_with_chinese_names(make_config, clean):
         row = next(text for text in rows if text.endswith(str(check.detail)) and str(check.label) in text)
         starts.add(columns(row[: len(row) - len(str(check.detail))]))
     assert len(starts) == 1, starts
+
+
+def test_fixes_follow_how_zhifox_was_installed(monkeypatch):
+    # 装成了工具（config.FROM_SOURCE 为假）时没有"智狐的文件夹"，命令也不是 uv run harness（见 install.py）
+    monkeypatch.setattr(fixes, "FROM_SOURCE", False)
+    monkeypatch.setattr(fixes, "COMMAND", "harness")
+    line = str(fixes.harness("service", "restart"))
+    assert "harness service restart" in line and "uv run" not in line and str(PROJECT_ROOT) not in line
+    assert "uv run" not in " ".join(map(str, fixes.add_key("ANTHROPIC_API_KEY", Path("/nowhere/.env"))))
+    monkeypatch.setattr(fixes, "FROM_SOURCE", True)
+    monkeypatch.setattr(fixes, "COMMAND", "uv run harness")
+    line = str(fixes.harness("service", "restart"))
+    assert "uv run harness service restart" in line and str(PROJECT_ROOT) in line

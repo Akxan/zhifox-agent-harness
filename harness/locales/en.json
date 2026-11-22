@@ -3368,7 +3368,7 @@
  "你的账号写不了它：会话、设置都存不下来": "your account can't write to it, so conversations and settings can't be saved",
  "{where}：{problems}": "{where}: {problems}",
  "{where}：还没有。在网页的“设置”里填密钥时会建好它": "{where}: not there yet. It's created when you enter an API key in “Settings” on the web page",
- "换一个工作目录：uv run harness --workspace 文件夹": "Use a different working folder: uv run harness --workspace your-folder",
+ "换一个工作目录：{command} --workspace 文件夹": "Use a different working folder: {command} --workspace your-folder",
  "把它挪走，或者用 HARNESS_DATA_DIR 换一个数据目录。": "Move it out of the way, or use HARNESS_DATA_DIR to pick a different data folder.",
  "它属于另一个账号（是不是用 sudo 运行过智狐？），你自己改不动里面的东西": "it belongs to another account (did you run 智狐 with sudo?), so you can't change what's inside",
  "别的账号也能进：权限是 {mode}，应该是 700": "other accounts can get in too: its permissions are {mode}, they should be 700",
@@ -3436,7 +3436,7 @@
  "在智狐的文件夹（{path}）里，用 {shell} 运行：{command}": "In 智狐's folder ({path}), run in {shell}: {command}",
  "{run}（写在 shell 的配置文件里的，也要从那里删掉）": "{run} (if it's set in your shell's config file, remove it from there too)",
  "装上它们（Debian、Ubuntu 上）：{run}": "Install them (on Debian or Ubuntu): {run}",
- "最省事的：运行 uv run harness --web，在右上角的“设置”里填。": "Easiest: run uv run harness --web and enter it in “Settings” at the top right.",
+ "最省事的：运行 {command} --web，在右上角的“设置”里填。": "Easiest: run {command} --web and enter it in “Settings” at the top right.",
  "装一个 Chrome（Chromium、Edge、Brave 也行）：{run}": "Install Chrome (Chromium, Edge or Brave also work): {run}",
  "已经装了、只是不在常见的位置：在“设置 → 浏览器”里填上它的路径，或者 {line}": "Already installed, just not in the usual place: enter its path under “Settings → Browser”, or run {line}",
  "或者先建好 .env：{run}": "Or create .env first: {run}",
@@ -3475,6 +3475,7 @@
  "{problems} 项有问题，{ok} 项好，{unused} 项没用上。": "{problems} with problems, {ok} OK, {unused} not used.",
  "{name}自检（{version}）": "{name} self-check ({version})",
  "只看不改：不联网，不改任何文件、权限和设置；密钥只说有没有。": "Only looks, changes nothing: no network access, no changes to any file, permission or setting; for API keys it only says whether they're there.",
- "要贴给别人帮你看的话，用 uv run harness doctor --json：里面没有密钥和口令。": "To paste this for someone helping you, use uv run harness doctor --json: it contains no API keys or tokens.",
- "各家的接口地址": "API addresses"
+ "要贴给别人帮你看的话，用 {command} doctor --json：里面没有密钥和口令。": "To paste this for someone helping you, use {command} doctor --json: it contains no API keys or tokens.",
+ "各家的接口地址": "API addresses",
+ "{path}（装成了工具）": "{path} (installed as a tool)"
 }

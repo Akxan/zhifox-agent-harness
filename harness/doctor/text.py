@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import unicodedata
 
-from ..config import APP_NAME
+from ..config import APP_NAME, COMMAND
 from ..i18n import t
 from .report import OK, PROBLEM, STATUS_TEXT, STATUSES, UNUSED, Report
 
@@ -56,5 +56,5 @@ def lines(report: Report) -> list[tuple[str, str]]:
         problems=report.count(PROBLEM), ok=report.count(OK), unused=report.count(UNUSED),
     )
     out.append((summary, "error" if report.count(PROBLEM) else "plain"))
-    out.append((t("要贴给别人帮你看的话，用 uv run harness doctor --json：里面没有密钥和口令。"), "info"))
+    out.append((t("要贴给别人帮你看的话，用 {command} doctor --json：里面没有密钥和口令。", command=COMMAND), "info"))
     return out
