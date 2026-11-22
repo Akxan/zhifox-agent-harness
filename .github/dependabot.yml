@@ -1,0 +1,44 @@
+# Dependabot：每周看一次依赖有没有新版本，有的话开 pull request。合并之前 CI 照样在三个系统上把测试跑一遍。
+# 写法照 GitHub 的文档（不是凭记忆）：
+#   支持哪些生态：uv 的 YAML 值是 "uv"（改 pyproject.toml 和 uv.lock），版本更新和安全更新都支持；GitHub Actions 是 "github-actions"
+#     https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories
+#   每个选项（schedule、groups、ignore）的意思和能填的值
+#     https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+#   ignore 对版本更新和安全更新都算数
+#     https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/controlling-dependencies-updated
+# 版本更新只要有这个文件就会开始；安全更新还要仓库主人在 Settings → Advanced Security（侧栏 Security and quality 那一节）
+# 里打开 Dependabot alerts 和 Dependabot security updates。
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"  # pyproject.toml 和 uv.lock 在仓库的根目录
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # 分组：一周里所有的版本更新合成一个 pull request，不是一个依赖一个；安全更新也合成一个
+    groups:
+      python:
+        applies-to: version-updates
+        patterns: ["*"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # 飞书（lark-oapi）和钉钉（dingtalk-stream）的官方 SDK 在 pyproject.toml 里有版本上限，原因写在
+      # [project.optional-dependencies] 上面的注释里：两个 SDK 都没有公开的"停下"，我们用到了它们内部的几个名字
+      # （harness/channels/feishu.py、dingtalk.py），换了版本要先重新看一遍源码。所以不让 Dependabot 越过这两个上限：
+      # 下面的范围就是 pyproject 里上限以外的部分（Python 的写法，PEP 440）。
+      # 要升级时人工看过新版的源码，再把 pyproject 的上限和这里一起改。安全更新也认这两条，真有安全问题要人工升级
+      - dependency-name: "lark-oapi"
+        versions: [">=1.9"]
+      - dependency-name: "dingtalk-stream"
+        versions: [">=0.25"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"  # 文档的写法：GitHub Actions 写 "/"，它自己去找 .github/workflows/
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        patterns: ["*"]

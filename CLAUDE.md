@@ -435,6 +435,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **会话的索引要和文件保持一致。** `ConversationStore` 里保存、改名、删除都要经过 `_remember` 或
   `_index.remove`，否则搜索结果会和磁盘上的内容对不上。`_remember` 也更新多媒体的索引（`MediaIndex`）；附件的"第几排"按 `attachments.from_saved`
   筛过的数，必须和页面重放时一样，否则"定位到会话"会对不上。发给页面的标记位置按 UTF-16 计数。
+- **两家模型的 SDK 用到时才导入。** `anthropic`、`openai` 光导入就要大半秒，只在真正连接模型的地方导入（`providers` 的 `make_client`、`make_backend`、`list_models`，`tools/memory.make_memory_tool`，评测的 `dryrun`、`judge`；适配层 `claude.py`、`openai_compat.py` 和 `endpoints/client.py` 本身就只在连接时才被导入），不要写进 `providers/__init__.py`、`tools/` 这类会被顺路带进来的文件的开头，否则 `harness --help`、`harness service status` 这些用不到模型的命令又要多等大半秒。`tests/test_startup.py` 在干净的子进程里查。
 - 改和 Claude API 有关的代码之前，先读一遍 `claude-api` 这个 skill，不要凭记忆写参数。
 
 ## 怎么验证

@@ -514,6 +514,32 @@ def test_the_sdk_memory_writes_always_ask_for_binary_mode(monkeypatch):
     assert shim.O_CREAT == os.O_CREAT and shim.path is os.path  # 别的都是 os 自己的
 
 
+def test_the_sdk_os_is_swapped_before_the_memory_tool_writes(tmp_path, monkeypatch):
+    """SDK 在 make_memory_tool 里才导入（为了启动快，见 tools/memory.py）：换掉 SDK 里 os 的那一步照样在建工具之前做好，
+    SDK 写记忆文件时的每一次 os.open 都带着 O_BINARY。在 macOS、Linux 上借一个假的旗子测这一支。"""
+    import importlib
+
+    real_binary = getattr(os, "O_BINARY", 0)  # 真的 Windows 上用它自己的旗子；别处借一个，交给系统之前再去掉
+    bit = real_binary or 0x8000
+    sdk = [importlib.import_module(name) for name in memory_tool._SDK_MODULES]
+    for module in sdk:
+        monkeypatch.setattr(module, "os", os)  # 测完换回原来的（换成 _BinaryOs 的话会一直留在这个进程里）
+    monkeypatch.setattr(pathnames, "BINARY", bit)
+    flags_seen = []
+    real_open = os.open
+
+    def recording_open(path, flags, mode=0o777, *, dir_fd=None):
+        flags_seen.append(flags)
+        return real_open(path, flags if real_binary else flags & ~bit, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", recording_open)
+    tool = make_memory_tool(tmp_path / "data")
+    assert all(isinstance(module.os, memory_tool._BinaryOs) for module in sdk)
+    tool.run({"command": "create", "path": "/memories/notes.md", "file_text": "第一行\n第二行\n"})
+    assert flags_seen and all(flags & bit for flags in flags_seen), flags_seen
+    assert (tmp_path / "data" / "memories" / "notes.md").read_bytes() == "第一行\n第二行\n".encode()
+
+
 def test_import_places_are_shown_with_slashes_on_every_system():
     """给人看、页面送回来的位置一律用 /（Windows 上也是），查的时候才对得上。"""
     env = Env(home=PureWindowsPath(r"C:\Users\me"), workspace=PureWindowsPath(r"C:\work"), platform="win32")

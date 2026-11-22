@@ -3199,6 +3199,10 @@ Anthropic SDK · OpenAI 兼容接口 · GPT · Gemini · DeepSeek · 工具调�
 执行前确认（human-in-the-loop） · agent 循环 · 浏览器操作（browser use） · 操作整台电脑（computer use） · Chrome DevTools Protocol ·
 Python · 终端聊天 · 网页界面
 
+## 安全
+
+发现了安全问题，请私下报告，不要开公开的 issue：[SECURITY.md](SECURITY.md) 写了怎么报告、智狐的安全模型简述，以及哪些不算漏洞。
+
 ## 许可证
 
 [MIT](LICENSE)。可以自由使用、修改和分发，保留版权声明即可。

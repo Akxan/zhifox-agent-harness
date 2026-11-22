@@ -18,21 +18,23 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
-
-import anthropic
-import openai
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..config import Config
 from ..endpoints import Endpoint, EndpointError
-from ..endpoints import client as endpoint_client
-from ..endpoints import errors as endpoint_errors
-from ..endpoints import probe as endpoint_probe
 from ..i18n import t
 from ..tools import ToolRegistry
 from .base import Backend, ProviderError
-from .claude import AnthropicBackend
-from .openai_compat import OpenAICompatBackend
+
+# 两家的 SDK（anthropic、openai）和用到它们的适配层、自定义接口的客户端，都在下面的函数里用到时才导入。
+# 为什么：光是导入这两个 SDK 就要大半秒，而这个包会被很多用不到模型的地方带进来——比如 pricing.py 要
+# providers/base.py 里的 Usage，导入 providers.base 会先执行这个文件；harness service status、harness hooks list
+# 这些小命令也就跟着等。登记表（PROVIDERS、find、caps、has_key……）本身用不到 SDK。
+# 真正要连接、发请求的时候（make_client、make_backend、list_models）才导入，那时候反正要用
+if TYPE_CHECKING:
+    import openai
+
+    from ..endpoints import probe as endpoint_probe
 
 __all__ = [
     "PROVIDERS",
@@ -236,6 +238,8 @@ def continues(backend: Any, provider: Provider, model: str) -> bool:
 
 def switch_model(backend: Any, provider: Provider, model: str) -> None:
     """同一家之内换模型（continues 为真时）：换上模型名；自定义接口还要换上这个模型自己的能力（看不看得懂图、上下文多大）。"""
+    from .openai_compat import OpenAICompatBackend  # 用到时才导入（见文件开头）
+
     backend.model = model
     if provider.endpoint is not None and isinstance(backend, OpenAICompatBackend):
         found = caps(provider, model)
@@ -254,10 +258,16 @@ def make_client(provider: Provider, timeout: float | None = None) -> Any:
     它不能再用 SDK 的 with_options 改：那会照着环境变量重建一个客户端，OPENAI_ORG_ID 这些又回来了，所以 timeout 在这里给。
     """
     if provider.endpoint is not None:
+        from ..endpoints import client as endpoint_client  # 用到时才导入（见文件开头）
+
         return endpoint_client.make(provider.endpoint, timeout=timeout)
     if provider.kind == "anthropic":
+        import anthropic  # 用到时才导入（见文件开头）
+
         client = anthropic.Anthropic() if has_key(provider) else anthropic.Anthropic(api_key="missing")  # 有的话自己从环境变量里读取凭证
     else:
+        import openai  # 用到时才导入（见文件开头）
+
         client = openai.OpenAI(api_key=os.environ.get(provider.key_env) or "missing", base_url=provider.base_url)
     return client.with_options(timeout=timeout) if timeout is not None else client
 
@@ -267,6 +277,9 @@ def list_models(provider: Provider, client: Any) -> list[str]:
 
     自定义接口不走这里（它要的不只是名字，还有每个模型能做什么），见 App.sync_models 和 endpoints/probe.py。
     """
+    import anthropic  # 用到时才导入（见文件开头）
+    import openai
+
     try:
         ids = [model.id.removeprefix("models/") for model in client.models.list()]
     except (anthropic.APIError, openai.APIError) as exc:
@@ -286,6 +299,8 @@ def list_models(provider: Provider, client: Any) -> list[str]:
 
 def probe_models(provider: Provider) -> endpoint_probe.Found:
     """问一个自定义接口有哪些模型、每个能做什么（不花钱，见 endpoints/probe.py）。出错抛出 ProviderError。"""
+    from ..endpoints import probe as endpoint_probe  # 用到时才导入（见文件开头）
+
     assert provider.endpoint is not None
     try:
         return endpoint_probe.probe(provider.endpoint)
@@ -296,13 +311,20 @@ def probe_models(provider: Provider) -> endpoint_probe.Found:
 def make_backend(
     provider: Provider, model: str, config: Config, tools: ToolRegistry, system_prompt: str, client: Any
 ) -> Backend:
+    # 适配层用到时才导入（见文件开头），用哪一家导入哪一个：两个适配层各自导入自己的 SDK
     if provider.kind == "anthropic":
+        from .claude import AnthropicBackend
+
         return AnthropicBackend(client, model, config, tools, system_prompt)
+    from .openai_compat import OpenAICompatBackend
+
     endpoint = provider.endpoint
     if endpoint is None:
         return OpenAICompatBackend(
             client, provider.id, provider.label, model, config, tools, system_prompt, vision=provider.vision, pdf=provider.pdf
         )
+    from ..endpoints import errors as endpoint_errors
+
     found = caps(provider, model)
 
     def learned(name: str, **flags: bool) -> None:

@@ -27,8 +27,6 @@ import json
 import threading
 from typing import Any
 
-import anthropic
-
 from ..config import (
     ENABLE_FALLBACKS,
     EVAL_JUDGE_TRANSCRIPT_CHARS,
@@ -114,6 +112,10 @@ class Judge:
         if ENABLE_FALLBACKS and self.model in FALLBACK_CAPABLE_MODELS:
             request["betas"] = ["server-side-fallback-2026-07-01"]
             request["fallbacks"] = "default"
+        # 用到时才导入：anthropic 要大半秒才导入完，harness 的每个命令（连 --help）都会经过 evals/cli.py 带进这个文件。
+        # 走到这里时 self.client 已经建好，SDK 早就导入过了，这一行不再花时间
+        import anthropic
+
         try:
             with self.client.beta.messages.stream(**request) as stream:
                 message = stream.get_final_message()

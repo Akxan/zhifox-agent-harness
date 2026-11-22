@@ -4055,6 +4055,11 @@ assistant · Claude API · Anthropic SDK · OpenAI-compatible API · GPT · Gemi
 prompt caching · human-in-the-loop approval · agent loop · browser use · computer use · Chrome DevTools Protocol ·
 Python · terminal chat · web UI
 
+## Security
+
+Found a security problem? Please report it privately, not in a public issue: [SECURITY.md](SECURITY.md) explains how,
+summarizes ZhiFox's security model, and lists what is out of scope.
+
 ## License
 
 [MIT](LICENSE). You can use, modify and distribute it freely, as long as you keep the copyright notice.

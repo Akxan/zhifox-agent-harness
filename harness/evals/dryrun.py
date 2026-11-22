@@ -26,9 +26,6 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
-import anthropic
-import openai
-
 from ..config import PROJECT_ROOT
 from ..i18n import t
 from ..providers import PROVIDERS, find
@@ -113,6 +110,10 @@ class DryDriver:
         _fake("fake_openai")
 
     def connect(self, task: Task, provider: str) -> Connection:
+        # 两家的 SDK 用到时才导入：要大半秒，而 harness 的每个命令（连 --help）都会经过 evals/cli.py 带进这个文件
+        import anthropic
+        import openai
+
         replies = script(task, self.null)
         servers: list[Any] = []
         if (find(provider) or PROVIDERS["anthropic"]).kind == "anthropic":  # 自定义接口也是 OpenAI 格式（见 harness/endpoints/）
