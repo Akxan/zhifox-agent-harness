@@ -280,9 +280,10 @@ class Router:
             self.say(platform, message.chat, t("好，正在停下。") if stopped else t("现在没有在进行的事。"))
         elif command == "/status":
             self.say(platform, message.chat, session.status_text())
-        elif _answerable(session) and _word(text) in ALLOW_WORDS | DENY_WORDS and not message.files:
+        elif (waiting := _answerable(session)) is not None and _word(text) in ALLOW_WORDS | DENY_WORDS and not message.files:
             allowed = _word(text) in ALLOW_WORDS
-            if not session.answer(session.waiting.id, allowed, "chat"):
+            # 用上面拿到的这一个：再读一遍 session.waiting 的话，网页可能刚好在这中间答掉了它（变成 None）
+            if not session.answer(waiting.id, allowed, "chat"):
                 self.say(platform, message.chat, t("这个确认请求已经处理过了"))
         else:
             self._submit(session, message)
@@ -426,14 +427,14 @@ def pairing_reply(store: ChannelStore, message: Inbound, abilities: Capabilities
     return outcome, ""
 
 
-def _answerable(session: Session) -> bool:
-    """这个聊天里有没有一个可以用文字答复的确认请求。
+def _answerable(session: Session) -> Waiting | None:
+    """这个聊天里可以用文字答复的那个确认请求（没有的话是 None）。
 
     要等它真的发到了聊天里（handle 有了）才算：发送队列里可能还排着它（网络慢、被限流），
     这时你回的"好"是在回上一句话，不能拿来批准一条你还没看到的命令。
     """
     waiting = session.waiting
-    return waiting is not None and bool(waiting.handle)
+    return waiting if waiting is not None and waiting.handle else None
 
 
 def _word(text: str) -> str:
