@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import importlib.util
 
+from .. import install
+from ..config import FROM_SOURCE
 from ..i18n import k, t
 from .guides import GUIDES
 
@@ -135,8 +137,17 @@ def sdk(platform: str) -> dict | None:
 
 
 def install_command(platform: str) -> str:
+    """装上这个平台的 SDK 的那条命令。从仓库里运行：在仓库里 uv sync --extra 飞书或者钉钉。
+    装成工具（见 install.py）：带着 extra 把智狐重新装一遍。uv 没有"给装好的工具再加一个 extra"的命令，重新装的时候
+    只写这一个的话，之前装过的另一个 SDK 会被卸掉，所以已经装好的那几个也一起写上。"""
     spec = sdk(platform)
-    return f"uv sync --extra {spec['extra']}" if spec else ""
+    if not spec:
+        return ""
+    if FROM_SOURCE:
+        return f"uv sync --extra {spec['extra']}"
+    ready = [item["sdk"]["extra"] for item in PLATFORMS if item.get("sdk") and item["id"] != platform and sdk_ready(item["id"])]
+    extras = ",".join(sorted({spec["extra"], *ready}))
+    return f'uv tool install --force "{install.PROJECT_NAME}[{extras}] @ git+{install.REPOSITORY}"'
 
 
 def sdk_ready(platform: str) -> bool:
@@ -154,6 +165,8 @@ def missing_sdk(platform: str) -> str:
     """SDK 没装时给人看的话（装了的话是空字符串）。网页、命令行、通道自己的状态都用这一句。"""
     if sdk_ready(platform):
         return ""
+    if not FROM_SOURCE:
+        return t("{platform} 要用官方的 SDK（{package}），还没有装。运行 {command}，再重新启动智狐。", platform=label(platform), package=sdk(platform)["package"], command=install_command(platform))
     return t(
         "{platform} 要用官方的 SDK（{package}），还没有装。在智狐的文件夹里运行 {command}，再重新启动智狐。以后运行 uv sync 时也带上 --extra {extra}，不然它会被卸掉。",
         platform=label(platform),

@@ -10,6 +10,13 @@ macOS 的 plist、Linux 的 unit、Windows 的任务（XML）都照着同一份 
     不加 -P 的话，那里要是有一个 json.py，智狐启动时导入的就是它，而不是标准库。
     （`uv run harness` 走的是 .venv/bin/harness 这个脚本，本来就不会这样，-P 让两种开法一样安全。）
 
+装成工具（uv tool install，见 install.py）时照样是这个写法，Python 照样取 sys.executable：这时它是 uv 给这个工具建的
+虚拟环境里的那个（macOS、Linux 上是 ~/.local/share/uv/tools/harness-assistant/bin/python，Windows 上是
+%APPDATA%\\uv\\tools\\harness-assistant\\Scripts\\python.exe，旁边也有 pythonw.exe），harness 包就装在那个环境里，
+-m harness 找得到它。不改用 ~/.local/bin/harness 那个命令：它只是一个转去运行这个 Python 的小脚本（Windows 上是一个 .exe），
+多一层什么都没换来，Windows 上还会多开一个控制台程序、弹出黑色的窗口。-P 照样要：服务的当前目录照样是你的工作目录。
+uv tool upgrade 在原地换掉这个环境里的包，路径不变，所以升级以后服务的设置不用重装，运行 harness service restart 换上新的就行。
+
 服务不继承你终端里的环境变量：launchd 和 systemd 开它的时候，你的 .zshrc、.bashrc 都没有运行过。
 所以这里明明白白地写进去几项（数据目录、.env 的位置、PATH、语言），别的设置——API key、代理（HTTPS_PROXY）、
 HARNESS_MODEL……——放在 .env 里，智狐启动时自己读（见 config.load_env_file）。装的时候，只在终端里设置了、
@@ -32,7 +39,9 @@ from pathlib import Path
 
 from ..config import (
     API_BASES,
+    FROM_SOURCE,
     PROJECT_ROOT,
+    REPAIR,
     SERVICE_LOG,
     WEB_ADDRESS,
     Config,
@@ -126,9 +135,13 @@ def windowless(python: str) -> str:
 def problem(plan: Plan, manager: str = "") -> str | None:
     """装不了的原因（没有就是 None）。manager 是 taskscheduler 时按 Windows 的规矩查（见 _path_problem）。"""
     if not os.access(plan.python, os.X_OK):
-        return t("找不到 Python：{path}。先在项目文件夹里运行 uv sync。", path=plan.python)
+        if FROM_SOURCE:
+            return t("找不到 Python：{path}。先在项目文件夹里运行 uv sync。", path=plan.python)
+        return t("找不到 Python：{path}。重新装一次智狐：{command}", path=plan.python, command=REPAIR)
     if manager == TASK_SCHEDULER and not os.path.isfile(windowless(plan.python)):
-        return t("找不到 {path}（Windows 上的后台服务用它运行，不弹窗口）。先在项目文件夹里运行 uv sync。", path=windowless(plan.python))
+        if FROM_SOURCE:
+            return t("找不到 {path}（Windows 上的后台服务用它运行，不弹窗口）。先在项目文件夹里运行 uv sync。", path=windowless(plan.python))
+        return t("找不到 {path}（Windows 上的后台服务用它运行，不弹窗口）。重新装一次智狐：{command}", path=windowless(plan.python), command=REPAIR)
     if not plan.workspace.is_dir():
         return t("工作目录不存在：{path}", path=plan.workspace)
     if plan.port is not None and not 1 <= plan.port <= 65535:

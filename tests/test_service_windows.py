@@ -1029,3 +1029,56 @@ def test_open_works_the_same_on_windows(win):
 def test_the_task_file_is_private(win):
     service_cli.run(args_for("install"), win.config, win.system)
     assert has_mode(win.manager.file, 0o600)
+
+
+# ---- 装成工具时（uv tool install，见 harness/install.py）-----------------------------------------
+
+REINSTALL = "uv tool install --force git+https://github.com/Akxan/zhifox-agent-harness"
+
+
+def tool_venv(folder: Path) -> Path:
+    """uv tool install 给智狐建的虚拟环境的样子：%APPDATA%\\uv\\tools\\harness-assistant\\Scripts\\ 里的 python.exe 和 pythonw.exe。"""
+    scripts = folder / "uv" / "tools" / "harness-assistant" / "Scripts"
+    scripts.mkdir(parents=True)
+    for name in ("python.exe", "pythonw.exe"):
+        (scripts / name).write_text("", encoding="utf-8")
+        (scripts / name).chmod(0o755)
+    return scripts / "python.exe"
+
+
+def test_installed_as_a_tool_the_task_runs_the_tools_own_python(win, monkeypatch, tmp_path):
+    # 装成工具时 sys.executable 是工具环境里的 python.exe：任务照样用它旁边的 pythonw.exe 开 supervise.py，再开 python.exe -P -m harness
+    python = tool_venv(tmp_path / "AppData" / "Roaming")
+    monkeypatch.setattr(sys, "executable", str(python))
+    monkeypatch.setattr(service_cli, "COMMAND", "harness")
+    monkeypatch.setattr(windows, "COMMAND", "harness")
+    assert service_cli.run(args_for("install"), win.config, win.system) == 0
+    arguments = windows.parse(win.fake.created).arguments("taskscheduler")
+    assert arguments[:4] == [str(python), "-P", "-m", "harness"]
+    root = task_xml(win.fake.created)
+    assert root.findtext("t:Actions/t:Exec/t:Command", namespaces=NS) == f'"{python.parent / "pythonw.exe"}"'
+    assert root.findtext("t:RegistrationInfo/t:Description", namespaces=NS).endswith(": harness service status")
+    out, err = said(win.system)
+    assert "harness service open" in out and "uv run" not in out + err
+
+
+def test_installed_as_a_tool_a_missing_pythonw_says_reinstall(tmp_path, monkeypatch):
+    from harness.service import plan as plan_module
+
+    python = tool_venv(tmp_path / "AppData" / "Roaming")
+    (python.parent / "pythonw.exe").unlink()
+    workspace = tmp_path / "w"
+    workspace.mkdir()
+    data_dir = Path("C:\\Users\\me\\AppData\\Local\\ZhiFox")
+    good = Plan(python=str(python), workspace=workspace, data_dir=data_dir, env_file=data_dir / ".env")
+    monkeypatch.setattr(plan_module, "FROM_SOURCE", False)
+    monkeypatch.setattr(plan_module, "REPAIR", REINSTALL)
+    message = problem(good, "taskscheduler")
+    assert "pythonw.exe" in message and REINSTALL in message and "uv sync" not in message
+
+
+def test_the_exit_meanings_name_the_right_repair(monkeypatch, tmp_path):
+    monkeypatch.setattr(service_cli, "COMMAND", "harness")
+    monkeypatch.setattr(service_cli, "REPAIR", REINSTALL)
+    text = str(service_cli._why(base.State(installed=True, exit_code=0x80070002), manager_for(tmp_path)))
+    assert REINSTALL in text and "harness service install" in text and "uv run" not in text and "uv sync" not in text
