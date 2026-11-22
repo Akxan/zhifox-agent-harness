@@ -216,7 +216,7 @@ class Page:
         result = self.js(
             "new Promise((resolve) => {"
             f"  const deadline = performance.now() + {timeout * 1000:.0f};"
-            "  let last = '', scrolled = false;"
+            "  let last = '', scrolled = false, centered = false;"
             "  const moving = (node) => {"
             "    for (let at = node; at; at = at.parentElement) {"
             "      if (at.getAnimations().some((a) => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime))) return true;"
@@ -235,6 +235,9 @@ class Page:
             "        const x = box.left + box.width / 2, y = box.top + box.height / 2, top = document.elementFromPoint(x, y);"
             "        if (top && (top === node || node.contains(top))) { resolve({ ok: true, x, y }); return; }"
             "        why = 'covered by ' + (top ? top.outerHTML.slice(0, 160) : 'nothing');"
+            # 被挡住了：多半是 nearest 把它滚到了可滚动区域的最边上，正好在别的东西底下（字体不同、换行不同的机器上真出过）。
+            # 再滚到正中间试一次；还挡着才算点不到
+            "        if (!centered) { node.scrollIntoView({ block: 'center', inline: 'nearest' }); centered = true; last = ''; requestAnimationFrame(tick); return; }"
             "      }"
             "      if (!box.width || !box.height) why = 'not visible';"
             "      last = at;"
