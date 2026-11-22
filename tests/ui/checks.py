@@ -47,6 +47,7 @@ NAMES = [
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
+    ".sandbox-path",  # 你加进沙箱的路径
     ".endpoint-name", ".endpoint-model-name", ".models-label",  # 自定义模型接口的名字、模型名（你起的、服务器给的）
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
     ".changes-path", ".changes-warn-path",  # "改了 N 个文件"那一行、撤回之前的提醒里的文件路径（文件名是你的或者模型起的）

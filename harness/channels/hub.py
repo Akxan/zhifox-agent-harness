@@ -200,6 +200,11 @@ class ChannelHub:
         self._require(platform)
         self.store.set_approval(platform, mode)
 
+    def set_sandbox(self, platform: str, level: str) -> None:
+        """这个通道里命令的沙箱（下一条命令就按新的来，见 session.ChannelSession._sandbox）。"""
+        self._require(platform)
+        self.store.set_sandbox(platform, level)
+
     def set_enabled(self, platform: str, enabled: bool) -> None:
         self._require(platform)
         self.store.set_enabled(platform, enabled)

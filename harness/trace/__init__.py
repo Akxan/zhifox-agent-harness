@@ -54,7 +54,7 @@
     {"kind": "tool", "start": 1834, "end": 4750, "name": "run_command", "group": "shell", "icon": "terminal",
      "label": "执行命令", "detail": "$ ls -la", "result": "ok", "size": 120, "images": 1,
      "approval": "allowed", "why": "readonly", "asked": 1840, "waited": 2900, "note": "…",
-     "server": "files", "agent": "资料研究员", "children": [段, …]}
+     "server": "files", "agent": "资料研究员", "sandbox": "workspace", "children": [段, …]}
     name     真名（工具包的成员写成 browser.left_click）；label 是给人看的名字（原文，页面和终端各自翻译），
              认不出来的工具是空的；group、icon 和信息栏里的一样
     detail   参数的一行说明（不含工具名），最多 TRACE_SUMMARY_CHARS 个字
@@ -65,6 +65,8 @@
     asked、waited  什么时候开始等你答复、等了多少毫秒（只有问了你的才有）
     note     出错时结果的第一行（截短）
     server   MCP 服务器的名字；agent：交给的是哪个子 Agent，children 是它的请求和工具调用
+    sandbox  执行命令时沙箱是哪一档（见 sandbox/）：workspace / network；off 是这次运行没用沙箱（设置里开着沙箱时才写）；
+             outside 是请你放行、在沙箱之外运行的那一条。从来没打开过沙箱的人，记录里没有这一项
 
   合计：
     {"model": 6200, "tools": 3100, "waiting": 2900, "other": 200,

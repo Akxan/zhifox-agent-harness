@@ -1,0 +1,75 @@
+/* ---- 命令的沙箱 ---------------------------------------------------------------
+   设置里的"沙箱"一节（scripts/sandbox.js）：一张卡片，上面是这一节在讲什么，中间选哪一档和它的意思，
+   下面是"额外允许的路径"的入口。用不了的时候一条说明：没选沙箱是琥珀色的提醒，选了却用不了是红色（命令会被拒绝）。
+   打开的那个窗口（scripts/sandbox-paths.js）照着"不用问的命令"的样子：上面一张"这些地方永远碰不到"的卡片，
+   下面是你加的路径，每一行悬停时右边浮出"在访达中显示 / 编辑 / 删除"。路径可能很长：整条折行显示（这是你放开的地方，
+   要看得清清楚楚），右边一直给三个按钮留着位置，悬停时不会把文字挤得跳一下。
+   任务的编辑框、通道向导里那个下拉框下面的一句说明，也写在这里。 */
+.sandbox-card { position: relative; overflow: hidden; padding: 16px 16px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.sandbox-card::before { content: ""; position: absolute; right: -80px; top: -100px; width: 230px; height: 230px; border-radius: 50%; background: radial-gradient(closest-side, var(--teal), transparent); opacity: .08; pointer-events: none; transition: opacity .4s ease; }
+.sandbox-card:not([data-level="off"])::before { opacity: .2; }
+.sandbox-top { position: relative; display: flex; align-items: flex-start; gap: 12px; }
+.sandbox-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; color: var(--ink-3); background: var(--hover); border-radius: 12px; transition: color .25s ease, background-color .25s ease; }
+.sandbox-card:not([data-level="off"]) .sandbox-glyph { color: var(--ok); background: var(--ok-soft); }
+.sandbox-glyph .icon { width: 17px; height: 17px; }
+.sandbox-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sandbox-words b { font-size: 14px; font-weight: 600; }
+.sandbox-lead { font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.sandbox-level { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+.settings .sandbox-level-label { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.settings .sandbox-level select { flex: 1 1 200px; min-width: 0; }
+.sandbox-level-text, .sandbox-choice-text { position: relative; margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.sandbox-choice-text { margin: 0; }
+.sandbox-backend { position: relative; margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.sandbox-backend[hidden] { display: none; }
+.sandbox-problem { position: relative; display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; padding: 9px 12px; font-size: 12.5px; line-height: 1.55; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 11px; }
+.sandbox-problem span { min-width: 0; overflow-wrap: anywhere; }
+.sandbox-problem .icon { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.sandbox-problem.bad, .task-field .sandbox-problem, .chan-sandbox .sandbox-problem { color: var(--err); background: var(--err-soft); border-color: var(--err-line); }
+.sandbox-problem[hidden] { display: none; }
+.sandbox-paths-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sandbox-paths-words { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sandbox-paths-words b { font-size: 13px; font-weight: 600; }
+.sandbox-note { font-size: 12px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+
+/* 窗口 */
+.settings.sandbox-dialog { width: min(640px, calc(100vw - 32px)); }
+.sandbox-body { padding-bottom: 14px; }
+.sandbox-always { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.sandbox-always-glyph { flex: none; display: grid; place-items: center; width: 34px; height: 34px; color: var(--err); background: var(--err-soft); border-radius: 11px; }
+.sandbox-always-glyph .icon { width: 17px; height: 17px; }
+.sandbox-always-words { min-width: 0; }
+.sandbox-always-words b { font-size: 13.5px; font-weight: 600; }
+.sandbox-always-words p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.settings h3.sandbox-heading { margin: 20px 0 8px; }
+.sandbox-heading small { font-variant-numeric: tabular-nums; }
+
+.sandbox-list { display: grid; gap: 2px; margin: 0 0 10px; padding: 0; list-style: none; }
+.sandbox-empty { padding: 14px 12px; font-size: 13px; line-height: 1.55; color: var(--ink-3); background: var(--hover); border-radius: 12px; overflow-wrap: anywhere; }
+.sandbox-row { position: relative; display: flex; align-items: center; min-height: 44px; border-radius: 11px; transition: background-color .15s ease, box-shadow .15s ease; }
+.sandbox-row:hover, .sandbox-row:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .05); }
+.sandbox-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 104px 8px 12px; }
+.sandbox-path { flex: 0 1 auto; min-width: 0; font: 13px/1.55 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.sandbox-row-bits { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.sandbox-tag { padding: 1px 8px; font-size: 11.5px; line-height: 1.6; white-space: nowrap; color: var(--ink-2); background: var(--hover); border-radius: 999px; }
+.sandbox-tag.write { color: var(--warn); background: var(--warn-soft); }
+.sandbox-missing { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.sandbox-actions { position: absolute; right: 6px; top: 50%; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.sandbox-row:hover .sandbox-actions, .sandbox-row:focus-within .sandbox-actions { opacity: 1; }
+.sandbox-row:hover .sandbox-actions > *, .sandbox-row:focus-within .sandbox-actions > * { pointer-events: auto; }
+@media (hover: none) { .sandbox-actions { opacity: 1; } .sandbox-actions > * { pointer-events: auto; } }  /* 触屏上没有"悬停"，按钮一直显示 */
+.sandbox-actions .danger-hover:hover:not(:disabled) { color: var(--err); }
+.sandbox-confirm, .sandbox-edit { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; font-size: 13px; }
+.sandbox-confirm span { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.sandbox-edit .sandbox-edit-field { flex: 1 1 220px; min-width: 0; font: 13px var(--mono); }
+.sandbox-edit .sandbox-mode { flex: 0 1 auto; width: auto; min-width: 0; }
+.sandbox-add { display: flex; gap: 8px; }
+.sandbox-add .field { min-width: 0; }
+.sandbox-add input.field { flex: 1 1 220px; font-family: var(--mono); }
+.settings .sandbox-add select.field { flex: 0 1 auto; width: auto; }
+
+/* 任务的编辑框、通道向导的最后一步 */
+#task-sandbox-field[hidden] { display: none; }
+.chan-sandbox { display: grid; gap: 7px; margin-top: 16px; }
+.chan-sandbox-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.chan-sandbox .sandbox-problem { margin: 0; }

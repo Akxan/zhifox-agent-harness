@@ -125,6 +125,23 @@ def test_serve_explains_what_is_missing(make_config, fake, caplog):
     assert any("还没有配对" in message and "harness channels pair telegram" in message for message in warnings)
 
 
+def test_serve_says_when_the_sandbox_cannot_run_here(make_config, fake, caplog, monkeypatch):
+    """沙箱开着（这里是聊天通道自己选的那一档）、这台电脑上却用不了：日志里说清楚命令会被拒绝，不是等第一条命令才发现。"""
+    from fake_sandbox import install
+
+    install(monkeypatch, problem="没有装 bubblewrap")
+    caplog.set_level(logging.INFO, logger="harness")
+    config = make_config(telegram_api=fake.base_url)
+    store = ChannelStore(config.channels_file)
+    store.connect("telegram", {"token": TOKEN}, BOT)
+    store.set_sandbox("telegram", "workspace")
+    stop = threading.Event()
+    stop.set()
+    assert serve(config, stop) == EXIT_OK
+    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert any("命令会被拒绝执行" in message and "没有装 bubblewrap" in message for message in warnings)
+
+
 def test_serve_refuses_a_broken_channels_file(make_config, caplog):
     config = make_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)

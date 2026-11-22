@@ -345,8 +345,8 @@ class Scheduler:
             return
 
         ui = RunUI(lambda kind, data, event_id: self._observe(pending, kind, data, event_id))
-        # 这次运行自己的助手、shell 和 MCP 调用。权限按这个任务自己的那一档；之后你再改它，只影响以后的运行
-        unattended = app.unattended_agent(ui, task["approval"])
+        # 这次运行自己的助手、shell 和 MCP 调用。权限、沙箱按这个任务自己的那一档；之后你再改它，只影响以后的运行
+        unattended = app.unattended_agent(ui, task["approval"], task.get("sandbox", "default"))
         agent, shell = unattended.agent, unattended.shell
         # 停止时连它正在运行的命令、正在等的 MCP 调用一起结束。只是它自己的，你的对话和别的任务不受影响
         ui.on_stop(unattended.stop)

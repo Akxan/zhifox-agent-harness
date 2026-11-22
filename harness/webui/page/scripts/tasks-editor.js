@@ -1,5 +1,6 @@
 // ---- 定时任务 · 新建和编辑 --------------------------------------------------
-// 编辑框：做什么（让助手去做，还是只提醒你）、什么时候（一次、每天、每周、每月、每隔一段时间）、要不要先问你。
+// 编辑框：做什么（让助手去做，还是只提醒你）、什么时候（一次、每天、每周、每月、每隔一段时间）、要不要先问你、命令的沙箱
+// （几档的名字和说明由助手程序给，下拉框在 sandbox.js 里填）。
 // 接下来三次的时间请助手程序按同一套规则算好（/api/task/preview），页面不重复写一遍。改过还没保存就关，先提醒一次。
 // 文件最后接上编辑框的按钮，并把左边栏的标签定到一开始的那一个（syncNavTabs，在 tasks.js）。
 
@@ -10,7 +11,8 @@ function openEditor(task, preset) {
   const plan = base.schedule || {};
   editing = {
     id: task ? task.id : null, kind: base.kind === 'reminder' ? 'reminder' : 'agent', type: plan.type || 'daily', days: new Set(plan.days || [1, 2, 3, 4, 5]),
-    approval: base.approval in APPROVAL ? base.approval : 'ask', armed: false, saving: false,
+    approval: base.approval in APPROVAL ? base.approval : 'ask', sandbox: SANDBOX_CHOICES.includes(base.sandbox) ? base.sandbox : 'default',
+    armed: false, saving: false,
   };
   retext($('task-editor-title'), task ? k('编辑任务') : k('新建定时任务'));
   $('task-title').value = base.title || '';
@@ -44,7 +46,7 @@ function editorSchedule() {
   return { type: 'interval', minutes: Number($('task-every').value) * Number($('task-unit').value) };
 }
 
-const editorPrint = () => JSON.stringify([editing.kind, $('task-title').value, $('task-prompt').value, editorSchedule(), $('task-enabled').checked, editing.approval]);
+const editorPrint = () => JSON.stringify([editing.kind, $('task-title').value, $('task-prompt').value, editorSchedule(), $('task-enabled').checked, editing.approval, editing.sandbox]);
 
 function drawEditor() {
   if (!editing) return;
@@ -67,6 +69,13 @@ function drawEditor() {
   // 只提醒的任务不调用模型、不用工具，没有什么可问的
   $('task-approval-field').hidden = !agent;
   $('task-approval-warning').hidden = !agent || editing.approval !== 'all';
+  // 命令的沙箱：也只有让助手去做的任务才有（提醒不运行命令）。旧的助手程序没有沙箱，这一项不显示
+  $('task-sandbox-field').hidden = !agent || !sandboxInfo;
+  if (agent && sandboxInfo) {
+    fillSandboxSelect($('task-sandbox'), editing.sandbox, true);
+    sandboxChoiceText($('task-sandbox-text'), editing.sandbox);
+    sandboxRefusalNote($('task-sandbox-problem'), sandboxResolved(editing.sandbox), k('这台电脑上用不了沙箱，这个任务里的命令会被拒绝执行：{problem}'));
+  }
   retext($('task-prompt-label'), agent ? k('让助手做什么') : k('提醒的内容（可以不写）'));
   tattr($('task-prompt'), 'placeholder', agent ? k('比如：看看我的待办，按轻重缓急给我写一份今天的安排。') : k('比如：起来走走，喝杯水。'));
   $('task-cost-note').hidden = !agent;
@@ -127,6 +136,7 @@ async function saveTask() {
   const reply = await call('/api/task/save', {
     ...(editing.id ? { id: editing.id } : {}), title, kind: editing.kind, prompt, schedule: editorSchedule(), enabled: $('task-enabled').checked,
     approval: editing.kind === 'agent' ? editing.approval : 'ask',
+    sandbox: editing.kind === 'agent' ? editing.sandbox : 'default',
   });
   if (!editing) return;
   editing.saving = false;
@@ -170,6 +180,12 @@ for (const group of taskEditor.querySelectorAll('[role="radiogroup"]')) {
     next.focus();
   });
 }
+$('task-sandbox').addEventListener('change', () => {
+  if (!editing) return;
+  editing.sandbox = $('task-sandbox').value;
+  drawEditor();
+  editorChanged();
+});
 for (const id of ['task-title', 'task-prompt', 'task-date', 'task-time', 'task-day', 'task-every', 'task-unit', 'task-enabled']) {
   $(id).addEventListener(id === 'task-unit' || id === 'task-enabled' ? 'change' : 'input', editorChanged);
 }

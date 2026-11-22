@@ -408,6 +408,31 @@ __STYLES__
       <p class="hint" data-i18n>选了“自动允许只读命令”时，只是看的命令（ls、git status、df……）不用问。你天天用、信得过的别的命令（比如 npm test），也可以加进来。</p>
       <button id="commands-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>管理不用问的命令</span></button>
     </section>
+    <!-- 命令的沙箱（scripts/sandbox.js）：几档的名字和说明、这台电脑上能不能用，都由助手程序给（state.sandbox） -->
+    <section id="sandbox-section" hidden>
+      <h3><span data-i18n>沙箱</span> <small id="sandbox-state"></small></h3>
+      <div id="sandbox-card" class="sandbox-card">
+        <div class="sandbox-top">
+          <span class="sandbox-glyph" aria-hidden="true"><svg class="icon"><use href="#i-lock"/></svg></span>
+          <div class="sandbox-words">
+            <b data-i18n>命令关在沙箱里运行</b>
+            <span class="sandbox-lead" data-i18n>“要不要先问你”之外的第二道关卡：一条命令被放行以后，运行时也只碰得到该碰的地方。被网页里的一句话带偏的模型，自己出不了沙箱。</span>
+          </div>
+        </div>
+        <div class="sandbox-level">
+          <label class="sandbox-level-label" for="sandbox-level" data-i18n>对话里用哪一档</label>
+          <select id="sandbox-level" class="field" aria-describedby="sandbox-level-text"></select>
+        </div>
+        <p id="sandbox-level-text" class="sandbox-level-text"></p>
+        <p id="sandbox-problem" class="sandbox-problem" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span id="sandbox-problem-text"></span></p>
+        <p id="sandbox-backend" class="sandbox-backend"></p>
+        <div class="sandbox-paths-row">
+          <div class="sandbox-paths-words"><b data-i18n>额外允许的路径</b><span id="sandbox-paths-count" class="sandbox-note"></span></div>
+          <button id="sandbox-paths-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span data-i18n>管理路径</span></button>
+        </div>
+      </div>
+      <p class="hint" data-i18n>定时任务和聊天通道默认跟着这里选的那一档，也可以在它们自己的设置里另选。改了以后，下一条命令就按新的来。</p>
+    </section>
     <section>
       <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
       <div class="row">
@@ -579,6 +604,12 @@ __STYLES__
       <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件（允许了任务操作电脑的话，还有点击、打字）都不会再等你批准。只给你完全信任的指令用。</span></p>
       <p class="hint task-approval-hint" data-i18n>任务按这里选的来，和对话里选的那一档互不影响。要确认的操作会停下来，等你在任务列表里批准。</p>
     </div>
+    <div id="task-sandbox-field" class="task-field"><label class="task-label" for="task-sandbox" data-i18n>命令的沙箱</label>
+      <select id="task-sandbox" class="field" aria-describedby="task-sandbox-text"></select>
+      <p id="task-sandbox-text" class="sandbox-choice-text"></p>
+      <p id="task-sandbox-problem" class="sandbox-problem" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span></span></p>
+      <p class="hint task-approval-hint" data-i18n>命令被沙箱挡住、又确实需要时，助手会请你放行这一条（每次都问）；选了“全部自动允许”的任务没人回答，不能放行。</p>
+    </div>
     <label class="task-check"><input id="task-enabled" type="checkbox"><span data-i18n>启用（关掉以后先不运行，设置都留着）</span></label>
     <p id="task-cost-note" class="hint" data-i18n>每次运行都会调用模型，会产生费用（不设上限，每次花了多少都会记下来）。只有智狐开着的时候任务才会运行；错过的，下次打开时补跑一次。</p>
   </div>
@@ -730,6 +761,34 @@ __STYLES__
     <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
   </div>
   <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
+</dialog>
+
+<dialog id="sandbox-dialog" class="settings sandbox-dialog" aria-labelledby="sandbox-dialog-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="sandbox-dialog-title" data-i18n>沙箱里额外允许的路径</h2>
+      <p class="memory-sub" data-i18n>沙箱开着时，命令只能读写工作目录。这里加的路径，命令也能读（或者读写）。</p>
+    </div>
+    <button id="close-sandbox-dialog" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body sandbox-body">
+    <div class="sandbox-always">
+      <span class="sandbox-always-glyph" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
+      <div class="sandbox-always-words">
+        <b data-i18n>这些地方加进来也碰不到</b>
+        <p data-i18n>智狐自己的数据目录（data/：以前的会话、设置、聊天机器人的 token）和 .env（各家的 API key），在沙箱里永远读不到、写不了。家目录里放密钥的地方（~/.ssh、~/.aws、~/.gnupg……）也一样，除非你把它本身单独加进来。</p>
+      </div>
+    </div>
+    <h3 class="sandbox-heading"><span data-i18n>你加的路径</span> <small id="sandbox-count"></small></h3>
+    <ul id="sandbox-list" class="sandbox-list" aria-label="你加的路径" data-i18n-aria-label></ul>
+    <div class="row sandbox-add">
+      <input id="sandbox-new" class="field" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="1000" placeholder="比如 ~/.nvm 或者 /srv/app" aria-label="要加的路径" data-i18n-placeholder data-i18n-aria-label>
+      <select id="sandbox-new-mode" class="field" aria-label="沙箱里的命令能做什么" data-i18n-aria-label><option value="read" data-i18n>只读</option><option value="write" data-i18n>可读写</option></select>
+      <button id="sandbox-add" class="button" type="button" data-i18n>添加</button>
+    </div>
+    <p class="hint" data-i18n>写完整的路径（从 / 或者 ~ 开始）。装在家目录里的程序（nvm、pyenv、cargo 的工具）在沙箱里默认读不到，要用就把它的文件夹加成只读。可读写的路径，沙箱里的命令能改里面的任何东西，只加你放心的。</p>
+  </div>
+  <div class="memory-foot"><p id="sandbox-message" class="memory-message" role="status"></p><button id="sandbox-done" class="button primary" type="button" data-i18n>完成</button></div>
 </dialog>
 
 <!-- 添加、编辑一个自定义模型接口（scripts/endpoints-editor.js）。叠在设置面板上面打开，关上以后回到设置里的那一行 -->
