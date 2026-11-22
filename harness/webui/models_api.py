@@ -10,10 +10,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .. import model_catalog
+from ..i18n import t
+from ..providers import PROVIDERS, ProviderError, caps, continues, find, has_key, hint
+from ..settings import valid_api_key
 from .ui import said
+
+if TYPE_CHECKING:
+    from .server import Handler
+    from .webapp import WebApp
 
 
 def page_state(app: Any) -> dict:
@@ -49,3 +56,147 @@ def page_state(app: Any) -> dict:
             for group in found.groups
         ],
     }
+
+
+class ModelActions:
+    def _provider_state(self, provider) -> dict:
+        """状态里的一家。密钥只有"有没有"和最后 4 位。"""
+        settings = self.app.settings
+        # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收。
+        # 自定义接口按模型算：现在用的这一家写现在这个模型的，别的写"有没有哪个模型能"
+        accepts = caps(provider, settings.model) if provider.id == settings.provider else provider
+        return {
+            "id": provider.id,
+            "label": provider.label,
+            "has_key": has_key(provider),
+            "key_hint": hint(provider),
+            "key_page": provider.key_page,
+            "models": model_catalog.models_of(settings, provider.id, provider),  # 规矩在 model_catalog.models_of
+            "vision": accepts.vision,
+            "pdf": accepts.pdf,
+            "custom": provider.custom,  # 自定义接口：设置里的"API 密钥"一节不列它（它有自己的一节）
+        }
+
+    # ---- 设置 --------------------------------------------------------------
+    # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
+    # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
+
+    def select_model(self, provider_id: str, model: str) -> str:
+        provider = find(provider_id)
+        if provider is None:
+            return t("这个模型接口已经不在了，可能刚被删掉。")
+        if not has_key(provider):
+            return t("还没有设置 {provider} 的 API 密钥", provider=provider.label)
+        if not self._turn.acquire(blocking=False):
+            return self._busy()
+        try:
+            # 换到另一家要开始新对话，也就是离开当前会话（同一个自定义接口上，能不能用工具不一样的两个模型之间换也是，见 providers.continues）
+            same_provider = provider_id == self.app.agent.backend.provider
+            if not continues(self.app.agent.backend, provider, model):
+                blocked = self._before_leaving(f"model:{provider_id}:{model}")
+                if blocked:
+                    return blocked
+            else:
+                # 同一家：这段会话接着用新模型，要存一次盘。它正在聊天通道里跑一轮的话，两边会抢着写同一个文件（见 claims.py）
+                held = self._held_elsewhere(self.app.conversation.id)
+                if held:
+                    return held
+            continued = self.app.select_model(provider_id, model)
+            if not continued:
+                self._left()
+                self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
+            label = provider.label
+            if continued:
+                self.ui.info(t("已换成 {provider} · {model}。对话继续。", provider=label, model=model))
+            elif same_provider:
+                self.ui.info(t("已换成 {provider} · {model}。它能不能用工具和刚才的模型不一样，开始新对话。", provider=label, model=model))
+            else:
+                self.ui.info(t("已换成 {provider} · {model}。换了一家，开始新对话。", provider=label, model=model))
+            self._show_warnings()
+            if continued:
+                self._save()  # 这段会话以后用新模型，记下来
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return ""
+
+    def set_api_key(self, provider_id: str, key: str) -> tuple[str, str]:
+        """保存或删除一家的 API 密钥。返回（失败原因，提醒）。
+
+        保存成功后顺便同步一次模型列表；如果同步失败（比如 key 不对），key 仍然保存了，
+        原因放在"提醒"里告诉用户。
+        """
+        if not self._turn.acquire(blocking=False):
+            return self._busy(), ""
+        warning = ""
+        try:
+            self.app.set_api_key(provider_id, key)
+            if key:
+                try:
+                    self.app.sync_models(provider_id)
+                except ProviderError as exc:
+                    warning = t("key 已保存，但同步模型列表失败：{error}", error=exc)
+            else:
+                self.app.settings.set_models(provider_id, None)
+            self.publish_state()
+        finally:
+            self._turn.release()
+        return "", warning
+
+    def sync_models(self, provider_id: str) -> str:
+        try:
+            self.app.sync_models(provider_id)
+        except ProviderError as exc:
+            return str(exc)
+        self.publish_state()
+        return ""
+
+    def set_price(self, model: str, price: dict | None) -> None:
+        """设置里"价格"一节改的是现在用的这个模型：自定义接口上的记进 endpoints.json，内置的记进 settings.json（见 App.set_price）。"""
+        self.app.set_price(self.app.settings.provider, model, price)
+        self.publish_state()
+
+
+def route_model(handler: Handler, web: WebApp, body: dict) -> None:
+    provider, model = body.get("provider"), body.get("model")
+    if find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
+        handler._send_json(400, {"error": t("参数不正确")})
+    else:
+        handler._finish(web.select_model(provider, model.strip()))
+
+
+def route_key(handler: Handler, web: WebApp, body: dict) -> None:
+    provider, key = body.get("provider"), body.get("key")
+    if provider not in PROVIDERS or not isinstance(key, str):
+        handler._send_json(400, {"error": t("参数不正确")})
+    elif key.strip() and not valid_api_key(key.strip()):
+        handler._send_json(400, {"error": t("这不像是一个 API 密钥：里面不能有空格、换行或中文")})
+    else:
+        error, warning = web.set_api_key(provider, key.strip())
+        handler._finish(error, warning=warning)
+
+
+def route_models(handler: Handler, web: WebApp, body: dict) -> None:
+    provider = body.get("provider")
+    if find(provider) is None:
+        handler._send_json(400, {"error": t("参数不正确")})
+    else:
+        handler._finish(web.sync_models(provider))
+
+
+def route_price(handler: Handler, web: WebApp, body: dict) -> None:
+    model, price = body.get("model"), body.get("price")
+    if not isinstance(model, str) or not model or not _valid_price(price):
+        handler._send_json(400, {"error": t("价格必须是不小于 0 的数字，输入和输出两项必填")})
+    else:
+        web.set_price(model, price)
+        handler._send_json(200, {"ok": True})
+
+
+def _valid_price(price: object) -> bool:
+    """价格要么是 None（删除自己填的价格），要么是一组不小于 0 的数字。"""
+    if price is None:
+        return True
+    if not isinstance(price, dict) or not {"input", "output"} <= set(price) <= {"input", "output", "cache_read"}:
+        return False
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 100_000 for v in price.values())

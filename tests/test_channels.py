@@ -27,7 +27,7 @@ from oscmd import mark_then_sleep, mark_then_wait_for
 from sample_files import JPEG_BYTES
 from test_webui import Browser
 
-import harness.webui.server as server_module
+import harness.webui.reveal as reveal_module
 from harness import log
 from harness.app import build_app
 from harness.channels import markup, pairing
@@ -797,8 +797,8 @@ def rigs(make_config, monkeypatch):
     每调用一次组装出一个 Rig。同一个测试里调用两次就是重启。"""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     # 测试里绝不真的打开访达；当作这台电脑有文件管理器（没有的时候怎么回答，见 test_channels_web.py）
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", lambda path: None)
-    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", lambda path: None)
+    monkeypatch.setattr(reveal_module, "has_file_manager", lambda: True)
     telegram = FakeTelegram(max_poll=0.2).start()
     started: list[Rig] = []
 

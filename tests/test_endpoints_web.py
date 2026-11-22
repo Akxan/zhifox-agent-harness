@@ -20,6 +20,7 @@ from fake_api import FakeAPI, reply, text
 from fake_openai import FakeOpenAI, chat
 from test_webui import Browser
 
+import harness.webui.reveal as reveal_module
 from harness.app import build_app
 from harness.providers import make_client
 from harness.webui.server import create_server
@@ -35,8 +36,8 @@ def web(make_config, monkeypatch):
     started = []
     revealed: list = []
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(test_webui.server_module, "reveal_in_file_manager", revealed.append)
-    monkeypatch.setattr(test_webui.server_module, "has_file_manager", lambda: True)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", revealed.append)
+    monkeypatch.setattr(reveal_module, "has_file_manager", lambda: True)
 
     def start(*replies, claude=(), models=("qwen3:8b", "llava:13b"), **server_options):
         ollama = FakeOpenAI(list(replies), models=list(models), **server_options).start()

@@ -15,14 +15,14 @@ from fake_api import reply, text
 from fake_telegram import TOKEN
 from test_channels import BOT, OWNER, OWNER_NAME, rigs, run, until, visible_end
 
-import harness.webui.server as server_module
+import harness.webui.reveal as reveal_module
 from harness.channels.platforms import PLATFORMS
 from harness.channels.store import ChannelStore
 from harness.config import PAIRING_ATTEMPTS, PAIRING_SECONDS
 
 # 真正的"在文件管理器里显示"。bot 这个 fixture 会把它们换成假的；测"没有文件管理器的服务器"时要用回真的
-REAL_REVEAL = server_module.reveal_in_file_manager
-REAL_HAS_FILE_MANAGER = server_module.has_file_manager
+REAL_REVEAL = reveal_module.reveal_in_file_manager
+REAL_HAS_FILE_MANAGER = reveal_module.has_file_manager
 OK = (200, {"ok": True})
 OPENED = (200, {"ok": True, "warning": ""})  # 会话的几个操作（打开、改名、删除）成功时的回答
 
@@ -232,7 +232,7 @@ def test_stopping_a_chat_from_the_page(bot):
 def test_revealing_the_channels_file(bot, monkeypatch):
     s = bot()
     shown = []
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", shown.append)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", shown.append)
     path = str(s.config.channels_file)
     assert s.browser.post("/api/reveal", {"what": "channels"}) == (200, {"ok": True, "path": path, "opened": True})
     assert shown == [s.config.channels_file]
@@ -248,11 +248,11 @@ def test_revealing_on_a_server_without_a_file_manager(bot, monkeypatch):
         launched.append(args)
         raise AssertionError("没有文件管理器的电脑上不该启动任何程序")
 
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", REAL_REVEAL)
-    monkeypatch.setattr(server_module, "has_file_manager", REAL_HAS_FILE_MANAGER)
-    monkeypatch.setattr(server_module.sys, "platform", "linux")
-    monkeypatch.setattr(server_module.shutil, "which", lambda name: None)
-    monkeypatch.setattr(server_module.subprocess, "Popen", no_programs)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", REAL_REVEAL)
+    monkeypatch.setattr(reveal_module, "has_file_manager", REAL_HAS_FILE_MANAGER)
+    monkeypatch.setattr(reveal_module.sys, "platform", "linux")
+    monkeypatch.setattr(reveal_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(reveal_module.subprocess, "Popen", no_programs)
 
     path = str(s.config.channels_file)
     assert s.browser.post("/api/reveal", {"what": "channels"}) == (200, {"ok": True, "path": path, "opened": False})
