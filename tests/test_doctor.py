@@ -23,7 +23,9 @@ from harness import cli, i18n, instance, machine, winacl
 from harness.channels.store import ChannelStore
 from harness.config import PROJECT_ROOT, Config
 from harness.desktop import backend as desktop_backend
-from harness.doctor import OK, PROBLEM, UNUSED, environment, examine, fixes
+from harness.doctor import OK, PROBLEM, UNUSED, environment, fixes
+from harness.doctor import cli as doctor_cli
+from harness.doctor import examine as real_examine
 from harness.doctor.keys import ADDRESSES
 from harness.doctor.text import NAME_COLUMNS, columns, lines
 from harness.safe import private_dir, write_file
@@ -41,9 +43,23 @@ NO_SERVICE = service_cli.System(None, "这台测试的电脑上没有服务管�
 CJK = re.compile(r"[㐀-鿿]")
 
 
+# 自检正在运行时非空（见 examine）。只有这时候"改权限"才算测试失败：在真的 Windows 上，测试准备数据目录时
+# （private_dir、write_file、ChannelStore……）本来就会收紧权限，那是测试自己做的，不是自检
+_EXAMINING: list[bool] = []
+
+
+def examine(*args, **kwargs):
+    """自检本身。运行期间假的 icacls 只许读（见 _icacls）；终端里的 harness doctor 和 /doctor 也换成走这里（见 clean）。"""
+    _EXAMINING.append(True)
+    try:
+        return real_examine(*args, **kwargs)
+    finally:
+        _EXAMINING.pop()
+
+
 def _icacls(sddl: str | None, calls: list | None = None):
     """假的 icacls：whoami 回答 SID；icacls /save 把 sddl 写进它要的那个文件（UTF-16，和真的一样）。sddl 是 None 时 icacls 失败。
-    别的 icacls 命令（会改权限的那些）一律算测试失败：自检只许读。"""
+    别的 icacls 命令（会改权限的那些）在自检运行时一律算测试失败：自检只许读。测试自己准备数据目录时照样"成功"。"""
 
     def runner(args):
         if calls is not None:
@@ -55,7 +71,9 @@ def _icacls(sddl: str | None, calls: list | None = None):
                 return 5, "拒绝访问。"
             Path(args[args.index("/save") + 1]).write_bytes(f"data\r\n{sddl}\r\n".encode("utf-16-le"))
             return 0, ""
-        raise AssertionError(f"自检只许读，不许改：{args}")
+        if _EXAMINING:
+            raise AssertionError(f"自检只许读，不许改：{args}")
+        return 0, ""  # 测试在准备数据目录（真的 Windows 上 private_dir 会收紧权限）
 
     return runner
 
@@ -71,6 +89,8 @@ def clean(monkeypatch):
     for name in (*ADDRESSES, "HARNESS_CHROME", "HARNESS_DATA_DIR"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(winacl, "runner", _icacls(ONLY_ME))
+    monkeypatch.setattr(doctor_cli, "examine", examine)  # 终端里的两条路也只许读
+    monkeypatch.setattr(cli, "doctor_examine", examine)
     winacl.forget()
 
 

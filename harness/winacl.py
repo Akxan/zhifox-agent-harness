@@ -161,6 +161,9 @@ def others(path: Path) -> list[str] | None:
     match = _DACL.fullmatch(found)
     assert match is not None
     flags, aces = match.group(1), match.group(2)
+    # 你自己的账号。SDDL 里有几个账号不写 SID、写两个字母的别名：这台电脑内置的 Administrator 账号（SID 以 -500 结尾）
+    # 写成 LA。用它登录的时候（GitHub 的 Windows 机器就是），访问控制列表里"你自己"那一项是 LA，不认的话就成了"别人也能读"
+    mine = {sid, "LA"} if sid.endswith("-500") else {sid}
     if "NO_ACCESS_CONTROL" in flags:
         return ["WD"]  # 没有访问控制列表：谁都能用
     out: list[str] = []
@@ -169,7 +172,7 @@ def others(path: Path) -> list[str] | None:
         if len(parts) < 6 or parts[0] not in ("A", "OA"):
             continue
         who = parts[5]
-        if who != sid and who not in _FINE and who not in out:
+        if who not in mine and who not in _FINE and who not in out:
             out.append(who)
     return out
 

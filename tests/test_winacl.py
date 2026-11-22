@@ -118,6 +118,25 @@ def test_others_names_everyone_else_who_is_allowed(monkeypatch, tmp_path):
     assert winacl.others(tmp_path) == ["S-1-5-21-9-9-9-1002"]  # 别的账号按 SID 写
 
 
+
+def test_the_built_in_administrator_is_written_la_and_is_still_you(monkeypatch, tmp_path):
+    # 用这台电脑内置的 Administrator 账号（RID 500）登录时，SDDL 里"你自己"那一项写成别名 LA，不写 SID
+    admin = "S-1-5-21-7-8-9-500"
+
+    def runner(args):
+        if args[0].lower().endswith("whoami.exe"):
+            return 0, f'"pc\\administrator","{admin}"\r\n'
+        Path(args[args.index("/save") + 1]).write_bytes("data\r\nD:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)\r\n".encode("utf-16-le"))
+        return 0, ""
+
+    monkeypatch.setattr(winacl, "WINDOWS", True)
+    monkeypatch.setattr(winacl, "runner", runner)
+    winacl.forget()
+    assert winacl.others(tmp_path) == []
+    # 别的账号登录时，LA 是另一个人（这台电脑的 Administrator），照样算"别人"
+    _saving(monkeypatch, "data", f"D:PAI(A;OICI;FA;;;{SID})(A;OICI;FA;;;LA)")
+    assert winacl.others(tmp_path) == ["LA"]
+
 def test_others_cannot_tell_when_icacls_fails_or_the_file_is_odd(monkeypatch, tmp_path):
     _saving(monkeypatch, code=5)
     assert winacl.others(tmp_path) is None
