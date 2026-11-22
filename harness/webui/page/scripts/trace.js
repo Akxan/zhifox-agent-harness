@@ -17,7 +17,7 @@ let traceEnter = false;  // 下一次画的时候播放入场动画（只在刚�
 
 // 一轮是怎么结束的（和终端 /trace 的说法一样，见 harness/trace/text.py）
 const TRACE_ENDED = { done: k('答完了'), truncated: k('回复被截断了'), refused: k('模型拒绝了'), steps: k('用完了步数'), stopped: k('你停下了它'), error: k('出错了') };
-const TRACE_TEXT = ['provider', 'model', 'status', 'stop', 'name', 'group', 'label', 'detail', 'result', 'approval', 'why', 'note', 'server', 'agent'];
+const TRACE_TEXT = ['provider', 'model', 'status', 'stop', 'name', 'group', 'label', 'detail', 'result', 'approval', 'why', 'note', 'server', 'agent', 'sandbox'];
 const TRACE_COUNTS = ['start', 'end', 'first', 'input', 'cache_read', 'cache_write', 'output', 'calls', 'retries', 'size', 'images', 'asked', 'waited'];
 const TRACE_TOTALS = ['model', 'tools', 'waiting', 'other', 'requests', 'tool_calls', 'errors', 'unpriced', 'input', 'cache_read', 'cache_write', 'output', 'asked', 'allowed', 'refused', 'auto'];
 

@@ -93,9 +93,11 @@ def check_reading_private_places_fails(lab):
 
 
 def check_data_and_keys_are_untouchable(lab):
-    for command in ("cat .env", "cat data/settings.json", "ls data", "echo x >> .env", "echo x > data/new.json", "rm .env"):
+    for command in ("cat .env", "cat data/settings.json", "echo x >> .env", "echo x > data/new.json", "rm .env"):
         out = lab.shell.run(command)
         assert failed(out) and "sk-fake" not in out, (command, out)
+    # 列数据目录：macOS 上是"Operation not permitted"，Linux 上盖着一个空的、只读的文件夹。两边都看不到里面有什么
+    assert "settings.json" not in lab.shell.run("ls -a data")
     assert (lab.workspace / ".env").read_text() == "ANTHROPIC_API_KEY=sk-fake\n" and not (lab.workspace / "data" / "new.json").exists()
 
 
@@ -123,7 +125,7 @@ def check_no_network_reaches_localhost(lab):
         pytest.skip("这台电脑上没有 curl")
     url = f"http://127.0.0.1:{lab.port}/"
     blocked = lab.shell.run(f"curl -sS -m 5 {url}")
-    assert failed(blocked) and "hello" not in blocked and "[这条命令是在沙箱里运行的" in blocked
+    assert failed(blocked) and "hello" not in blocked and "[这条命令是在沙箱里运行的" in blocked, blocked
     lab.level["value"] = "network"
     assert lab.shell.run(f"curl -sS -m 5 {url}") == "hello"  # "工作目录 + 联网"：本机也连得上
 

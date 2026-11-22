@@ -1689,8 +1689,9 @@ network**, the real `/etc/resolv.conf` (often a link into `/run` for systemd-res
 folders are covered with an empty read-only `tmpfs` and denied files with `/dev/null`, mounted last so they cover what
 came before. A missing `.env` in a writable place is covered too: otherwise a command could create one that ZhiFox
 would read at its next start (bwrap leaves an empty file behind as the mount point, and an empty `.env` means the same
-as none). Inside, a hidden place looks like `No such file or directory` and a read-only one like `Read-only file
-system`. bwrap isn't installed by default, and ZhiFox never installs anything: without it the sandbox can't be used,
+as none). Inside, a hidden place looks like `No such file or directory`, a read-only one like `Read-only file
+system`, and a covered folder such as `data/` like an empty, read-only folder. Connecting to a service on this
+computer gets `Connection refused`: the sandbox's own localhost has nothing listening. bwrap isn't installed by default, and ZhiFox never installs anything: without it the sandbox can't be used,
 and ZhiFox gives the command for your distribution:
 
 ```bash

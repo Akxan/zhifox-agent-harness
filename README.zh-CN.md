@@ -1804,7 +1804,8 @@ cargo 或 uv 装的工具）在沙箱里默认读不到：把它的文件夹加�
 （常常是指向 `/run` 里 systemd-resolved 的链接）挂进来，才查得了域名。不许碰的文件夹盖上一个空的、只读的 `tmpfs`，
 文件换成 `/dev/null`，最后挂上去，盖住前面的。能写的地方里还没有 `.env` 的，也照样盖上：不然命令可以新建一个，
 智狐下次启动时会读它（bwrap 会在那个位置留下一个空文件当挂载点，空的 `.env` 和没有是一回事）。
-在沙箱里，看不到的地方是 `No such file or directory`，只能读的地方是 `Read-only file system`。
+在沙箱里，看不到的地方是 `No such file or directory`，只能读的地方是 `Read-only file system`，盖住的文件夹（比如 `data/`）
+是一个空的、只读的文件夹；连这台电脑上的服务得到的是 `Connection refused`：沙箱自己的 localhost 上什么都没有在听。
 bwrap 不是系统自带的，智狐也从来不替你装：没装的话沙箱"用不了"，并给出你那个发行版的安装命令：
 
 ```bash

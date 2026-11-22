@@ -24,6 +24,7 @@ from harness.sandbox.session import Facts, Layout, Sandbox, question
 from harness.tools.base import ToolError
 from harness.tools.shell import Shell, make_shell_tool
 from harness.trace.recorder import Tracer
+from harness.trace.text import _row
 
 # ---- 规矩 ------------------------------------------------------------------
 
@@ -410,3 +411,6 @@ def test_the_trace_records_the_sandbox(layout, monkeypatch, place):
     assert span_of({"command": "ls", "unsandboxed": True})["sandbox"] == "outside"
     level["value"] = "off"
     assert "sandbox" not in span_of({"command": "ls"})  # 从来没打开过：记录里没有这一项
+    # 终端的 /trace 也写着
+    span = {"kind": "tool", "start": 0, "end": 10, "name": "run_command", "label": "执行命令", "detail": "$ ls", "result": "ok", "sandbox": "outside"}
+    assert "在沙箱之外运行（你放行的）" in _row(span, 0, 10)

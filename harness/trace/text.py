@@ -31,6 +31,8 @@ APPROVAL = {
 }
 WHY = {"readonly": k("只读的命令"), "listed": k("你加的命令"), "trusted": k("这段对话里放开了"), "mode": k("确认方式")}
 RESULT = {"error": k("出错"), "skipped": k("没有执行"), "stopped": k("没有执行完")}
+# 执行命令时沙箱是哪一档（见 __init__.py 的 sandbox）。页面上的说法在 page/scripts/trace-chart.js 的 TRACE_SANDBOX，两边一致
+SANDBOX = {"workspace": k("在沙箱里：只在工作目录里"), "network": k("在沙箱里：工作目录 + 联网"), "off": k("没有用沙箱"), "outside": k("在沙箱之外运行（你放行的）")}
 # 一次请求没有 API 给的停止原因时（没答完、写摘要），写这一句；有的话照原样写 API 的原词（end_turn、tool_use……，那是技术细节）
 STATUS = {"stopped": k("被打断"), "error": k("出错了"), "compacted": k("压缩历史"), "paused": k("搜索还没做完"), "refused": k("模型拒绝了")}
 
@@ -133,6 +135,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t("没问你：{why}", why=t(WHY.get(span.get("why", ""), WHY["mode"]))))
         elif approval in APPROVAL:
             parts.append(t("{answer}（等了 {time}）", answer=t(APPROVAL[approval]), time=seconds(span.get("waited", 0))))
+        if span.get("sandbox") in SANDBOX:
+            parts.append(t(SANDBOX[span["sandbox"]]))
         if span.get("result") in RESULT:
             result = t(RESULT[span["result"]])
             parts.append(t("{result}：{note}", result=result, note=span["note"]) if span.get("note") else result)
