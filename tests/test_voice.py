@@ -67,10 +67,10 @@ def local():
 
 
 def test_settings_default_to_auto_and_survive_a_broken_file():
-    assert voice_settings(None) == DEFAULTS == {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": ""}
-    broken = {"provider": "telepathy", "model": "gpt-99", "url": "http://example.com/v1", "local_model": "bad name with spaces"}
+    assert voice_settings(None) == DEFAULTS == {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": "", "endpoint": ""}
+    broken = {"provider": "telepathy", "model": "gpt-99", "url": "http://example.com/v1", "local_model": "bad name with spaces", "endpoint": "../x y"}
     assert voice_settings(broken) == DEFAULTS  # 每一项都不合格：按默认的来
-    good = {"provider": "local", "model": "whisper-1", "url": " http://127.0.0.1:8000/v1 ", "local_model": "Systran/faster-whisper-small"}
+    good = {"provider": "local", "model": "whisper-1", "url": " http://127.0.0.1:8000/v1 ", "local_model": "Systran/faster-whisper-small", "endpoint": "custom-ollama"}
     assert voice_settings(good) == {**good, "url": "http://127.0.0.1:8000/v1"}
 
 
@@ -444,7 +444,53 @@ def test_changing_the_settings_from_the_page(serve):
     status, answer = s.browser.post("/api/voice/settings", {"provider": "local", "url": "http://127.0.0.1:8000/v1", "local_model": "large-v3"})
     assert status == 200 and answer["ok"]
     saved = json.loads(s.config.settings_file.read_text(encoding="utf-8"))["voice"]
-    assert saved == {"provider": "local", "model": "gpt-transcribe", "url": "http://127.0.0.1:8000/v1", "local_model": "large-v3"}
+    assert saved == {"provider": "local", "model": "gpt-transcribe", "url": "http://127.0.0.1:8000/v1", "local_model": "large-v3", "endpoint": ""}
     until(lambda: voice_state(s)["active"] == "local", what="状态里改成了本机的服务")
     assert s.browser.post("/api/voice/settings", {"model": "whisper-1", "provider": "openai"})[0] == 200
     until(lambda: voice_state(s)["model"] == "whisper-1" and voice_state(s)["active"] == "", what="选了 OpenAI 但没有密钥")
+
+
+# ---- 从自定义模型接口里选一个 ----------------------------------------------------------
+
+ENDPOINT_KEY = "endpoint-own-key-0123456789"
+
+
+def test_a_local_custom_endpoint_can_do_the_listening(serve, monkeypatch):
+    # 自定义模型接口（endpoints/）里本机、内网的那几个可以拿来转语音：用它的地址和它自己的密钥，OpenAI 的密钥不发过去
+    monkeypatch.setenv("OPENAI_API_KEY", KEY)
+    server = FakeTranscribe(key=ENDPOINT_KEY, text="接口听到的").start()
+    try:
+        s = serve()
+        endpoint = s.app.endpoints.save({"name": "Whisper box", "base_url": server.base_url + "/v1", "api_key": ENDPOINT_KEY, "models": []})
+        remote = s.app.endpoints.save({"name": "Gateway", "base_url": "https://llm.example.com/v1", "api_key": "", "models": []})
+        status, answer = s.browser.post("/api/voice/settings", {"provider": "local", "endpoint": remote.provider_id})
+        assert status == 400 and answer["field"] == "endpoint"  # 外面的网关：按分钟怎么收费不知道，不让选
+        status, _ = s.browser.post("/api/voice/settings", {"provider": "local", "endpoint": endpoint.provider_id, "local_model": "large-v3"})
+        assert status == 200
+        until(lambda: voice_state(s)["active"] == "local", what="改用了这个接口")
+        voice = voice_state(s)
+        assert voice["endpoints"] == [{"id": endpoint.provider_id, "name": "Whisper box", "url": server.base_url + "/v1"}]
+        assert ENDPOINT_KEY not in json.dumps(s.browser.events, ensure_ascii=False)  # 接口的密钥不进页面
+        chosen = choose(s.app.settings.voice, s.app.config)
+        assert (chosen.provider, chosen.model, chosen.url, chosen.key, chosen.via) == ("local", "large-v3", server.base_url + "/v1", ENDPOINT_KEY, "Whisper box")
+        assert ENDPOINT_KEY not in repr(chosen)
+        heard = transcribe(chosen, OGG, "v.ogg", "audio/ogg")
+        assert heard.text == "接口听到的"
+        assert server.requests[0]["headers"]["authorization"] == f"Bearer {ENDPOINT_KEY}"  # 它自己的密钥，不是 OpenAI 的
+        assert pricing.transcribe_cost(chosen.provider, chosen.model, 60) == 0  # 本机、内网的不花钱
+        # 接口被删掉了：不再用它（不会悄悄改用别的地址），页面上说为什么
+        s.app.endpoints.delete(endpoint.provider_id)
+        assert active(s.app.settings.voice) == "" and choose(s.app.settings.voice, s.app.config) is None
+    finally:
+        server.stop()
+
+
+def test_an_endpoint_is_cleared_when_you_go_back_to_an_address(serve):
+    s = serve()
+    endpoint = s.app.endpoints.save({"name": "Whisper box", "base_url": "http://127.0.0.1:9/v1", "api_key": "", "models": []})
+    assert s.browser.post("/api/voice/settings", {"provider": "local", "endpoint": endpoint.provider_id})[0] == 200
+    assert s.browser.post("/api/voice/settings", {"provider": "local", "endpoint": "", "url": "http://127.0.0.1:8000/v1"})[0] == 200
+    assert (s.app.settings.voice["endpoint"], s.app.settings.voice["url"]) == ("", "http://127.0.0.1:8000/v1")
+    # 两样都没有：不能选"你自己运行的服务"
+    status, answer = s.browser.post("/api/voice/settings", {"endpoint": "", "url": ""})
+    assert status == 400 and answer["field"] == "url"

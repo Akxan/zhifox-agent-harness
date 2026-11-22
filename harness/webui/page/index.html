@@ -581,7 +581,11 @@ __STYLES__
             <select id="voice-model" class="field"></select>
           </label>
           <div id="voice-local" class="voice-local" hidden>
-            <label class="voice-field"><span class="voice-label" data-i18n>地址</span>
+            <!-- 有本机或内网的自定义模型接口时才出现：选一个就用它的地址（和它自己的密钥），不用再填地址 -->
+            <label id="voice-endpoint-row" class="voice-field" hidden><span class="voice-label" data-i18n>接口</span>
+              <select id="voice-endpoint" class="field"></select>
+            </label>
+            <label id="voice-url-row" class="voice-field"><span class="voice-label" data-i18n>地址</span>
               <input id="voice-url" class="field" type="url" spellcheck="false" autocomplete="off" maxlength="500" placeholder="http://127.0.0.1:8000/v1" aria-describedby="voice-local-note" data-keep="voice-url">
             </label>
             <label class="voice-field"><span class="voice-label" data-i18n>模型名</span>

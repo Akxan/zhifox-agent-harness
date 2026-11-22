@@ -1,7 +1,8 @@
 // ---- 语音转文字 --------------------------------------------------------------
 // 聊天里发来的语音，智狐先转成文字再回答（见 harness/voice/）。这一节管页面上和它有关的两样东西：
 //   设置里的一节    用哪一种（自动 / OpenAI / 你自己运行的兼容服务 / 关闭）、OpenAI 的模型（后面写着每分钟多少钱）、
-//                   兼容服务的地址和模型名（地址不合格时在原地说为什么）、现在实际用的是哪一种
+//                   兼容服务的地址和模型名（地址不合格时在原地说为什么），或者从本机、内网的自定义模型接口里选一个
+//                   （state.voice.endpoints，有的时候才出现），现在实际用的是哪一种
 //   消息上的小标记  语音转出来的那条消息上一个"语音转文字"，带着语音有多长（voiceTag，events.js 的 user 用它）
 // 设置、价格、有没有 OpenAI 的密钥（只说有没有），都由助手程序在状态里给（state.voice），页面不另存一份价格。
 // 选单一改就存；只有地址和模型名要按"保存"（打了一半的地址不能马上发出去）。
@@ -84,6 +85,7 @@ function drawVoiceSettings(force) {
 
   // 兼容服务：地址和模型名。正在输入的那一格不动它
   $('voice-local').hidden = chosen !== 'local';
+  drawVoiceEndpoints(status);
   const url = $('voice-url'), name = $('voice-local-model');
   if (document.activeElement !== url && url.dataset.saved !== status.url) { url.value = status.url || ''; url.dataset.saved = status.url || ''; }
   if (document.activeElement !== name && name.dataset.saved !== status.local_model) { name.value = status.local_model || ''; name.dataset.saved = status.local_model || ''; }
@@ -105,8 +107,14 @@ function drawVoiceStatus(status, chosen) {
     parts.push(tel('span', null, k('填上地址，按“保存”以后改用你自己运行的服务。')));
   } else if (status.active === 'openai') {
     parts.push(tel('span', null, k('收到语音时用 OpenAI 的 {model} 转成文字。'), { model: status.model }));
+  } else if (status.active === 'local' && status.endpoint) {
+    const found = (status.endpoints || []).find((item) => item.id === status.endpoint);
+    parts.push(tel('span', null, k('收到语音时交给自定义模型接口「{name}」转成文字。'), { name: found ? found.name : status.endpoint }));
   } else if (status.active === 'local') {
     parts.push(tel('span', null, k('收到语音时交给 {url} 转成文字。'), { url: status.url }));
+  } else if (chosen === 'local' && status.endpoint) {
+    bad = true;
+    parts.push(tel('span', null, k('选的那个自定义模型接口不在了（或者改成了外面的地址），现在是关着的。请另选一个，或者填上地址。')));
   } else if (chosen === 'off') {
     parts.push(tel('span', null, k('关着：收到语音时，智狐在聊天里告诉你怎么打开。')));
   } else if (!status.has_key) {
@@ -129,10 +137,10 @@ function drawVoiceStatus(status, chosen) {
 
 $('voice-provider').addEventListener('change', async () => {
   const value = $('voice-provider').value;
-  if (value === 'local' && !(voiceStatus && voiceStatus.url)) {
-    voicePicked = 'local';  // 还没有地址：先把那几格亮出来，等你填好按"保存"
+  if (value === 'local' && !(voiceStatus && (voiceStatus.url || voiceStatus.endpoint))) {
+    voicePicked = 'local';  // 还没有地址（也没选接口）：先把那几格亮出来，等你填好按"保存"
     drawVoiceSettings(true);
-    $('voice-url').focus();
+    $($('voice-url-row').hidden ? 'voice-endpoint' : 'voice-url').focus();
     return;
   }
   voicePicked = '';
@@ -146,9 +154,14 @@ $('voice-model').addEventListener('change', async () => {
 });
 
 async function saveVoiceLocal() {
-  const url = $('voice-url'), name = $('voice-local-model');
+  const url = $('voice-url'), name = $('voice-local-model'), endpoint = $('voice-endpoint').value;
+  if (endpoint) {  // 用一个自定义接口：地址是它的，不用填
+    const used = await setVoice({ provider: 'local', endpoint, local_model: name.value.trim() }, t('语音转文字改用你自己运行的服务了。'));
+    if (used) name.dataset.saved = name.value.trim();
+    return;
+  }
   if (!url.value.trim()) { voiceLocalNote(t('用你自己运行的兼容服务，要先填上它的地址。'), true); url.focus(); return; }
-  const saved = await setVoice({ provider: 'local', url: url.value.trim(), local_model: name.value.trim() }, t('语音转文字改用你自己运行的服务了。'));
+  const saved = await setVoice({ provider: 'local', endpoint: '', url: url.value.trim(), local_model: name.value.trim() }, t('语音转文字改用你自己运行的服务了。'));
   if (saved) { url.dataset.saved = url.value.trim(); name.dataset.saved = name.value.trim(); }
 }
 $('voice-local-save').addEventListener('click', saveVoiceLocal);
@@ -158,3 +171,34 @@ for (const id of ['voice-url', 'voice-local-model']) {
   });
   $(id).addEventListener('input', () => { if ($('voice-local-note').classList.contains('bad')) voiceLocalNote('', false); });
 }
+
+// 从自定义模型接口里选（只有本机、内网的，助手程序挑好了给）。没有这样的接口时整行不出现，照旧填地址。
+// 选了一个，地址那一格就收起来（用它的地址）；选"自己填地址"又放出来。正在选单上的那一项不被新的状态冲掉
+function drawVoiceEndpoints(status) {
+  const row = $('voice-endpoint-row'), select = $('voice-endpoint');
+  const endpoints = status.endpoints || [];
+  row.hidden = !endpoints.length && !status.endpoint;
+  const keep = document.activeElement === select ? select.value : null;
+  const own = el('option');
+  own.value = '';
+  retext(own, k('自己填地址'));
+  const options = [own, ...endpoints.map((item) => {
+    const option = el('option', null, item.name);
+    option.value = item.id;
+    return option;
+  })];
+  if (status.endpoint && !endpoints.some((item) => item.id === status.endpoint)) {  // 选的那个不在了：留着这一项，状态那一行说为什么
+    const gone = el('option');
+    gone.value = status.endpoint;
+    retext(gone, k('（不在了）{name}'), { name: status.endpoint });
+    options.push(gone);
+  }
+  select.replaceChildren(...options);
+  select.value = keep !== null ? keep : status.endpoint || '';
+  $('voice-url-row').hidden = Boolean(select.value);
+}
+
+$('voice-endpoint').addEventListener('change', () => {
+  $('voice-url-row').hidden = Boolean($('voice-endpoint').value);
+  if ($('voice-local-note').classList.contains('bad')) voiceLocalNote('', false);
+});

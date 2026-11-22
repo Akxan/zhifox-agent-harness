@@ -19,12 +19,14 @@ import re
 import time
 
 import pytest
+import test_endpoints_chat
 import test_webui
 from conftest import RecordingUI
 from fake_api import failure, reply, stream_error, text, tool_use
 from fake_openai import chat
 from fake_openai import failure as openai_failure
 from test_agents import delegate, install
+from test_endpoints_chat import GEMMA, LLAVA, PROVIDER, QWEN
 from test_webui import latest_state
 
 from harness import fallback, i18n
@@ -33,6 +35,7 @@ from harness.settings import Settings
 from harness.trace.text import lines
 
 serve = test_webui.serve  # 借用网页服务器的组装（fixture）
+rig = test_endpoints_chat.rig  # 连着一个假的自定义接口的助手（fixture）
 
 OPUS, SONNET, FABLE = "claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"
 CJK = re.compile(r"[㐀-鿿]")
@@ -200,6 +203,20 @@ def test_a_rate_limit_falls_back_but_an_empty_quota_does_not(start_openai):
         s.agent.run_turn("你好")
     assert not isinstance(caught.value, Unavailable)  # 额度用完是整个账号的事，换哪个模型都一样
     assert len(s.api.requests) == 1
+
+
+def test_a_custom_endpoint_falls_back_to_its_own_models_by_the_switching_rule(rig):
+    # 自定义接口（endpoints/）：备用模型是同一个接口上的别的模型；和换模型的面板同一条规矩（providers.continues）：
+    # 用不了工具的（gemma2:2b）接不上这段对话，跳过；换上的那个连能力一起换（llava 看得懂图），一轮结束换回来
+    # 自定义接口的客户端是正式的那个（endpoints/client.make，SDK 自己先重试两次）：三次都失败了才轮到备用模型
+    busy = [openai_failure(503, "The server is overloaded")] * 3
+    h = rig(*busy, chat("备用的答了"), models=(QWEN, GEMMA, LLAVA))
+    with_backups(h, PROVIDER, ["gemma2:2b", "llava:13b"])
+    h.agent.run_turn("你好")
+    assert [request["model"] for request in h.server.requests] == ["qwen3:8b"] * 3 + ["llava:13b"]
+    assert h.server.requests[0]["messages"] == h.server.requests[-1]["messages"]
+    assert (h.agent.backend.model, h.agent.backend.vision) == ("qwen3:8b", False)  # 换回了你选的那个，能力也换回来
+    assert not fallback.usable(h.agent.backend, "gemma2:2b") and fallback.usable(h.agent.backend, "llava:13b")
 
 
 # ---- 设置和名字 -------------------------------------------------------------

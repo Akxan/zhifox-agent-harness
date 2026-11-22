@@ -10,7 +10,9 @@
   auto     默认：填了 OpenAI 的 API 密钥就用 OpenAI，没填就当作关着
   openai   OpenAI 的转写接口（POST /v1/audio/transcriptions，默认模型 gpt-transcribe），按分钟计费
   local    你自己在这台电脑（或者局域网、你的服务器）上跑的、和 OpenAI 同一种接口的服务（比如 faster-whisper 的
-           OpenAI 兼容服务器）。不花钱，OpenAI 的密钥绝不发给它
+           OpenAI 兼容服务器）。不花钱，OpenAI 的密钥绝不发给它。地址有两种给法：直接填一个；或者从"自定义模型接口"
+           （endpoints/）里选一个本机或内网的接口，用它的地址和它自己的密钥（只发给它自己，和对话时一样）。
+           外面的网关不在可选之列：它按分钟怎么收费智狐不知道，记账时没法算
   off      关着：收到语音时回一句怎么打开
 
 花钱的事：OpenAI 按语音的长短收费（每分钟多少见 pricing.TRANSCRIBE_PRICES），每转一条在花费账本里记一笔，

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+
 import demo_scripts
 import pytest
 
@@ -70,6 +72,26 @@ def test_choosing_your_own_service_checks_the_address_in_place(page):
     open_settings(page)
     assert page.js("document.getElementById('voice-provider').value") == "local"
     assert page.js("document.getElementById('voice-url').value") == "http://127.0.0.1:8000/v1"
+
+
+def test_a_local_custom_endpoint_can_be_picked_instead_of_an_address(page):
+    # 演示里预先加好了一个本机的 Ollama（自定义模型接口）：选它就不用再填地址
+    open_settings(page)
+    steps.voice_local(page)
+    assert not page.js("document.getElementById('voice-endpoint-row').hidden"), "有本机的自定义接口：可以从里面选"
+    options = page.js("[...document.querySelectorAll('#voice-endpoint option')].map((o) => o.value)")
+    assert options[0] == "" and any(value.startswith("custom-") for value in options[1:])
+    endpoint = next(value for value in options[1:] if value.startswith("custom-"))
+    steps.pick(page, "#voice-endpoint", endpoint)
+    page.wait("document.getElementById('voice-url-row').hidden", what="选了接口，地址那一格收起来")
+    page.click("#voice-local-save")
+    page.wait("document.getElementById('voice-status').textContent.includes('自定义模型接口')", what="写着交给哪个接口")
+    assert page.text("#voice-state") == "（用你自己运行的服务）"
+    saved = json.loads((page.demo.root / "data" / "settings.json").read_text(encoding="utf-8"))["voice"]
+    assert (saved["provider"], saved["endpoint"]) == ("local", endpoint)
+    # 改回自己填地址：地址那一格又出来
+    steps.pick(page, "#voice-endpoint", "")
+    page.wait("!document.getElementById('voice-url-row').hidden")
 
 
 def test_an_unsaved_choice_goes_back_when_the_settings_reopen(page):

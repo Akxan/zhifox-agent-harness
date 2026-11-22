@@ -3251,5 +3251,11 @@
  "这段语音有 {seconds} 秒，太长了：最长只转 {limit} 分钟（按分钟计费）。可以分成几段发。": "Este mensaje de voz dura {seconds} segundos, demasiado: solo se transcriben hasta {limit} minutos (se cobra por minuto). Prueba a enviarlo en varias partes.",
  "这种音频（{kind}）转不了文字，只支持这几种格式：{formats}。": "Este tipo de audio ({kind}) no se puede transcribir. Formatos admitidos: {formats}.",
  "连不上语音转文字的服务：{error}": "No se ha podido conectar con el servicio de transcripción: {error}",
- "（语音转文字）{words}": "(Voz a texto) {words}"
+ "（语音转文字）{words}": "(Voz a texto) {words}",
+ "接口": "Endpoint",
+ "自己填地址": "Escribir yo la dirección",
+ "（不在了）{name}": "(ya no está) {name}",
+ "收到语音时交给自定义模型接口「{name}」转成文字。": "Los mensajes de voz se envían al endpoint personalizado «{name}» para pasarlos a texto.",
+ "选的那个自定义模型接口不在了（或者改成了外面的地址），现在是关着的。请另选一个，或者填上地址。": "El endpoint personalizado que elegiste ya no está (o ahora apunta fuera de tu red), así que la voz a texto está desactivada. Elige otro o escribe una dirección.",
+ "只能选本机或内网的自定义模型接口（它可能刚被删掉了）。": "Solo puedes elegir endpoints personalizados de este ordenador o de tu red local (puede que se acabe de borrar)."
 }

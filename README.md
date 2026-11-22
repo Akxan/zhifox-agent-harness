@@ -1050,6 +1050,12 @@ voice message ──► checks (switched on? at most 10 minutes? a format the se
   this computer only (`localhost`, `127.0.0.1`, `::1`), anything else must be `https://`, and the address may not carry
   a user name or password. The key never reaches the browser (the page only learns whether one is set), the logs or an
   error message.
+- **Or one of your custom endpoints.** Instead of typing an address, *a compatible service you run yourself* can use one
+  of your [custom model endpoints](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp) that is on this
+  computer or your local network: ZhiFox uses its address and its own key, if it has one, sent only to that endpoint as
+  in chat; the OpenAI key never goes there. Gateways outside your network aren't offered, because ZhiFox can't know what
+  they charge per minute and couldn't record the cost. If the endpoint is deleted or moved outside your network, voice to
+  text turns off (it never silently switches to another address) and the settings say why.
 - **What the model sees.** The transcript, prefixed with "（语音转文字）" (written for the model, so it stays in
   Chinese like the rest of the prompts), so it knows the words were heard, not typed, and may contain mistakes. A
   caption on the voice message is appended. In the web page the same message shows a small *Voice to text* tag with
@@ -3141,7 +3147,7 @@ unprivileged user for the service.
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), the command sandbox (`"sandbox": {"level", "paths"}`), backup models (`"fallbacks": {provider: [models]}`), `"redact_secrets": false` if you turned off masking secrets in tool results, and voice to text (`"voice": {"provider", "model", "url", "local_model"}`, written only once you change it). No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), the command sandbox (`"sandbox": {"level", "paths"}`), backup models (`"fallbacks": {provider: [models]}`), `"redact_secrets": false` if you turned off masking secrets in tool results, and voice to text (`"voice": {"provider", "model", "url", "local_model", "endpoint"}`, written only once you change it). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost), and one per transcribed voice message (source `voice`, no tokens, with its length in `seconds`). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/hooks.json` | Your [hooks](#hooks-your-own-scripts-at-fixed-moments): name → event, matcher, program and arguments, time limit, `onFailure`, `runsIn`, `enabled`. Arguments may hold tokens, so it is readable by your account only, the assistant's file tool can't open it, and exports mask it |

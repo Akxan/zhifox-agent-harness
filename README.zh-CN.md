@@ -1283,6 +1283,10 @@ GPT、Gemini、DeepSeek 没有联网搜索，它们的回答不会带来源。
   你自己的服务的地址能在页面上改，是因为我们从来不往那里发任何密钥，发过去的只有你的那段语音；明文的 `http://`
   只许连这台电脑自己（`localhost`、`127.0.0.1`、`::1`），别的地址一律要 `https://`，地址里也不许带用户名和密码。
   密钥不进浏览器（页面只知道填没填）、不进日志、不进出错的说明。
+- **也可以用一个自定义模型接口。** *你自己运行的兼容服务*可以不填地址，改从[自定义模型接口](#本地模型和自己的网关ollamalm-studiovllmllamacpp)
+  里选一个这台电脑或者内网里的：用它的地址和它自己的密钥（有的话），和对话时一样只发给它自己，OpenAI 的密钥绝不发过去。
+  外面的网关不在可选之列：它按分钟怎么收费智狐不知道，没法记账。选的接口被删掉了、改成了外面的地址，语音转文字就关着
+  （不会悄悄换一个地址），设置里写着为什么。
 - **模型看到的。** 转出来的文字，开头加上"（语音转文字）"（写给模型看的，和别的提示一样用中文），它就知道这是听写出来的、
   可能有听错的字；语音附带的说明（caption）接在后面。网页上这段会话里，你的那条消息上有一个"语音转文字"的小标记，
   写着语音有多长；以后编辑这条消息，编辑框里只有文字。
@@ -2523,7 +2527,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/agents/` | 你定制的 Agent，一个一个 Markdown 文件（Claude Code 的 subagent 格式）。可以在"扩展 → Agent"里管理，也可以手动改 |
 | `data/todos.json` | 待办事项 |
 | `data/tasks.json` | 定时任务，每个任务最近 20 次运行的记录，以及还没关掉的提醒。读不出来时原文件改名为 `tasks.broken.json` 留着，从空的任务列表开始 |
-| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），备用模型（`"fallbacks": {提供方: [模型]}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`，以及语音转文字（`"voice": {"provider", "model", "url", "local_model"}`，改过了才写）。不含密钥 |
+| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），备用模型（`"fallbacks": {提供方: [模型]}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`，以及语音转文字（`"voice": {"provider", "model", "url", "local_model", "endpoint"}`，改过了才写）。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额），每转一条语音也一行（来源 `voice`，没有 token，`seconds` 是语音的长短）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
 | `data/hooks.json` | 你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)：名字 → 事件、matcher、程序和参数、时限、`onFailure`、`runsIn`、`enabled`。参数里可能有令牌，所以只有你的账号能读，助手的文件工具打不开它，导出时遮住 |
