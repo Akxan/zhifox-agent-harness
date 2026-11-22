@@ -350,6 +350,11 @@ WEB_ADDRESS = ".web-address"
 # 1 最快、压得最少，9 最慢；每打开一次页面就压一次（页面里有一次性的 nonce，压好的不能留着下次用），
 # 4 在本机上大约十几毫秒，从手机、从别的电脑远程打开时省下的传输时间多得多
 PAGE_GZIP_LEVEL = 4
+# Windows 上用新文件替换旧文件（safe.write_file 的最后一步）时，旧文件正被别的程序开着（杀毒软件、索引服务、编辑器、
+# 另一个线程正在读）会被拒绝。隔一会儿再试：最多这么多次，第 n 次之前等 n 倍的这么多秒，一共一秒出头。别的系统上不重试：
+# 那里替换不怕文件开着，被拒绝就是真的没有权限
+WINDOWS_REPLACE_TRIES = 8
+WINDOWS_REPLACE_WAIT = 0.04
 # 后台服务的网页口令存在这里，重启前后不变，开着的页面刷新一下就能接着用（见 webui/token.py）
 WEB_TOKEN = ".web-token"
 # 数据目录里的用户设置（模型、界面语言……，见 settings.py）。Windows 上的 supervise.py 没有 Config，也照这个名字找界面语言

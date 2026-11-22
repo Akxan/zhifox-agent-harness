@@ -3496,6 +3496,12 @@ created inside; `.env` gets the same three entries when a key is saved. SYSTEM a
 read everything anyway (as root can on the other systems) and removing them only breaks backup and antivirus tools. If
 `icacls` fails (a FAT32 USB stick, a network drive), ZhiFox keeps running and writes a warning in the log.
 
+**Saving a file another program has open.** ZhiFox saves every file by writing a temporary file and swapping it in in one
+step (so a power cut never leaves half a file). On Windows that swap is refused while another program has the old file
+open (an antivirus or the search indexer taking a look). That usually passes in a moment, so ZhiFox waits a little and
+tries again, up to 8 times and a bit over a second in all (`WINDOWS_REPLACE_TRIES` in `config.py`), and only then reports
+the error. macOS and Linux don't mind open files when swapping, so there's no retry there.
+
 | Path | Contents |
 |---|---|
 | `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only (on Windows by an ACL, see below) |

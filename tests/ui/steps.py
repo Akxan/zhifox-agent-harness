@@ -11,6 +11,7 @@ import io
 import json
 import os
 import sys
+import time
 import urllib.request
 import zipfile
 
@@ -99,6 +100,18 @@ FLYOUT_STATE = """(() => {
   return 'aria-expanded=' + button.getAttribute('aria-expanded') + '，焦点在 ' + who + '，开关的经过：' + (panel.__watched.join(' ') || '一次都没开过')
     + '，打开着的窗口：' + ([...document.querySelectorAll('dialog[open]')].map((one) => one.id).join(' ') || '没有');
 })()"""
+
+
+def saved_json(page: Page, name: str):
+    """读演示的数据目录里的一个 JSON 文件（tasks.json、channels.json……）。服务器写文件是先写临时文件再一步替换
+    （safe.write_file）；Windows 上正好在替换的那一刻去读，会被拒绝一下（PermissionError），等一会儿再读。"""
+    path = page.demo.root / "data" / name
+    for _ in range(100):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except PermissionError:
+            time.sleep(0.02)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def open_flyout(page: Page, button: str, panel: str) -> None:

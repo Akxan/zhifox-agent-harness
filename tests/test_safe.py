@@ -159,3 +159,41 @@ def test_private_dir_is_only_for_the_owner(tmp_path):
         assert has_mode(shared, 0o755) and has_mode((shared / "mine"), 0o700)
     finally:
         os.umask(old_mask)
+
+
+def test_windows_retries_a_replace_that_another_program_blocks(tmp_path, monkeypatch):
+    # Windows 上旧文件正被别的程序开着（杀毒软件、索引服务），替换会被拒绝一下：隔一会儿再试
+    from harness import machine, safe
+
+    target = tmp_path / "settings.json"
+    target.write_text("old", encoding="utf-8")
+    real, refused, waits = os.replace, [], []
+
+    def blocked(times):
+        def replace(src, dst):
+            if len(refused) < times:
+                refused.append(dst)
+                raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+            real(src, dst)
+        return replace
+
+    monkeypatch.setattr(safe.time, "sleep", waits.append)
+    monkeypatch.setattr(machine, "system", lambda: machine.WINDOWS)
+    monkeypatch.setattr(safe.os, "replace", blocked(2))
+    write_file(target, "new")
+    assert target.read_text(encoding="utf-8") == "new" and len(refused) == 2 and waits == [safe.WINDOWS_REPLACE_WAIT, 2 * safe.WINDOWS_REPLACE_WAIT]
+
+    # 一直被拒绝：试够了次数照样报错，原来的文件不动，不留下临时文件
+    refused.clear()
+    monkeypatch.setattr(safe.os, "replace", blocked(10**6))
+    with pytest.raises(PermissionError):
+        write_file(target, "newer")
+    assert len(refused) == safe.WINDOWS_REPLACE_TRIES and target.read_text(encoding="utf-8") == "new"
+    assert [item.name for item in tmp_path.iterdir()] == ["settings.json"]
+
+    # 别的系统上被拒绝就是真的没有权限：不重试
+    refused.clear()
+    monkeypatch.setattr(machine, "system", lambda: machine.MAC)
+    with pytest.raises(PermissionError):
+        write_file(target, "newest")
+    assert len(refused) == 1

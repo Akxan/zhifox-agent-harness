@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-import json
-
 import demo_scripts
 import pytest
 
@@ -87,7 +85,7 @@ def test_a_local_custom_endpoint_can_be_picked_instead_of_an_address(page):
     page.click("#voice-local-save")
     page.wait("document.getElementById('voice-status').textContent.includes('自定义模型接口')", what="写着交给哪个接口")
     assert page.text("#voice-state") == "（用你自己运行的服务）"
-    saved = json.loads((page.demo.root / "data" / "settings.json").read_text(encoding="utf-8"))["voice"]
+    saved = steps.saved_json(page, "settings.json")["voice"]
     assert (saved["provider"], saved["endpoint"]) == ("local", endpoint)
     # 改回自己填地址：地址那一格又出来
     steps.pick(page, "#voice-endpoint", "")
