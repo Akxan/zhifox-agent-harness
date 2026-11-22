@@ -121,6 +121,8 @@ class Demo:
             ("/api/language", {"language": "zh"}),
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
+            ("/api/fallbacks", {"provider": "anthropic", "models": []}),  # 备用模型：测试里选过的不留给下一个测试
+            ("/api/voice/settings", {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": "", "endpoint": ""}),  # 语音转文字（test_ui_voice.py 会改）
         ):
             answers: list = []
 
@@ -147,6 +149,9 @@ class Demo:
         paths = json.loads(saved.read_text(encoding="utf-8")).get("sandbox", {}).get("paths", []) if saved.exists() else []
         for item in paths:
             self.api("/api/sandbox/delete", {"path": item["path"]})
+        # 遮住密钥：测试关掉了忘了打开，后面的测试里工具的结果就不遮了
+        status, reply = self.api("/api/redact", {"enabled": True})
+        assert status == 200, f"/api/redact 失败：{reply}"
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 

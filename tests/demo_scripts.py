@@ -23,6 +23,8 @@
   [ui:trace]    一轮把运行记录（harness/trace/）用齐的对话：先查待办（不用问）→ 执行一条要你批准的命令 → 交给子 Agent
                 「资料研究员」（它自己读一个文件、联网搜索一次再回答）→ 主助手转告。看"运行记录"的瀑布图、子 Agent 缩进的那几行、
                 等你确认的那一截。子 Agent 的任务里也写着 [ui:tracesub]，它自己的那几次请求按 tracesub 回答
+  [ui:fallback] 用 Opus 5.5 的请求一律回答 529 过载，用别的模型的照常回答：在设置里选了备用模型（比如 Sonnet 5.5）的话，
+                这一轮改用它，对话里说一声，运行记录里失败的那次标成出错、后面的标着"备用"（见 harness/fallback.py）。没选就是一条出错提示
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
                 用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
                 所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
@@ -126,9 +128,19 @@ def flaky(body: dict) -> dict:
     return reply(text(f"这次成功了（第 {_asked(body)} 条消息）。"))
 
 
+def fallback(body: dict) -> dict:
+    model = body.get("model", "")
+    if model == "claude-opus-5-5":
+        return failure(529, "overloaded_error", "演示里故意过载的一次")
+    return reply(text(f"这次是 {model} 回答的。"))
+
+
 # 演示的数据目录里一段以前存下的联网搜索回答（demo_web.py 启动时写进去）：每个文字块后面都跟着一个 block_end。
 # 页面测试按这个编号打开它（tests/ui/test_ui_citations.py）
 FRAGMENTED_ID = "20261101-090000-c17e0d"
+# 一段 Telegram 里的旧会话：第一条消息是一段语音转出来的（user 事件带着 voice，见 harness/voice/）。页面测试按这个编号打开它
+# （tests/ui/test_ui_voice.py），看消息上的"语音转文字"小标记
+VOICE_ID = "20261101-091500-0a1ce5"
 
 # [ui:cite] 引用的三个网页。第二个的网址里有括号（维基百科常这样），第三个的标题和网址都很长（窄屏上看会不会冲出去）
 CITE_A = ("https://perfect-items.example/sobre-nosotros", "Perfect Items · Sobre nosotros")
@@ -305,7 +317,7 @@ def readme(body: dict) -> dict:
 
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
     "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
-    "pause": pause, "trace": trace, "tracesub": tracesub, "files": files,
+    "pause": pause, "trace": trace, "tracesub": tracesub, "files": files, "fallback": fallback,
 }
 
 

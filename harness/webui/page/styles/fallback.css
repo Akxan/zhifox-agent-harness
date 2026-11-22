@@ -1,0 +1,14 @@
+/* ---- 设置 · 备用模型 ------------------------------------------------------
+   排好的名单一行一个：序号、模型名（太长就省略）、"往前挪""不用这个"两个按钮。按钮一直在，不是悬停才出现，
+   所以文字不会被挤动。没有备用模型时是一块虚线框的空状态。 */
+#fallback-section .fallback-hint { margin: 0 0 12px; }
+.fallback-list { display: grid; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; }
+.fallback-list[hidden] { display: none; }
+.fallback-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px 5px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.fallback-n { flex: none; display: grid; place-items: center; width: 22px; height: 22px; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); background: var(--hover); border-radius: 999px; }
+.fallback-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font: 13px/1.4 var(--mono); white-space: nowrap; text-overflow: ellipsis; }
+.fallback-row .tag { flex: none; white-space: nowrap; }
+.fallback-row .icon-button { flex: none; }
+.fallback-row .icon-button[disabled] { opacity: .35; cursor: default; }
+.fallback-empty { margin: 0 0 10px; padding: 11px 14px; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); border: 1px dashed var(--line-2); border-radius: 12px; }
+.fallback-empty[hidden] { display: none; }

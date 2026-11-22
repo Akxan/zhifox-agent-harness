@@ -288,9 +288,13 @@ class FakeTelegram:
         photo: bytes | None = None,
         photo_sizes: list[tuple[int, bytes]] | None = None,
         document: tuple[str, str, bytes] | None = None,
+        voice: tuple[bytes, int] | None = None,
+        audio: tuple[str, str, bytes, int] | None = None,
         extra: dict | None = None,
     ) -> dict:
         """你（或者别人）给机器人发了一条消息。document 是（文件名，类型，内容）。
+        voice 是一段按住说话录的语音（内容，秒数），audio 是一个音频文件（文件名，类型，内容，秒数）：
+        和真的 Telegram 一样带着时长、类型和大小（https://core.telegram.org/bots/api#voice 、#audio）。
 
         photo_sizes：一张照片的几种尺寸，[(长边的像素, 内容), ...]，从小到大（真的 Telegram 就是这样给的）。
         只给 photo 的话，是 90 和 800 两种尺寸、内容相同的一张。
@@ -319,6 +323,20 @@ class FakeTelegram:
             file_id = f"doc-{self._next_update}"
             self.files[file_id] = content
             message["document"] = {"file_id": file_id, "file_unique_id": file_id, "file_name": name, "mime_type": media_type, "file_size": len(content)}
+            if text:
+                message["caption"] = text
+        elif voice is not None:
+            content, seconds = voice
+            file_id = f"voice-{self._next_update}"
+            self.files[file_id] = content
+            message["voice"] = {"file_id": file_id, "file_unique_id": file_id, "duration": seconds, "mime_type": "audio/ogg", "file_size": len(content)}
+            if text:
+                message["caption"] = text
+        elif audio is not None:
+            name, media_type, content, seconds = audio
+            file_id = f"audio-{self._next_update}"
+            self.files[file_id] = content
+            message["audio"] = {"file_id": file_id, "file_unique_id": file_id, "duration": seconds, "file_name": name, "mime_type": media_type, "file_size": len(content)}
             if text:
                 message["caption"] = text
         else:

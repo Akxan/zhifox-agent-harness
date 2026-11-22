@@ -42,6 +42,18 @@ SEARCH_PRICE = 0.01
 
 OFFPEAK = "@offpeak"  # 闲时的用量记在"模型名@offpeak"下面
 
+# 语音转文字（聊天里发来的语音，见 voice/）：不按 token，按语音的长短算，单位是美元 / 每分钟。
+# 来自 OpenAI 定价页 Transcription 一节的 "Estimated cost"（https://developers.openai.com/api/docs/pricing ，2026-11-22 核对）。
+# 那一节里 gpt-4o-transcribe、gpt-4o-mini-transcribe 也列了按 token 的价格，账单实际按 token 算，这里只是按分钟估算。
+# gpt-transcribe 是官方现在推荐的；另外三个官方说 2027-02-26 停用（https://developers.openai.com/api/docs/guides/speech-to-text）。
+# 定价页上写的是 "Whisper"，对应的模型名是 whisper-1。表里的顺序就是设置里列出来的顺序
+TRANSCRIBE_PRICES: dict[str, float] = {
+    "gpt-transcribe": 0.0045,
+    "gpt-4o-mini-transcribe": 0.003,
+    "gpt-4o-transcribe": 0.006,
+    "whisper-1": 0.006,
+}
+
 
 def is_offpeak(moment: datetime) -> bool:
     """这一刻是不是 DeepSeek 的闲时。
@@ -118,3 +130,11 @@ def estimate(usage_by_model: dict[str, Usage], custom: dict[str, dict]) -> tuple
         ) / 1_000_000
         total += usage.searches * SEARCH_PRICE
     return total, unpriced
+
+
+def transcribe_cost(provider: str, model: str, seconds: float) -> float:
+    """转一段 seconds 秒的语音估算花了多少钱（美元）。本机的兼容服务不花钱（见 voice/），表里没有的模型也当作 0：
+    设置只让你在 OpenAI 那里选表里的模型，走不到这一步。"""
+    if provider != "openai":
+        return 0.0
+    return round(TRANSCRIBE_PRICES.get(model, 0.0) * max(0.0, seconds) / 60, 6)

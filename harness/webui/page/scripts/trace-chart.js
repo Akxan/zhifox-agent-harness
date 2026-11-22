@@ -68,6 +68,9 @@ function traceTokens(span) {
   return input + ' · ' + t('输出 {n} token', { n: traceCount(span.output) });
 }
 
+// 结果里遮住了几处像密钥的东西（见 harness/redact.py；终端 /trace 的说法在 harness/trace/text.py）
+const traceRedacted = (span) => (span.redacted === 1 ? t('遮住了 1 处密钥') : t('遮住了 {n} 处密钥', { n: span.redacted }));
+
 // 悬停、选中一行时上面那一行字：这一段的全部数字
 function traceSays(lane) {
   const span = lane.span, parts = [traceTitle(lane)];
@@ -83,6 +86,7 @@ function traceSays(lane) {
   } else {
     parts.push(((span.name || '') + ' ' + (span.detail || '')).trim(), traceTime(span.end - span.start), traceApproval(span));
     if (TRACE_SANDBOX[span.sandbox]) parts.push(t(TRACE_SANDBOX[span.sandbox]));
+    if (span.redacted) parts.push(traceRedacted(span));
     parts.push(span.result === 'ok' ? t('结果 {n} 个字', { n: traceCount(span.size) }) : t(TRACE_RESULT[span.result] || k('没有执行完')));
   }
   return parts.filter(Boolean).join(' · ');
@@ -167,7 +171,8 @@ function traceLane(lane, record, index) {
   if (span.approval) row.classList.add('was-asked');
   const name = row.appendChild(el('span', 'trace-lane-name'));
   name.append(icon(span.kind === 'model' ? 'spark' : span.icon), traceTitleEl('span', 'trace-lane-title', lane));
-  if (span.kind === 'model' && span.model) name.appendChild(el('span', 'trace-lane-sub', span.model));
+  // 用的是备用模型（原来那个暂时用不了，见 harness/fallback.py）：模型名后面标一句
+  if (span.kind === 'model' && span.model) name.appendChild(el('span', 'trace-lane-sub', span.fallback ? t('{model}（备用）', { model: span.model }) : span.model));
   if (span.kind === 'hook' && span.event) name.appendChild(el('span', 'trace-lane-sub', span.event));
   const track = row.appendChild(el('span', 'trace-track'));
   const bar = track.appendChild(el('span', 'trace-bar'));
@@ -259,6 +264,7 @@ function traceStep(lane, number) {
     else if (TRACE_STATUS[span.status]) facts.push(t(TRACE_STATUS[span.status]));
     if ('cost' in span) facts.push(traceCost(span.cost));
     if (facts.length) main.appendChild(el('p', 'trace-step-meta', facts.join(' · ')));
+    if (span.fallback) tags.appendChild(traceTag(t('备用模型：替 {model}', { model: span.fallback }), 'warn'));
     if (span.compaction) tags.appendChild(traceTag(t('压缩了较早的对话'), 'note'));
     if (span.retries) tags.appendChild(traceTag(t('重试了 {n} 次', { n: span.retries }), 'warn'));
     if (span.truncated) tags.appendChild(traceTag(t('回复被截断了'), 'warn'));
@@ -266,6 +272,7 @@ function traceStep(lane, number) {
     for (const [tool, count] of Object.entries(span.tools)) {
       tags.appendChild(traceTag(tool === 'web_search' ? t('联网搜索 {n} 次', { n: count }) : tool === 'web_fetch' ? t('读网页 {n} 次', { n: count }) : tool + ' × ' + count, 'note'));
     }
+    if (span.note) main.appendChild(el('p', 'trace-note', span.note));  // 失败了、改用备用模型的那一次：为什么失败
   } else if (span.kind === 'hook') {
     main.appendChild(el('p', 'trace-step-meta', hookEventText(span.event)));
     tags.appendChild(traceTag(t(HOOK_RESULTS[span.result] || HOOK_RESULTS.error), hookResultKind(span.result)));
@@ -280,6 +287,7 @@ function traceStep(lane, number) {
     }
     if (span.approval) tags.appendChild(traceTag(traceApproval(span), span.approval === 'auto' ? 'auto' : span.approval === 'allowed' ? 'ok' : 'warn'));
     if (TRACE_SANDBOX[span.sandbox]) tags.appendChild(traceTag(t(TRACE_SANDBOX[span.sandbox]), span.sandbox === 'outside' ? 'warn' : 'note'));
+    if (span.redacted) tags.appendChild(traceTag(traceRedacted(span), 'note'));
     if (span.result && span.result !== 'ok') tags.appendChild(traceTag(t(TRACE_RESULT[span.result] || k('没有执行完')), span.result === 'error' ? 'bad' : 'warn'));
     if (span.result === 'skipped') main.appendChild(tel('p', 'trace-step-meta', TRACE_SKIPPED_WHY));
     if (span.note) main.appendChild(el('p', 'trace-note', span.note));

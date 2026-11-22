@@ -69,8 +69,10 @@ STYLES = (
     "styles/hooks.css",  # 扩展 · 钩子
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
+    "styles/fallback.css",  # 设置 · 备用模型
     "styles/commands.css",  # 不用问的命令
     "styles/sandbox.css",  # 命令的沙箱
+    "styles/redact.css",  # 遮住工具结果里的密钥
     "styles/endpoints.css",  # 自定义模型接口：设置里的那一节和编辑的窗口
     "styles/spending.css",  # 花费
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
@@ -82,6 +84,7 @@ STYLES = (
     "styles/animations.css",  # 入场动画
     "styles/browser.css",  # 浏览器
     "styles/computer.css",  # 操作整台电脑
+    "styles/voice.css",  # 语音转文字：设置里的一节、消息上的小标记
     "styles/trace.css",  # 运行记录：每一轮上的入口、滑出来的窗口（合计、瀑布图、逐段的详情）
     "styles/service.css",  # 设置里的"后台运行"
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
@@ -157,12 +160,15 @@ SCRIPTS = (
     "scripts/commands.js",  # 不用问的命令（你自己加的）
     "scripts/sandbox.js",  # 命令的沙箱：设置里的一节，任务、通道共用的"选哪一档"
     "scripts/sandbox-paths.js",  # 命令的沙箱 · 额外允许的路径
+    "scripts/redact.js",  # 遮住工具结果里的密钥：设置里的开关
     "scripts/settings.js",  # 设置面板
     "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
     "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么
+    "scripts/fallback.js",  # 设置 · 备用模型（规矩在 harness/fallback.py）
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑
+    "scripts/voice.js",  # 语音转文字：设置里的一节、消息上的小标记
     "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端
     "scripts/keyboard.js",  # 键盘
     "scripts/start.js",  # 开始：连上事件流

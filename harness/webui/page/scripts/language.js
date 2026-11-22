@@ -63,6 +63,7 @@ function applyLanguage(code) {
   if (taskEditor.open) { drawEditor(); previewSoon(); }  // 编辑任务的窗口：星期几的按钮、接下来几次的时间
   renderBrowser(browserStatus, true);  // 顶上的提示、设置里的"浏览器"一节
   renderComputer(computerStatus, true);  // 顶上的"智狐正在控制这台电脑"、设置里的"操作整台电脑"一节
+  renderVoice(voiceStatus, true);  // 设置里的"语音转文字"一节（模型后面的价格、占位文字）
   retitleSettingsButton();  // 顶栏齿轮的提示：译好的"设置"后面接着快捷键
   retitleModelButton();     // 模型按钮的提示也一样（见 models.js）
   if (modelsFlyout.isOpen()) drawModels();  // 换模型的面板：价格的写法、按钮的提示跟着界面语言

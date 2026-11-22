@@ -1,0 +1,30 @@
+/* ---- 语音转文字：设置里的一节、消息上的小标记（scripts/voice.js） ----------------------------------- */
+/* 卡片沿用浏览器那一节的样子（browser-card、browser-top……），这里只写它自己多出来的几样 */
+.voice-fields { position: relative; display: grid; gap: 10px; margin-top: 14px; }
+/* 左边一列是名字，右边是选单或输入框；名字的那一列不会被长的译文撑开（窄屏上改成上下两行） */
+.settings label.voice-field { display: grid; grid-template-columns: minmax(0, 8.5em) minmax(0, 1fr); align-items: center; gap: 6px 12px; margin: 0; }
+.voice-label { min-width: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.voice-field .field { width: 100%; min-width: 0; }
+.voice-field select.field { flex: none; }
+.voice-field input.field { font-family: var(--mono); font-size: 12.5px; }
+.voice-local { display: grid; gap: 10px; animation: reveal .24s var(--ease); }
+.voice-local[hidden] { display: none; }
+.voice-local-foot { display: flex; align-items: flex-start; gap: 12px; }
+.voice-local-note { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.voice-local-note.bad { color: var(--err); }
+.voice-local-foot .button { flex: none; }
+.voice-status { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; padding: 9px 12px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); background: var(--hover); border-radius: 10px; overflow-wrap: anywhere; }
+.voice-status > span { min-width: 0; }
+.voice-status.bad { color: var(--err); background: var(--err-soft); }
+.voice-status[hidden] { display: none; }
+
+/* 消息上的小标记：语音转出来的那条消息顶上一行，一个话筒、"语音转文字"、语音有多长。颜色跟着气泡的文字走（深浅两套都够清楚） */
+.msg-voice { display: flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin: 0 0 4px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; color: var(--bubble-ink); opacity: .78; }
+.msg-voice .icon { flex: none; width: 13px; height: 13px; }
+.msg-voice-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msg-voice-time { flex: none; font-variant-numeric: tabular-nums; opacity: .8; }
+
+@media (max-width: 520px) {
+  .settings label.voice-field { grid-template-columns: minmax(0, 1fr); }
+  .voice-local-foot { flex-wrap: wrap; }
+}

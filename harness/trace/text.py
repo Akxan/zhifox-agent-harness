@@ -127,6 +127,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
         parts = [t("模型 {model}", model=span.get("model", "")), duration]
         if span.get("first") is not None:
             parts.append(t("首字 {time}", time=seconds(span["first"])))
+        if span.get("fallback"):
+            parts.append(t("备用模型（替 {model}）", model=span["fallback"]))
         if span.get("compaction"):
             parts.append(t("压缩历史"))
         if span.get("retries"):
@@ -137,6 +139,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t(STATUS[span["status"]]))
         if "cost" in span:
             parts.append(money(span["cost"]))
+        if span.get("note"):
+            parts.append(span["note"])  # 失败了、改用备用模型的那一次：为什么失败
     elif span.get("kind") == "hook":
         parts = [t("钩子 {name}（{event}）", name=span.get("name", ""), event=span.get("event", "")), duration]
         result = t(HOOK_RESULT[span["result"]]) if span.get("result") in HOOK_RESULT else ""
@@ -160,6 +164,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t("{answer}（等了 {time}）", answer=t(APPROVAL[approval]), time=seconds(span.get("waited", 0))))
         if span.get("sandbox") in SANDBOX:
             parts.append(t(SANDBOX[span["sandbox"]]))
+        if span.get("redacted"):  # 结果里遮住了几处密钥（见 ../redact.py）。页面上的说法在 page/scripts/trace-chart.js 的 traceRedacted
+            parts.append(t("遮住了 1 处密钥") if span["redacted"] == 1 else t("遮住了 {n} 处密钥", n=span["redacted"]))
         if span.get("result") in RESULT:
             result = t(RESULT[span["result"]])
             parts.append(t("{result}：{note}", result=result, note=span["note"]) if span.get("note") else result)

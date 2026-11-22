@@ -58,7 +58,8 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 照样每次都问，不许碰的程序永远不碰。截图先缩小到模型收得下的大小，模型说的坐标再换算回屏幕上
 真正的位置（Retina 屏幕也算对）。Claude 用 Anthropic 的电脑工具包，GPT、Gemini 用智狐自己写的替身工具（见下面的"操作整台电脑"）。
 还可以接上你自己的机器人：Telegram、Discord、Slack、飞书、钉钉或者 QQ（网页上一个四步的向导，或者用命令行），
-在手机上和它聊天，照片和文件也能发；反过来也行：要一张截图、一份报告，你批准以后它就以照片或文件的样子出现在聊天里。不需要公网地址，也不用开端口：是智狐主动去问 Telegram 有没有新消息（长轮询），
+在手机上和它聊天，照片和文件也能发；反过来也行：要一张截图、一份报告，你批准以后它就以照片或文件的样子出现在聊天里。
+在 Telegram 里还可以直接按住说话：语音先转成文字，再像打字一样回答你。不需要公网地址，也不用开端口：是智狐主动去问 Telegram 有没有新消息（长轮询），
 对别的平台是智狐自己连出去、一直开着一条 WebSocket（手写的 RFC 6455 客户端；飞书和钉钉用官方的 SDK，想用才装）。
 只有用 6 位配对码配对过的那个账号能用；要执行命令、改文件时，聊天里会先问你：有按钮的平台带着"允许 / 拒绝"按钮，
 没有按钮的平台请你回复"允许"或"拒绝"（在网页上答复也行，先到的算数）。WhatsApp 和企业微信要公网地址，以后再做。
@@ -312,6 +313,10 @@ uv run harness --web
 "换过去会怎样"（接着聊、直接开始新的、先问一声）由程序在 [harness/model_catalog.py](harness/model_catalog.py) 里算，
 和真正换模型的 `App.select_model` 是同一条规矩；页面只照着画，不自己判断，规矩就只写在一处。
 
+**备用模型。** **设置 → 备用模型**里按顺序列着现在这一家的模型：你选的模型暂时用不了（过载、服务器出错、请求太频繁）时，
+这一轮剩下的步骤改用它们。从下拉框里选一个就加上，箭头往前挪，× 去掉，每一下都马上存好。空着就是不用，默认就是空的。
+见[模型暂时用不了：备用模型](#模型暂时用不了备用模型)。
+
 刷新页面不会丢失当前对话。关闭页面后程序仍在运行，回到终端按 Ctrl-C 才会退出；
 如果这时助手正在回复，程序会先停下它、把这一轮存好（最多等 5 秒）再退出。
 同一个数据目录同时只能开一个网页版：已经有一个在运行时，再启动会提示你去用已经打开的那个。
@@ -447,7 +452,8 @@ uv run harness --web
   里复制 **AppID** 和 **AppSecret**，事件选 WebSocket。你自己是管理员，不用上线、不用沙箱就能直接和它私聊。
 
 之后直接给你的机器人发消息就行。照片和文件经过的检查和页面上的附件一样（Word、Excel、PowerPoint 变成文字；
-语音和视频暂时还不支持）。反过来也行：让它截一张屏、画一张图表、把刚写好的报告发给你，你在确认卡片上（写着文件、大小、
+视频暂时还不支持）。在 Telegram 里，语音和音频文件会先转成文字再回答（见[语音消息（Telegram）](#语音消息telegram)），
+在 **设置 → 语音转文字** 里打开。反过来也行：让它截一张屏、画一张图表、把刚写好的报告发给你，你在确认卡片上（写着文件、大小、
 发到哪里）点了允许，它就以照片或文件的样子出现在聊天里（QQ 除外；各平台的上限见[六个平台，三种收消息的办法](#六个平台三种收消息的办法)）。
 聊天里可以用这几个命令（在 Slack 里写成 `/zhifox new` 这样）：
 
@@ -617,6 +623,7 @@ uv run --project "/这个项目的完整路径" harness
 | 定时任务 | [harness/tasks.py](harness/tasks.py)、[harness/webui/scheduler.py](harness/webui/scheduler.py)、[harness/tools/tasks.py](harness/tools/tasks.py) | 模型只在你跟它说话时才动。定时任务让它到了时间自己动：时间表和保存、和你的对话同时运行并且停下来等你批准的执行部分、一句话就能定下任务的工具 |
 | 系统提示词 | [harness/prompt.py](harness/prompt.py) | 模型不知道自己是谁、在什么环境里。内置的提示词可以换成你自己写的；"可以联网"那一行只写给有联网搜索的那一家 |
 | 聊天通道 | [harness/channels/](harness/channels/) | 只有坐在运行它的那台电脑前才找得到助手。通道把它接到聊天软件上（Telegram、Discord、Slack、飞书、钉钉、QQ）：每个平台一个小小的客户端、只为你一个人服务的配对、每个聊天一段会话（和网页上的对话同时进行）、用按钮或者回复文字答复的确认，还有把照片和文件发回聊天里的 `send_file`（[tools/send.py](harness/tools/send.py)；见[聊天通道：在聊天软件里和智狐说话](#聊天通道在聊天软件里和智狐说话)） |
+| 语音转文字 | [harness/voice/](harness/voice/)、[harness/webui/voice_api.py](harness/webui/voice_api.py) | 模型读的是文字，可在手机上说一句话比打字快。聊天里发来的语音（暂时只有 Telegram）先交给一个语音转文字的服务：OpenAI 的转写接口，或者你自己运行的兼容服务。设置和检查、发出去转的客户端、聊天这边的整个过程（上限、下载、转、记账）都在这里（见[语音消息（Telegram）](#语音消息telegram)） |
 | WebSocket 和 HTTP | [harness/net/](harness/net/) | Discord、Slack、QQ 的消息顺着机器人自己连出去的一条 WebSocket 推过来。一个用 `socket` + `ssl` 写的小小的 RFC 6455 客户端（掩码、分片、ping/pong、关闭握手、大小上限、超时、HTTP 代理），和一个"发 JSON、收 JSON"的 HTTPS 帮手（出错信息和重定向里都不带 token），还有上传文件用的 `multipart/form-data` 编码（[multipart.py](harness/net/multipart.py)） |
 | 无界面模式 | [harness/serve.py](harness/serve.py)、[harness/log.py](harness/log.py)、[harness/webui/lifecycle.py](harness/webui/lifecycle.py) | 服务器上没有浏览器。`harness serve` 不开浏览器就启动调度器和通道，日志按 journald 的习惯写、密钥都遮住，收到 SIGTERM 时干净地退出；网页界面和无界面模式在同一个地方启动、停下这些后台的部分 |
 | 后台服务 | [harness/service/](harness/service/)、[harness/instance.py](harness/instance.py) | 在终端里开的智狐，终端一关它也停了。`harness service` 把它交给 launchd（macOS）或者 systemd（Linux）：登录时自动启动、出错退出后自己重启；数据目录的锁上记着是谁占着，再开一个的时候能说清楚是谁挡着（见"在后台一直运行"） |
@@ -633,9 +640,11 @@ uv run --project "/这个项目的完整路径" harness
 | 联网回答的来源 | [harness/citations.py](harness/citations.py)、[harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | 联网搜索以后，Claude 会说明每句话出自哪个网页。这些引用按每段回答编号，画成小小的记号，回答末尾列出来源（网页、终端、聊天软件里都有），跟着会话保存；发回给 API 的历史一个字不动 |
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
 | 模型目录 | [harness/model_catalog.py](harness/model_catalog.py)、[harness/webui/models_api.py](harness/webui/models_api.py) | 光看模型的名字，不知道它能做什么、多少钱。一份由程序算好的目录：每一家有没有密钥（只露最后 4 位）、能选哪些模型、每个模型能做什么、价格（来自 `pricing.py`）、换过去会怎样；网页上换模型的面板（`POST /api/model/catalog`）和终端的 `/model` 都只是照着它画 |
+| 备用模型 | [harness/fallback.py](harness/fallback.py)、[harness/webui/fallback_api.py](harness/webui/fallback_api.py)、[harness/webui/page/scripts/fallback.js](harness/webui/page/scripts/fallback.js) | 模型过载（529）、服务器出错（5xx）、请求太频繁（429）时，SDK 自己重试过以后这一轮还是会停下。选了备用模型的话，这一轮接下来改用同一家的下一个，对话里说一声，下一轮再试你选的那个（见[模型暂时用不了：备用模型](#模型暂时用不了备用模型)） |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
 | 钩子 | [harness/hooks/](harness/hooks/)、[harness/webui/hooks_api.py](harness/webui/hooks_api.py) | 有些规矩想每次自动照办、不用每次点卡片：拦下某类命令、改完文件就格式化、每轮记日志。你的脚本在循环的几个记录点旁边的四个时刻运行，从标准输入收一份 JSON，用退出码回答（和 Claude Code 一样）；它只能让事情更严（见[你的钩子](#你的钩子在固定的时刻运行你自己的脚本)） |
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
+| 遮住密钥 | [harness/redact.py](harness/redact.py) | 命令的输出、文件里可能一不小心带着一把密钥，进了只追加的历史就会发给厂商、永远存着。结果一产生就遮，在 `tool_ended` 记录点之前：认各家密钥的格式、环境变量和 `.env` 里已知的值、`password=` `token:` 后面随机的一串（见[遮住工具结果里的密钥](#遮住工具结果里的密钥)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
@@ -799,7 +808,7 @@ harness 看到后去执行，再把结果作为一条新消息放回历史里：
 - 交给子 Agent 的那几圈（缩进的那几行）不进主助手的历史，主助手只收到它交回的结论；但它们的时间和钱都算在这一轮里。
 
 **怎么做的。** 循环（[harness/agent.py](harness/agent.py)）在几个时刻告诉记录器一声，每处只有一行，名字说明是哪个时刻：
-一轮开始和结束（`turn_began`、`turn_ended`）、发出一次请求和它答完（`request_began`、`request_ended`）、
+一轮开始和结束（`turn_began`、`turn_ended`）、发出一次请求和它答完（`request_began`、`request_ended`）、一次请求失败了、改用备用模型再试（`request_failed`，见[备用模型](#模型暂时用不了备用模型)）、
 开始一次工具调用和它有结果（`tool_began`、`tool_ended`）、开始等你答复和你答复了（`approval_asked`、`approval_decided`）。
 记录器在 [harness/trace/](harness/trace/)：它只记时刻（用只往前走的 `time.monotonic`）和数字，一轮结束时整理成一份记录，
 合计（时间怎么分、一共多少钱、缓存命中率）也由它算好，页面和终端只照着画，不各自再算一遍。几处有意的取舍：
@@ -848,6 +857,36 @@ GPT、Gemini、DeepSeek 都支持这套格式，只是服务器地址不同，�
 只做了一部分这套格式的服务器，退一步就行：服务器不认 `stream_options`，就不再要用量；这段对话还没用过工具时服务器拒绝了工具，
 这段对话就不带工具接着聊（被拒绝的那次请求服务器根本没处理，所以历史一个字都没改）。两样都记进 `data/endpoints.json`，
 下一段对话一开始就按对的办法发。最后，同一个接口上能不能用工具不一样的两个模型之间换，要开始新的一段：一段对话的工具清单从来不变。
+
+### 模型暂时用不了：备用模型
+
+有时候请求失败和你没关系：厂商的服务器过载了（Anthropic 回答 529 `overloaded_error`）、他们那边出错了（5xx）、
+或者短时间里请求太多了（429）。SDK 自己会等一下再重试两次；还是不行的话，以前这一轮就停下来报错。
+换个模型也没用的错误（密钥不对、请求写错了、OpenAI 账号的额度用完了 `insufficient_quota`）照旧停下。
+
+**会怎样。** 在**设置 → 备用模型**里，可以按顺序选最多三个**同一家**的别的模型（比如 Claude Opus 5.5 → Claude Sonnet 5.5
+→ Claude Fable 5.2）。一次请求因为上面这几种原因失败时，循环把一模一样的请求发给这一轮还没试过的第一个备用模型，
+在对话里说一声（"Opus 5.5 暂时不可用，这一轮接下来改用 Sonnet 5.5。"），这一轮剩下的步骤都用它。
+下一轮又从你选的那个开始（它可能已经好了），这段会话记着的也还是你选的那个。默认一个都没有：换模型会改变回答的质量和价格，
+换不换、换成哪个由你决定。定时任务、聊天通道、子 Agent 用的是同一份设置。
+
+**为什么只能选同一家的。** 另一家的模型接不上这段对话：历史的格式不一样（Claude 的内容块不是 OpenAI 那种消息），
+系统提示词不一样（"能联网"那一行只写给 Claude），工具也不一样（Claude 用 Anthropic 定义的浏览器、电脑工具包，
+别家用我们自己写的 `browser_*`、`computer_*` 替身）。一轮做到一半换过去，等于扔掉这一轮已经做过的工具调用和结果，
+还悄悄换了提示词和工具，[只在末尾追加](#循环)的规矩不允许。同一家之内，`App.select_model` 本来就允许对话中途换模型：
+历史、系统提示词、工具一字不变，只有请求里的 `model` 变了。换不换得过去，和在换模型的面板上换是同一条规矩
+（`providers.continues`：同一家，用不用得了工具也一样，只有自定义接口会碰到），再加一条：这段对话开始时定下的工具包它得用得了
+（`Backend.can_switch_to`），用不了的跳过不选。自定义接口的备用模型，是同一个接口上的别的模型。
+
+**Claude 思考内容的签名怎么办？** Claude 的思考块带着签名，签名里记着是哪个模型写的。换请求里的 `model` 不算改了历史，
+所以换模型从不让请求失败；新模型读不了的思考块，API 会在它看到之前去掉，不计费。智狐照样把历史原样发过去
+（自己去删反而会出错）。所以 Opus 5.5 换成 Sonnet 5.5 时，Sonnet 做的那几步看不到 Opus 之前的思考（Sonnet 5.5 读不了
+Opus 5.5 的），但请求照常成功；下一轮换回 Opus 5.5，它读得了 Sonnet 5.5 留下的（在 Claude API 上），什么都不丢。
+
+**在哪儿看得到。** 对话里的那一句；[运行记录](#看懂一轮对话运行记录)里，失败的那次请求标成出错、写着原因，用备用模型发的每一次标着
+"备用"和它替的是哪个；[花费账本](#费用)按实际回答的那个模型记钱。失败的那次什么都没留在历史里（两家的适配层都是收完整个回复才追加）；
+已经显示在页面上的半截文字留着，和工具参数不是合法 JSON 时的重试一样。规矩在 [harness/fallback.py](harness/fallback.py)，
+循环里的那一段是 [harness/agent.py](harness/agent.py) 的 `Agent._request`。
 
 ### 对话太长了怎么办：压缩历史
 
@@ -1223,6 +1262,39 @@ GPT、Gemini、DeepSeek 没有联网搜索，它们的回答不会带来源。
    网页上的普通对话和定时任务从来没有它，不用为一份用不上的说明书花钱。同样的原因，说明书里不写是哪个平台、上限多大；
    发不了的时候，结果里会说清楚为什么、该怎么办（"先打包成 zip""先缩小一份"）。聊天里一段会话的第一条消息（`<channel>` 那句说明）
    也提醒模型：直接把文件发过去，别只说路径（手机上打不开）。系统提示词没有动：所有的对话都用它。
+
+#### 语音消息（Telegram）
+
+在 Telegram 里按住话筒说一句话，发过来的是一段语音（OGG/Opus 格式的文件，带着时长）；发一个音频文件（MP3、M4A……）也一样。
+智狐用的这几家模型在对话里都不收声音，所以通道先把它转成文字（[harness/voice/](harness/voice/)）：
+
+```text
+一段语音 ──► 检查（打开了吗？不超过 10 分钟？服务收这种格式吗？）──► 从 Telegram 下载
+      ──► POST <服务>/audio/transcriptions（multipart：file、model、response_format=json）──► {"text": …, "usage": {"seconds": …}}
+      ──► 聊天里回一句"（语音转文字）……"  ──► 以"（语音转文字）……"当作你的话，开始这一轮
+```
+
+- **用哪一种。** 在 **设置 → 语音转文字** 里选：*自动*（默认：填了 OpenAI 的 API 密钥就用 OpenAI，没填就当作关着）、
+  *OpenAI*（`POST https://api.openai.com/v1/audio/transcriptions`，模型是 [OpenAI 的语音转文字指南](https://developers.openai.com/api/docs/guides/speech-to-text)
+  推荐的 `gpt-transcribe`；也可以选更早的 `gpt-4o-transcribe`、`gpt-4o-mini-transcribe`、`whisper-1`，OpenAI 说它们 2027-02-26 停用）、
+  *你自己运行的兼容服务*（说同一种接口的都行，比如 faster-whisper 的服务器；地址和模型名在页面上填）或者 *关闭*。
+  一种都用不了的时候，聊天里回一句怎么打开。
+- **密钥和地址。** OpenAI 的密钥来自 `.env`，只发给 OpenAI 的地址；这个地址和聊天平台的接口地址一样，只能用环境变量改（`OPENAI_BASE_URL`）。
+  你自己的服务的地址能在页面上改，是因为我们从来不往那里发任何密钥，发过去的只有你的那段语音；明文的 `http://`
+  只许连这台电脑自己（`localhost`、`127.0.0.1`、`::1`），别的地址一律要 `https://`，地址里也不许带用户名和密码。
+  密钥不进浏览器（页面只知道填没填）、不进日志、不进出错的说明。
+- **也可以用一个自定义模型接口。** *你自己运行的兼容服务*可以不填地址，改从[自定义模型接口](#本地模型和自己的网关ollamalm-studiovllmllamacpp)
+  里选一个这台电脑或者内网里的：用它的地址和它自己的密钥（有的话），和对话时一样只发给它自己，OpenAI 的密钥绝不发过去。
+  外面的网关不在可选之列：它按分钟怎么收费智狐不知道，没法记账。选的接口被删掉了、改成了外面的地址，语音转文字就关着
+  （不会悄悄换一个地址），设置里写着为什么。
+- **模型看到的。** 转出来的文字，开头加上"（语音转文字）"（写给模型看的，和别的提示一样用中文），它就知道这是听写出来的、
+  可能有听错的字；语音附带的说明（caption）接在后面。网页上这段会话里，你的那条消息上有一个"语音转文字"的小标记，
+  写着语音有多长；以后编辑这条消息，编辑框里只有文字。
+- **花钱。** 转文字按语音的长短计费（见[费用](#费用)）。每转一条，花费账本里记一行，来源是 `voice`；你自己的服务记 0 元。
+  超过 10 分钟（`VOICE_MAX_SECONDS`）或者大于 20 MB（`VOICE_MAX_BYTES`，Telegram 给机器人的下载上限；OpenAI 收到 25 MB）的语音，
+  在下载、发出去之前就拦下，一分钱都不花。
+- **暂时只支持 Telegram。** Discord、Slack、飞书、钉钉、QQ 交过来语音的方式各不相同（当成附件、格式各异，或者根本不给机器人），
+  在那些平台上发语音，会收到"语音转文字暂时只支持 Telegram"。
 
 #### 六个平台，三种收消息的办法
 
@@ -1979,6 +2051,37 @@ uv run harness channels sandbox telegram workspace   # 一个通道的：default
 `/api/channel/sandbox`，以及 `/api/task/save` 里的 `sandbox`。能调的数在 [harness/config.py](harness/config.py)：
 `SANDBOX_MAX_PATHS`（50）、`SANDBOX_PATH_CHARS`（1000）、`SANDBOX_PROBE_SECONDS`（10）、`SANDBOX_PROBE_TTL`（60）。
 
+### 遮住工具结果里的密钥
+
+命令的输出、助手读到的文件、MCP 服务器和网页交回来的东西里，常常一不小心就夹着一把密钥：`cat config.yaml`、`env`、
+`git remote -v` 的地址里带着令牌、日志里有一行 `Authorization: Bearer …`。它一旦进了对话，就会发给模型厂商、写进会话文件、
+显示在页面和聊天里、跟着导出，而且历史只在末尾追加，进去了就收不回来。所以智狐在结果产生的那一刻就把它换掉：
+在它放进结果、交给你的 `PostToolUse` 钩子、到 [harness/agent.py](harness/agent.py) 的 `tool_ended` 记录点之前。
+模型、历史、存下来的会话、页面、聊天通道、运行记录、你的钩子看到的都是遮好的那一份；历史里前面的内容一个字都不动。做这件事的只有一个文件
+[harness/redact.py](harness/redact.py)，认三类：
+
+1. **各家密钥的固定格式**：Anthropic、OpenAI、DeepSeek、Gemini/Google、GitHub、Slack、Telegram 和 Discord 的机器人令牌、
+   AWS 的访问密钥、Stripe 的正式密钥、JWT、PEM 私钥。导出（[harness/export.py](harness/export.py)）和 MCP 的设置页认密钥
+   用的是同一张表：密钥长什么样只写在一处。
+2. **已经知道的密钥的值**（按值比较，值从不写进日志）：`tools/shell.SECRET_ENV_VARS` 里的变量，环境变量和 `.env` 里
+   名字像密钥的（`…_TOKEN`、`…_SECRET`、`…_PASSWORD`、`…_API_KEY`），自定义模型接口的密钥，日志里藏起来的机器人令牌。
+   记号上写的是哪个变量（`‹已遮住：OPENAI_API_KEY 的值›`），不写值。
+3. **跟在提示词后面、看起来随机的一串**：`password=`、`token:`、`"api_key": "…"`、`--token …`、`Authorization: Bearer …`，
+   以及 `scheme://用户:密码@主机` 里的密码。要够长、字母和数字都有、信息量（熵）够高才算
+   （[harness/config.py](harness/config.py) 里的 `REDACT_MIN_VALUE_CHARS`、`REDACT_MIN_ENTROPY`）。
+
+密钥换成 `‹已遮住：疑似 OpenAI 密钥›`，结果末尾再附一句话，告诉模型遮了几处、不要把记号写回去。记号是写给模型看的，
+和别的工具结果一样保持中文。运行记录在每次工具调用上记着遮了几处（`redacted`，时间线和终端 `/trace` 里写"遮住了 2 处密钥"）。
+
+宁可漏，不要错，因为遮错了会把正常的活儿弄坏。git 的提交号、UUID 不遮，一大段 base64（`REDACT_DATA_RUN`，200 个字符）
+和 `data:` 地址（比如图片的内容）不遮，像代码的（`request.headers.get`、`process.env.API_KEY`）、占位符
+（`${API_KEY}`、`<your-key>`、`****`）、翻页用的令牌（`next_page_token`）也不遮。改文件的工具不肯把记号写回文件里
+（`create`、`str_replace`、`insert` 要写的内容里有文件里本来没有的记号）：那会把真正的密钥换成记号。它会请模型只改别的那几行。
+
+这是一层兜底，不是防线：模型要是存心绕开（把密钥换个编码再打印），认不出来。真正挡住密钥的仍然是 `.env` 和 `data/`
+碰不到、命令看不到各家的密钥。默认开着；**设置 → 遮住密钥**可以关掉（关之前问一次），存在 `data/settings.json` 里是
+`"redact_secrets": false`（`POST /api/redact {"enabled": …}`）。终端、定时任务、聊天通道、子 Agent 用的都是这同一个开关。
+
 ### 权限规则
 
 | 操作 | 处理 |
@@ -2424,8 +2527,8 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/agents/` | 你定制的 Agent，一个一个 Markdown 文件（Claude Code 的 subagent 格式）。可以在"扩展 → Agent"里管理，也可以手动改 |
 | `data/todos.json` | 待办事项 |
 | `data/tasks.json` | 定时任务，每个任务最近 20 次运行的记录，以及还没关掉的提醒。读不出来时原文件改名为 `tasks.broken.json` 留着，从空的任务列表开始 |
-| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），以及命令的沙箱（`"sandbox": {"level", "paths"}`）。不含密钥 |
-| `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
+| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），备用模型（`"fallbacks": {提供方: [模型]}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`，以及语音转文字（`"voice": {"provider", "model", "url", "local_model", "endpoint"}`，改过了才写）。不含密钥 |
+| `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额），每转一条语音也一行（来源 `voice`，没有 token，`seconds` 是语音的长短）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
 | `data/hooks.json` | 你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)：名字 → 事件、matcher、程序和参数、时限、`onFailure`、`runsIn`、`enabled`。参数里可能有令牌，所以只有你的账号能读，助手的文件工具打不开它，导出时遮住 |
 | `data/endpoints.json` | 自定义模型接口：名字、地址、可选的密钥，以及每个模型能做什么、上下文上限和价格。只有你的账号能读；助手的文件工具打不开它；导出时密钥遮住，页面上只看得到最后 4 位 |
@@ -2535,6 +2638,10 @@ API 按 token 计费（一个汉字大约 1 到 2 个 token）。因为每次请
   而模型几乎每一步都要截一张，一次做得久了，累积起来不少。和其他历史一样，之前的截图每一轮都会重发（靠缓存便宜）；
   智狐从不把它们从历史里删掉：在现在的 Claude 模型上，删掉以前的截图会让模型之前的思考内容作废。做一件新的事，就开一段新对话。
   设置里会按你的屏幕估算一张截图多少 token。
+- **语音消息**：把 Telegram 里的语音转成文字按语音的分钟数收费，不按 token；账本里记成来源"voice"（秒数用 OpenAI 回答里给的，
+  没给就用 Telegram 说的时长）。价格来自 [OpenAI 的定价页](https://developers.openai.com/api/docs/pricing)（Transcription 一节的估算），
+  2026-11-22 核对：`gpt-transcribe`（默认）每分钟 0.0045 美元，`gpt-4o-mini-transcribe` 0.003，`gpt-4o-transcribe` 0.006，`whisper-1` 0.006。
+  用默认的模型，一条一分钟的语音不到半美分。超过 10 分钟的语音不转。你自己运行的兼容服务不花钱。
 - **子 Agent**：把一件事交给子 Agent，要花它自己调用模型的钱（每件事最多 25 次），在账本里记成"子 Agent"，
   卡片上也写着。换来的是：它读过的网页留在它自己的历史里，不进主助手的对话，之后的每一轮不用再为它们付钱。
 - **定时任务**：让助手去做的任务每运行一次，费用和把它的指令当成一条消息发出去差不多，而且不管你在不在都会运行。
@@ -2570,6 +2677,7 @@ DeepSeek 把中国法定节假日也算作闲时，这些日子没有内置，�
 | `HARNESS_EFFORT` | `medium` | Claude 思考的力度：`low` / `medium` / `high` / `xhigh` / `max` |
 | `HARNESS_DATA_DIR` | 项目里的 `data/` | 记忆、待办、设置等数据存放的目录 |
 | `HARNESS_PROVIDER`、`HARNESS_MODEL` | `anthropic`、`claude-opus-5-5` | 还没在界面上选过模型时用哪一个。选过之后以界面上的选择为准 |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 用你的 OpenAI 密钥转语音时发到哪里（OpenAI 的 SDK 发对话请求也认它）。只能是 `https://`，或者连这台电脑自己的明文 `http://` |
 | `HARNESS_CHROME` | 自动查找 | 浏览器用哪个 Chrome（或者 Chromium、Edge、Brave）的完整路径。"设置 → 浏览器"里填了路径的话，以那里为准 |
 
 ## 动手试试：加一个自己的工具
@@ -2656,7 +2764,8 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 [tests/test_undo_cli.py](tests/test_undo_cli.py)（`/undo`）和 [tests/ui/test_ui_file_changes.py](tests/ui/test_ui_file_changes.py)
 （三种语言、窄屏、深色下的页面）。
 聊天通道的测试对着每个平台各一个本地的假服务器，测试代码扮演你的手机：[tests/fake_telegram.py](tests/fake_telegram.py)
-（像 Telegram 一样检查每条消息的 HTML 和长度的假 Bot API）、[tests/fake_discord.py](tests/fake_discord.py) 和
+（像 Telegram 一样检查每条消息的 HTML 和长度的假 Bot API，也能发来语音和音频文件）、[tests/fake_transcribe.py](tests/fake_transcribe.py)
+（OpenAI 的转写接口：检查表单的字段、文件名和密钥，能回答任何一种错误；语音转文字的测试在 [tests/test_voice.py](tests/test_voice.py)，从不连真的接口）、[tests/fake_discord.py](tests/fake_discord.py) 和
 [tests/fake_qq.py](tests/fake_qq.py)（REST 加一个网关：能让你重连、让会话失效、不回心跳、用任意代码关掉连接）、
 [tests/fake_slack.py](tests/fake_slack.py)（Web API 加 Socket Mode，没收到回执的信封会再推一遍），以及
 [tests/fake_feishu.py](tests/fake_feishu.py) / [tests/fake_dingtalk.py](tests/fake_dingtalk.py)（HTTP 接口，加一个代替 SDK 的假长连接）。
@@ -2910,6 +3019,7 @@ say = "改好了。"
 - 后台服务（`harness service`）只对着假的 `launchctl` 和 `systemctl` 测过，测试从来不真的装上一个。macOS 上项目在"文稿""桌面""下载"里的话，
   可能要先给一个隐私权限。
 - GPT 和 Gemini 没有用真实的密钥实测过（见上面"支持的模型"）。
+- 语音转文字只对着本地的假转写接口测过，没有连过真的 OpenAI；特别是 OpenAI 的文档列了 OGG 格式，但没有说 Telegram 语音用的 Opus 编码收不收。
 - 评测（`harness eval`）只做过对着本地假服务器的演习，还没有真的跑过：起步任务在真模型上得多少分、花费的估算准不准，都还没有核对过。
   也不检查回答请求的是不是要的那个模型（被拒绝后服务器换了备用模型，只在记录里留一句提示）。
 - 用 GPT、Gemini、DeepSeek 时没有联网搜索。
@@ -2931,7 +3041,7 @@ say = "改好了。"
   HTML 按原文显示成文字，链接只认 http、https、mailto，不支持缩进四格的代码块、引用式链接和脚注。代码着色只认常见语言的
   注释、字符串、数字和关键字。终端界面照原样显示 Markdown 原文。
 - 定时任务和聊天通道只在网页界面或者 `harness serve` 开着的时候运行；定时任务最多同时三个。
-  聊天通道能收文字、图片和文件（还不能收语音和视频），也能把图片和文件发回去（QQ 除外：它只收公网网址上的图片）；
+  聊天通道能收文字、图片和文件（还不能收视频；语音只有 Telegram 能收，先转成文字），也能把图片和文件发回去（QQ 除外：它只收公网网址上的图片）；
   WhatsApp 和企业微信要公网地址，还不支持。Discord、Slack、飞书、钉钉、QQ
   是照着它们官方的文档写的，目前只对着本地的假服务器测过，还没有接过真的机器人。两次运行（或者一次运行和你的对话）改同一个文件的同一处时不会合并：
   每次改动整个做完，后改的那一边发现原文已经变了就会报错，模型会重新读一遍再改。

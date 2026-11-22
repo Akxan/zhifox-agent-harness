@@ -3,7 +3,8 @@
 两样东西存在两个地方：
 
   data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关、
-                       命令的沙箱（哪一档、额外允许的路径）。不含任何密钥。
+                       命令的沙箱（哪一档、额外允许的路径）、备用模型、遮不遮工具结果里的密钥、
+                       语音转文字用哪一种（见 voice/settings.py）。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -19,8 +20,11 @@ from pathlib import Path
 from . import i18n
 from .budget import valid_budget
 from .config import SANDBOX_MAX_PATHS, SANDBOX_PATH_CHARS
+from .fallback import fallback_settings
 from .safe import private_dir, to_json, write_file
 from .sandbox.policy import LEVELS as SANDBOX_LEVELS
+from .voice.settings import DEFAULTS as VOICE_DEFAULTS
+from .voice.settings import voice_settings
 
 
 class Settings:
@@ -54,6 +58,12 @@ class Settings:
         self.computer: dict = computer_settings(saved.get("computer"))
         # 命令的沙箱（见 sandbox/）：对话用哪一档（也是定时任务、聊天通道"跟随设置"时的那一档）、额外允许的路径。默认关着
         self.sandbox: dict = sandbox_settings(saved.get("sandbox"))
+        # 遮住工具结果里像密钥的东西（见 redact.py）。默认开着：只有明明白白写了 false 才算关掉
+        self.redact_secrets: bool = saved.get("redact_secrets") is not False
+        # 备用模型（见 fallback.py）：{提供方: [模型, …]}，一个模型暂时用不了时按顺序改用。默认没有：不换
+        self.fallbacks: dict[str, list[str]] = fallback_settings(saved.get("fallbacks"))
+        # 语音转文字（见 voice/）：用哪一种、哪个模型、本机服务的地址。默认"自动"：有 OpenAI 的密钥就用它
+        self.voice: dict = voice_settings(saved.get("voice"))
 
     def save(self) -> None:
         with self._lock:
@@ -119,6 +129,24 @@ class Settings:
             self.sandbox = sandbox_settings({**self.sandbox, **changes})
             self._write()
 
+    def set_redact(self, enabled: bool) -> None:
+        """开、关"遮住工具结果里的密钥"（见 redact.py）。"""
+        with self._lock:
+            self.redact_secrets = bool(enabled)
+            self._write()
+
+    def set_fallbacks(self, provider: str, models: list[str]) -> None:
+        """记下一家的备用模型（按顺序；空的列表表示这一家不用备用模型）。"""
+        with self._lock:
+            self.fallbacks = fallback_settings({**self.fallbacks, provider: models})
+            self._write()
+
+    def set_voice(self, changes: dict) -> None:
+        """改语音转文字的设置（只改给了的那几项，见 voice/settings.py 的 voice_settings；不合格的值调用的人先查过）。"""
+        with self._lock:
+            self.voice = voice_settings({**self.voice, **changes})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -140,6 +168,12 @@ class Settings:
             data["computer"] = self.computer
         if self.sandbox != SANDBOX_DEFAULTS:
             data["sandbox"] = self.sandbox
+        if not self.redact_secrets:  # 默认开着：只有关掉了才写
+            data["redact_secrets"] = False
+        if self.fallbacks:
+            data["fallbacks"] = self.fallbacks
+        if self.voice != VOICE_DEFAULTS:
+            data["voice"] = self.voice
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

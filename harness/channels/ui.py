@@ -100,10 +100,10 @@ class ChannelUI(WebUI):
         finally:
             self._replaying = False
 
-    def begin_turn(self, user_text: str, attachments=(), mark: int | None = None) -> None:
+    def begin_turn(self, user_text: str, attachments=(), mark: int | None = None, voice: float | None = None) -> None:
         self.activity = ""
         self.answer = ""
-        super().begin_turn(user_text, attachments, mark=mark)
+        super().begin_turn(user_text, attachments, mark=mark, voice=voice)
 
     def text(self, text: str) -> None:
         super().text(text)

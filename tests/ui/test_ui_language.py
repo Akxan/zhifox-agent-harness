@@ -104,6 +104,12 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.idle(page)
     look("自定义模型接口（编辑）", ["#endpoint-dialog"])
     steps.escape_closes(page, "endpoint-dialog")
+    # 备用模型：选了一个以后的那一行（序号、模型名、"往前挪""去掉"、"现在用的就是它"不在这里）
+    page.demo.api("/api/fallbacks", {"provider": "anthropic", "models": ["claude-sonnet-5-5"]})
+    page.wait("document.querySelector('#fallback-list .fallback-row')", what="备用模型的名单画出来")
+    look("设置 · 备用模型", ["#fallback-section"])
+    steps.voice_local(page)  # 语音转文字：选了"你自己运行的兼容服务"以后多出来的那几格和说明
+    look("设置 · 语音转文字（你自己运行的服务）", ["#voice-section"])
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
@@ -122,6 +128,14 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.open_dialog(page, "#settings-open", "settings")
     page.wait("document.getElementById('sandbox-level').value === 'workspace'")
     look("设置 · 沙箱", ["#sandbox-section"])
+    # 遮住密钥：关掉之前问的那一块
+    page.reach("#redact-enabled")
+    page.click("#redact-enabled")
+    page.wait("!document.getElementById('redact-confirm').hidden", what="关掉之前先问")
+    steps.idle(page)
+    look("设置 · 遮住密钥（关掉之前）", ["#redact-section"])
+    page.click("#redact-confirm-no")
+    page.wait("document.getElementById('redact-confirm').hidden")
     page.click("#sandbox-paths-open")
     page.wait(f"{steps.is_open('sandbox-dialog')} && document.querySelector('#sandbox-list li.sandbox-row')", what="沙箱的路径窗口打开")
     steps.idle(page)

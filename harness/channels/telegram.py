@@ -46,6 +46,7 @@ from ..config import (
     CHANNEL_THUMB_BYTES,
     CHANNEL_THUMB_EDGE,
     CHANNEL_TIMEOUT,
+    VOICE_MAX_BYTES,
 )
 from ..i18n import t
 from ..net import http, multipart
@@ -56,6 +57,7 @@ from .base import (
     ChannelError,
     Event,
     Inbound,
+    InboundAudio,
     InboundFile,
     OutboundFile,
     Press,
@@ -372,7 +374,8 @@ class TelegramChannel(Channel):
                     fetch=lambda file=document["file_id"]: self.api.download(file),
                 )
             )
-        if not inbound.text and not inbound.files:
+        inbound.audio = _audio(message, self.api)
+        if not inbound.text and not inbound.files and inbound.audio is None:
             for kind in ("voice", "audio", "video", "video_note", "sticker", "animation", "location", "contact", "poll"):
                 if kind in message:
                     inbound.unsupported = kind
@@ -505,6 +508,30 @@ class TelegramChannel(Channel):
             self.api.call("setMyCommands", {"commands": [{"command": name, "description": text[:250]} for name, text in commands.items()]})
         except TelegramError as exc:
             logger.info("telegram: 没能登记命令菜单（%s）", exc)
+
+
+def _audio(message: dict, api: BotAPI) -> InboundAudio | None:
+    """消息里的语音（voice，按住说话录的，OGG 格式）或者音频文件（audio）。都没有返回 None。
+
+    两种都带着时长（duration，秒）和可选的类型、大小（https://core.telegram.org/bots/api#voice 、#audio）。
+    下载的上限是语音转文字的上限（VOICE_MAX_BYTES，比 Telegram 自己的 20 MB 不会更大）。
+    """
+    for kind in ("voice", "audio"):
+        item = message.get(kind)
+        if not isinstance(item, dict) or not item.get("file_id"):
+            continue
+        media_type = str(item.get("mime_type") or ("audio/ogg" if kind == "voice" else "application/octet-stream"))
+        number = message.get("message_id", 0)
+        name = str(item.get("file_name") or "") if kind == "audio" else ""
+        return InboundAudio(
+            name=name or (f"voice-{number}.ogg" if kind == "voice" else f"audio-{number}"),
+            media_type=media_type,
+            size=max(0, _number(item.get("file_size"))) or None,
+            duration=max(0, _number(item.get("duration"))),
+            kind=kind,
+            fetch=lambda file=item["file_id"]: api.download(file, VOICE_MAX_BYTES),
+        )
+    return None
 
 
 def _preview_size(sizes: list[dict]) -> dict:

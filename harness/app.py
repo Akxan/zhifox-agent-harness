@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import budget, i18n
+from . import budget, fallback, i18n
 from .agent import Agent
 from .agents import AgentError, AgentStore, CustomAgent
 from .agents import tools as agent_tools
@@ -58,6 +58,7 @@ from .providers import (
     switch_model,
     use_custom,
 )
+from .redact import Redactor
 from .sandbox import DEFAULT as SANDBOX_DEFAULT
 from .sandbox import Layout, Sandbox
 from .settings import Settings, save_api_key
@@ -305,6 +306,8 @@ class App:
         agent.use_tools(ToolRegistry(agent_tools.allowed(persona.spec.tools, everything) if persona is not None else everything))
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(self.prices, source=source)
+        agent.redact = self.agent.redact  # 遮密钥：和你的对话同一个（同一份已知的密钥、同一个开关，见 redact.py）
+        agent.fallbacks = self.agent.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
         # 你的钩子也照样跑（runsIn 里有 task / channel 的那些，默认都有，理由见 hooks/__init__.py）。
@@ -735,6 +738,15 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         return merged_prices(settings, endpoints)
 
     agent.on_call = ledger.recorder(prices)
+    # 工具的结果先遮一遍密钥再交给模型（见 redact.py）：认 .env 里的、自定义接口的密钥，开没开每次现看设置。
+    # 定时任务、聊天通道、子 Agent 都用这同一个（见 _side_run 和 agents/runner.py）
+    agent.redact = Redactor(
+        config.env_file,
+        known=lambda: [("自定义接口的密钥", endpoint.api_key) for endpoint in endpoints.list() if endpoint.api_key],
+        enabled=lambda: settings.redact_secrets,
+    )
+    # 模型暂时用不了时改用的同一家的备用模型（见 fallback.py）：每次现读设置，你在设置里改了，下一次就按新的来
+    agent.fallbacks = lambda provider, model: fallback.candidates(settings, provider, model)
     # 每一轮结束时的运行记录（见 trace/）：网页界面存进会话的事件里，终端界面留着给 /trace。界面没有这一项（测试用的界面）就不交
     agent.on_trace = getattr(ui, "trace", None)
     # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）

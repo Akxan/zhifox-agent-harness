@@ -1,0 +1,9 @@
+/* 设置里"遮住密钥"一节（scripts/redact.js）。开关和说明沿用浏览器那一节的 .browser-option / .browser-switch，
+   这里只有关掉之前的那一块提醒：和"操作整台电脑"打开之前的提醒同一种颜色（警告），小一号 */
+.redact-option { margin-top: 4px; }
+.redact-confirm { margin-top: 12px; padding: 12px 14px 14px; color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 14px; animation: reveal .25s var(--ease); }
+.redact-confirm-title { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+.redact-confirm-title .icon { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--warn); }
+.redact-confirm-title span { min-width: 0; overflow-wrap: anywhere; }
+.redact-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-motion="reduce"] .redact-confirm { animation: none; }
