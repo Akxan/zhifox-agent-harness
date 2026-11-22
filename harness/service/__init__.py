@@ -7,6 +7,8 @@
     uv run harness service stop | start | restart
     uv run harness service uninstall    停下，并且不再自动启动
 
+（装成工具时，uv tool install，见 install.py，前面的 uv run 不写：harness service install。说给你听的命令也照这个写，见 config.COMMAND。）
+
 为什么要交给系统：你在终端里运行 `uv run harness --web`，它是这个终端的子进程。终端关了、Claude Code 的会话结束了，
 它收到挂断的信号就跟着退出了，网页打不开，Telegram 里的机器人也没人应。操作系统本来就有一个"一直开着的程序"的管家：
 

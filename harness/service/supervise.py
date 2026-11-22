@@ -53,6 +53,7 @@ from typing import IO, Protocol
 from .. import i18n
 from ..config import (
     APP_NAME,
+    COMMAND,
     EXIT_CONFIG,
     EXIT_OK,
     SERVICE_LOG,
@@ -135,7 +136,7 @@ class Supervisor:
                     self.note("info", t("{name}自己好好地退出了，不再开它。", name=APP_NAME))
                     return EXIT_OK
                 if code == EXIT_CONFIG:
-                    self.note("error", t("{name}的设置有问题（退出码 2），重启也没用，不再开它。看上面的错误，修好以后运行 uv run harness service restart。", name=APP_NAME))
+                    self.note("error", t("{name}的设置有问题（退出码 2），重启也没用，不再开它。看上面的错误，修好以后运行 {command} service restart。", command=COMMAND, name=APP_NAME))
                     return EXIT_CONFIG
                 self.note("warning", t("{name}退出了（退出码 {code}），{seconds} 秒后重新开起来。", name=APP_NAME, code=code, seconds=self.restart_seconds))
             if self.pause():

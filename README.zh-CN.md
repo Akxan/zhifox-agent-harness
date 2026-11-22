@@ -81,15 +81,101 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 
 ## 快速开始
 
-需要 macOS、Linux 或 Windows，以及 [uv](https://docs.astral.sh/uv/)。Windows 上的 PowerShell 写法见下面的[在 Windows 上使用](#在-windows-上使用)。
+需要 macOS、Linux 或 Windows。有两种装法：
+
+- **一行命令装上**：只是想用它的话选这种。不用 clone，没有项目文件夹，装好以后在哪个文件夹里都能用 `harness` 这个命令。
+- **把仓库 clone 下来**：想读代码、改代码、跑测试和评测的话选这种（见[从仓库里运行](#从仓库里运行开发和学习用)）。
+
+### 一行命令装上
+
+先装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再装智狐。电脑上没有 3.11 以上的 Python 的话，uv 会自己下载一个，
+并且把智狐装在它自己的一个环境里，不碰系统的 Python。
 
 ```bash
+# macOS 和 Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh                   # 装 uv，装好后另开一个终端
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web                                                     # 启动网页界面，会自动在浏览器里打开
+```
+
+```powershell
+# Windows（PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个窗口
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+从 `git+https://` 这样的地址装，电脑上要有 Git（uv 用它下载代码，你自己不用会）。macOS 第一次用到时会提示你安装；
+Linux 一般自带。刚装好的 Windows 没有：先装 [Git for Windows](https://git-scm.com/download/win)（或者 `winget install --id Git.Git -e`），
+或者改从 GitHub 打包好的 zip 装，不需要 Git：
+
+```powershell
+uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip
+```
+
+从 zip 装的，要更新时把这一行再运行一次，加上 `--reinstall`。
+
+装好以后终端说找不到 `harness` 的话，运行 `uv tool update-shell`，再另开一个终端：它把 uv 放命令的文件夹（`~/.local/bin`）加进 `PATH`。
+
+更新和卸载（包名是 `harness-assistant`，装上的命令是 `harness`）：
+
+```bash
+uv tool upgrade harness-assistant      # 更新到 GitHub 上的最新版
+uv tool uninstall harness-assistant    # 卸掉程序；你的数据文件夹原样留着
+```
+
+装成了[后台服务](#在后台一直运行)的话，更新以后运行一次 `harness service restart`。
+
+**数据和密钥在哪儿。** 这样装的时候，程序在 uv 自己的文件夹里，`uv tool upgrade` 和 `uv tool uninstall` 会替换、删掉它。
+所以会话、记忆、设置放在它外面、你这个账号自己的一个文件夹里，API 密钥（`.env`）也在这个文件夹里：
+
+| 系统 | 数据文件夹（`.env` 在里面） |
+|---|---|
+| macOS | `~/Library/Application Support/ZhiFox/` |
+| Linux | `$XDG_DATA_HOME/zhifox/`，默认是 `~/.local/share/zhifox/` |
+| Windows | `%LOCALAPPDATA%\ZhiFox\`，比如 `C:\Users\你\AppData\Local\ZhiFox\` |
+
+这个文件夹只有你的账号能读，和 clone 时的 `data/` 一样（见[数据存在哪里](#数据存在哪里)）。填密钥最省事的办法是网页界面的
+**设置**，它会写进这里的 `.env`；也可以自己建这个文件，写上 `ANTHROPIC_API_KEY=…` 这样的行（见 [.env.example](.env.example)）。
+`.env` 放在数据文件夹里，并不会因此更容易被碰到：助手的文件工具打不开它，命令的沙箱碰不到它，**导出全部数据**也不带它，
+和 clone 时一样。`HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 照样能把它们换到别处。
+
+为什么是这几个位置：Windows 上用的是"本地"的 AppData，不是"漫游"的那个：漫游的配置文件每次登录、注销都会把整个文件夹同步一遍，
+而智狐的数据（附件、浏览器的配置文件夹、留底）不小，有一部分还只属于这台电脑。Linux 上 `.env` 留在数据文件夹里，不放进 `~/.config`：
+很多人把 `~/.config` 整个放在公开的 dotfiles 仓库里。
+
+**备份。** **设置 → 导出全部数据** 会把数据文件夹打成一个不含密钥的 zip（见[备份和恢复](#备份和恢复)）。直接复制整个文件夹也行，
+但那一份里有 `.env`，要自己收好。
+
+**和 clone 的方式有什么不同：**
+
+- 命令前面不写 `uv run`：`harness --web`、`harness service install`、`harness channels setup telegram`。
+  这份说明里写 `uv run harness …` 的地方，换成 `harness …`。
+- 用不着[在别的目录里使用](#在别的目录里使用)里的 `zhifox` 快捷命令：`harness` 本来就在哪个文件夹里都能用，你在哪个文件夹里启动它，
+  那里就是助手的工作目录。
+- 数据文件夹是上面表里的那个，不是项目里的 `data/`：同一台电脑上 clone 的和装上的两个智狐，会话和密钥不共用。
+  想从 clone 的搬过来：先退出智狐，把 clone 里 `data/` 文件夹里面的东西和 `.env` 拷进那个文件夹
+  （或者把 `HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 指向 clone 里的那两样）。
+- 飞书和钉钉要另外装它们的 SDK，办法是带上 extra 重新装一次：
+  `uv tool install --force "harness-assistant[feishu,dingtalk] @ git+https://github.com/Akxan/zhifox-agent-harness"`
+  （网页上和 `harness channels setup` 会照你已经装了的，给出完整的那一行）。
+- [评测](#评测助手到底好不好用)要在 clone 下来的仓库里跑：任务和演习用的假服务器都在仓库里，不在装好的包里。`harness eval` 会这样告诉你。
+
+### 从仓库里运行（开发和学习用）
+
+```bash
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
 uv sync                 # 安装依赖
 uv run harness --web    # 启动网页界面，会自动在浏览器里打开
 ```
 
-第一次打开时，页面中间会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
-想用终端界面的话，填好密钥后运行 `uv run harness`。
+这时所有东西都在项目里：数据在 `data/`，密钥在 `.env`，git 都不会提交它们。Windows 上的 PowerShell 写法见[在 Windows 上使用](#在-windows-上使用)。
+智狐是看自己的包在哪儿来分这两种的：旁边有它自己的 `pyproject.toml`，就是从仓库里运行；在某个 `site-packages` 文件夹里，就是装上的
+（见 [harness/install.py](harness/install.py)）。
+
+不管哪种装法，第一次打开时页面中间都会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
+想用终端界面的话，填好密钥后运行 `harness`（从仓库里运行是 `uv run harness`）。
 
 ### 支持的模型
 
@@ -140,7 +226,18 @@ Agent 文件和别的程序用 `custom-<编号>/<模型名>` 指定接口上的�
 ### 在 Windows 上使用
 
 智狐能在 Windows 上运行。每次推送都会在 GitHub 的 `windows-latest`（Windows Server）上和 Ubuntu、macOS 一起跑一遍测试；
-还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。在 PowerShell 里：
+还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。只是想用的话，一行命令装上
+（见[一行命令装上](#一行命令装上)；数据和密钥放在 `%LOCALAPPDATA%\ZhiFox\`）：
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
+winget install --id Git.Git -e                                                        # 还没有 Git 的话先装上（uv 用它下载）
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+（不想装 Git 的话，`uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` 也行。）
+想改代码的话，改成 clone 下来：
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
@@ -646,7 +743,8 @@ uv run harness
 
 ### 在别的目录里使用
 
-助手的"工作目录"是你启动它时所在的目录。想让它在别的目录里工作，先 `cd` 到那里，再运行：
+助手的"工作目录"是你启动它时所在的目录。一行命令装上的 `harness` 本来就在哪个文件夹里都能用：`cd` 到那里运行 `harness`
+（或者 `harness --workspace /某个/文件夹`）就行。下面说的是 clone 下来的情况。想让它在别的目录里工作，先 `cd` 到那里，再运行：
 
 ```bash
 uv run --project "/这个项目的完整路径" harness
@@ -724,6 +822,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
+| 装在哪儿 | [harness/install.py](harness/install.py) | 从仓库里运行，还是用 `uv tool install` 装上的：只在这一处判断，数据文件夹和 `.env` 的默认位置、智狐让你运行的命令（`uv run harness` 还是 `harness`）都跟着它 |
 | 系统之间的差别 | [filelock.py](harness/filelock.py)、[pathnames.py](harness/pathnames.py)、[winacl.py](harness/winacl.py)、[winjob.py](harness/winjob.py)、[console.py](harness/console.py)、[exits.py](harness/exits.py)、[machine.py](harness/machine.py)、[tools/shell.py](harness/tools/shell.py)、[browser/chrome.py](harness/browser/chrome.py)、[service/windows.py](harness/service/windows.py) | macOS、Linux、Windows 锁文件、写路径、保护文件、结束进程树、给输出编码、执行命令的办法都不一样。每一处差别只放在一个小模块里（或者用到它的那个模块的一个函数里），别处只调用它 |
 
 建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`，其余的按兴趣看。
@@ -2396,7 +2495,9 @@ uv run harness service restart     # 重启，比如改了 .env、升级了智�
 uv run harness service uninstall   # 停下，以后登录时也不再自动启动（数据和日志都留着）
 ```
 
-在项目文件夹里运行它们。`install` 可以加 `--no-web`（只运行聊天通道和定时任务，不开网页）、`--port 9000`（默认 8765；
+clone 下来的，在项目文件夹里运行它们；一行命令装上的，去掉前面的 `uv run`，在哪儿运行都行（`harness service install`）。
+服务用的就是运行智狐的那个 Python（clone 里的 `.venv`，或者 uv 给这个工具建的环境），所以 `uv tool upgrade harness-assistant`
+之后运行 `harness service restart` 就换上了新版本，不用重装服务。`install` 可以加 `--no-web`（只运行聊天通道和定时任务，不开网页）、`--port 9000`（默认 8765；
 8765 被占用时自动换一个空闲的）和 `--workspace /某个/文件夹`（助手的工作目录，默认是现在所在的目录）。
 `install` 重复运行也没关系：设置没变就什么都不动，变了就停下旧的、换上新的。网页上的 **设置 → 后台运行** 会显示智狐现在是哪种开法；
 跟着终端的时候，那里有装成后台服务的命令，可以直接复制。
@@ -2623,6 +2724,9 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 
 ## 数据存在哪里
 
+下面的路径说的是 clone 下来的情况：项目里的 `data/` 和 `.env`。一行命令装上的，`data/` 换成[一行命令装上](#一行命令装上)里你这个账号的那个文件夹
+（`~/Library/Application Support/ZhiFox/`、`~/.local/share/zhifox/`、`%LOCALAPPDATA%\ZhiFox\`），`.env` 在它里面；别的都一样。
+
 **只有你自己的账号能读。** macOS 和 Linux 上，`data/` 和里面的文件夹建出来就是 700，文件是 600。Windows 没有这种权限位
 （`chmod` 在那里只能改"只读"这一个标记），而你在用户文件夹以外建的文件夹（`C:\code\…`）默认会继承"这台电脑上的所有账号都能读"。
 所以 Windows 上智狐对每个文件夹运行一次 `icacls`（[winacl.py](harness/winacl.py)）：把 `data\` 和里面的文件夹从上一层继承来的权限去掉，
@@ -2700,8 +2804,8 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 ### 备份和恢复
 
 **设置 → 导出全部数据** 会把数据文件夹打成 `zhifox-backup-日期-时间.zip` 下载下来：会话、记忆、待办、设置、
-花费账本，以及以后的功能放在这个文件夹里的东西。里面没有任何 API 密钥：密钥在 `.env` 里，它不在数据文件夹里；
-万一在数据文件夹里发现像 `.env` 这样的文件，也会跳过。`data/mcp.json` 存在的话照样导出，但所有密钥都换成
+花费账本，以及以后的功能放在这个文件夹里的东西。里面没有任何 API 密钥：密钥在 `.env` 里，它从不导出，不管它是在数据文件夹旁边
+（clone 下来的）还是在里面（一行命令装上的）；数据文件夹里别的像 `.env` 这样的文件也会跳过。`data/mcp.json` 存在的话照样导出，但所有密钥都换成
 `<removed-from-backup>`：环境变量、请求头、名字像 key、token、password 的字段、`--token` 这类开关后面的值、网址里的密码，
 以及长得像 API 密钥的字符串；名字都留着，恢复以后知道要填回哪几项。这个文件不是合法的 JSON 的话，整个不导出，
 宁可少导出一份也不冒险带出密钥。`data/channels.json` 里每个机器人的 token、应用的密钥和正在用的配对码，
@@ -2713,7 +2817,7 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 恢复的办法：
 
 1. 先退出智狐（在它的终端里按 Ctrl-C）。
-2. 把压缩包解压到数据文件夹里（默认是项目里的 `data/`），覆盖同名的文件：`unzip -o zhifox-backup-….zip -d data`
+2. 把压缩包解压到数据文件夹里（默认是项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹），覆盖同名的文件：`unzip -o zhifox-backup-….zip -d data`
    （用访达双击解压也行：把解压出来的文件夹里的内容拷进 `data/`）。想完全回到备份时的样子，先把现在的 `data/`
    挪到一边，再解压到一个新建的空 `data/` 里。
 3. 重新启动智狐。备份里有 MCP 服务器的话，把它们的密钥重新填上；接过聊天通道的话，把它们的 token 或者密钥重新粘贴一次
@@ -2789,7 +2893,7 @@ DeepSeek 把中国法定节假日也算作闲时，这些日子没有内置，�
 | `HARNESS_MAX_SEARCHES` | `5` | 每条消息最多联网搜索几次，`0` 表示不限制 |
 | `HARNESS_WEB` | `1` | 设为 `0` 完全关闭联网搜索 |
 | `HARNESS_EFFORT` | `medium` | Claude 思考的力度：`low` / `medium` / `high` / `xhigh` / `max` |
-| `HARNESS_DATA_DIR` | 项目里的 `data/` | 记忆、待办、设置等数据存放的目录 |
+| `HARNESS_DATA_DIR` | 项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹（见[一行命令装上](#一行命令装上)） | 记忆、待办、设置等数据存放的目录 |
 | `HARNESS_PROVIDER`、`HARNESS_MODEL` | `anthropic`、`claude-opus-5-5` | 还没在界面上选过模型时用哪一个。选过之后以界面上的选择为准 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 用你的 OpenAI 密钥转语音时发到哪里（OpenAI 的 SDK 发对话请求也认它）。只能是 `https://`，或者连这台电脑自己的明文 `http://` |
 | `HARNESS_CHROME` | 自动查找 | 浏览器用哪个 Chrome（或者 Chromium、Edge、Brave）的完整路径。"设置 → 浏览器"里填了路径的话，以那里为准 |
@@ -3023,6 +3127,9 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 测试里对每个起步任务都验证了这一点（见下面）。
 
 ### 怎么跑
+
+评测要在 clone 下来的仓库里跑：任务（`evals/tasks/`）和演习用的假服务器（`tests/`）是仓库的一部分，不在 `uv tool install` 装上的包里。
+一行命令装上的智狐会这样告诉你；它只跑你用 `--tasks-dir` 指定、再加上 `--real` 的任务。
 
 ```bash
 uv run harness eval tasks                       # 列出任务

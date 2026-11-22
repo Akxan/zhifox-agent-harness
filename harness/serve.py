@@ -40,7 +40,7 @@ from . import instance, log
 from .app import App, build_app
 from .channels.platforms import ORDER, label
 from .channels.store import ChannelStore
-from .config import APP_NAME, EXIT_BUSY, EXIT_CONFIG, EXIT_OK, Config
+from .config import APP_NAME, COMMAND, EXIT_BUSY, EXIT_CONFIG, EXIT_OK, Config
 from .exits import EXIT_SIGNALS
 from .i18n import t
 from .providers import has_key
@@ -163,7 +163,7 @@ def serve(
         threading.Thread(target=server.serve_forever, daemon=True, name="web").start()
         port = server.server_address[1]
         if service:
-            logger.info("%s", t("网页界面在 127.0.0.1 的 {port} 端口上（只有这台电脑能打开）。打开它：uv run harness service open", port=port))
+            logger.info("%s", t("网页界面在 127.0.0.1 的 {port} 端口上（只有这台电脑能打开）。打开它：{command} service open", command=COMMAND, port=port))
         else:
             logger.info("%s", t("网页界面只在这台机器上能打开（127.0.0.1）。在自己的电脑上看：ssh -L {port}:127.0.0.1:{port} 这台服务器，然后打开带口令的地址。", port=port))
         if sys.stderr.isatty() and not service:

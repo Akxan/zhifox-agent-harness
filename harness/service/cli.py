@@ -29,6 +29,9 @@ from typing import IO
 from .. import instance
 from ..config import (
     APP_NAME,
+    COMMAND,
+    FROM_SOURCE,
+    REPAIR,
     SERVICE_RESTART_SECONDS,
     SERVICE_START_SECONDS,
     SERVICE_STOP_SECONDS,
@@ -59,16 +62,29 @@ WHO = {
 EXITS = {
     1: k("数据目录被别人占着，或者端口被占用"),
     2: k("设置有问题（比如 channels.json 坏了），重启也没用，先看日志"),
-    78: k("launchd 没能开起它：工作目录或者日志文件夹不在了？再运行一次 uv run harness service install"),
+    78: k("launchd 没能开起它：工作目录或者日志文件夹不在了？再运行一次 {command} service install"),
 }
 TASK_SCHEDULER_TITLE = k("任务计划程序")  # 给人看的名字（--service 里写的是 taskscheduler）
 MAC_FOLDERS = k(
     "{folders} 在 macOS 保护的文件夹里（文稿、桌面、下载、iCloud 云盘）。后台服务要读这些文件夹时，macOS 可能会弹窗问你"
     "（点“好”），也可能直接拦下（日志里会有 Operation not permitted）。最省事的办法是把项目和工作目录移到这些文件夹外面"
-    "（比如 ~/zhifox），在那里重新运行 uv sync 和 uv run harness service install。"
-    "不想移的话，可以在“系统设置 → 隐私与安全性 → 完整磁盘访问权限”里加上 {python}，再运行 uv run harness service restart；"
+    "（比如 ~/zhifox），在那里重新运行 uv sync 和 {command} service install。"
+    "不想移的话，可以在“系统设置 → 隐私与安全性 → 完整磁盘访问权限”里加上 {python}，再运行 {command} service restart；"
     "注意这等于允许用这个 Python 运行的所有程序读你全部的文件。"
 )
+# 装成工具时（uv tool install）程序不在这些文件夹里，要挪的只有工作目录（见 install.py）
+MAC_FOLDERS_TOOL = k(
+    "{folders} 在 macOS 保护的文件夹里（文稿、桌面、下载、iCloud 云盘）。后台服务要读这些文件夹时，macOS 可能会弹窗问你"
+    "（点“好”），也可能直接拦下（日志里会有 Operation not permitted）。最省事的办法是换一个在这些文件夹外面的工作目录"
+    "（比如 ~/zhifox），再运行 {command} service install --workspace 那个文件夹。"
+    "不想换的话，可以在“系统设置 → 隐私与安全性 → 完整磁盘访问权限”里加上 {python}，再运行 {command} service restart；"
+    "注意这等于允许用这个 Python 运行的所有程序读你全部的文件。"
+)
+
+
+def _mac_folders(folders: str, plan: Plan) -> str:
+    """macOS 保护的文件夹的那段提醒。从仓库里运行和装成工具时，要挪的东西不一样。"""
+    return t(MAC_FOLDERS if FROM_SOURCE else MAC_FOLDERS_TOOL, folders=folders, python=os.path.realpath(plan.python), command=COMMAND)
 
 
 def _open_browser(url: str) -> bool:
@@ -114,7 +130,7 @@ def detect() -> System:
         systemctl = shutil.which("systemctl")
         if systemctl:
             return System(Systemd(home, base.run_command, base.run_attached, systemctl, shutil.which("journalctl") or "journalctl"))
-        return System(None, t("这台机器上没有 systemd（找不到 systemctl），装不了后台服务。可以用别的进程管理工具（supervisord、tmux……）运行 uv run harness serve --web。"))
+        return System(None, t("这台机器上没有 systemd（找不到 systemctl），装不了后台服务。可以用别的进程管理工具（supervisord、tmux……）运行 {command} serve --web。", command=COMMAND))
     if sys.platform == "win32":
         return System(TaskScheduler(home, base.run_command))
     return System(None, t("这个系统还不支持后台服务（支持 macOS、Linux 和 Windows）。"))
@@ -215,7 +231,7 @@ def _why(state: State, manager: Manager) -> str:
         return t("没有记录")
     meanings = {**EXITS, **windows.EXITS} if isinstance(manager, TaskScheduler) else EXITS
     if state.exit_code in meanings:
-        return t("退出码 {code}：{meaning}", code=state.exit_code, meaning=t(meanings[state.exit_code]))
+        return t("退出码 {code}：{meaning}", code=state.exit_code, meaning=t(meanings[state.exit_code], command=COMMAND, repair=REPAIR))
     return t("退出码 {code}", code=state.exit_code)
 
 
@@ -228,7 +244,7 @@ def _report_started(plan: Plan, system: System, previous: int | None = None) -> 
         state = manager.state()
         if _up(plan, state) and state.pid != previous:
             if plan.web:
-                system.say(t("已经开起来了（进程 {pid}）。打开网页：uv run harness service open", pid=state.pid))
+                system.say(t("已经开起来了（进程 {pid}）。打开网页：{command} service open", command=COMMAND, pid=state.pid))
             else:
                 system.say(t("已经开起来了（进程 {pid}）。没有开网页界面（装的时候用了 --no-web）。", pid=state.pid))
             return 0
@@ -237,7 +253,7 @@ def _report_started(plan: Plan, system: System, previous: int | None = None) -> 
         system.sleep(0.5)
     system.warn(t("等了 {seconds} 秒还没看到它开起来（{state}）。", seconds=round(system.start_wait), state=_describe(state, manager)))
     _print_problems(plan, state, system, to_err=True)
-    system.warn(t("过一会儿用 uv run harness service status 再看看；日志在：{place}", place=manager.log_place(plan)))
+    system.warn(t("过一会儿用 {command} service status 再看看；日志在：{place}", command=COMMAND, place=manager.log_place(plan)))
     return 1
 
 
@@ -254,7 +270,7 @@ def _print_problems(plan: Plan, state: State, system: System, to_err: bool = Fal
         folders = protected_folders(plan, system.home)
         denied = any("Operation not permitted" in line for line in found)
         if denied or (folders and not state.running):
-            write(t(MAC_FOLDERS, folders=t("、").join(str(folder) for folder in folders) or plan.workspace, python=os.path.realpath(plan.python)))
+            write(_mac_folders(t("、").join(str(folder) for folder in folders) or str(plan.workspace), plan))
 
 
 def _describe(state: State, manager: Manager) -> str:
@@ -275,7 +291,7 @@ def _describe(state: State, manager: Manager) -> str:
             return t("没在运行（上次：{why}）。launchd 每隔 {seconds} 秒会再试一次", why=_why(state, manager), seconds=SERVICE_RESTART_SECONDS)
         return t("已停下（上次是正常退出的）")
     if isinstance(manager, TaskScheduler) and not state.loaded:
-        return t("任务计划程序里没有这个任务了（被删掉了？）。再运行一次 uv run harness service install 装回来")
+        return t("任务计划程序里没有这个任务了（被删掉了？）。再运行一次 {command} service install 装回来", command=COMMAND)
     if state.exit_code not in (None, 0) or state.signal is not None:
         return t("出错停下了（{why}）", why=_why(state, manager))
     return t("已停下。下次登录时会自动启动") if state.enabled else t("已停下，也不会自动启动")
@@ -290,7 +306,7 @@ def _summary(plan: Plan, manager: Manager, system: System) -> None:
     if isinstance(manager, TaskScheduler):
         system.say("  " + _task_line(manager))
     system.say("  " + t("日志：{place}", place=manager.log_place(plan)))
-    system.say("  " + t("管它：uv run harness service status | logs -f | stop | restart | uninstall"))
+    system.say("  " + t("管它：{command} service status | logs -f | stop | restart | uninstall", command=COMMAND))
 
 
 def _task_line(manager: TaskScheduler) -> str:
@@ -308,11 +324,11 @@ def _warnings(plan: Plan, config: Config, system: System) -> None:
 
     provider = PROVIDERS.get(Settings(config.settings_file, config.default_provider, config.default_model).provider)
     if provider is not None and not system.environ.get(provider.key_env):
-        system.warn(t("注意：还没有设置 {provider} 的 API 密钥。服务照样会开起来，打开网页（uv run harness service open）在“设置”里填就行。", provider=provider.label))
+        system.warn(t("注意：还没有设置 {provider} 的 API 密钥。服务照样会开起来，打开网页（{command} service open）在“设置”里填就行。", command=COMMAND, provider=provider.label))
     if isinstance(manager, Launchd):
         folders = protected_folders(plan, system.home)
         if folders:
-            system.warn(t("注意：") + t(MAC_FOLDERS, folders=t("、").join(str(folder) for folder in folders), python=os.path.realpath(plan.python)))
+            system.warn(t("注意：") + _mac_folders(t("、").join(str(folder) for folder in folders), plan))
     if isinstance(manager, Systemd) and not manager.lingering():
         system.warn(t("注意：退出登录以后，systemd 会把你这个账号的服务一起停掉。要让它没人登录时也开着（服务器、开机就运行）：sudo loginctl enable-linger {user}", user=manager.user))
 
@@ -337,11 +353,11 @@ def install(args: argparse.Namespace, config: Config, system: System) -> int:
     if same and state.running and state.pid is not None:
         system.say(_headline(manager, t("已经装好了，设置没有变，正在运行（进程 {pid}）。", pid=state.pid)))
         if plan.web:
-            system.say("  " + t("打开网页：uv run harness service open"))
+            system.say("  " + t("打开网页：{command} service open", command=COMMAND))
         return 0
     blocked, found = _blocker(plan.data_dir, state)
     if blocked:
-        return _refuse(system, plan.data_dir, found, "uv run harness service install")
+        return _refuse(system, plan.data_dir, found, f"{COMMAND} service install")
     if isinstance(manager, Systemd):
         reachable = manager.precheck()
         if not reachable.ok:
@@ -358,7 +374,7 @@ def install(args: argparse.Namespace, config: Config, system: System) -> int:
     loaded = manager.load()
     if not loaded.ok:
         system.warn(t("服务的设置写好了，但没能启动它：{error}", error=loaded.message()))
-        system.warn(t("文件在：{path}。修好以后再运行一次 uv run harness service install。", path=manager.file))
+        system.warn(t("文件在：{path}。修好以后再运行一次 {command} service install。", command=COMMAND, path=manager.file))
         return 1
     headline = t("设置没有变，重新开起来了。") if replacing and same else t("换成了这次的设置，重新开起来了。") if replacing else t("已经装好了。")
     system.say(_headline(manager, headline))
@@ -396,7 +412,7 @@ def uninstall(config: Config, system: System) -> int:
     system.say(t("已经卸载了{name}的后台服务：它停下了，以后登录时也不会再自动启动。", name=APP_NAME))
     if plan is not None:
         system.say("  " + t("数据和日志都还在：{path}", path=plan.data_dir))
-    system.say("  " + t("在终端里用：uv run harness --web；想再装上：uv run harness service install"))
+    system.say("  " + t("在终端里用：{command} --web；想再装上：{command} service install", command=COMMAND))
     return 0
 
 
@@ -405,7 +421,7 @@ def _installed(system: System) -> tuple[State, Plan | None] | None:
     assert manager is not None
     state = manager.state()
     if not state.installed:
-        system.warn(t("还没有装后台服务。装上它：uv run harness service install"))
+        system.warn(t("还没有装后台服务。装上它：{command} service install", command=COMMAND))
         return None
     return state, manager.read_plan()
 
@@ -424,7 +440,7 @@ def start(config: Config, system: System) -> int:
         return 0
     blocked, holder = _blocker(plan.data_dir, state)
     if blocked:
-        return _refuse(system, plan.data_dir, holder, "uv run harness service start")
+        return _refuse(system, plan.data_dir, holder, f"{COMMAND} service start")
     result = system.manager.start(state)  # type: ignore[union-attr]
     if not result.ok:
         system.warn(t("没能启动：{error}", error=result.message()))
@@ -449,7 +465,7 @@ def stop(config: Config, system: System) -> int:
     plan = manager.read_plan()
     if plan is not None and not _wait_free(system, plan.data_dir):
         system.warn(t("它还没完全退出；过一会儿就好。"))
-    system.say(t("已停下。下次登录时会自动启动；现在就开：uv run harness service start。不想再自动启动：uv run harness service uninstall。"))
+    system.say(t("已停下。下次登录时会自动启动；现在就开：{command} service start。不想再自动启动：{command} service uninstall。", command=COMMAND))
     return 0
 
 
@@ -461,7 +477,7 @@ def restart(config: Config, system: System) -> int:
     plan = plan or make_plan(config, environ=system.environ)
     blocked, holder = _blocker(plan.data_dir, state)
     if blocked:
-        return _refuse(system, plan.data_dir, holder, "uv run harness service restart")
+        return _refuse(system, plan.data_dir, holder, f"{COMMAND} service restart")
     result = system.manager.restart(state)  # type: ignore[union-attr]
     if not result.ok:
         system.warn(t("没能重启：{error}", error=result.message()))
@@ -477,7 +493,7 @@ def status(config: Config, system: System) -> int:
     plan = manager.read_plan()
     system.say(_headline(manager, _describe(state, manager)))
     if not state.installed and not state.loaded:
-        system.say("  " + t("装上它：uv run harness service install（登录时自动启动，出错退出后自己重启）"))
+        system.say("  " + t("装上它：{command} service install（登录时自动启动，出错退出后自己重启）", command=COMMAND))
         if instance.in_use(config.data_dir):
             found = instance.holder(config.data_dir)
             who = t(WHO[found.kind]) if found is not None else APP_NAME
@@ -485,17 +501,17 @@ def status(config: Config, system: System) -> int:
         return 3
     if plan is None and not state.installed:
         # launchd 里还读着它，文件却被删掉了
-        system.say("  " + t("服务的设置文件不见了：{path}。再运行一次 uv run harness service install 装回来，或者 uv run harness service uninstall 把它卸干净。", path=manager.file))
+        system.say("  " + t("服务的设置文件不见了：{path}。再运行一次 {command} service install 装回来，或者 {command} service uninstall 把它卸干净。", command=COMMAND, path=manager.file))
         return 0 if state.running else 3
     if plan is None:
-        system.say("  " + t("服务的设置看不懂（被手改过？）：{path}。再运行一次 uv run harness service install 就会换成新写的。", path=manager.file))
+        system.say("  " + t("服务的设置看不懂（被手改过？）：{path}。再运行一次 {command} service install 就会换成新写的。", command=COMMAND, path=manager.file))
         return 0 if state.running else 3
     if not plan.web:
         system.say("  " + t("网页：没开（装的时候用了 --no-web）"))
     elif _up(plan, state):
         match = ADDRESS.fullmatch(_read_address(plan.web_address_file))
         port = match.group(1) if match else "?"
-        system.say("  " + t("网页：http://127.0.0.1:{port}（打开：uv run harness service open）", port=port))
+        system.say("  " + t("网页：http://127.0.0.1:{port}（打开：{command} service open）", command=COMMAND, port=port))
     elif state.running:
         system.say("  " + t("网页：正在开……"))
     system.say("  " + t("工作目录：{path}", path=plan.workspace))
@@ -503,7 +519,7 @@ def status(config: Config, system: System) -> int:
     system.say("  " + t("服务的设置：{path}", path=manager.file))
     if isinstance(manager, TaskScheduler):
         system.say("  " + _task_line(manager))
-    system.say("  " + t("日志：{place}（跟着看：uv run harness service logs -f）", place=manager.log_place(plan)))
+    system.say("  " + t("日志：{place}（跟着看：{command} service logs -f）", command=COMMAND, place=manager.log_place(plan)))
     if isinstance(manager, Systemd):
         system.say("  " + (t("没人登录时也开着（已经开了 linger）。") if manager.lingering() else t("退出登录以后会跟着停下。要一直开着：sudo loginctl enable-linger {user}", user=manager.user)))
     if isinstance(manager, TaskScheduler):
@@ -538,13 +554,13 @@ def open_page(config: Config, system: System, print_only: bool = False) -> int:
             break
     if not running:
         if plan is not None:
-            system.warn(t("{name}没有在运行。开起来：uv run harness service start", name=APP_NAME))
+            system.warn(t("{name}没有在运行。开起来：{command} service start", command=COMMAND, name=APP_NAME))
         else:
-            system.warn(t("{name}没有在运行。装成后台服务：uv run harness service install；或者在终端里开：uv run harness --web", name=APP_NAME))
+            system.warn(t("{name}没有在运行。装成后台服务：{command} service install；或者在终端里开：{command} --web", command=COMMAND, name=APP_NAME))
         return 1
     if not url:
         if plan is not None and not plan.web and plan.data_dir in running:
-            system.warn(t("后台服务没有开网页界面（装的时候用了 --no-web）。要开：uv run harness service install --web"))
+            system.warn(t("后台服务没有开网页界面（装的时候用了 --no-web）。要开：{command} service install --web", command=COMMAND))
         else:
             system.warn(t("{name}在运行，但还没找到网页的地址。刚开起来的话等几秒再试；在终端里开的 harness --web，地址印在那个终端里。", name=APP_NAME))
         return 1

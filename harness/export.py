@@ -4,7 +4,9 @@
 媒体库……以后新加的功能，只要把数据放在这个文件夹里，就会自动跟着导出，不用改这里。
 
 不导出的，以及做了处理的：
-  - 密钥。API key 在 .env 里，本来就不在数据文件夹里；万一被放了进来（叫 .env、.env.xxx 或者 xxx.env），跳过。
+  - 密钥。API key 在 .env 里。从仓库里运行时它本来就不在数据文件夹里；装成工具时（见 install.py）它就在数据文件夹里，
+    和别的文件放在一起。不管在不在，按名字（叫 .env、.env.xxx 或者 xxx.env）和按路径（Config.env_file，HARNESS_ENV_FILE
+    换到哪儿都认得，见 plan 的 secrets）都跳过。
   - MCP 的配置（mcp.json）照样导出，但里面的密钥换成占位符 PLACEHOLDER：启动 MCP 服务器用的环境变量（env）、
     请求头（headers）里的每一个值，名字像密钥的字段（key、token、secret、password……）的值，命令行参数里
     跟在 --token 这类开关后面的值，以及网址里的密码、长得像密钥的字符串（sk-…、ghp_…）。名字（比如
@@ -240,7 +242,7 @@ def readme(work: Plan, data_dir: Path, moment: datetime) -> str:
         t("2. 把这个压缩包解压到数据文件夹里，覆盖同名的文件。想完全回到备份时的样子，先把现在的数据文件夹改个名字放到一边，再解压到一个新建的空文件夹里，用它当数据文件夹。"),
         t("3. 重新启动{name}。", name=APP_NAME),
         "",
-        t("这份备份不含 API 密钥：它们保存在 .env 文件里，不在数据文件夹里。"),
+        t("这份备份不含 API 密钥：它们保存在 .env 文件里，这个文件从不导出。"),
     ]
     if work.masked:
         lines += ["", t("下面这些文件里的密钥换成了 {placeholder}，恢复以后要重新填写：", placeholder=PLACEHOLDER)]

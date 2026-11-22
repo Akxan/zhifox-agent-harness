@@ -192,6 +192,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/webui/server.py`、`webapp.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁（`_turn`）、存盘、这段会话归谁、状态快照。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
+| `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
 
 ## 改代码时必须守住的几条
 
@@ -417,6 +418,14 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   价格只在 `pricing.transcribe_cost` 里算（按分钟估，有的模型其实按 token 计费）。现在只有 Telegram 收语音，别的平台回答"暂时只有 Telegram 支持"。
 - **本机的 Python 是 3.11，CI 在三个系统上各跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
   拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
+- **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
+  （`install.from_source`：包的上一层有写着 harness-assistant 的 pyproject.toml，而且不叫 site-packages），别处不要再判断。
+  从仓库里运行时 `data/` 和 `.env` 在仓库里，一字不变；装成工具时都在 `install.user_dir`（macOS 的 Application Support、
+  Linux 的 XDG_DATA_HOME、Windows 的 LOCALAPPDATA），`.env` 在数据目录里，所以挡它的几处（`protected_files`、导出的 secrets、
+  沙箱的 deny）一直按路径认，不能改成只认仓库里的那个。`HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 永远优先、各管各的。
+  说给用户听的命令写成 `{command}`、填 `config.COMMAND`（`uv run harness` / `harness`），叫人修好安装的填 `config.REPAIR`，
+  不要再写死 `uv run harness`（还没改的：`cli.py` 的 SETUP_HELP 和两句提示、`server.py` 的一句、页面上"后台运行"那一节）。
+  运行时读的文件只能放在 `harness/` 包里（wheel 只带它）；用到 `PROJECT_ROOT` 的只有说明过的几处（`tests/test_install_location.py` 会查）。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
@@ -472,7 +481,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）只在本机 macOS 上从本地的 wheel 和 zip 真装过（2026-11-22，临时的家目录和工具目录）；Linux、Windows 上的真装，从 GitHub 的 `git+https://` 和 zip 地址装，`uv tool upgrade` 从 GitHub 拉新版本，都没实测。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

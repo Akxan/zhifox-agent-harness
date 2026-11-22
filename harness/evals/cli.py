@@ -38,6 +38,7 @@ from ..config import (
     EVAL_PARALLEL,
     EVAL_RESULTS_DIR,
     EVAL_TASKS_DIR,
+    FROM_SOURCE,
     PROJECT_ROOT,
     Config,
 )
@@ -126,6 +127,13 @@ def run(
 
 
 def _load(args: argparse.Namespace) -> list[Task]:
+    if args.tasks_dir is None and not FROM_SOURCE and not EVAL_TASKS_DIR.is_dir():
+        # 装成工具时（见 install.py）wheel 里没有 evals/tasks/，也没有演习要用的 tests/ 里的假服务器。不打进包里：
+        # 评测是给改智狐的人用的，任务随代码一起改；打进去了，默认的演习照样跑不了，只会让人以为装坏了
+        raise TaskFileError(t(
+            "装成工具的智狐不带评测任务：任务（evals/tasks/）和演习用的假服务器（tests/）都在仓库里，评测是给改智狐的人用的。"
+            "请把仓库 git clone 下来，在那里运行 uv run harness eval。只想用你自己写的任务真的跑一次，用 --tasks-dir 指定任务的文件夹，再加 --real。"
+        ))
     tasks = select(load_tasks(args.tasks_dir or EVAL_TASKS_DIR), args.tasks)
     if not tasks:
         raise TaskFileError(t("没有对得上 {pattern} 的任务。harness eval tasks 列出全部。", pattern=args.tasks or "*"))
