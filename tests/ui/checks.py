@@ -56,6 +56,7 @@ NAMES = [
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
     ".hooks-name", ".hooks-title-name",  # 钩子的名字（你起的）
     ".changes-path", ".changes-warn-path",  # "改了 N 个文件"那一行、撤回之前的提醒里的文件路径（文件名是你的或者模型起的）
+    ".restore-file-name", ".restore-saved-path", ".restore-key-paths",  # 从备份恢复：你选的文件名、自动备份的路径、配置里的位置（名字是你起的）
 ]
 # 在任何语言下都照原样写的几个词：标志的名字，以及语言选单里每种语言用它自己的文字写的名字
 ALLOWED_WORDS = ["智狐", "中文", "语言"]

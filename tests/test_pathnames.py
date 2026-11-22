@@ -437,6 +437,49 @@ def test_archives_with_windows_names_are_refused_everywhere(path):
         bundle.clean_path(path)
 
 
+ARCHIVE_TRICKS = [
+    "../x",  # 写到文件夹外面去（zip slip）
+    "a/../../x",
+    "./a",
+    "a//b",
+    "/etc/hosts",  # 绝对路径
+    "C:x",  # 盘符
+    "C:/x",
+    "a\\b",  # 反斜杠：Windows 上的分隔符
+    "a\tb",  # 控制字符
+    "CON",  # 设备名
+    "a/nul.txt",
+    "a:b",  # 数据流
+    "PROGRA~1/x",  # 8.3 短名字
+    "notes.md.",  # 尾巴上的点：Windows 会去掉它，和 notes.md 撞名
+    "a /b",  # 尾巴上的空格
+    "",
+    "x" * 1001,
+    "y" * 256 + "/z",  # 一段名字太长
+]
+
+
+@pytest.mark.parametrize("name", ARCHIVE_TRICKS, ids=range(len(ARCHIVE_TRICKS)))
+def test_archive_names_that_escape_or_turn_into_something_else(name):
+    """压缩包里一项的名字（从备份恢复、装 Skill 共用这一处检查）：解开会写到外面、或者在 Windows 上变成别的东西的，在哪儿都不收。"""
+    assert pathnames.archive_trick(name)
+    with pytest.raises(SkillError):  # Skill 的安装照旧拒绝它们（clean_path 现在用的就是这一处）
+        bundle.clean_path(name)
+
+
+def test_archive_names_that_are_fine():
+    for name in ("conversations/20261120-1403-abc.json", "memories/projects/智狐.md", "media/a.b.c.png", ".hidden"):
+        assert pathnames.archive_trick(name) is None, name
+        assert bundle.clean_path(name) == name
+
+
+def test_archive_names_with_too_many_levels():
+    deep = "/".join(["d"] * 33)
+    assert pathnames.archive_trick(deep, 32) and pathnames.archive_trick(deep, 33) is None
+    assert pathnames.archive_trick("a", 0)  # 一段也不许
+    assert pathnames.archive_trick(None) and pathnames.archive_trick(3)  # 不是文字的一律不收
+
+
 def test_a_zip_with_a_windows_trick_installs_nothing():
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:

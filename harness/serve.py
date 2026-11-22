@@ -180,7 +180,7 @@ def serve(
             pass
     finally:
         logger.info("%s", t("正在退出：停下正在进行的、存好盘……"))
-        lifecycle.stop(webapp, SHUTDOWN_WAIT_SECONDS)
+        lifecycle.stop(server.web if server is not None else webapp, SHUTDOWN_WAIT_SECONDS)  # 从备份恢复过的话，server.web 换成了新的那一个
         if server is not None:
             server.shutdown()
             server.server_close()

@@ -16,28 +16,46 @@
 from __future__ import annotations
 
 import time
+import weakref
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .server import WebApp
 
 
+# 调用过 start、还没 stop 的 WebApp。从备份恢复以后换上一个新的 WebApp 时（见 restore_api.py），照着它决定要不要也开起来：
+# 测试里的 WebApp 从来不 start（它们直接调用 tick），换上的新的也不该自己开起调度线程
+_started: weakref.WeakSet[WebApp] = weakref.WeakSet()
+
+
 def start(web: WebApp) -> None:
     """开始运行定时任务和聊天通道。刚启动时调度器会先看一眼：程序关着的时候错过的任务，补跑一次。"""
+    _started.add(web)
     web.tasks.start()
     web.channels.start()
 
 
-def stop(web: WebApp, wait: float) -> None:
-    """退出前的收尾：网页上正在进行的一轮、正在运行的定时任务、聊天里正在进行的对话，都停下来、存好盘。"""
+def started(web: WebApp) -> bool:
+    return web in _started
+
+
+def stop(web: WebApp, wait: float, holding_turn: bool = False) -> None:
+    """退出前的收尾：网页上正在进行的一轮、正在运行的定时任务、聊天里正在进行的对话，都停下来、存好盘。
+
+    holding_turn：调用的人自己拿着对话的锁（web._turn，从备份恢复时，见 restore_api.py），网页上的对话不会在跑，
+    不用叫它停、也不用等它（等的话要等满 wait 秒：锁就在调用的人手里）。"""
+    _started.discard(web)
     app = web.app
     web.tasks.close()  # 排队的不跑了，正在跑的各自停下（连同它们自己的命令）
-    web.stop()
+    if not holding_turn:
+        web.stop()
     app.shell.kill_running()
     app.mcp.cancel_all()  # 正在等的 MCP 调用，不管是对话的、任务的还是聊天里的，都取消
     deadline = time.monotonic() + wait
     # 聊天通道：不再收消息；聊天里正在进行的停下，等它们存好盘（最多 CHANNEL_SHUTDOWN_SECONDS 秒，和下面的一起算）
     web.channels.close()
-    web.wait_idle(max(0.0, deadline - time.monotonic()))
+    if not holding_turn:
+        web.wait_idle(max(0.0, deadline - time.monotonic()))
     web.tasks.wait_idle(max(0.0, deadline - time.monotonic()))
     app.close()  # 关掉 MCP 服务器的进程
+    web.restore.close()  # 上传了、还没确认的备份（在系统的临时文件夹里）删掉

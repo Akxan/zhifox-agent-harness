@@ -63,7 +63,7 @@ function refusal(family, name) {
 }
 
 function formatSize(bytes) {
-  const units = [[1e6, ' MB'], [1e3, ' KB']];
+  const units = [[1e9, ' GB'], [1e6, ' MB'], [1e3, ' KB']];  // GB：整个数据文件夹（导出、从备份恢复）可能有几个 GB
   for (const [unit, label] of units) {
     if (bytes >= unit) return (bytes / unit).toLocaleString(LOCALES[language], { maximumFractionDigits: 1 }) + label;
   }

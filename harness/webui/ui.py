@@ -288,6 +288,12 @@ class WebUI:
 
         return forget
 
+    def forget_stop_callbacks(self) -> None:
+        """忘掉所有登记过的"停止时要做的事"。从备份恢复以后换上一个新的 WebApp（见 restore_api.py），界面还是这一个，
+        旧的那一份登记的（结束旧程序的命令、取消旧的 MCP 调用……）不该再被叫到。"""
+        with self._changed:
+            self._stop_callbacks.clear()
+
     def request_stop(self) -> None:
         """用户点了"停止"。
 

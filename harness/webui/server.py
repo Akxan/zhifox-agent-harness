@@ -86,6 +86,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/budget     用户填写或清除了每月预算（见 budget.py 和 settings_api.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py 和这个文件的 _send_export）
+  POST /api/restore/info、upload、discard、apply、reveal   从备份恢复：上传（请求体是压缩包原样的字节）、预览、确认、在访达中显示自动备份（见 restore_api.py）
   POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py 和 channels_api.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
@@ -156,6 +157,7 @@ from . import (
 )
 from . import manifest as web_manifest
 from .page import assemble as assemble_page
+from .restore_api import UPLOAD_PATH as RESTORE_UPLOAD
 from .skills_api import MAX_UPLOAD_BODY_BYTES
 from .ui import WebUI, latest_state_only
 from .webapp import WebApp
@@ -210,6 +212,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         # 只有发消息（带附件）和上传 Skill（压缩包、文件夹）的请求体上限放宽了
         path = urlsplit(self.path).path
+        if path == RESTORE_UPLOAD:  # 备份的压缩包：请求体是原样的字节，不是 JSON，边读边写进临时文件（上限也在那边，见 restore_api.py）
+            self._send_json(*self.server.web.restore.upload(self.headers, self.rfile))
+            return
         limit = {"/api/message": MAX_MESSAGE_BODY_BYTES, "/api/skill/upload": MAX_UPLOAD_BODY_BYTES}.get(path, MAX_BODY_BYTES)
         body = self._read_json(limit)
         if body is None:
@@ -312,6 +317,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":
             self._send_export()
+        elif path.startswith("/api/restore/"):
+            status, payload = web.restore.route(path.removeprefix("/api/restore/"), body, self.server)
+            self._send_json(status, payload)
         elif path == "/api/fallbacks":
             status, payload = fallback_api.save(web.app, body)
             if status == 200:

@@ -18,6 +18,7 @@ kind 有这几种：
   serve     harness serve（在终端里、或者 systemd 的系统服务里开的）
   service   harness service install 装的后台服务（launchd、systemd 的用户服务，或者 Windows 任务计划程序里的任务）
   channels  harness channels pair（智狐没开着的时候，命令行自己临时连上平台收配对码）
+  restore   harness restore（从备份恢复：恢复完才放开，这期间谁也开不了智狐，见 restore_cli.py）
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from .i18n import t
 from .safe import private_dir
 
 LOCK_NAME = ".lock"
-KINDS = ("web", "serve", "service", "channels")
+KINDS = ("web", "serve", "service", "channels", "restore")
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,11 @@ def busy_lines(data_dir: Path) -> list[str]:
         return [
             t("harness channels pair 正在等配对码（进程 {pid}），占着这个数据目录：{path}", pid=found.pid, path=data_dir),
             t("配对成功或者在它那里按 Ctrl-C 之后，再启动。"),
+        ]
+    if found is not None and found.kind == "restore":
+        return [
+            t("harness restore 正在从备份恢复（进程 {pid}），占着这个数据目录：{path}", pid=found.pid, path=data_dir),
+            t("等它恢复完再启动。"),
         ]
     if found is not None and found.kind == "serve":
         return [

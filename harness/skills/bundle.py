@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from ..i18n import Message, t
-from ..pathnames import name_trick
+from ..pathnames import archive_trick
 from .frontmatter import FrontmatterError, parse
 from .spec import KNOWN, MAX_NAME, NAME, Meta, check, with_name
 from .store import MAX_DEPTH, SKILL_FILE, BadRequest, SkillError, SkillStore, described
@@ -45,23 +45,11 @@ _JUNK = re.compile(r"(^|/)(__MACOSX|\.git)(/|$)|(^|/)(\.DS_Store|Thumbs\.db|desk
 
 def clean_path(name: object) -> str:
     """检查一个相对路径能不能放进 Skill 文件夹。能的话原样返回，不能的话抛出 SkillError。"""
-    bad = SkillError(t("里面有不安全的文件路径：{path}。为了安全，什么都没有安装。", path=str(name)[:200]))
-    if not isinstance(name, str) or not 0 < len(name) <= 1000:
-        raise bad
-    if "\\" in name or any(ord(char) < 32 or ord(char) == 127 for char in name):
-        raise bad  # 反斜杠在 Windows 上是路径的分隔符；控制字符不该出现在文件名里
-    if name.startswith("/") or re.match(r"[A-Za-z]:", name):
-        raise bad  # 绝对路径（包括 C: 这样的盘符）
-    parts = name.split("/")
-    if any(part in ("", ".", "..") for part in parts) or len(parts) > MAX_DEPTH + 1:
-        raise bad
-    if any(len(part.encode("utf-8", "surrogatepass")) > 255 for part in parts):
-        raise bad
-    # 在 Windows 上解开会变成别的东西的名字：a.md:x（数据流）、SKILL.md.（尾巴上的点会被去掉，和 SKILL.md 撞名）、
-    # CON、nul.txt（设备）、PROGRA~1（短名字，可能是另一个文件的别名）、* ? < > " |。不管现在是什么系统都不收：
-    # 同一个压缩包、同一个 Skill 文件夹，换到 Windows 上也得是安全的（见 pathnames.name_trick）
-    if any(name_trick(part) for part in parts):
-        raise bad
+    # 绝对路径、../、反斜杠、控制字符，以及在 Windows 上解开会变成别的东西的名字：a.md:x（数据流）、SKILL.md.（尾巴上的点
+    # 会被去掉，和 SKILL.md 撞名）、CON、nul.txt（设备）、PROGRA~1（短名字）、* ? < > " |。不管现在是什么系统都不收：
+    # 同一个压缩包、同一个 Skill 文件夹，换到 Windows 上也得是安全的（见 pathnames.archive_trick，从备份恢复也用它）
+    if archive_trick(name, MAX_DEPTH + 1):
+        raise SkillError(t("里面有不安全的文件路径：{path}。为了安全，什么都没有安装。", path=str(name)[:200]))
     return name
 
 

@@ -68,6 +68,7 @@ function applyLanguage(code) {
   retitleModelButton();     // 模型按钮的提示也一样（见 models.js）
   if (modelsFlyout.isOpen()) drawModels();  // 换模型的面板：价格的写法、按钮的提示跟着界面语言
   if (endpointDialog.open) drawEndpointEditor();  // 编辑自定义模型接口的窗口：按钮的说明里带着模型名、数字的写法
+  if (restoreDialog.open) drawRestore();  // 从备份恢复的窗口：导出的时间、大小、数字的写法跟着界面语言
   relabelTraces();  // 每一轮上"运行记录"写的时长和金额；它的窗口开着的话重画
 }
 

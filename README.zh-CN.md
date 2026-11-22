@@ -426,6 +426,7 @@ uv run harness --web
   - 操作整台电脑（进阶，默认关着）：确认过风险以后让助手操作整台电脑；需要的权限、程序有没有；定时任务和聊天通道能不能用；
     不许碰的程序。见下面的"操作整台电脑"。
   - 导出全部数据：把整个数据文件夹打成一个 zip 下载下来。导出前显示文件夹有多大，导出后显示压缩包有多大。
+    旁边的"从备份恢复…"把这样的压缩包放回来：先看预览，再选覆盖或者合并；恢复之前自动备份现在的数据，现在的密钥留着。
     见下面的"备份和恢复"。
 - 信息栏（右上角最右边的按钮展开或收起）：估算费用、四类 token 各占多少、未完成的待办、
   **智狐能做的事**（见下面的[智狐能做的事](#智狐能做的事功能清单)）。每调用一次模型就更新一次。费用卡片上"本次运行"的数字下面，是**今天**和**本月**一共花了多少
@@ -862,6 +863,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 遮住密钥 | [harness/redact.py](harness/redact.py) | 命令的输出、文件里可能一不小心带着一把密钥，进了只追加的历史就会发给厂商、永远存着。结果一产生就遮，在 `tool_ended` 记录点之前：认各家密钥的格式、环境变量和 `.env` 里已知的值、`password=` `token:` 后面随机的一串（见[遮住工具结果里的密钥](#遮住工具结果里的密钥)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
 | 自检 | [harness/doctor/](harness/doctor/) | 多数问题不在代码里，在这台电脑上：密钥只设在终端里、数据目录别人也能读、MCP 服务器要 `npx` 而这台电脑没装 Node.js。`harness doctor` 只看不改，一屏看完，修法按你的 shell 写（见[出了问题：先运行 harness doctor](#出了问题先运行-harness-doctor)） |
+| 从备份恢复 | [harness/restore.py](harness/restore.py)、[harness/restore_keys.py](harness/restore_keys.py)、[harness/webui/restore_api.py](harness/webui/restore_api.py)、[harness/restore_cli.py](harness/restore_cli.py) | 手动把备份解压到数据文件夹上，占位符会盖掉你的密钥，压缩包里有什么都照单全收。页面上（或者 `harness restore`）照着导出的名单检查压缩包、先给你看预览、先备份现在的数据、留着现在的密钥，再在原地重新开起来（见"备份和恢复"） |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
@@ -2837,6 +2839,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
 | `data/backups/turns/` | 文件工具改过文件的每一轮一个文件夹：一份清单，每个文件这一轮之前（和之后）的样子，撤回时为重做留的那一份。只有你的账号能读，30 天后删掉 |
 | `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
+| `data/restore-backups/` | 每次从备份恢复之前自动留的备份（`zhifox-before-restore-日期-时间.zip`，密钥遮住，最多留最新的 5 份）。从不导出（见"备份和恢复"） |
 | `data/logs/` | macOS 上后台服务的日志 `service.log`，以及最多三份旧的（见"在后台一直运行"） |
 | `data/.web-address`、`data/.web-token` | 后台服务的网页口令（重启前后不变，卸载服务时删掉），和带着它的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
 | `data/.lock` | 正在用这个数据目录的那个智狐占着它，里面记着是哪一种（网页界面、`serve`、后台服务）和进程编号，再开一个的时候好说清楚是谁挡着。导出时不带 |
@@ -2889,21 +2892,64 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 `<removed-from-backup>`：环境变量、请求头、名字像 key、token、password 的字段、`--token` 这类开关后面的值、网址里的密码，
 以及长得像 API 密钥的字符串；名字都留着，恢复以后知道要填回哪几项。这个文件不是合法的 JSON 的话，整个不导出，
 宁可少导出一份也不冒险带出密钥。`data/channels.json` 里每个机器人的 token、应用的密钥和正在用的配对码，
-导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。`data/hooks.json` 也一样处理（钩子的参数里可能有令牌，比如 `--token xxx`）。
-符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
-`README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出。压缩包在数据文件夹以外的临时文件里生成，
-发给浏览器之后就删掉。
+导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。`data/hooks.json` 也一样处理（钩子的参数里可能有令牌，比如 `--token xxx`），
+`data/endpoints.json` 也是。符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
+`README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出；另有一份写给程序看的 `backup-manifest.json`
+（格式的版本、带时区的导出时间、哪些文件遮了密钥）。压缩包在数据文件夹以外的临时文件里生成，发给浏览器之后就删掉。
 
-恢复的办法：
+**在网页上恢复：设置 → 从备份恢复…**
 
-1. 先退出智狐（在它的终端里按 Ctrl-C）。
-2. 把压缩包解压到数据文件夹里（默认是项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹），覆盖同名的文件：`unzip -o zhifox-backup-….zip -d data`
-   （用访达双击解压也行：把解压出来的文件夹里的内容拷进 `data/`）。想完全回到备份时的样子，先把现在的 `data/`
-   挪到一边，再解压到一个新建的空 `data/` 里。
-3. 重新启动智狐。备份里有 MCP 服务器的话，把它们的密钥重新填上；接过聊天通道的话，把它们的 token 或者密钥重新粘贴一次
-   （"扩展 → 通道 → 编辑"，或者 `harness channels setup <平台>`）。
+1. 选那个压缩包（或者直接拖进窗口）。它先传给智狐检查一遍；有问题的压缩包会被拒绝并说明原因，什么都不写。
+2. 预览里写着它是什么时候导出的、里面有什么（几段会话、几条记忆、待办、定时任务、Skill、Agent、MCP 服务器……）、
+   两种方式各会把每一样怎么样，以及哪些密钥恢复以后要重新填。
+3. 选一种方式，确认（覆盖会在原地再问一次）：
+   - **覆盖**：数据文件夹变成备份时的样子。每一样都换成备份里的，备份里没有的那几样清空。存着密钥的文件是例外，见下面。
+   - **合并**：只往里加。会话按编号、记忆和 Agent 按文件名、Skill 按文件夹、多媒体按内容，现在没有的加进来，已经有的原样留着。
+     整份的文件（设置、待办、定时任务、花费账本、MCP、聊天通道、钩子……）现在有就留着现在的，没有才用备份里的：
+     两份设置一项一项拼起来，会拼出一份谁都没用过的设置（钩子指着另一台电脑上的脚本、聊天通道配对的是另一个人）。
+4. 写之前，智狐先把现在的数据文件夹导出一份，放在 `data/restore-backups/zhifox-before-restore-日期-时间.zip`
+   （和导出一样遮住密钥；最多留最新的 5 份，导出时不带这个文件夹）。结果那一页上有"在访达中显示"
+   （文件资源管理器、文件管理器）的按钮，还列出哪些密钥还是占位符。
 
-暂时还不能在网页界面里导入。
+**你的密钥绝不会被占位符盖掉。** `mcp.json`、`channels.json`、`endpoints.json`、`hooks.json` 里，备份中的每一个
+`<removed-from-backup>` 都去现在的文件里找"同一处"（同一个 MCP 服务器的同一个环境变量、编号相同的自定义接口、
+`--token` 后面的同一个参数、除了密码一模一样的网址）：现在那里有真的值，就留着现在的；没有的照样写进占位符，
+预览和结果里写明去哪儿重新填（扩展 → MCP、扩展 → 通道、设置 → 自定义模型接口、扩展 → 钩子）。现在有、备份里却没有对应位置的密钥
+（只有这台电脑上才有的服务器）也会列出来：覆盖以后它们就没了。现在的文件读不懂的不动它；备份里没有的存着密钥的文件，
+覆盖时也原样留着。
+
+**压缩包是不可信的输入。** 只认导出会写的那些东西，名单和导出共用一份（`export.PARTS`）；别的一律拒绝，什么都不写：
+带 `../` 的路径、绝对路径、盘符和 Windows 的路径花招（`a:b`、`CON`、`PROGRA~1`、尾巴上的点，用 `pathnames.archive_trick` 检查）、
+符号链接和设备文件、加密的项、只差大小写的两个名字、像 `.env` 的文件、`browser/profile/`、`.web-token`、`.lock`，以及不在名单上的名字。
+大小有上限（`config.py` 里的 `RESTORE_MAX_*`：解开以后一共 8 GB、一个文件 2 GB、20 万项；网页上传本身最多 4 GB，上传之前就查），
+压缩包里写的大小还要和实际读到的对一遍，所以压缩炸弹到了上限就停。`README-backup.txt` 和 `backup-manifest.json` 只读，不写进数据文件夹。
+
+**什么时候拒绝，恢复以后怎样。** 恢复不排队：你的这一轮对话还没结束、有定时任务正在运行、聊天通道里正在进行一轮的时候，
+直接拒绝并说明原因。否则智狐先停下定时任务、聊天通道、MCP 服务器和它的浏览器，再写文件（每一样先在数据文件夹里的一个临时文件夹里摆好，
+再换上去；哪一步出了错都换回原样），然后照着恢复的数据在原地重新开起来，和启动时一样：端口、链接、事件流都不变，
+页面照着新的状态重画就行（不用刷新、不用重启，界面语言也跟着恢复的设置走）。
+
+**在终端里**（没有网页的服务器上）：先退出智狐，再运行
+
+```bash
+uv run harness restore zhifox-backup-….zip            # 覆盖
+uv run harness restore zhifox-backup-….zip --merge    # 合并
+uv run harness restore zhifox-backup-….zip --yes      # 不问（没有终端时必须带上）
+```
+
+```powershell
+uv run harness restore .\zhifox-backup-….zip
+uv run harness restore .\zhifox-backup-….zip --merge
+```
+
+它打印同样的预览，要你输入 `yes`，同样先自动备份，做的时候一直占着数据目录的锁，智狐不会在半路被开起来。
+智狐正开着的话，它会说是哪一个在运行，请你用那边网页上的按钮。终端直接读文件，所以没有 4 GB 的上传上限（解开以后的上限照样有）。
+
+**最后一招，手动恢复：** 先退出智狐，把现在的数据文件夹挪到一边（默认是项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹，
+`harness doctor` 会告诉你是哪个），把压缩包解压到一个新建的空 `data/` 里
+（`unzip zhifox-backup-….zip -d data`；PowerShell 里是 `Expand-Archive .\zhifox-backup-….zip -DestinationPath data`），
+删掉里面的 `README-backup.txt` 和 `backup-manifest.json`，再启动智狐。原来存着密钥的那几个文件现在是占位符，要把密钥重新填上。
+千万不要解压到正在用的数据文件夹上：占位符会把你现在的密钥盖掉。
 
 ## 费用
 
@@ -3026,6 +3072,9 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
 花费账本和预算在 [tests/test_ledger.py](tests/test_ledger.py)（用固定的钟测 DeepSeek 的高峰、闲时价，文件末尾的半行，
 旧明细的合并），导出在 [tests/test_export.py](tests/test_export.py)（压缩包里一个密钥都没有），
+从备份恢复在 [tests/test_restore.py](tests/test_restore.py)、[tests/test_restore_cli.py](tests/test_restore_cli.py)、
+[tests/test_restore_web.py](tests/test_restore_web.py)（导出再恢复一圈、合并时撞上的、各种做坏的压缩包都拒绝且什么都没写、
+占位符不盖掉现在的密钥、自动备份里没有密钥、在原地重新开起来），
 它们在网页上的接口在 [tests/test_spending_web.py](tests/test_spending_web.py)。
 运行记录在 [tests/test_trace.py](tests/test_trace.py)（用一块假的表，每一段的开始、结束、首字时间、等你多久都按毫秒比对；钱和账本里的那一笔一样；
 允许、拒绝、没问就放行；子 Agent 挂在那一步下面；停下、出错时还开着的那一段怎么收尾；有没有运行记录，发出去的请求一个字节都不差；

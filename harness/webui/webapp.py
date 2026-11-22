@@ -60,6 +60,7 @@ from .media_api import MediaActions
 from .memory_api import MemoryActions
 from .models_api import ModelActions
 from .prompt_api import PromptActions
+from .restore_api import RestoreAPI
 from .reveal import RevealActions
 from .rewind_api import RewindActions
 from .sandbox_api import SandboxAPI
@@ -102,6 +103,7 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         self.endpoints = EndpointsAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
         self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
         self.fork = ForkAPI(self)  # 从某一轮分叉成一段新对话（见 fork_api.py）
+        self.restore = RestoreAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # 设置里"从备份恢复…"的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)

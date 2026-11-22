@@ -535,6 +535,7 @@ Each part of the harness has its own file or directory:
 | Masking secrets | [harness/redact.py](harness/redact.py) | A command's output or a file can carry a key by accident, and once it is in the append-only history it's sent to the provider and saved for good. Results are masked the moment they're created, before the `tool_ended` recording point; known key formats, known values from the environment and `.env`, and random-looking values after `password=` / `token:` (see [Masking secrets in tool results](#masking-secrets-in-tool-results)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Self-check | [harness/doctor/](harness/doctor/) | Most problems aren't in the code but on the computer: a key set only in your shell, a data folder others can read, an MCP server that needs `npx` on a machine without Node.js. `harness doctor` looks at all of it on one screen, read-only, with each fix written for your shell (see [Troubleshooting](#troubleshooting-harness-doctor)) |
+| Restore from a backup | [harness/restore.py](harness/restore.py), [harness/restore_keys.py](harness/restore_keys.py), [harness/webui/restore_api.py](harness/webui/restore_api.py), [harness/restore_cli.py](harness/restore_cli.py) | Unzipping a backup over the data folder by hand would overwrite your keys with placeholders and trust whatever is in the zip. The page (or `harness restore`) checks the archive against the export's own list, shows a preview, backs up the current data, keeps current secrets, and starts again in place (see [Backup and restore](#backup-and-restore)) |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
@@ -2710,7 +2711,8 @@ This starts a small server on your computer and opens the chat page in your brow
     confirmation; whether the permissions or programs it needs are there; scheduled tasks and channels; blocked apps.
     See [Computer use](#computer-use).
   - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
-    afterwards. See [Backup and restore](#backup-and-restore).
+    afterwards. **Restore from backup…** next to it takes such a zip back: a preview first, then overwrite or merge, with
+    an automatic backup of the current data and your current secrets kept. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and **What 智狐 can do** (see
   [What ZhiFox can do](#what-zhifox-can-do-the-capability-list) below). It updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
@@ -3517,6 +3519,7 @@ read everything anyway (as root can on the other systems) and removing them only
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
+| `data/restore-backups/` | The automatic backup made before each restore from a backup (`zhifox-before-restore-<date>-<time>.zip`, secrets masked, the newest 5 kept). Never exported (see [Backup and restore](#backup-and-restore)) |
 | `data/logs/` | The background service's log on macOS and Windows, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
 | `data/.lock` | Held by the ZhiFox that is using this data folder, with its kind (web page, `serve`, background service) and process id, so a second one can say who's in the way. Never exported |
@@ -3580,22 +3583,79 @@ inside it (installed with one command), and any other `.env`-like file in the da
 variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
 URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
 valid JSON, it is left out entirely rather than risk exporting a secret. `data/hooks.json` gets the same treatment (a hook's
-arguments may hold a token, such as `--token xxx`). Symbolic links are skipped too, since they
+arguments may hold a token, such as `--token xxx`), and so does `data/endpoints.json`. Symbolic links are skipped too, since they
 could point anywhere on your computer. A `README-backup.txt` inside the zip lists the date, how to restore, and what was
-masked or skipped. The zip is built in a temporary file outside the data folder and deleted once it has been sent.
+masked or skipped, and `backup-manifest.json` says the same for the program (format version, export time with time zone,
+which files were masked). The zip is built in a temporary file outside the data folder and deleted once it has been sent.
 
-To restore:
+**Restoring from the web UI: Settings → Restore from backup…**
 
-1. Quit ZhiFox (Ctrl-C in its terminal).
-2. Unzip the archive into the data folder (by default the project's `data/`, or the folder of your account when
-   installed with one command), replacing files with the same name:
-   `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
-   into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
-   `data/`.
-3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again; if it had chat channels, paste their
-   tokens or secrets again (**Extensions → Channels → Edit**, or `harness channels setup <platform>`).
+1. Choose the zip (or drag it into the window). It is uploaded to ZhiFox, which checks it before anything else; a bad
+   archive is refused with the reason, and nothing is written.
+2. A preview shows when it was exported, what's in it (how many conversations, memories, to-dos, scheduled tasks,
+   skills, agents, MCP servers…), what each way of restoring would do to each of them, and which secrets will need
+   filling in again.
+3. Pick a way and confirm (overwriting asks once more, in place):
+   - **Overwrite** makes the data folder what it was in the backup: each kind of data is replaced by the backup's, and
+     kinds the backup doesn't have are cleared. Files that hold secrets are the exception, see below.
+   - **Merge** only adds: conversations by ID, memories and agents by file name, skills by folder, media by content;
+     anything already here stays as it is. Whole files (settings, to-dos, scheduled tasks, the spending record, MCP,
+     channels, hooks…) are kept when they exist and taken from the backup only when they don't: stitching two
+     configurations together entry by entry would make one nobody ever used (a hook pointing at a script on the other
+     computer, a channel paired to someone else).
+4. Before writing anything, ZhiFox exports the current data folder to
+   `data/restore-backups/zhifox-before-restore-<date>-<time>.zip` (secrets masked, like any export; the newest 5 are kept,
+   and exports never include this folder). The result screen has a "Show in Finder" (File Explorer, file manager) button
+   for it, and lists the secrets that are still placeholders.
 
-Importing from the web UI isn't supported yet.
+**Your secrets are never overwritten by placeholders.** In `mcp.json`, `channels.json`, `endpoints.json` and
+`hooks.json`, each `<removed-from-backup>` in the backup is matched to the same place in the current file (the same MCP
+server's same environment variable, the endpoint with the same id, the same argument after `--token`, a URL that is the
+same apart from its password): if the current file has a real value there, it is kept; if not, the placeholder is
+written, and the preview and the result say where to fill it in (Extensions → MCP, Extensions → Channels, Settings →
+Custom model endpoints, Extensions → Hooks). Secrets you have now that the backup has no place for (a server that only
+exists here) are listed too, since they're gone after an overwrite. A current file that can't be read is left alone, and
+so is a secrets file the backup doesn't contain, even when overwriting.
+
+**The archive is untrusted input.** Only what an export writes is accepted, from one list shared with the export
+(`export.PARTS`); anything else is refused and nothing is written: paths with `../`, absolute paths, drive letters and
+Windows name tricks (`a:b`, `CON`, `PROGRA~1`, trailing dots, checked by `pathnames.archive_trick`), symbolic links and
+device files, encrypted entries, two names that differ only in case, `.env`-like files, `browser/profile/`, `.web-token`,
+`.lock`, and any name that isn't on the list. Sizes are capped (`RESTORE_MAX_*` in `config.py`: 8 GB unpacked in total,
+2 GB per file, 200,000 entries; the web upload itself is capped at 4 GB and checked before uploading), and the sizes a
+zip declares are checked against what is actually read, so a zip bomb stops at the cap. `README-backup.txt` and
+`backup-manifest.json` are read, never written.
+
+**When it refuses, and what happens afterwards.** Restoring waits for nothing: it is refused, with the reason, while your
+conversation turn is running, a scheduled task is running, or a chat channel is in the middle of a turn. Otherwise ZhiFox
+stops the scheduler, channels, MCP servers and its browser, writes the files (each kind of data is laid out in a staging
+folder inside the data folder and then swapped in; any failure puts everything back), and starts again in place from the
+restored data, the same way it starts up: same port, same link, same event stream, so the page just redraws (no reload,
+no restart, and the interface language follows the restored settings).
+
+**In a terminal** (a server without the web page): quit ZhiFox first, then
+
+```bash
+uv run harness restore zhifox-backup-….zip            # overwrite
+uv run harness restore zhifox-backup-….zip --merge    # merge
+uv run harness restore zhifox-backup-….zip --yes      # don't ask (required when there's no terminal)
+```
+
+```powershell
+uv run harness restore .\zhifox-backup-….zip
+uv run harness restore .\zhifox-backup-….zip --merge
+```
+
+It prints the same preview, asks you to type `yes`, makes the same automatic backup, and holds the data folder's lock
+while it works, so ZhiFox can't start halfway through. If ZhiFox is running, it says which one and points you to its web
+page. The terminal reads the file directly, so the 4 GB upload cap doesn't apply (the unpacked caps do).
+
+**By hand, as a last resort:** quit ZhiFox, move the current data folder aside (the project's `data/`, or the folder of
+your account when installed with one command; `harness doctor` shows which), unzip the archive into a new, empty `data/`
+(`unzip zhifox-backup-….zip -d data`; in PowerShell `Expand-Archive .\zhifox-backup-….zip -DestinationPath data`), delete
+`README-backup.txt` and `backup-manifest.json` from it, and start ZhiFox again. The files that held secrets now hold
+placeholders: fill those secrets in again. Never unzip over a data folder you're using: the placeholders would overwrite
+the keys you have.
 
 ## Cost
 
@@ -3748,7 +3808,10 @@ reach another file, headers, the security policy, and the maskable fox staying i
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
-ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The run
+ends up in the zip), restoring in [tests/test_restore.py](tests/test_restore.py),
+[tests/test_restore_cli.py](tests/test_restore_cli.py) and [tests/test_restore_web.py](tests/test_restore_web.py) (a round
+trip, merge conflicts, every kind of bad archive refused with nothing written, placeholders never overwriting a current
+secret, the automatic backup holding no secret, the in-place restart), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The run
 trace is in [tests/test_trace.py](tests/test_trace.py) (a fake clock, so every step's start, end, time to first token
 and wait for approval are compared to the millisecond; the cost is the ledger's entry; allowed, declined and
 auto-allowed calls; subagents nested under their step; how an open step is closed when you stop or an error hits; the
