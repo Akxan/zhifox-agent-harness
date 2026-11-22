@@ -99,7 +99,8 @@ def test_add_an_endpoint_test_the_connection_and_switch_to_it(cleanup):
     assert page.js(f"{llava}.querySelector('.models-price').textContent") == "本地，不计费"
     page.js(f"{llava}.click()")
     page.wait("document.getElementById('models-status').classList.contains('good')", timeout=10, what="换过去了")
-    assert "llava:13b" in page.text("#model-label")
+    # "换过去了"那句是请求回来时写的，顶上的模型名要等新的状态到了才换：机器慢的时候后者晚一点，所以等它
+    page.wait("document.getElementById('model-label').textContent.includes('llava:13b')", what="顶上的模型名换过来")
     steps.escape_closes_flyout(page, "models", "#model")
     # 聊一句：回答来自假的本机 Ollama
     steps.send(page, "你好")

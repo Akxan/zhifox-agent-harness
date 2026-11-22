@@ -475,7 +475,8 @@ def test_run_all_runs_in_parallel_and_records_every_case(tmp_path):
     status = run_all(tasks, 2, CLAUDE, Options(effort="medium"), DryDriver(), lambda result: rows.append(result.row), parallel=4)
     assert status == "done" and len(rows) == len(tasks) * 2
     assert sorted((row["task"], row["rep"]) for row in rows) == sorted((task.id, rep) for task in tasks for rep in range(2))
-    assert all(row["passed"] for row in rows)
+    failed = [(row["task"], row["rep"], row.get("status"), row.get("error")) for row in rows if not row["passed"]]
+    assert not failed, f"这几次没通过（任务、第几遍、状态、出错的话）：{failed}"
 
 
 def test_ctrl_c_stops_the_rest_and_keeps_what_finished(tmp_path):

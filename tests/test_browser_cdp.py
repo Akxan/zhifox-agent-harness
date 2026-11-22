@@ -491,14 +491,16 @@ def test_after_close_nothing_more_is_written_to_the_old_number(peer, monkeypatch
 
 
 def test_the_reader_closes_its_own_end_after_its_last_read(peer):
-    # close() 不替还在读的读线程关它那一头：读线程读完最后一次（对面也关了）再自己关。
-    # 不然它下一圈 os.read 用的号码可能已经是别人的管道了
+    # close() 不替还在读的读线程关它那一头：读线程读完最后一次再自己关。不然它下一圈 os.read 用的号码可能已经是别人的管道了。
+    # Windows 上 close() 用 CancelIoEx 叫停那一次读（见 cdp._cancel_read），读线程马上退出、自己关掉；
+    # 别的系统上读线程要等对面（Chrome）关掉它那一头才读到结尾，在那之前它那一头一直开着，号码不会让出去
     fake = peer(answer())
     read_fd = fake.connection._read_fd
     fake.connection.close()
-    os.fstat(read_fd)  # 对面（Chrome）还开着：读线程还在等，它那一头还开着，号码没有让出去
-    assert fake.connection._reader.is_alive()
-    fake.hang_up()  # Chrome 退出了：读线程读到结尾，自己关掉、退出
+    if os.name != "nt":
+        os.fstat(read_fd)  # 对面还开着：读线程还在等，它那一头还开着
+        assert fake.connection._reader.is_alive()
+    fake.hang_up()  # Chrome 退出了：读线程读到结尾（Windows 上它已经停了），自己关掉、退出
     fake.connection._reader.join(5)
     assert not fake.connection._reader.is_alive()
     with pytest.raises(OSError):
