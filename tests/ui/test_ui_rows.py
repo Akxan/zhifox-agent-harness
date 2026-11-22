@@ -91,11 +91,11 @@ def stocked(page):
     assert status == 200
     assert page.demo.api("/api/commands/add", {"command": "npm test"})[0] == 200
     steps.save_hook(page, "fmt", "import sys\nsys.stdin.read()\n", event="PostToolUse", matcher="files")
-    assert page.demo.api("/api/sandbox/add", {"path": "/srv/app", "write": False})[0] == 200
+    assert page.demo.api("/api/sandbox/add", {"path": steps.SANDBOX_EXTRA, "write": False})[0] == 200
     yield page
     page.demo.api("/api/channel/remove", {"platform": "telegram"})
     page.demo.api("/api/commands/delete", {"command": "npm test"})
-    page.demo.api("/api/sandbox/delete", {"path": "/srv/app"})
+    page.demo.api("/api/sandbox/delete", {"path": steps.SANDBOX_EXTRA})
     for todo in page.js("[...document.querySelectorAll('#todos > li.todo')].map((row) => Number(row.dataset.id))"):
         page.demo.api("/api/todo/delete", {"id": todo})
 

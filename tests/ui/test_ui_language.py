@@ -118,7 +118,7 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.escape_closes(page, "commands-dialog")
     # 沙箱：设置里的那一节（选了一档），额外允许的路径的窗口（一条路径、原地编辑、删除确认）
     page.demo.api("/api/sandbox/level", {"level": "workspace"})
-    page.demo.api("/api/sandbox/add", {"path": "/srv/app", "write": True})
+    page.demo.api("/api/sandbox/add", {"path": steps.SANDBOX_EXTRA, "write": True})
     steps.open_dialog(page, "#settings-open", "settings")
     page.wait("document.getElementById('sandbox-level').value === 'workspace'")
     look("设置 · 沙箱", ["#sandbox-section"])

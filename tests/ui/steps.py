@@ -7,6 +7,7 @@ pilot.py 只会"点、按、读"，不知道页面长什么样；这里知道。
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 from .pilot import Page
@@ -18,6 +19,9 @@ IDLE = (
 NARROW_NAV = "matchMedia('(max-width: 960px)').matches"  # 和页面里的 overlayNav 一致：窄屏上会话栏是抽屉
 NARROW_SIDE = "matchMedia('(max-width: 1180px)').matches"  # 信息栏也一样
 
+
+# 页面测试里加进沙箱的那条"额外允许的路径"：要是这台电脑上的绝对路径（Windows 上 /srv/app 不算绝对路径，会被拒绝）
+SANDBOX_EXTRA = r"C:\srv\app" if os.name == "nt" else "/srv/app"
 
 def idle(page: Page, timeout: float = 5) -> None:
     page.wait(IDLE, timeout, "动画播完")
