@@ -20,6 +20,8 @@ WebApp 由几块拼成。这个文件里是几组功能都要用的部分；每�
 （self.app、self.ui、self.sessions……），放在别的对象上也得一路 self.web. 回来。混进来的类只有方法：没有 __init__、
 不存状态，状态都在下面的 __init__ 里定义，一眼看得全。新的一组功能照这样办：方法写进它自己的 *_api.py 的 XxxActions，
 加进 WebApp 的基类；要新的状态就在 __init__ 里加上，写明是给谁用的。
+每个 XxxActions 都继承 WebAppPart（webapp_types.py）：单看那个类，类型检查不知道 self 上有 app、sessions、_save……，
+WebAppPart 把这些写给它看（运行时是空的）。用到了别的文件里的状态或方法，就在那里补一行，做法见那个文件开头。
 （skills_api.py、browser_api.py 这些较早的接口是另一种写法：WebApp 上的一个对象，见 __init__。两种并存，都能用。）
 
 留在这个文件里的：

@@ -3860,7 +3860,10 @@ borrow a pinned version for one run. mypy runs inside the project's environment 
 the types that ship with the Anthropic and OpenAI SDKs. Code that differs between systems checks `sys.platform`, which
 mypy understands, so `--platform` checks the Windows-only branches from a Mac and the other way round; CI checks all
 three. New code should pass, and a `# type: ignore` has to name its error code and say why on the same line.
-`harness/webui/` and `harness/app.py` are left out for now (`ignore_errors` in pyproject.toml).
+The whole `harness` package is checked, with no module left out. The groups of web app methods that live in their own
+files (`XxxActions` in `harness/webui/*_api.py`, mixed into `WebApp`) inherit `WebAppPart` from
+[harness/webui/webapp_types.py](harness/webui/webapp_types.py): a protocol that exists only for the type checker and
+lists the shared state and the methods from other files that they use.
 
 The tests need no API key and cost nothing. They run in parallel by default (`addopts` in
 [pyproject.toml](pyproject.toml)); each worker process gets its own fake servers and temporary folders, and the page tests

@@ -28,6 +28,7 @@ from ..i18n import t
 from ..providers import PROVIDERS, ProviderError, caps, continues, find, has_key, hint
 from ..settings import valid_api_key
 from .ui import said
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -69,7 +70,7 @@ def page_state(app: Any) -> dict:
     }
 
 
-class ModelActions:
+class ModelActions(WebAppPart):
     """换模型、密钥、同步模型列表、价格。"""
 
     def _provider_state(self, provider) -> dict:
@@ -169,7 +170,7 @@ class ModelActions:
 
 def route_model(handler: Handler, web: WebApp, body: dict) -> None:
     provider, model = body.get("provider"), body.get("model")
-    if find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
+    if not isinstance(provider, str) or find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
         handler._finish(web.select_model(provider, model.strip()))
@@ -188,7 +189,7 @@ def route_key(handler: Handler, web: WebApp, body: dict) -> None:
 
 def route_models(handler: Handler, web: WebApp, body: dict) -> None:
     provider = body.get("provider")
-    if find(provider) is None:
+    if not isinstance(provider, str) or find(provider) is None:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
         handler._finish(web.sync_models(provider))

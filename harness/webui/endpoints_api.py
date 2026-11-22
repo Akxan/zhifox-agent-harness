@@ -79,6 +79,7 @@ class EndpointsAPI:
                 if action == "save":
                     endpoint = self.web.app.save_endpoint(body["form"], ident or None)
                 else:
+                    assert ident  # 给类型检查看的：删除时没给编号的，上面已经回答了 400
                     self.web.app.delete_endpoint(ident)
             except EndpointError as exc:
                 return 409, {"error": exc.message}

@@ -19,13 +19,14 @@ from .. import i18n
 from ..i18n import t
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class TodoActions:
+class TodoActions(WebAppPart):
     """待办：改一条、删一条。"""
 
     def change_todo(self, todo_id: int, changes: dict | None) -> str:
@@ -67,6 +68,7 @@ def route_todo(handler: Handler, web: WebApp, path: str, body: dict) -> None:
     if bad:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
+        assert isinstance(todo_id, int)  # 给类型检查看的：上面的 bad 已经查过
         handler._finish(web.change_todo(todo_id, changes))
 
 
@@ -95,16 +97,18 @@ def route_task(handler: Handler, web: WebApp, action: str, body: dict) -> None:
             reply["next"] = tasks.preview(body.get("schedule"))
         elif action == "dismiss":
             tasks.dismiss(None if body.get("all") is True else body["reminder_id"])
-        elif action == "delete":
-            tasks.delete(task_id)
-        elif action == "toggle":
-            tasks.toggle(task_id, body["enabled"])
-        elif action == "run":
-            reply["queued"] = tasks.run_now(task_id)  # 同时运行的到了上限，在排队
-        elif action == "stop":
-            tasks.stop(task_id)
         else:
-            tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
+            assert isinstance(task_id, str)  # 给类型检查看的：剩下的几个都要编号（needs_id），上面已经查过
+            if action == "delete":
+                tasks.delete(task_id)
+            elif action == "toggle":
+                tasks.toggle(task_id, body["enabled"])
+            elif action == "run":
+                reply["queued"] = tasks.run_now(task_id)  # 同时运行的到了上限，在排队
+            elif action == "stop":
+                tasks.stop(task_id)
+            else:
+                tasks.confirm(task_id, body["confirm_id"], body["allow"], body.get("feedback", "").strip())
     except TaskRefused as exc:
         # 做不了，常常是因为页面看到的已经过时了：任务文件可能被别的程序改过（终端版、重启前的旧进程），
         # 而页面只在有改动时才收到新状态。所以先把最新的状态发过去，页面上那一行才不会一直留着、怎么删都删不掉

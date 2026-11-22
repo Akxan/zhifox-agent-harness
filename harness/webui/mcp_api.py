@@ -21,12 +21,13 @@ from ..mcp import importers as mcp_imports
 from ..safe import private_dir
 from . import reveal
 from .ui import said
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
 
 
-class McpActions:
+class McpActions(WebAppPart):
     """MCP 服务器：状态里的那一节、详情、改配置、从别的工具导入、粘贴、显示配置文件。
 
     这些操作不拿对话的锁：对话进行中也可以添加、停用、重启服务器。正在进行的这段对话用的是开始时拍下的
@@ -78,7 +79,8 @@ class McpActions:
     def mcp_import(self, picks: list[tuple[str, str]]) -> tuple[str, list[str], list[str]]:
         """导入勾选的那些。配置的内容在这里重新从文件里读，页面只给了"哪个来源的哪个名字"。"""
         found = {source.id: source for source in mcp_imports.sources(self.app.config.workspace)}
-        added, skipped = [], []
+        added: list[str] = []
+        skipped: list[str] = []  # 有 t() 写的，也有 mcp_imports.apply 给的普通字符串
         for source_id in dict.fromkeys(source for source, _ in picks):
             source = found.get(source_id)
             names = [name for source, name in picks if source == source_id]

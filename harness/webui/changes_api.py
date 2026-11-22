@@ -55,6 +55,7 @@ class ChangesAPI:
         bad = bad or not (files is None or (isinstance(files, list) and 0 < len(files) <= UNDO_TURN_FILES))
         if bad:
             return 400, {"error": t("参数不正确")}
+        assert isinstance(set_id, str)  # 给类型检查看的：上面的 bad 已经查过
         web = self.web
         with web._viewed_idle() as free:
             session = web.sessions.viewed

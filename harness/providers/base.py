@@ -16,11 +16,15 @@ import html
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..attachments import Attachment
 from ..i18n import Message, t
 from ..tools.base import ToolImage
+
+if TYPE_CHECKING:
+    import anthropic
+    import openai
 
 ERROR_CHARS = 300  # 厂商返回的出错说明最多显示这么多字
 
@@ -153,6 +157,9 @@ class Backend(Protocol):
 
     provider: str  # 提供方的名字，如 "anthropic"
     model: str
+    # 连这一家的 SDK 客户端（自定义接口的也是 openai.OpenAI，见 endpoints/client.py）。换了密钥、改了自定义接口时
+    # 整个换掉（见 App.set_api_key、App._endpoint_changed），这一段对话的历史不动
+    client: anthropic.Anthropic | openai.OpenAI
     # 这个模型能不能用工具。内置的几家都能；自定义接口上的模型不一定（见 openai_compat.py），不能的话一个工具都不发
     tools_supported: bool
 

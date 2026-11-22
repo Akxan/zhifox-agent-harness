@@ -192,10 +192,13 @@ def _fields(raw: object) -> Fields:
     """页面送来的表单。只检查类型；内容合不合格，写成原文之后照常检查（见 agents/spec.py 的 check）。"""
     if not isinstance(raw, dict):
         raise BadRequest(t("参数不正确"))
-    texts = {key: raw.get(key) for key in ("name", "description", "model", "color", "body")}
+    texts: dict[str, str] = {}
+    for key in ("name", "description", "model", "color", "body"):
+        value = raw.get(key)
+        if not isinstance(value, str):
+            raise BadRequest(t("参数不正确"))
+        texts[key] = value
     tools = raw.get("tools")
-    if not all(isinstance(value, str) for value in texts.values()):
-        raise BadRequest(t("参数不正确"))
     if tools is not None and (not isinstance(tools, list) or not all(isinstance(item, str) for item in tools)):
         raise BadRequest(t("参数不正确"))
     return Fields(

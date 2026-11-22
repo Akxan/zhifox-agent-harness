@@ -25,6 +25,7 @@ from ..i18n import t
 from ..media import Entry, MediaError
 from ..search import MAX_QUERY_CHARS
 from . import reveal
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from .webapp import WebApp
 
 
-class MediaActions:
+class MediaActions(WebAppPart):
     """多媒体库：存原件、列出、读出、显示、清理。
 
     条目来自两处：保存过的会话（ConversationStore 维护的索引），和活着的那几段（内存里的界面事件）。

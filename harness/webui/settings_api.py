@@ -22,13 +22,14 @@ from ..budget import valid_budget
 from ..config import LEDGER_CHART_DAYS
 from ..i18n import t
 from ..permissions import MODES
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class SettingsActions:
+class SettingsActions(WebAppPart):
     """语言、问不问、遮密钥、预算、花费明细、导出之前的信息。"""
 
     def set_budget(self, amount: float | None) -> None:

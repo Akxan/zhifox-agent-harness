@@ -22,13 +22,14 @@ from ..i18n import t
 from ..memories import MemoryConflict, MemoryFileError
 from ..safe import private_dir
 from . import reveal
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class MemoryActions:
+class MemoryActions(WebAppPart):
     """记忆：改、删、显示，文件夹变了没有。"""
 
     def delete_memory(self, relative: str) -> str:
@@ -128,10 +129,11 @@ def route_memory(handler: Handler, web: WebApp, path: str, body: dict) -> None:
             handler._send_json(200, {"ok": True, "path": shown, "opened": reveal.has_file_manager()})
     elif action == "save":
         name, text, modified, force = body.get("name"), body.get("text"), body.get("modified"), body.get("force", False)
-        number = isinstance(modified, (int, float)) and not isinstance(modified, bool)
+        number = isinstance(modified, (int, float)) and not isinstance(modified, bool)  # True、False 也是 int，不算
         if not isinstance(name, str) or not isinstance(text, str) or not number or not isinstance(force, bool):
             handler._send_json(400, {"error": t("参数不正确")})
         else:
+            assert isinstance(modified, (int, float))  # 给类型检查看的：上面的 number 已经查过
             error, saved, conflict = web.save_memory(relative, name, text, float(modified), force)
             if error:
                 handler._send_json(409, {"error": error, "conflict": conflict})

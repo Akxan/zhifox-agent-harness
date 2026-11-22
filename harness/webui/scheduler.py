@@ -439,7 +439,7 @@ class Scheduler:
                 pending.activity = {"kind": "thinking", "tool": "", "summary": ""}  # 结果交回给模型了，等它想下一步
             elif kind == "subagent" and data.get("step") == "tool_call":
                 # 任务把一件事交给了子 Agent（见 agents/runner.py），它正在调用工具：进度里写明是它在做
-                summary = t("「{agent}」：{summary}", agent=data.get("agent", ""), summary=data.get("summary", ""))
+                summary: str = t("「{agent}」：{summary}", agent=data.get("agent", ""), summary=data.get("summary", ""))
                 pending.activity = {"kind": "tool", "tool": data.get("name", ""), "summary": summary}
             elif kind == "confirm":
                 question = Message(data["description"], data["key"], data["values"]) if "key" in data else data["description"]

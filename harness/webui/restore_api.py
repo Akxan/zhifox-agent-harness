@@ -35,8 +35,9 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from io import BufferedIOBase
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
 from .. import restore
@@ -99,7 +100,7 @@ class RestoreAPI:
 
     # ---- 上传 ------------------------------------------------------------------
 
-    def upload(self, headers: Any, stream: IO[bytes]) -> tuple[int, dict]:
+    def upload(self, headers: Any, stream: BufferedIOBase) -> tuple[int, dict]:
         """收下上传的备份（请求体是原样的字节），看一遍，回答预览。headers 是请求头，stream 是还没读的请求体。
 
         server.py 直接调用它（不经过 _route 外面那一层"接住所有异常"），所以这里自己接住：一定要给浏览器一个回答。"""
@@ -108,7 +109,7 @@ class RestoreAPI:
         except Exception as exc:  # noqa: BLE001
             return 500, {"error": t("助手程序处理这个请求时出错了：{error}", error=str(exc) or type(exc).__name__)}
 
-    def _upload(self, headers: Any, stream: IO[bytes]) -> tuple[int, dict]:
+    def _upload(self, headers: Any, stream: BufferedIOBase) -> tuple[int, dict]:
         try:
             length = int(headers.get("Content-Length") or "")
         except ValueError:
@@ -250,6 +251,7 @@ class RestoreAPI:
             fresh.publish_state()
         if error:
             return 409, {"error": error, "restarted": True}, True
+        assert done is not None  # 给类型检查看的：没有出错，就是恢复好了、也没有换回去
         result = done.summary()
         _worded(result["steps"])
         return 200, {"ok": True, "result": result}, True
@@ -299,7 +301,7 @@ def _worded(steps: list[dict]) -> None:
         step["said"] = said(restore.step_text(step))
 
 
-def _discard(stream: IO[bytes], most: int) -> None:
+def _discard(stream: BufferedIOBase, most: int) -> None:
     """把不打算收的请求体读掉扔了，最多读 most 个字节（不读就关连接的话，Windows 上对方收不到回答）。"""
     remaining = most
     while remaining > 0:

@@ -3111,7 +3111,9 @@ uv run --with mypy==1.19.0 mypy --platform win32   # 同上，换成 Windows 的
 mypy 要在项目自己的环境里跑（所以是 `uv run --with`，不是 `uvx`），才看得到 Anthropic、OpenAI 的 SDK 自带的类型。
 各个系统不一样的代码用 `sys.platform` 判断，mypy 认得这种写法，所以在 Mac 上加 `--platform win32` 就能查只在 Windows 上走的分支，
 反过来也一样；CI 里三个系统都查。新写的代码要能通过；`# type: ignore` 必须写明是哪一种错，并在同一行写明为什么。
-`harness/webui/` 和 `harness/app.py` 暂时不查（pyproject.toml 里的 `ignore_errors`）。
+整个 `harness` 包都查，没有哪个模块例外。网页界面里分在各自文件里的几组方法（`harness/webui/*_api.py` 里的 `XxxActions`，混进 `WebApp`）
+都继承 [harness/webui/webapp_types.py](harness/webui/webapp_types.py) 里的 `WebAppPart`：一个只给类型检查看的 Protocol，
+列出它们用到的共用状态和别的文件里的方法。
 
 测试不需要 API 密钥，也不花钱。默认是并行跑的（[pyproject.toml](pyproject.toml) 里的 `addopts`）：每个进程各有自己的
 假服务器和临时目录，页面测试在每个进程里各开自己的演示服务器和 Chrome，彼此不共用任何东西。[tests/fake_api.py](tests/fake_api.py) 和 [tests/fake_openai.py](tests/fake_openai.py)
