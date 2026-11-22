@@ -2389,6 +2389,24 @@ This starts a small server on your computer and opens the chat page in your brow
   When you scroll up to read earlier content, new output doesn't pull you back to the bottom.
 - **Approval card.** Appears when the assistant wants to write a file or run a command, with **Allow** and **Deny**
   buttons. When you deny, you can add a reason.
+- **System notifications.** When you're in another window and ZhiFox stops to wait for your **Allow**, finishes a
+  reply or runs into an error, a system notification pops up (the approval one says what it wants to do, the reply one
+  shows how the reply starts). Clicking it brings the page back and scrolls to that approval card or reply, which lights
+  up briefly. Nothing pops up while the page is in front of you, nor for what's replayed when you reload the page or
+  open an old conversation; with ZhiFox open in two tabs, the one you're looking at keeps the other one quiet.
+  The tab title gets a dot in front ("● Needs your approval ·" while it waits for you) and the tab icon a small dot
+  (red for approvals and errors); installed as an app, its Dock or taskbar icon gets a dot too. All of it clears when
+  you come back. Scheduled-task reminders and going over budget use the same notifications.
+  **Turning it on:** the switch is on by default, but the browser has to allow notifications first. Open
+  **Settings → System notifications**, click **Allow notifications** and choose **Allow** when the browser asks
+  (browsers only ask after a click, so the page never pops the question by itself; **Turn on notifications** in the
+  task list asks the same thing). If you clicked **Block**, the page can't ask again: in Chrome, Edge or Firefox, click
+  the site icon at the left of the address bar and set **Notifications** to **Allow**; in Safari, use
+  **Settings → Websites → Notifications**; then reload the page. The operating system has to allow the browser too:
+  **System Settings → Notifications** on macOS, **Settings → System → Notifications** on Windows, your desktop's
+  notification settings on Linux, and nothing shows while Focus or Do Not Disturb is on. Once allowed, **Send a test**
+  shows one right away. The same switch turns them off (it's saved in this browser only); the tab markers need no
+  permission and don't depend on it.
 - **Edit and regenerate.** Hover over your last message for **Edit** (or press ↑ in the empty input box): the message
   turns into an editor in place, with its attachments, which you can remove one by one. Enter sends the edited message
   as a new turn; Esc or **Cancel** warns once before throwing away your changes. Under the last reply, **Regenerate**
@@ -2477,6 +2495,8 @@ This starts a small server on your computer and opens the chat page in your brow
     It never blocks anything. Raise the budget and pass the new amount, and you're reminded again; the reminder is
     remembered across restarts, so it doesn't repeat. If you set a budget below what you've already spent this month,
     the panel says so right away.
+  - **System notifications**: whether to notify you while the page is in the background, whether the browser allows
+    it, and how to allow it (see **System notifications** above).
   - **Browser** (off by default): let the assistant use ZhiFox's own browser, hide its window, choose which Chrome,
     and the profile folder. See [Browser use](#browser-use).
   - **Computer use** (advanced, off by default): let the assistant operate the whole computer, after a risk
@@ -2586,7 +2606,8 @@ This starts a small server on your computer and opens the chat page in your brow
   conversation in progress, your scroll position and a half-written message all stay as they were, and the interface
   text changes in place. The choice is saved, and the terminal UI uses it too.
 
-Appearance, motion, and whether the two side panels are open are remembered by your browser, not stored in `data/`.
+Appearance, motion, whether the two side panels are open, and the system notifications switch are remembered by your
+browser, not stored in `data/`.
 
 **Switching models.** Within the same provider, the conversation continues. Switching to another provider starts a new
 conversation, because providers' conversation formats aren't compatible; the one you leave is saved, and you can open
@@ -3918,7 +3939,8 @@ more often a bug in a task or a check than a fact about the model.
   are tested only against local fakes so far, not yet with real bots. Two runs (or a run and your
   conversation) editing the same lines of the same file don't merge their changes: each edit is applied whole, and the
   later one fails if the text it expected has changed, so the model reads the file again. Reminders appear only in the
-  page; there are no system notifications.
+  web page (with a system notification while the page is open in the background, see **System notifications** above),
+  not in chat apps.
 - With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
   #9") stay in Chinese, because they are written for the model.
   Conversations saved before you switched language keep the program's notices in the language used at the time.

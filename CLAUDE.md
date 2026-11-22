@@ -247,6 +247,12 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **事件流的约定不能破坏。** 浏览器刚连上时，服务器先补发日志里已有的事件（过时的"状态"只留最后一个），
   然后发一个名叫 `synced` 的标记（没有编号、不进日志），之后才是实时事件。页面靠这个标记，加上
   "`reset` 到下一个 `state` 之间算重放"，来决定哪些内容播放入场动画。
+- **系统通知只给实时的事**（`page/scripts/notify.js`）：确认卡片、一轮结束、出错的提示，只有 `isLive()`、页面在后台（`document.hidden`）、
+  设置里开着（`harness.notify`，记在浏览器里）、浏览器允许了、同一个智狐的别的标签页没被看着（BroadcastChannel）时才弹；刷新、打开旧会话、
+  倒回一轮时重放出来的一律不弹。弹通知只用 `systemNotify`，问浏览器要权限只用 `askNotify`（只在 click 里调，浏览器只认用户点过以后的询问），
+  别处不再 `new Notification`、`requestPermission`。标签页的标题只经过 `setPageTitle`（后台时前面加标记），不要直接写 `document.title`；
+  图标上的点是把 `<link rel="icon">` 换成另一个 data: 地址，页面的 CSP 本来就允许 `img-src data:`，不为它放宽任何一项。
+  页面测试用 `steps.fake_notifications` / `background` / `notes`（假的 Notification 和 `document.hidden`），不弹真的系统通知。
 - **发给浏览器的、写进文件的，都要用 `harness/safe.py`。** 模型的输出和用户粘贴的文字里可能有半个表情
   （落单的代理字符）、NaN 这类非法的数，直接 `json.dumps` 会写出浏览器解析不了的东西，或者干脆编码失败，
   让事件流永久断开。所以：事件和 HTTP 回答用 `to_json`，文件用 `write_file`（先写临时文件、fsync、再替换，
