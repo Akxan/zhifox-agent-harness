@@ -137,17 +137,113 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 
 ## Quick start
 
-You need macOS, Linux or Windows and [uv](https://docs.astral.sh/uv/). On Windows, see [Windows](#windows) for the
-PowerShell version of these steps.
+You need macOS, Linux or Windows. There are two ways to get ZhiFox:
+
+- **Install it with one command** to use it: no clone, no project folder, and a `harness` command that works in any
+  folder.
+- **Clone the repository** to read the code, change it, and run the tests and the evals (see
+  [From a clone](#from-a-clone-for-development-and-learning)).
+
+### Install with one command
+
+First install [uv](https://docs.astral.sh/uv/getting-started/installation/), then ZhiFox. uv also downloads a suitable
+Python (3.11 or later) if you don't have one, and installs ZhiFox in an environment of its own.
 
 ```bash
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh                   # install uv, then open a new terminal
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web                                                     # start the web UI; it opens in your browser
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new window
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+Installing from a `git+https://` address needs Git on the computer (uv runs it to download the code; you never use it
+yourself). macOS offers to install it the first time; most Linux systems have it. A fresh Windows doesn't: install
+[Git for Windows](https://git-scm.com/download/win) (or `winget install --id Git.Git -e`), or install from GitHub's
+zip of the code instead, which needs no Git:
+
+```powershell
+uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip
+```
+
+To update an install made from the zip, run that same line again with `--reinstall` added.
+
+If the terminal then says `harness` isn't found, run `uv tool update-shell` and open a new terminal: it adds the folder
+uv puts commands in (`~/.local/bin`) to your `PATH`.
+
+Updating and removing (the package is called `harness-assistant`; the command it installs is `harness`):
+
+```bash
+uv tool upgrade harness-assistant      # update to the latest version on GitHub
+uv tool uninstall harness-assistant    # remove the program; your data folder stays where it is
+```
+
+If ZhiFox runs as a [background service](#run-it-in-the-background), run `harness service restart` after updating.
+
+**Where your data and keys are.** Installed this way, the program lives in uv's own folder, which `uv tool upgrade` and
+`uv tool uninstall` replace and delete. So your conversations, memory and settings are kept outside it, in a folder of
+your own account, and the API keys (`.env`) are in that same folder:
+
+| System | Data folder, with `.env` inside it |
+|---|---|
+| macOS | `~/Library/Application Support/ZhiFox/` |
+| Linux | `$XDG_DATA_HOME/zhifox/`, by default `~/.local/share/zhifox/` |
+| Windows | `%LOCALAPPDATA%\ZhiFox\`, for example `C:\Users\you\AppData\Local\ZhiFox\` |
+
+The folder is readable by your account only, as `data/` is in a clone (see [Data and privacy](#data-and-privacy)). The
+easiest way to add a key is the web UI's **Settings**, which writes `.env` there; you can also create the file
+yourself with lines such as `ANTHROPIC_API_KEY=…` (see [.env.example](.env.example)). Being in the data folder doesn't
+make `.env` any easier to reach: the assistant's file tool can't open it, the command sandbox can't reach it, and
+**Export all data** leaves it out, the same as in a clone. `HARNESS_DATA_DIR` and `HARNESS_ENV_FILE` still move
+either one somewhere else.
+
+Why these folders: on Windows it's the *local* AppData, not the roaming one, because a roaming profile copies the whole
+folder at every sign-in and sign-out, and ZhiFox's data (attachments, the browser profile, backups) is large and partly
+tied to this computer. On Linux, `.env` stays in the data folder rather than going to `~/.config`, which many people
+keep in a public dotfiles repository.
+
+**Backing up.** **Settings → Export all data** makes a zip of the data folder without your keys (see
+[Backup and restore](#backup-and-restore)). Copying the whole folder also works, but that copy includes `.env`, so keep
+it private.
+
+**How it differs from a clone:**
+
+- Commands drop the `uv run` in front: `harness --web`, `harness service install`, `harness channels setup telegram`.
+  Wherever this README writes `uv run harness …`, type `harness …`.
+- You don't need the `zhifox` shortcut from [Using it in another folder](#using-it-in-another-folder): `harness`
+  already works in any folder, and the folder you start it in is the assistant's working folder.
+- The data folder is the one in the table, not a project's `data/`, so a clone and an installed ZhiFox on the same
+  computer don't share conversations or keys. To move from a clone, quit ZhiFox, then copy what's inside the clone's
+  `data/`, and its `.env`, into that folder (or set `HARNESS_DATA_DIR` and `HARNESS_ENV_FILE` to the clone's).
+- Feishu and DingTalk need their SDK, installed by reinstalling with the extra:
+  `uv tool install --force "harness-assistant[feishu,dingtalk] @ git+https://github.com/Akxan/zhifox-agent-harness"`
+  (the web page and `harness channels setup` print the exact line for what you have).
+- [Evals](#evals-is-the-assistant-actually-any-good) need a clone: the tasks and the fake servers of the dry run live
+  in the repository, not in the installed package. `harness eval` says so.
+
+### From a clone (for development and learning)
+
+```bash
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
 uv sync                 # install dependencies
 uv run harness --web    # start the web UI; it opens in your browser
 ```
 
-The first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that notice (or
-the button at the top right), enter a key for at least one provider, and start chatting. For the terminal UI, run
-`uv run harness` once a key is set.
+Here everything stays in the project: data in `data/`, keys in `.env`, both ignored by git. On Windows, see
+[Windows](#windows) for the PowerShell version. ZhiFox tells the two apart by looking at where its package is: next to
+its own `pyproject.toml` means a clone; inside a `site-packages` folder means installed (see
+[harness/install.py](harness/install.py)).
+
+Either way, the first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that
+notice (or the button at the top right), enter a key for at least one provider, and start chatting. For the terminal
+UI, run `harness` (from a clone: `uv run harness`) once a key is set.
 
 ### Supported models
 
@@ -206,7 +302,18 @@ endpoint's model as `custom-<id>/<model>`, for example `custom-ollama/qwen3:8b`.
 
 ZhiFox runs on Windows. Every push is tested on GitHub's `windows-latest` runner (Windows Server) as well as Ubuntu and
 macOS; it hasn't been tried by hand on a Windows 10 or 11 desktop yet, so tell us if something there behaves
-differently. In PowerShell:
+differently. To just use it, install it with one command (see [Install with one command](#install-with-one-command);
+data and keys then go to `%LOCALAPPDATA%\ZhiFox\`):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
+winget install --id Git.Git -e                                                        # Git, if you don't have it yet (uv uses it to download)
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+(Without Git, `uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` works too.)
+To work on the code, clone it instead:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
@@ -389,6 +496,7 @@ Each part of the harness has its own file or directory:
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
+| Where it's installed | [harness/install.py](harness/install.py) | Running from a clone or installed with `uv tool install`: decided in one place, and with it the default data folder, `.env` and the command ZhiFox tells you to run (`uv run harness` or `harness`) |
 | Platform differences | [filelock.py](harness/filelock.py), [pathnames.py](harness/pathnames.py), [winacl.py](harness/winacl.py), [winjob.py](harness/winjob.py), [console.py](harness/console.py), [exits.py](harness/exits.py), [machine.py](harness/machine.py), [tools/shell.py](harness/tools/shell.py), [browser/chrome.py](harness/browser/chrome.py), [service/windows.py](harness/service/windows.py) | macOS, Linux and Windows lock files, name paths, protect files, end process trees, encode output and run shells differently. Each difference lives in one small module (or one function of the module that uses it), and the rest of the code just calls it |
 
 Suggested reading order: `agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`.
@@ -2944,8 +3052,9 @@ they run while the web UI or `harness serve` is running.
 
 ### Using it in another folder
 
-The assistant's working directory is the directory you start it from. To have it work somewhere else, `cd` there first,
-then run:
+The assistant's working directory is the directory you start it from. Installed with one command, `harness` already
+works in any folder: `cd` there and run `harness` (or `harness --workspace /some/folder`). The rest of this section is
+for a clone. To have it work somewhere else, `cd` there first, then run:
 
 ```bash
 uv run --project "/full/path/to/this/project" harness
@@ -2985,7 +3094,10 @@ uv run harness service restart     # restart it, for example after editing .env 
 uv run harness service uninstall   # stop it and don't start it at login any more (data and logs stay)
 ```
 
-Run them in the project folder. `install` takes `--no-web` (chat channels and scheduled tasks only, no web page),
+From a clone, run them in the project folder; installed with one command, drop the `uv run` and run them anywhere
+(`harness service install`). The service runs the same Python that runs ZhiFox (the clone's `.venv`, or the
+environment uv made for the tool), so `uv tool upgrade harness-assistant` followed by `harness service restart`
+switches it to the new version without reinstalling the service. `install` takes `--no-web` (chat channels and scheduled tasks only, no web page),
 `--port 9000` (default 8765; when 8765 is taken, a free port is picked) and `--workspace /some/folder` (the assistant's
 working folder; default: the current folder). Running `install` again is safe: the same settings change nothing, and new
 settings stop the old service and start the new one. **Settings → Run in the background** on the web page shows which
@@ -3247,6 +3359,10 @@ unprivileged user for the service.
 
 ## Data and privacy
 
+The paths below are for a clone: `data/` and `.env` in the project. Installed with one command, `data/` is the folder
+of your account from [Install with one command](#install-with-one-command) (`~/Library/Application Support/ZhiFox/`,
+`~/.local/share/zhifox/`, `%LOCALAPPDATA%\ZhiFox\`), and `.env` is inside it; everything else is the same.
+
 **Only your account can read it.** On macOS and Linux, `data/` and its folders are created with permissions 700 and the
 files 600. Windows has no such permission bits (`chmod` there only toggles "read-only"), and a folder you create outside
 your user folder (`C:\code\…`) normally inherits read access for every account on the computer. So on Windows ZhiFox
@@ -3337,8 +3453,8 @@ is written to a temporary file first and swapped in, so a failed save never leav
 
 **Settings → Export all data** packs the data folder into `zhifox-backup-<date>-<time>.zip` and downloads it:
 conversations, memories, to-dos, settings, the spending record, and anything else later features keep there. API keys
-are never in it: they live in `.env`, which isn't in the data folder, and any `.env`-like file found there anyway is
-skipped. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
+are never in it: they live in `.env`, which is never exported, whether it's next to the data folder (a clone) or
+inside it (installed with one command), and any other `.env`-like file in the data folder is skipped too. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
 variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
 URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
 valid JSON, it is left out entirely rather than risk exporting a secret. `data/hooks.json` gets the same treatment (a hook's
@@ -3349,7 +3465,8 @@ masked or skipped. The zip is built in a temporary file outside the data folder 
 To restore:
 
 1. Quit ZhiFox (Ctrl-C in its terminal).
-2. Unzip the archive into the data folder (by default the project's `data/`), replacing files with the same name:
+2. Unzip the archive into the data folder (by default the project's `data/`, or the folder of your account when
+   installed with one command), replacing files with the same name:
    `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
    into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
    `data/`.
@@ -3446,7 +3563,7 @@ Set these in `.env`. All of them are optional:
 | `HARNESS_MAX_SEARCHES` | `5` | Maximum web searches per message; `0` means no limit |
 | `HARNESS_WEB` | `1` | Set to `0` to turn off web search completely |
 | `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
-| `HARNESS_DATA_DIR` | The project's `data/` | Where memory, to-dos, settings and other data are stored |
+| `HARNESS_DATA_DIR` | The project's `data/`; installed with one command, the folder of your account (see [Install with one command](#install-with-one-command)) | Where memory, to-dos, settings and other data are stored |
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Where voice messages are sent for transcription with your OpenAI key (and where OpenAI's SDK sends chat requests). Only `https://`, or plain `http://` to this computer |
 | `HARNESS_CHROME` | Found automatically | Full path of the Chrome (or Chromium, Edge, Brave) to use for browser use. A path entered in **Settings → Browser** takes precedence |
@@ -3752,6 +3869,10 @@ Each task also has a check that it *got the job done*, so a model that does noth
 doing nothing passes is measuring nothing. The test suite proves this for every starter task (see below).
 
 ### Running it
+
+Run evals in a clone: the tasks (`evals/tasks/`) and the fake servers of the dry run (`tests/`) are part of the
+repository, not of the package that `uv tool install` installs. An installed ZhiFox says so, and runs only tasks you
+point it at with `--tasks-dir` together with `--real`.
 
 ```bash
 uv run harness eval tasks                       # list the tasks
