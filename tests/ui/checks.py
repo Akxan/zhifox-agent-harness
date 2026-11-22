@@ -36,6 +36,8 @@ USER_CONTENT = [
     "#log .cite-title", "#log .cite-site", ".cite-card",
     # 运行记录：工具的参数、出错时工具写的那一句（写给模型的中文原文），悬停时那一行里也带着参数
     "#trace-body .trace-detail", "#trace-body .trace-note", "#trace-body .trace-readout",
+    # 你的钩子：命令行、钩子自己写的话（输出、原因、交给它的 JSON），运行记录里它说的那一句
+    ".hooks-command", ".hooks-out", ".hooks-payload", ".hooks-user", "#trace-body .trace-hook-note",
 ]
 # 用户起的名字：既不检查它们自己，它们的文字也算"认得的"——按钮的说明里带着名字（"编辑任务：每日安排"）不算没翻译
 NAMES = [
@@ -44,6 +46,7 @@ NAMES = [
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
+    ".hooks-name", ".hooks-title-name",  # 钩子的名字（你起的）
 ]
 # 在任何语言下都照原样写的几个词：标志的名字，以及语言选单里每种语言用它自己的文字写的名字
 ALLOWED_WORDS = ["智狐", "中文", "语言"]

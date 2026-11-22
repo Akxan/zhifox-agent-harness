@@ -37,6 +37,10 @@ def _surfaces(page):
         ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
         ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
         ("扩展 · Agent", lambda: steps.extensions_tab(page, "agents"), ["#extensions"], None),
+        # 钩子：一行里很长的命令要省略、详情里要折行；试运行的输出、表单
+        ("扩展 · 钩子", lambda: _hooks(page), ["#extensions"], None),
+        ("扩展 · 钩子 · 试运行", lambda: _hook_tested(page), ["#extensions"], None),
+        ("扩展 · 钩子 · 编辑", lambda: (page.click("#panel-hooks [data-focus='edit']"), page.wait("document.getElementById('hooks-f-name')")), ["#extensions"], None),
         # 从其他工具导入：很长的路径（~/Library/Application Support/Code/User/……）、换写法的提醒、"没找到的"都要折行
         ("扩展 · MCP · 从其他工具导入", lambda: steps.import_view(page, "mcp"), ["#extensions"], None),
         ("扩展 · Skill · 从其他工具导入", lambda: steps.import_view(page, "skills"), ["#extensions"], None),
@@ -55,6 +59,20 @@ def _commands(page) -> None:
     steps.open_dialog(page, "#approval", "approval-dialog")
     page.click("#approval-commands")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
+
+
+def _hooks(page) -> None:
+    """"扩展 · 钩子"，里面有一个命令很长的钩子。"""
+    steps.save_hook(page, "a-hook-with-a-rather-long-name-for-narrow-screens", "import sys\nsys.stdin.read()\nprint('x' * 300, file=sys.stderr)\n",
+                    extra=("--with-a-very-long-option-name", "--and-another-one=value", "/a/very/long/path/that/goes/on/and/on/hooks/check-everything.py"))
+    steps.extensions_tab(page, "hooks")
+    page.wait("document.querySelector('#panel-hooks li.hooks-row')")
+
+
+def _hook_tested(page) -> None:
+    steps.open_hook(page, "a-hook-with-a-rather-long-name-for-narrow-screens")
+    page.click("#panel-hooks [data-focus='run']")
+    page.wait("document.querySelector('#panel-hooks .hooks-result')", what="试运行的结果")
 
 
 def _retry_confirm(page) -> None:

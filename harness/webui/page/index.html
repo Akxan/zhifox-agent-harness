@@ -121,6 +121,7 @@ __STYLES__
   <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
   <symbol id="i-trace" viewBox="0 0 24 24"><path d="M4 4v16M7.5 7h6M10.5 12h8M15.5 17h4.5"/></symbol>
+  <symbol id="i-hook" viewBox="0 0 24 24"><path d="M15 4.5v9.5a5 5 0 0 1-10 0v-2l2.6 2.6M12.5 4.5h5M15 4.5V2.8"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></symbol>
@@ -204,7 +205,7 @@ __STYLES__
             <span id="computer-live-text" class="computer-live-text" role="status"></span>
             <button id="computer-live-stop" class="computer-live-stop" type="button"></button>
           </div>
-          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent" aria-label="扩展：Skill、MCP、通道、Agent" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
+          <button id="extensions-open" class="icon-button" type="button" title="扩展：Skill、MCP、通道、Agent、钩子" aria-label="扩展：Skill、MCP、通道、Agent、钩子" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"/></svg></button>
           <!-- 换模型：点开是下面那个小面板（scripts/models.js）。设置在旁边的齿轮里 -->
           <button id="model" class="model-button" type="button" title="换模型" data-i18n-title aria-haspopup="dialog" aria-expanded="false" aria-controls="models"><i class="model-dot"></i><span id="model-label">换模型</span><svg class="icon model-chev" aria-hidden="true"><use href="#i-chevron"/></svg></button>
           <div id="models" class="flyout models" popover="manual" role="dialog" aria-labelledby="models-title" hidden>
@@ -586,7 +587,7 @@ __STYLES__
   <div class="settings-head">
     <div class="extensions-head">
       <h2 id="extensions-title" data-i18n>扩展</h2>
-      <p class="extensions-sub" data-i18n>Skill 教助手做事的方法，MCP 给它接上外部的工具，通道让你在 Telegram 这类聊天软件里和它说话，Agent 是你定制的助手。</p>
+      <p class="extensions-sub" data-i18n>Skill 教助手做事的方法，MCP 给它接上外部的工具，通道让你在 Telegram 这类聊天软件里和它说话，Agent 是你定制的助手，钩子在固定的时刻运行你写的命令。</p>
     </div>
     <button id="close-extensions" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
@@ -595,11 +596,13 @@ __STYLES__
     <button id="tab-mcp" class="tab" type="button" role="tab" aria-controls="panel-mcp" data-tab="mcp"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n>MCP</span><span id="count-mcp" class="tab-count"></span></button>
     <button id="tab-channels" class="tab" type="button" role="tab" aria-controls="panel-channels" data-tab="channels"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span data-i18n>通道</span><span id="count-channels" class="tab-count"></span></button>
     <button id="tab-agents" class="tab" type="button" role="tab" aria-controls="panel-agents" data-tab="agents"><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>Agent</span><span id="count-agents" class="tab-count"></span></button>
+    <button id="tab-hooks" class="tab" type="button" role="tab" aria-controls="panel-hooks" data-tab="hooks"><svg class="icon" aria-hidden="true"><use href="#i-hook"/></svg><span data-i18n>钩子</span><span id="count-hooks" class="tab-count"></span></button>
   </div>
   <div id="panel-skills" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-skills" tabindex="0"></div>
   <div id="panel-mcp" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0" hidden></div>
   <div id="panel-channels" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-channels" tabindex="0" hidden></div>
   <div id="panel-agents" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" hidden></div>
+  <div id="panel-hooks" class="settings-body tab-panel" role="tabpanel" aria-labelledby="tab-hooks" tabindex="0" hidden></div>
   <div id="extensions-message" class="settings-message" role="status"></div>
 </dialog>
 

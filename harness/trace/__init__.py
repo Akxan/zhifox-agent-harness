@@ -17,7 +17,9 @@
   工具调用  给人看的名字（和信息栏"智狐能做的事"同一张表，见 capabilities.label_of）和真名、花了多久、
             结果有多大、出没出错、问没问你（你允许的、你拒绝的、没问就放行的和为什么）、等你答复等了多久；
             交给子 Agent 的那一次，子 Agent 自己的请求和工具调用挂在它下面
-  合计      这一轮一共多久，其中模型、工具、等你各占多少，一共多少钱，缓存命中了多少
+  钩子      你的钩子（见 hooks/）每跑一次一段：哪个时刻、哪个钩子、跑了多久、怎么说的（放行、拦下、出错……）。
+            工具调用前后跑的挂在那次调用下面，你发消息时、一轮答完时跑的是单独的一段
+  合计      这一轮一共多久，其中模型、工具、钩子、等你各占多少，一共多少钱，缓存命中了多少
 
 看它能学到的几件事：一轮的时间大多花在模型上还是等你；每多一圈，整段对话就要重发一次（输入的 token 一圈比一圈多，
 但大部分命中缓存，所以便宜）；子 Agent 的那几圈不进主助手的历史，只有它交回的结论进去。
@@ -35,7 +37,7 @@
   at       这一轮开始的时刻（1970 年起的秒数），页面换算成本地时间
   wall     这一轮从开始到结束一共多少毫秒。下面所有的时刻都是"从这一轮开始过了多少毫秒"
   ended    怎么结束的：done 答完了 / truncated 回复被截断 / refused 被拒绝 / steps 用完了步数 /
-           stopped 你点了停止 / error 出错了
+           stopped 你点了停止 / error 出错了 / blocked 你的消息被你的钩子拦下了（UserPromptSubmit，见 hooks/）
   again    这一轮是"重新生成"出来的（没有就是 false，不写）
   omitted  段太多（超过 config.TRACE_MAX_SPANS）没有一段段存下来的有几段；合计里照样算着它们
 
@@ -64,15 +66,28 @@
              trusted、mode，见 permissions.Permissions.allowance）/ stopped 还在等你答复就停了；不用问的没有这一项
     asked、waited  什么时候开始等你答复、等了多少毫秒（只有问了你的才有）
     note     出错时结果的第一行（截短）
-    server   MCP 服务器的名字；agent：交给的是哪个子 Agent，children 是它的请求和工具调用
+    server   MCP 服务器的名字；agent：交给的是哪个子 Agent，children 是它的请求和工具调用，
+             以及这次调用前后跑的钩子（PreToolUse、PostToolUse）
+
+  一段钩子（后来加的：以前存下的记录里没有这种段，合计里也没有 hooks 那几项，读的时候当成 0）：
+    {"kind": "hook", "start": 1840, "end": 1910, "event": "PreToolUse", "name": "no-rm",
+     "result": "blocked", "exit": 2, "note": "不许删 Documents 里的东西", "added": 0}
+    event    哪个时刻：PreToolUse / PostToolUse / UserPromptSubmit / Stop
+    name     钩子的名字（你起的，原样显示）
+    result   ok 放行 / blocked 拦下 / ask 要你再确认一次 / error 钩子出错了 / timeout 超时了 / stopped 被停下了
+    exit     退出码（没有自己退出的——超时、启动不了、被停下——没有这一项）
+    note     它说的原因、出错的原因（第一行，截短）；added 它交给模型的话有多少个字（附在消息里、接在结果后面的）
 
   合计：
-    {"model": 6200, "tools": 3100, "waiting": 2900, "other": 200,
+    {"model": 6200, "tools": 3100, "hooks": 70, "waiting": 2900, "other": 130,
      "requests": 4, "tool_calls": 5, "errors": 0, "cost": 0.0312, "unpriced": 0,
      "input": 12000, "cache_read": 9000, "cache_write": 500, "output": 1200, "cache_hit": 0.7347,
-     "server_tools": {"web_search": 1}, "asked": 1, "allowed": 1, "refused": 0, "auto": 2}
-    model、tools、waiting、other  这一轮的时间怎么分的（毫秒，加起来是 wall）：模型在答、工具在执行、等你确认、
-             别的（存盘、组装请求这些零碎）。子 Agent 那一次调用的时间，按它里面的模型、工具、等你分别算进去
+     "server_tools": {"web_search": 1}, "asked": 1, "allowed": 1, "refused": 0, "auto": 2,
+     "hook_runs": 1, "hooks_blocked": 1}
+    model、tools、hooks、waiting、other  这一轮的时间怎么分的（毫秒，加起来是 wall）：模型在答、工具在执行、你的钩子在跑、
+             等你确认、别的（存盘、组装请求这些零碎）。子 Agent 那一次调用的时间，按它里面的模型、工具、钩子、等你分别算进去；
+             工具调用前后跑的钩子不算进工具的时间
+    hook_runs、hooks_blocked  跑了几次钩子、其中几次拦下了
     cost     一共多少钱（只算有价格的）；unpriced 有几次请求没有价格；全都没有价格时 cost 是 null
     cache_hit  输入里命中缓存的比例（0 到 1）；没有输入时是 null
     requests、tool_calls、errors、asked、allowed、refused、auto  各有几次（子 Agent 里的也算）

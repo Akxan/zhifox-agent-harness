@@ -1,17 +1,20 @@
 // ---- 运行记录 · 窗口里画的东西 ------------------------------------------------
 // 从上到下：
 //   合计      这一轮一共多久（最大的那个数）、花了多少、缓存命中多少、几次请求和工具调用；时间怎么分的：一根分段的横条，
-//             下面是图例（模型在答 / 工具在执行 / 等你确认 / 别的零碎），每一项写着多久、占几成。
+//             下面是图例（模型在答 / 工具在执行 / 你的钩子在跑 / 等你确认 / 别的零碎），每一项写着多久、占几成。
+//             "你的钩子在跑"只在这一轮跑过钩子时才有（没配钩子的人不用看到一项永远是 0 的）。
 //   瀑布图    每一段一行：左边是名字，右边是这一轮的时间轴，横条从这一段开始的时刻画到结束的时刻。模型请求的横条前面淡的那一截
 //             是"还没吐出第一个字"；工具调用里画斜线的那一截是在等你确认。交给子 Agent 的那一步，它自己的请求和调用缩进画在下面。
+//             你的钩子每跑一次也是一行（品红）：工具前后跑的缩进画在那次调用下面，你发消息时、一轮答完时跑的单独一行。
 //             悬停一行、或者用 Tab / ↑↓ 选中一行，上面那一行字写着它的全部数字；点一下（回车）跳到下面那一段的详情。
 //   每一段    逐段列出数字：哪个模型、多少 token、首字时间、停止原因、多少钱；工具的真名、参数、结果多大、问没问你、出错的原因。
 // 颜色只是帮忙看：每一行都有图标和名字，等你的那一截有斜线，跳过的是虚线框，出错的标着"出错"，不靠颜色也分得清。
 // 会动的只有横条：刚打开窗口时从左往右长出来（transform: scaleX），换语言时重画不再播；减少动态效果时一闪而过（reduce-motion.css）。
 
 const TRACE_SPLIT = [
-  ['model', k('模型在答')], ['tools', k('工具在执行')], ['waiting', k('等你确认')], ['other', k('别的零碎')],
+  ['model', k('模型在答')], ['tools', k('工具在执行')], ['hooks', k('你的钩子在跑')], ['waiting', k('等你确认')], ['other', k('别的零碎')],
 ];
+// 钩子的时刻和结论怎么说，和"扩展 · 钩子"那一页一样：都在 hook-words.js
 const TRACE_RESULT = { error: k('出错'), skipped: k('没有执行'), stopped: k('没有执行完') };
 const TRACE_SKIPPED_WHY = k('前面的一步失败了，或者参数在生成中途被截断，这一步没有执行。');
 const TRACE_STATUS = { stopped: k('被打断'), error: k('出错了'), compacted: k('压缩历史'), paused: k('搜索还没做完'), refused: k('模型拒绝了') };
@@ -41,6 +44,7 @@ function traceLanes(spans, depth = 0, out = []) {
 function traceName(lane) {
   const span = lane.span;
   if (span.kind === 'model') return span.compaction && span.status === 'compacted' ? [k('压缩历史')] : [k('第 {n} 次请求'), { n: lane.request }];
+  if (span.kind === 'hook') return [k('钩子 · {name}'), { name: span.name || '' }];
   if (span.agent) return [k('交给「{agent}」'), { agent: span.agent }];
   if (!span.label) return [null, span.name || 'tool'];
   return span.server ? [k('{label} · {server}'), { label: { key: span.label, values: {} }, server: span.server }] : [span.label];
@@ -70,6 +74,10 @@ function traceSays(lane) {
     if (span.first !== undefined) parts.push(t('首字 {time}', { time: traceTime(span.first) }));
     if ('cost' in span) parts.push(traceTokens(span), traceCost(span.cost));
     parts.push(span.stop || (TRACE_STATUS[span.status] ? t(TRACE_STATUS[span.status]) : ''));
+  } else if (span.kind === 'hook') {
+    parts.push(hookEventText(span.event), traceTime(span.end - span.start), t(HOOK_RESULTS[span.result] || HOOK_RESULTS.error));
+    if (span.exit !== undefined) parts.push(t('退出码 {code}', { code: span.exit }));
+    if (span.note) parts.push(span.note);
   } else {
     parts.push(((span.name || '') + ' ' + (span.detail || '')).trim(), traceTime(span.end - span.start), traceApproval(span));
     parts.push(span.result === 'ok' ? t('结果 {n} 个字', { n: traceCount(span.size) }) : t(TRACE_RESULT[span.result] || k('没有执行完')));
@@ -95,14 +103,16 @@ function traceHero(record, animate) {
   stat(k('请求'), traceCount(totals.requests));
   stat(k('工具调用'), traceCount(totals.tool_calls));
 
-  // 时间怎么分的：四段加起来就是 wall（助手程序保证的，见 harness/trace/recorder.py 的 _totals）
-  const whole = Math.max(1, TRACE_SPLIT.reduce((sum, [name]) => sum + totals[name], 0));
+  // 时间怎么分的：几段加起来就是 wall（助手程序保证的，见 harness/trace/recorder.py 的 _totals）。
+  // 这一轮没跑过钩子的，不列"你的钩子在跑"那一项
+  const split = TRACE_SPLIT.filter(([name]) => name !== 'hooks' || totals.hooks > 0 || totals.hook_runs > 0);
+  const whole = Math.max(1, split.reduce((sum, [name]) => sum + totals[name], 0));
   const bar = hero.appendChild(el('div', 'trace-split'));
   bar.setAttribute('role', 'img');
   let from = 0;
   const said = [];
   const legend = hero.appendChild(el('ul', 'trace-legend'));
-  for (const [name, label] of TRACE_SPLIT) {
+  for (const [name, label] of split) {
     const size = (totals[name] / whole) * 100;
     if (size > 0) {
       const seg = bar.appendChild(el('i', 'seg-' + name));
@@ -119,6 +129,11 @@ function traceHero(record, animate) {
   const notes = [];
   if (totals.unpriced) notes.push(t('{n} 次请求的模型没有价格，没有算进花费。', { n: totals.unpriced }));
   if (totals.tools_used.web_search) notes.push(t('服务器上联网搜索了 {n} 次（按次另外收费）。', { n: totals.tools_used.web_search }));
+  if (totals.hook_runs) {
+    notes.push(totals.hooks_blocked
+      ? t('跑了 {n} 次你的钩子，其中 {blocked} 次拦下了。', { n: totals.hook_runs, blocked: totals.hooks_blocked })
+      : t('跑了 {n} 次你的钩子。', { n: totals.hook_runs }));
+  }
   if (record.omitted) notes.push(t('这一轮的段太多，还有 {n} 段没有一段段存下来；合计里算着它们。', { n: record.omitted }));
   if (notes.length) hero.appendChild(el('p', 'trace-hint', notes.join(' ')));
   return hero;
@@ -144,12 +159,13 @@ function traceLane(lane, record, index) {
   row.type = 'button';
   row.dataset.lane = lane.key;
   row.style.setProperty('--i', String(Math.min(index, 24)));
-  const status = span.kind === 'model' ? span.status : span.result;
-  if (status === 'error' || status === 'stopped' || status === 'skipped') row.classList.add('is-' + status);
+  const status = span.kind === 'model' ? span.status : span.kind === 'hook' && span.result === 'timeout' ? 'error' : span.result;
+  if (status === 'error' || status === 'stopped' || status === 'skipped' || (span.kind === 'hook' && status === 'blocked')) row.classList.add('is-' + status);
   if (span.approval) row.classList.add('was-asked');
   const name = row.appendChild(el('span', 'trace-lane-name'));
   name.append(icon(span.kind === 'model' ? 'spark' : span.icon), traceTitleEl('span', 'trace-lane-title', lane));
   if (span.kind === 'model' && span.model) name.appendChild(el('span', 'trace-lane-sub', span.model));
+  if (span.kind === 'hook' && span.event) name.appendChild(el('span', 'trace-lane-sub', span.event));
   const track = row.appendChild(el('span', 'trace-track'));
   const bar = track.appendChild(el('span', 'trace-bar'));
   const duration = Math.max(0, span.end - span.start);
@@ -247,6 +263,12 @@ function traceStep(lane, number) {
     for (const [tool, count] of Object.entries(span.tools)) {
       tags.appendChild(traceTag(tool === 'web_search' ? t('联网搜索 {n} 次', { n: count }) : tool === 'web_fetch' ? t('读网页 {n} 次', { n: count }) : tool + ' × ' + count, 'note'));
     }
+  } else if (span.kind === 'hook') {
+    main.appendChild(el('p', 'trace-step-meta', hookEventText(span.event)));
+    tags.appendChild(traceTag(t(HOOK_RESULTS[span.result] || HOOK_RESULTS.error), hookResultKind(span.result)));
+    if (span.exit !== undefined) tags.appendChild(traceTag(t('退出码 {code}', { code: span.exit })));
+    if (span.added) tags.appendChild(traceTag(t('交给模型 {n} 个字', { n: traceCount(span.added) }), 'note'));
+    if (span.note) main.appendChild(el('p', 'trace-hook-note' + (span.result === 'error' || span.result === 'timeout' ? ' bad' : ''), span.note));
   } else {
     const call = main.appendChild(el('p', 'trace-call'));
     call.append(el('code', 'trace-raw', span.name || ''), el('span', 'trace-detail', span.detail || ''));

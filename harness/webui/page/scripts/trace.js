@@ -1,6 +1,6 @@
 // ---- 运行记录 --------------------------------------------------------------
 // 每一轮结束时，助手程序发来这一轮的运行记录（trace 事件，格式见 harness/trace/__init__.py）：调用了几次模型、
-// 用了哪些工具、每一段从什么时候到什么时候、多少 token、多少钱、问没问你、等你等了多久。
+// 用了哪些工具、每一段从什么时候到什么时候、多少 token、多少钱、问没问你、等你等了多久，以及你的钩子跑了几次、怎么说的。
 // 数字全由助手程序算好（合计也是），页面只照着画，不自己算钱、不自己数时间：
 //   - 入口：这一轮最后那个回答下面的那排按钮里，多一个"运行记录"（写着这一轮用了多久、花了多少）；这一轮最后不是回答
 //     （出错了、被停下了、最后一步是工具），就在这一轮最后单独放一行。刷新、打开旧会话时它们照样重放出来，不播入场动画；
@@ -16,10 +16,12 @@ let traceOpener = null;  // 打开窗口的那个按钮：关上时焦点回到�
 let traceEnter = false;  // 下一次画的时候播放入场动画（只在刚打开窗口时；换语言时重画不再播）
 
 // 一轮是怎么结束的（和终端 /trace 的说法一样，见 harness/trace/text.py）
-const TRACE_ENDED = { done: k('答完了'), truncated: k('回复被截断了'), refused: k('模型拒绝了'), steps: k('用完了步数'), stopped: k('你停下了它'), error: k('出错了') };
-const TRACE_TEXT = ['provider', 'model', 'status', 'stop', 'name', 'group', 'label', 'detail', 'result', 'approval', 'why', 'note', 'server', 'agent'];
-const TRACE_COUNTS = ['start', 'end', 'first', 'input', 'cache_read', 'cache_write', 'output', 'calls', 'retries', 'size', 'images', 'asked', 'waited'];
-const TRACE_TOTALS = ['model', 'tools', 'waiting', 'other', 'requests', 'tool_calls', 'errors', 'unpriced', 'input', 'cache_read', 'cache_write', 'output', 'asked', 'allowed', 'refused', 'auto'];
+const TRACE_ENDED = { done: k('答完了'), truncated: k('回复被截断了'), refused: k('模型拒绝了'), steps: k('用完了步数'), stopped: k('你停下了它'), error: k('出错了'), blocked: k('被你的钩子拦下了') };
+const TRACE_TEXT = ['provider', 'model', 'status', 'stop', 'name', 'group', 'label', 'detail', 'result', 'approval', 'why', 'note', 'server', 'agent', 'event'];
+const TRACE_COUNTS = ['start', 'end', 'first', 'input', 'cache_read', 'cache_write', 'output', 'calls', 'retries', 'size', 'images', 'asked', 'waited', 'added'];
+// hooks、hook_runs、hooks_blocked 是后来加的（你的钩子）：以前存下的记录里没有，traceNumber 当成 0
+const TRACE_TOTALS = ['model', 'tools', 'hooks', 'waiting', 'other', 'requests', 'tool_calls', 'errors', 'unpriced', 'input', 'cache_read', 'cache_write', 'output', 'asked', 'allowed', 'refused', 'auto', 'hook_runs', 'hooks_blocked'];
+const TRACE_KINDS = ['model', 'tool', 'hook'];
 
 const traceNumber = (value) => { const n = Number(value); return typeof value !== 'boolean' && Number.isFinite(n) && n >= 0 ? n : 0; };
 const traceMoney = (value) => (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Number(value));
@@ -28,7 +30,7 @@ const traceCounts = (value) => Object.fromEntries(Object.entries(value && typeof
 
 // 一段：只留认得的字段。时刻夹在这一轮里面（0 到 wall），结束不早于开始
 function traceSpan(raw, wall, depth) {
-  if (!raw || typeof raw !== 'object' || (raw.kind !== 'model' && raw.kind !== 'tool')) return null;
+  if (!raw || typeof raw !== 'object' || !TRACE_KINDS.includes(raw.kind)) return null;
   const span = { kind: raw.kind };
   for (const name of TRACE_TEXT) if (typeof raw[name] === 'string') span[name] = raw[name].slice(0, 400);
   for (const name of TRACE_COUNTS) if (raw[name] !== undefined && raw[name] !== null) span[name] = traceNumber(raw[name]);
@@ -38,8 +40,9 @@ function traceSpan(raw, wall, depth) {
   span.compaction = raw.compaction === true;
   span.truncated = raw.truncated === true;
   span.tools = traceCounts(raw.server_tools);
+  if (Number.isInteger(raw.exit)) span.exit = raw.exit;  // 钩子的退出码：可以是 0，也可以是负的（被信号结束的）
   // 图标的名字只认页面里有的那几个（拼进 <use href="#i-…">）
-  span.icon = typeof raw.icon === 'string' && /^[a-z-]{1,24}$/.test(raw.icon) && document.getElementById('i-' + raw.icon) ? raw.icon : 'puzzle';
+  span.icon = raw.kind === 'hook' ? 'hook' : typeof raw.icon === 'string' && /^[a-z-]{1,24}$/.test(raw.icon) && document.getElementById('i-' + raw.icon) ? raw.icon : 'puzzle';
   span.children = depth < 3 && Array.isArray(raw.children) ? raw.children.map((child) => traceSpan(child, wall, depth + 1)).filter(Boolean) : [];
   return span;
 }

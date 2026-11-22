@@ -103,6 +103,9 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   stateless protocol (2026-07-28) and the older handshake-based one; every call asks you first unless you mark that
   tool "don't ask", and servers already set up in Claude Desktop, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Goose
   and [twenty-odd other tools](#importing-from-other-tools) can be imported in a few clicks.
+- 🪝 **Hooks, in the spirit of Claude Code's.** Your own scripts at fixed moments: before a tool runs (after approval),
+  after it, when you send a message, when a turn ends. Same events, matcher idea, JSON on stdin and exit-code answers as
+  Claude Code; a hook can block a step or ask you again, never relax an approval (see [Hooks](#hooks-your-own-scripts-at-fixed-moments)).
 - 🛡️ **Permission prompts.** Every shell command and every file write waits for your approval, and when you deny one
   you can tell the model why. A middle mode lets commands that only look (`ls`, `df -h`, `git status`, `journalctl`…)
   run without asking while anything that could change something still asks; the check behind it is deliberately
@@ -274,6 +277,7 @@ Each part of the harness has its own file or directory:
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
+| Hooks | [harness/hooks/](harness/hooks/), [harness/webui/hooks_api.py](harness/webui/hooks_api.py) | Some rules should apply every time without a card: block a kind of command, format after an edit, log each turn. Your own scripts run at four fixed moments next to the loop's recording points, get a JSON payload on stdin and answer with an exit code, Claude Code style; they can only make things stricter (see [Hooks](#hooks-your-own-scripts-at-fixed-moments)) |
 | Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
@@ -347,7 +351,8 @@ conversation, and every turn of a scheduled task or a chat channel has one too.
 
 **How to read it.** The top of the panel has the totals: how long, how much, how much of the input came from the cache,
 how many model calls and tool calls, and a bar in four parts: the model answering, tools running, waiting for you to
-approve, and other overhead (saving, building requests). Below it is a waterfall chart with one row per step:
+approve, and other overhead (saving, building requests); a turn that ran one of your [hooks](#hooks-your-own-scripts-at-fixed-moments)
+gets a fifth part for them, and each hook run is its own row (under the tool call for `PreToolUse` and `PostToolUse`). Below it is a waterfall chart with one row per step:
 
 ```
                            0          1 s          2 s
@@ -1709,6 +1714,91 @@ Limits worth knowing: the secret-name list is a guess, so it only ever adds ques
 made outside ZhiFox isn't recognised (one to a key file is); and this mode does let the model read files outside the
 working directory, which Ask every time and Allow file edits don't.
 
+### Hooks: your own scripts at fixed moments
+
+Approval cards let you decide one step at a time. Some rules you'd rather write once and have applied every time:
+"never delete anything in `~/Documents`", "run the formatter after every Python edit", "log every finished turn",
+"send me a notification when a scheduled task is done". A **hook** is a small script of yours that ZhiFox runs at a
+fixed moment and listens to. It follows [Claude Code's hooks](https://code.claude.com/docs/en/hooks): the same event
+names, the same idea of a matcher, the same JSON on stdin, and the same answers through the exit code and a JSON object
+on stdout. A Claude Code hook usually needs only its tool names changed (`run_command`, `str_replace_based_edit_tool`
+instead of `Bash`, `Edit`).
+
+| Event | When | What the hook can do |
+|---|---|---|
+| `PreToolUse` | A tool is about to run, **after** approval (you clicked Allow, or the mode doesn't ask) | Block it: the call still gets a result, and the model reads "this call was blocked by the user's hook …" with your reason. Or ask you once more, in any mode. It can't change the input, and it can't make a step that asks stop asking |
+| `PostToolUse` | The tool has finished | Append a short note (at most `HOOK_NOTE_CHARS`, 2,000 characters) to this tool result, which the model sees. It sees the result exactly as the model will |
+| `UserPromptSubmit` | You sent a message, before it enters the history | Block it (you see the reason; nothing is sent, nothing is paid), or attach context to this message for the model |
+| `Stop` | A turn finished (answered, cut off, refused, out of steps) | Only a notification: run a formatter, write a log, send a notification. Not run when you pressed Stop, an error ended the turn, or a hook blocked the message |
+
+**The protocol.** The hook receives one JSON object on stdin: `hook_event_name`, `hook_name`, `session_id`, `cwd`,
+`permission_mode` (`ask` / `readonly` / `edits` / `all`), `source` (`chat`, `task` or `channel`), `provider`, `model`,
+`agent_type` (only inside a subagent) and `test` (only for a test run); the tool events add `tool_name`, `tool_group`
+(the capability it belongs to, as in the capability list), `tool_input`, `tool_use_id` and `mcp_server`; `PostToolUse`
+adds `tool_response`, `is_error` and `duration_ms`; `UserPromptSubmit` adds `prompt` and `attachments`; `Stop` adds
+`last_assistant_message`, `ended` and `stop_hook_active` (always false). Then:
+
+- **exit 0**: fine. Stdout may be a JSON object with Claude Code's fields: `{"decision": "block", "reason": "…"}`,
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny" | "ask", "permissionDecisionReason": "…"}}`,
+  `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "…"}}` (or `UserPromptSubmit`), and
+  `{"systemMessage": "…"}` for a line shown to you. Plain text on stdout counts as context only for `UserPromptSubmit`.
+  `"allow"` is ignored: a hook can make approvals stricter, never looser. So are `updatedInput`, `updatedToolOutput` and
+  `continue: false`; a test run tells you so.
+- **exit 2**: block, with stderr as the reason (for `PostToolUse` it's appended to the result, for `Stop` it's shown to you).
+- **anything else**, a timeout (`HOOK_TIMEOUT`, 30 seconds by default, up to `HOOK_MAX_TIMEOUT`), or a program that won't
+  start: the hook failed. You get a notice and everything carries on, unless the hook says `"onFailure": "block"`, which
+  turns a failure into a block for `PreToolUse` and `UserPromptSubmit`: a safety hook that breaks fails closed.
+
+Several hooks on the same moment run one after another in file order (Claude Code runs them in parallel), and the
+first one that blocks wins. Every hook run is a span in the [run trace](#reading-a-turn-the-run-trace).
+
+**Where hooks run.** In your conversations, in scheduled tasks and in chat channels, all three by default; the
+`runsIn` field narrows it. Why on by default in unattended runs: a hook can only make things stricter, so running it
+more often never makes anything less safe, while a safety hook that silently didn't apply in a scheduled task would fail
+exactly when nobody is watching. A subagent's tool calls run the tool hooks too (with `agent_type`); its "turn" isn't a
+message you sent, so it runs no `UserPromptSubmit` or `Stop`. Regenerating a turn doesn't rerun `UserPromptSubmit`:
+the message stays in the history as it was.
+
+**The history stays append-only.** A hook's note goes into the tool result or the user message that is being created
+at that moment, wrapped as `<hook_note name="…">` or `<hook_context name="…">`; nothing already in the history changes,
+and the system prompt and the tool list don't change either.
+
+**Safety.** Saving a hook means ZhiFox will run that command on your computer, so hooks follow the rules of local MCP
+servers: only the page holding the run's token (**Extensions → Hooks**) or the command line (`harness hooks …`) can save
+one; the command is started from an argument list in the working folder, never through a shell (a `command` with
+spaces and no `args` is refused with an explanation); the model API keys and bot tokens are removed from its
+environment, and a hook that references one (`$ANTHROPIC_API_KEY`, `${…}`, `%…%`, `$env:…`) is refused when saved and
+again before it runs; the model has no tool that adds or changes hooks, and `data/hooks.json` is on the file tools'
+protected list like `.env` and `mcp.json`; the file is mode 600, masked in exports, and the page shows arguments with
+anything that looks like a token hidden. Each run's hook is its own: Stop in the chat ends only the chat's hook, and
+stopping a task ends only that task's.
+
+```json
+{
+  "hooks": {
+    "no-rm": {"event": "PreToolUse", "matcher": "shell", "command": "python3", "args": ["/Users/me/hooks/no_rm.py"],
+              "timeout": 10, "onFailure": "block"},
+    "fmt":   {"event": "PostToolUse", "matcher": "files", "command": "python3", "args": ["scripts/format.py"]},
+    "done":  {"event": "Stop", "command": "python3", "args": ["/Users/me/hooks/notify.py"], "runsIn": ["task"]}
+  }
+}
+```
+
+The matcher is a capability name (`shell`, `files`, `browser`, `mcp`… as in the capability list), a tool's real name
+(`run_command`, `browser.left_click`, `mcp__github__create_issue`), or a `*` glob (`mcp__github__*`), separated by `|`;
+empty or `*` means every tool. No regular expressions: enough for real use, and no way to write one that hangs.
+Unlike Claude Code's settings, which group hooks by event, the file is flat, one named hook per entry, so the page can
+switch, edit and test each one. On the command line:
+
+```bash
+uv run harness hooks add no-rm --event PreToolUse --matcher shell --on-failure block -- python3 /Users/me/hooks/no_rm.py
+uv run harness hooks list            # enable / disable / remove / test NAME
+```
+
+```powershell
+uv run harness hooks add no-rm --event PreToolUse --matcher shell --on-failure block -- python C:\Users\me\hooks\no_rm.py
+```
+
 ## Using ZhiFox
 
 ### Web UI
@@ -1908,6 +1998,15 @@ This starts a small server on your computer and opens the chat page in your brow
   VS Code, Codex, Gemini CLI, Goose and the [other supported tools](#importing-from-other-tools) (read only when you open
   that page) so you can tick the ones to copy; what had to be rewritten is written on each one. Changes apply from the next conversation (see
   [MCP](#mcp-tools-written-by-someone-else)).
+- **Extensions → Hooks.** Your [hooks](#hooks-your-own-scripts-at-fixed-moments), with a clear warning at the top that
+  they run commands on this computer with your account's permissions. Each row shows the event, which tools it matches,
+  the command (anything that looks like a token hidden) and its last run (result and duration; kept since ZhiFox started),
+  with an on/off switch and **Test run** before the usual **Show in Finder** (`data/hooks.json`), **Edit** and
+  **Delete** (confirmed in place). **Add hook** opens a form: name, event, the tools to match (capability chips plus
+  names or `*` globs), the program and one argument per line, time limit, what to do when the hook itself fails, and
+  where it runs (conversations, scheduled tasks, chat channels); unsaved changes ask before you leave. **Test run**
+  shows the sample JSON the hook will get (you can edit it), runs it for real, and tells you the exit code, the output
+  and what ZhiFox would do ("would block this call; the model sees…").
 - **Appearance and motion** (the sun/moon button at the top right). A small panel with two rows:
   - **Appearance:** Light by default. You can switch to Dark, or to Match system.
   - **Motion:** follows your system setting by default (on macOS, System Settings → Accessibility → Display → Reduce
@@ -2515,6 +2614,7 @@ unprivileged user for the service.
 | `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, and the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
+| `data/hooks.json` | Your [hooks](#hooks-your-own-scripts-at-fixed-moments): name → event, matcher, program and arguments, time limit, `onFailure`, `runsIn`, `enabled`. Arguments may hold tokens, so it is readable by your account only, the assistant's file tool can't open it, and exports mask it |
 | `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
@@ -2544,7 +2644,7 @@ so the server is extra careful with them: the page can only tell the server *whi
 from the list, checked as described below), *which skill* (a single folder name that must exist inside `data/skills/`),
 *which attachment* (an id of the form conversation/message/position, checked against the index; the file name comes from
 the content's SHA-256), which of the assistant's own data files (`tasks`, `todos` or `prompt`), or, for the memory and
-skill folders, `data/mcp.json` and the browser's profile folder, nothing at all; the server works out the path itself,
+skill folders, `data/mcp.json`, `data/hooks.json` and the browser's profile folder, nothing at all; the server works out the path itself,
 and the page has no way to make it open any other path. Downloading an attachment works the same way: the page sends
 only the id, and the file comes back as a download (`Content-Disposition: attachment`,
 `X-Content-Type-Options: nosniff`), so a text file that contains HTML is still plain text. A full-size browser screenshot is fetched the same
@@ -2583,7 +2683,8 @@ are never in it: they live in `.env`, which isn't in the data folder, and any `.
 skipped. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
 variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
 URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
-valid JSON, it is left out entirely rather than risk exporting a secret. Symbolic links are skipped too, since they
+valid JSON, it is left out entirely rather than risk exporting a secret. `data/hooks.json` gets the same treatment (a hook's
+arguments may hold a token, such as `--token xxx`). Symbolic links are skipped too, since they
 could point anywhere on your computer. A `README-backup.txt` inside the zip lists the date, how to restore, and what was
 masked or skipped. The zip is built in a temporary file outside the data folder and deleted once it has been sent.
 
@@ -2747,8 +2848,15 @@ trace is in [tests/test_trace.py](tests/test_trace.py) (a fake clock, so every s
 and wait for approval are compared to the millisecond; the cost is the ledger's entry; allowed, declined and
 auto-allowed calls; subagents nested under their step; how an open step is closed when you stop or an error hits; the
 requests sent are byte for byte the same with and without tracing; saving, reopening and regenerating; scheduled tasks
-and chat channels; the terminal's `/trace`), and its waterfall on the page in
-[tests/ui/test_ui_trace.py](tests/ui/test_ui_trace.py). The model
+and chat channels; the terminal's `/trace`; hook spans), and its waterfall on the page in
+[tests/ui/test_ui_trace.py](tests/ui/test_ui_trace.py). Hooks are tested in [tests/test_hooks.py](tests/test_hooks.py)
+with tiny Python scripts in a temporary folder, run with `sys.executable` so the same tests run on Windows: the checks
+on `data/hooks.json` (no shell, no references to model keys, time limits), the environment without keys, the working
+folder, the JSON on stdin, every exit code and JSON answer, timeouts, a hook that floods its output, Stop ending only
+that run's hook, each event's semantics through the real loop (blocking after approval, asking again, `allow` never
+skipping a question, notes appended only to the new tool result, a blocked message never reaching the API), scheduled
+tasks, chat channels and subagents, the trace spans, the protected file and the masked export; the page and the command
+line in [tests/test_hooks_web.py](tests/test_hooks_web.py) and [tests/ui/test_ui_hooks.py](tests/ui/test_ui_hooks.py). The model
 catalog is in [tests/test_model_catalog.py](tests/test_model_catalog.py): the JSON the page gets (keys only as their
 last 4 characters, tags, entered and built-in prices, off-peak prices), the switch endpoint agreeing with it (the same
 provider continues, another provider starts anew and keeps the old conversation, refused while a chat channel holds the

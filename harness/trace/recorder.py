@@ -13,7 +13,11 @@ agent 循环在几个时刻告诉它一声（"记录点"，agent.py 里每个只
       tool_ended(text, is_error, images, ran)  这次调用有结果了
     turn_ended(ended) → 记录              一轮结束
 
-中途被打断（停止、出错）时，还没结束的那一段在 turn_ended 里按"此刻"收尾，标成 stopped 或 error，
+    hook_began(event, name) / hook_ended(result, exit, note, added)
+                                         你的一个钩子开始跑、跑完了（见 hooks/engine.py）。工具调用前后的钩子挂在那次调用下面，
+                                         你发消息时、一轮答完时的钩子是这一轮里单独的一段
+
+中途被打断（停止、出错）时，还没结束的那一段（包括正在跑的钩子）在 turn_ended 里按"此刻"收尾，标成 stopped 或 error，
 等你答复等到一半的，等了多久也照样算上。
 
 为什么时间用 timer（默认 time.monotonic）而不是钟表时间：它只往前走，电脑中途对时、改了时区，算出来的长短也不会是负的。
@@ -44,7 +48,7 @@ OUTPUT_NOTICES = frozenset({"tool", "result"})
 
 @dataclass
 class Span:
-    """时间线上的一段：一次模型请求（kind 是 model）或者一次工具调用（tool）。时刻都是 timer 的读数。"""
+    """时间线上的一段：一次模型请求（kind 是 model）、一次工具调用（tool）或者跑了一次你的钩子（hook）。时刻都是 timer 的读数。"""
 
     kind: str
     start: float
@@ -53,7 +57,7 @@ class Span:
     first: float | None = None  # 模型请求：第一段输出到的时刻
     asked: float | None = None  # 工具调用：开始等你答复的时刻
     waited: float = 0.0  # 工具调用：等你答复等了多久（秒）
-    children: list[Span] = field(default_factory=list)  # 交给子 Agent 的那一次：它的请求和工具调用
+    children: list[Span] = field(default_factory=list)  # 交给子 Agent 的那一次：它的请求和工具调用；工具前后跑的钩子也挂在这里
 
 
 class Tracer:
@@ -67,6 +71,7 @@ class Tracer:
         self._again = False
         self._request: Span | None = None  # 正在进行的那次请求
         self._tool: Span | None = None  # 正在进行的那次工具调用
+        self._hook: Span | None = None  # 正在跑的那个钩子
 
     # ---- 记录点 -----------------------------------------------------------
 
@@ -75,7 +80,7 @@ class Tracer:
         self._started = self.timer()
         self._at = self.wall()
         self._again = again
-        self._request = self._tool = None
+        self._request = self._tool = self._hook = None
 
     def request_began(self, provider: str, model: str) -> None:
         span = Span("model", self.timer(), data={"provider": clean_text(provider)[:40], "model": clean_text(model)[:80]})
@@ -158,6 +163,26 @@ class Tracer:
         if span is not None and agent:
             span.data["agent"] = clean_text(agent)[:60]
 
+    def hook_began(self, event: str, name: str) -> None:
+        span = Span("hook", self.timer(), data={"event": clean_text(event)[:40], "name": clean_text(name)[:64]})
+        (self._tool.children if self._tool is not None else self.spans).append(span)
+        self._hook = span
+
+    def hook_ended(self, result: str, exit: int | None = None, note: str = "", added: int = 0) -> None:
+        """result 见 __init__.py 的格式说明；exit 是退出码（没有自己退出的是 None）；note 是它说的原因或者出错的原因；
+        added 是它交给模型的话有多少个字（附在消息里、接在工具结果后面的）。"""
+        span, self._hook = self._hook, None
+        if span is None:
+            return
+        span.end = self.timer()
+        span.data["result"] = clean_text(result)[:20]
+        if exit is not None:
+            span.data["exit"] = int(exit)
+        if note:
+            span.data["note"] = short(next((line for line in clean_text(note).splitlines() if line.strip()), ""), TRACE_SUMMARY_CHARS)
+        if added:
+            span.data["added"] = int(added)
+
     def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True) -> None:
         span, self._tool = self._tool, None
         if span is None:
@@ -175,6 +200,10 @@ class Tracer:
         """一轮结束（ended 见 __init__.py 的格式说明）：还开着的那一段按此刻收尾，整理出这一轮的记录。"""
         now = self.timer()
         cut = "stopped" if ended == "stopped" else "error"
+        if self._hook is not None:
+            self._hook.end = now
+            self._hook.data["result"] = cut
+            self._hook = None
         if self._request is not None:
             self._request.end = now
             self._request.data["status"] = cut
@@ -265,7 +294,7 @@ def _count(spans: list[Span]) -> int:
 
 def _totals(spans: list[Span], wall: float, now: float) -> dict:
     """合计（格式见 __init__.py）。由这里算好，页面和终端照着写，不各自再算一遍。"""
-    time_in = {"model": 0.0, "tools": 0.0, "waiting": 0.0}
+    time_in = {"model": 0.0, "tools": 0.0, "hooks": 0.0, "waiting": 0.0}
     tokens = dict.fromkeys(TOKENS, 0)
     counts: Counter[str] = Counter()
     server: Counter[str] = Counter()
@@ -288,20 +317,25 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
                         money["cost"] += data["cost"]
                         money["priced"] += 1
                 continue
+            if span.kind == "hook":
+                time_in["hooks"] += duration
+                counts["hook_runs"] += 1
+                counts["hooks_blocked"] += data.get("result") == "blocked"
+                continue
             counts["tool_calls"] += 1
             counts["errors"] += data.get("result") == "error"
             approval = data.get("approval")
             if approval:
                 counts["auto" if approval == "auto" else "asked"] += 1
                 counts[approval] += approval in ("allowed", "refused")
-            # 这次调用自己花的时间：去掉等你答复的那段、去掉交给子 Agent 后它自己的请求和调用（那些算进各自的类别）
+            # 这次调用自己花的时间：去掉等你答复的那段、去掉交给子 Agent 后它自己的请求和调用、去掉前后跑的钩子（那些算进各自的类别）
             inner = sum(max(0.0, (child.end if child.end is not None else now) - child.start) for child in span.children)
             time_in["tools"] += max(0.0, duration - span.waited - inner)
             time_in["waiting"] += span.waited
             walk(span.children)
 
     walk(spans)
-    # 四项各自取整到毫秒的话，零头加起来会和总时长差一两毫秒（页面上那根分段的横条就画不满）。
+    # 五项各自取整到毫秒的话，零头加起来会和总时长差一两毫秒（页面上那根分段的横条就画不满）。
     # 所以按"累计到这一项"取整再相减：每一项仍是整数毫秒，加起来正好是 wall
     split, running, before = {}, 0.0, 0
     for name, value in (*time_in.items(), ("other", max(0.0, wall - sum(time_in.values())))):
@@ -309,7 +343,7 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
         upto = min(_ms(running), _ms(wall))
         split[name] = max(0, upto - before)
         before += split[name]
-    split["other"] += max(0, _ms(wall) - before)  # 时间都花在了前三项上（四舍五入以后差的那一点）
+    split["other"] += max(0, _ms(wall) - before)  # 时间都花在了前几项上（四舍五入以后差的那一点）
     fed = tokens["input"] + tokens["cache_read"] + tokens["cache_write"]
     priced = money["priced"] or not money["unpriced"]
     return {
@@ -326,4 +360,6 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
         "allowed": counts["allowed"],
         "refused": counts["refused"],
         "auto": counts["auto"],
+        "hook_runs": counts["hook_runs"],
+        "hooks_blocked": counts["hooks_blocked"],
     }

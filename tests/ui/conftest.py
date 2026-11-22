@@ -127,6 +127,8 @@ class Demo:
         # 待办也一样：让模型记过待办的测试没删干净，排在它后面的测试就看到一条多出来的（真出过：test_ui_capabilities 记的那一条
         # 留下来，同一个进程里后跑的 test_empty_states 找不到"没有未完成的待办"）。待办每次都从文件读（tools/todo.py），删掉就一条都没有
         (self.root / "data" / "todos.json").unlink(missing_ok=True)
+        # 你的钩子也一样：测试存过的钩子会在后面的测试里跑起来（比如把 [ui:approve] 的命令拦下）。程序每次要跑之前看一眼文件，删掉就一个都没有
+        (self.root / "data" / "hooks.json").unlink(missing_ok=True)
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 

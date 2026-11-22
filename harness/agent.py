@@ -14,7 +14,11 @@
 循环在几个时刻告诉运行记录一声（self.trace，见 trace/）："记录点"。每个只占一行，名字说明是哪个时刻：
 发出一次请求（request_began）、模型答完这一次（request_ended）、开始一次工具调用（tool_began）、
 开始等你答复（approval_asked）、你答复了或者没问就放行了（approval_decided）、这次调用有结果了（tool_ended）、
-一轮开始和结束（turn_began、turn_ended）。以后要在这些时刻做别的事（比如钩子），也挂在这几处。
+一轮开始和结束（turn_began、turn_ended）。
+
+你的钩子（self.hooks，见 hooks/）也挂在这几处，各占一行：你的消息进历史之前（UserPromptSubmit）、确认过了马上要执行一个
+工具的时候（PreToolUse）、工具做完了（PostToolUse）、一轮答完了（Stop）。钩子只能让事情更严（拦下、再问你一次），
+不能放宽确认的规矩；它交给模型的话只附在正在生成的那条消息、那条工具结果里，历史里已有的内容一个字都不动。
 
 这个循环不关心背后是哪家的模型。和具体厂商打交道的细节（请求怎么发、历史怎么存）
 都在 providers/ 目录里，循环只通过 backend 的几个方法使用它们。
@@ -23,6 +27,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -30,6 +35,7 @@ from typing import Protocol
 
 from .attachments import Attachment
 from .config import Config
+from .hooks import NO_HOOKS, HookRun
 from .i18n import t
 from .permissions import Permissions
 from .pricing import usage_key
@@ -93,6 +99,8 @@ class Agent:
         # （网页界面存进会话，终端界面留给 /trace，见 app.py）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
         self.trace = Tracer()
         self.on_trace: Callable[[dict], None] | None = None
+        # 你的钩子（见 hooks/）：在下面几个记录点旁边各调用一次。没接上的（测试里自己组装的助手）什么都不做
+        self.hooks: HookRun = NO_HOOKS
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
@@ -127,13 +135,21 @@ class Agent:
             self.on_start()
         start = self.backend.mark()
         self.outcome = ""
-        # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。
+        self._finish_turn(start, lambda: self._submit(user_text, attachments or ()))
+
+    def _submit(self, user_text: str, attachments: Sequence[Attachment]) -> bool:
+        """把你的消息放进历史。被你的钩子拦下了就什么都不放（为什么由钩子那边告诉你），返回 False。"""
+        verdict = self.hooks.prompt(self, user_text, attachments)  # 钩子：UserPromptSubmit
+        if verdict.blocked:
+            self.outcome = "blocked"
+            return False
+        # 当前时间每次都不同，所以附在消息里，而不是写进系统提示词（那样会破坏缓存）。钩子附的说明也一样。
         # 只发了附件、没写字的时候，没有"用户的话"这一段（API 不接受空的文字块）
         notes = [text for text in (note(self.messages) for note in self.notes) if text]
-        parts = [self._context_note(), *notes] + ([user_text] if user_text.strip() else [])
+        parts = [self._context_note(), *notes, *verdict.context] + ([user_text] if user_text.strip() else [])
         # 附件和文字是同一条消息：出错撤回时一起撤回，不会只剩下半条
-        self.backend.add_user(parts, attachments or ())
-        self._finish_turn(start)
+        self.backend.add_user(parts, attachments)
+        return True
 
     def retry_turn(self, start: int) -> None:
         """重新生成最后一轮的回答（网页上的"重新生成"、终端里的 /retry，见 rewind.py）。
@@ -150,11 +166,12 @@ class Agent:
         self.outcome = ""
         self._finish_turn(start)
 
-    def _finish_turn(self, start: int) -> None:
-        """用户消息已经在 start 这个位置上了：跑循环，直到这一轮结束。"""
+    def _finish_turn(self, start: int, submit: Callable[[], bool] | None = None) -> None:
+        """跑循环，直到这一轮结束。用户消息已经在 start 这个位置上了；还没放进去的，先由 submit 放（它返回 False 就不跑）。"""
         ended = "error"
         try:
-            self._loop(start)
+            if submit is None or submit():
+                self._loop(start)
             ended = self.outcome
         except BaseException as exc:
             if isinstance(exc, KeyboardInterrupt):
@@ -169,6 +186,7 @@ class Agent:
 
     def _end_trace(self, ended: str) -> None:
         """一轮结束：把这一轮的运行记录整理好交出去。不管这一轮是怎么结束的（答完了、停下了、出错了）都交。"""
+        self.hooks.stopped(self, ended)  # 钩子：Stop（只在答完了的那几种结束时跑，只是通知；它的那一段也记在这一轮里）
         record = self.trace.turn_ended(ended)  # 记录点：一轮结束
         if self.on_trace is None:
             return
@@ -181,8 +199,9 @@ class Agent:
     def _loop(self, start: int) -> None:
         for _ in range(self.config.max_steps):
             self.trace.request_began(self.backend.provider, self.backend.model)  # 记录点：发出一次请求
-            # 调用一次模型；回复已经由 backend 追加进历史。界面外面包一层 watch：第一段输出到的时候记下"首字时间"
-            step = self.backend.step(self.trace.watch(self.ui))
+            # 调用一次模型；回复已经由 backend 追加进历史。界面外面包一层 watch：第一段输出到的时候记下"首字时间"；
+            # 钩子那边也包一层，记下这一次写的字（一轮答完时交给 Stop 钩子）
+            step = self.backend.step(self.hooks.watch(self.trace.watch(self.ui)))
             cost = self._record(step.usage)
             self.trace.request_ended(step, cost)  # 记录点：模型答完这一次
 
@@ -247,19 +266,25 @@ class Agent:
                 self.ui.tool_call(call.shown, call.input)
                 self.trace.tool_began(call, self.tools.get(call.name, call.toolset))  # 记录点：开始一次工具调用
                 ran = not (step.truncated or halted)
+                took = None  # 工具真的执行了的话，执行了多久（秒）
                 if step.truncated:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
                     output = ToolOutput("这次调用的参数在生成中途被截断，没有执行。请重新调用。", is_error=True)
                 elif halted:
                     output = ToolOutput(HALT_TEXTS.get(call.toolset, HALTED), is_error=True)
                 else:
-                    output = self._run_one(call)
+                    output, took = self._run_one(call)
                     halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
                 text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
                 results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
+                if took is not None:
+                    # 钩子：PostToolUse（只在真的执行了的调用上）。它补的话接在这条结果后面，这条结果还没进历史。
+                    # 结果先放进去再接：钩子跑到一半被停下，这次调用照样交回它真正的结果，不会被当成"没执行完"
+                    tool = self.tools.get(call.name, call.toolset)
+                    results[-1].text = text = self.hooks.after_tool(self, call, tool, text, output.is_error, took)
                 self.trace.tool_ended(text, output.is_error, len(output.images), ran)  # 记录点：这次调用有结果了
-                # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言
-                shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else text
+                # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言；钩子拦下的也另有给人看的一句
+                shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or text
                 self.ui.tool_result(shown, output.is_error, output.preview)
         finally:
             # 每个工具调用都必须有对应的结果，否则下一次请求会被 API 拒绝。
@@ -276,38 +301,59 @@ class Agent:
         tool = self.tools.get(call.name, call.toolset)
         return tool is not None and tool.stands_in_for == COMPUTER
 
-    def _run_one(self, call: ToolCall) -> ToolOutput:
-        """执行一次工具调用，返回结果（给模型看的文字、是否出错、结果里的图片……）。"""
+    def _run_one(self, call: ToolCall) -> tuple[ToolOutput, float | None]:
+        """执行一次工具调用，返回结果（给模型看的文字、是否出错、结果里的图片……）和工具执行了多久（秒）。
+        没有真的执行（参数不对、你拒绝了、钩子拦下了……）的，时间是 None。"""
         if call.error:
-            return ToolOutput(call.error, is_error=True)  # 模型给的参数没法解析，把问题告诉它
+            return ToolOutput(call.error, is_error=True), None  # 模型给的参数没法解析，把问题告诉它
         tool = self.tools.get(call.name, call.toolset)
         if tool is None or tool.run is None:
-            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True)
+            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True), None
         refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
         if refusal:
-            return ToolOutput(refusal, is_error=True)  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
+            return ToolOutput(refusal, is_error=True), None  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
 
         # 先过权限这一关
         question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
+        asked = False
         if question is not None:
             why = self.permissions.allowance(call.name, call.input, tool)
             if why is not None:
                 self.ui.auto_allowed(why)  # 没有问用户就放行了：告诉界面一声（为什么也说上），记录里要看得出来
                 self.trace.approval_decided("auto", why)  # 记录点：没问你就放行了
             else:
-                self.trace.approval_asked()  # 记录点：开始等你答复
-                allowed, feedback = self.ui.confirm(question)
-                self.trace.approval_decided("allowed" if allowed else "refused")  # 记录点：你答复了
-                if not allowed:
-                    return ToolOutput("用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), is_error=True)
+                refused = self._ask(question)
+                if refused is not None:
+                    return refused, None
+                asked = True
+
+        # 钩子：PreToolUse（过了确认这一关以后）。只能拦下，或者要你再确认一次（刚问过你、你允许了的不再问）
+        verdict = self.hooks.before_tool(self, call, tool)
+        if verdict.blocked:
+            return ToolOutput(verdict.blocked, is_error=True, shown=verdict.shown), None
+        if verdict.ask and not asked:
+            refused = self._ask(verdict.ask)
+            if refused is not None:
+                return refused, None
 
         # 工具出错不会让程序崩溃：错误信息作为结果返回给模型，由它决定怎么办
+        began = time.monotonic()  # 工具执行了多久（交给 PostToolUse 钩子的 duration_ms）
         try:
             output = tool.run(call.input)
         except ToolError as exc:
-            return ToolOutput(str(exc), is_error=True)
+            return ToolOutput(str(exc), is_error=True), time.monotonic() - began
         except Exception as exc:  # noqa: BLE001 —— 故意捕获所有异常：工具里的 bug 不应该让整个程序退出
-            return ToolOutput(f"工具内部出错：{type(exc).__name__}: {exc}", is_error=True)
+            return ToolOutput(f"工具内部出错：{type(exc).__name__}: {exc}", is_error=True), time.monotonic() - began
+        took = time.monotonic() - began
         if isinstance(output, ToolOutput):
-            return output if output.text or output.state_only else replace(output, text="（没有输出）")
-        return ToolOutput(output or "（没有输出）")
+            return (output if output.text or output.state_only else replace(output, text="（没有输出）")), took
+        return ToolOutput(output or "（没有输出）"), took
+
+    def _ask(self, question: str) -> ToolOutput | None:
+        """问你要不要做这一步。你拒绝了，返回交给模型的结果；允许了返回 None。"""
+        self.trace.approval_asked()  # 记录点：开始等你答复
+        allowed, feedback = self.ui.confirm(question)
+        self.trace.approval_decided("allowed" if allowed else "refused")  # 记录点：你答复了
+        if allowed:
+            return None
+        return ToolOutput("用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), is_error=True)

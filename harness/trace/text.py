@@ -7,8 +7,9 @@
        1.8 秒 ·······▓······················  待办 · todo_list · 0.01 秒
        1.9 秒 ·······░░░░░░░▓▓▓·············  执行命令 · run_command $ ls · 3.1 秒 · 你允许了（等了 2.9 秒）
          └ 2.0 秒 ··········██·················  模型 claude-sonnet-5-5 · …   （交给子 Agent 的，往里缩一格）
+         └ 4.9 秒 ·················▒············  钩子 fmt（PostToolUse）· 0.05 秒 · 放行   （工具调用前后跑的钩子，也缩一格）
 
-图里的一格是这一轮总时长的 1/BAR 那么长：█ 模型在答，▓ 工具在执行，░ 等你确认。数字由记录器算好（合计），这里只照着写。
+图里的一格是这一轮总时长的 1/BAR 那么长：█ 模型在答，▓ 工具在执行，░ 等你确认，▒ 你的钩子在跑。数字由记录器算好（合计），这里只照着写。
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ ENDED = {
     "steps": k("用完了步数"),
     "stopped": k("你停下了它"),
     "error": k("出错了"),
+    "blocked": k("被你的钩子拦下了"),
 }
 APPROVAL = {
     "allowed": k("你允许了"),
@@ -31,6 +33,15 @@ APPROVAL = {
 }
 WHY = {"readonly": k("只读的命令"), "listed": k("你加的命令"), "trusted": k("这段对话里放开了"), "mode": k("确认方式")}
 RESULT = {"error": k("出错"), "skipped": k("没有执行"), "stopped": k("没有执行完")}
+# 一个钩子怎么说的（见 hooks/protocol.py 的 Outcome）
+HOOK_RESULT = {
+    "ok": k("放行"),
+    "blocked": k("拦下"),
+    "ask": k("再问你"),
+    "error": k("出错"),
+    "timeout": k("超时"),
+    "stopped": k("停下"),
+}
 # 一次请求没有 API 给的停止原因时（没答完、写摘要），写这一句；有的话照原样写 API 的原词（end_turn、tool_use……，那是技术细节）
 STATUS = {"stopped": k("被打断"), "error": k("出错了"), "compacted": k("压缩历史"), "paused": k("搜索还没做完"), "refused": k("模型拒绝了")}
 
@@ -55,8 +66,10 @@ def lines(record: dict | None) -> list[tuple[str, str]]:
         head.append(t("缓存命中 {percent}%", percent=round(totals["cache_hit"] * 100)))
     head.append(t(ENDED.get(record.get("ended"), k("出错了"))))
     out = [(" · ".join(head), "plain")]
-    split = [(k("模型 {time}"), "model"), (k("工具 {time}"), "tools"), (k("等你确认 {time}"), "waiting"), (k("其他 {time}"), "other")]
-    out.append((" · ".join(t(text, time=seconds(totals.get(name, 0))) for text, name in split), "info"))
+    split = [(k("模型 {time}"), "model"), (k("工具 {time}"), "tools"), (k("钩子 {time}"), "hooks"), (k("等你确认 {time}"), "waiting"), (k("其他 {time}"), "other")]
+    # 钩子那一项只在这一轮真的跑过钩子时才写（以前的记录里没有这一项）
+    shown = [(text, name) for text, name in split if name != "hooks" or totals.get("hook_runs")]
+    out.append((" · ".join(t(text, time=seconds(totals.get(name, 0))) for text, name in shown), "info"))
     counts = t(
         "{requests} 次请求、{calls} 次工具调用；输入 {input} token（命中缓存 {cached}），输出 {output} token",
         requests=totals.get("requests", 0), calls=totals.get("tool_calls", 0),
@@ -68,6 +81,8 @@ def lines(record: dict | None) -> list[tuple[str, str]]:
         counts = t("{counts}；联网搜索 {n} 次", counts=counts, n=searches)
     if totals.get("unpriced"):
         counts = t("{counts}；{n} 次请求没有价格", counts=counts, n=totals["unpriced"])
+    if totals.get("hook_runs"):
+        counts = t("{counts}；跑了 {n} 次你的钩子（拦下 {blocked} 次）", counts=counts, n=totals["hook_runs"], blocked=totals.get("hooks_blocked", 0))
     out.append((counts, "info"))
     for span, depth in _flatten(record.get("spans") or [], 0):
         out.append((_row(span, depth, wall), "plain" if depth == 0 else "info"))
@@ -92,7 +107,7 @@ def _bar(span: dict, wall: int) -> str:
     first = min(BAR - 1, int(start * scale))
     last = max(first + 1, min(BAR, round(end * scale)))
     cells = ["·"] * BAR
-    fill = "█" if span.get("kind") == "model" else "▓"
+    fill = {"model": "█", "hook": "▒"}.get(span.get("kind"), "▓")
     for index in range(first, last):
         cells[index] = fill
     if span.get("asked") is not None and span.get("waited"):
@@ -120,6 +135,14 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t(STATUS[span["status"]]))
         if "cost" in span:
             parts.append(money(span["cost"]))
+    elif span.get("kind") == "hook":
+        parts = [t("钩子 {name}（{event}）", name=span.get("name", ""), event=span.get("event", "")), duration]
+        result = t(HOOK_RESULT[span["result"]]) if span.get("result") in HOOK_RESULT else ""
+        if span.get("exit") is not None:
+            result = t("{result}，退出码 {code}", result=result, code=span["exit"])
+        parts.append(t("{result}：{note}", result=result, note=span["note"]) if span.get("note") else result)
+        if span.get("added"):
+            parts.append(t("交给模型 {n} 个字", n=span["added"]))
     else:
         name = span.get("name", "")
         label = t(span["label"]) if span.get("label") else ""
