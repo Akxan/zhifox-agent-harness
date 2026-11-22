@@ -45,8 +45,9 @@ class Peer:
         self._open = {self.to_peer_read, self.from_peer_write}
         self._write_lock = threading.Lock()
         self.connection = Connection(from_peer_read, to_peer_write, on_close=self._closed)
-        if reader:
-            threading.Thread(target=self._loop, daemon=True, name="fake-peer").start()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="fake-peer") if reader else None
+        if self._thread is not None:
+            self._thread.start()
 
     def _closed(self) -> None:
         self.closes += 1
@@ -75,6 +76,8 @@ class Peer:
 
     def send_raw(self, data: bytes) -> None:
         with self._write_lock:
+            if self.from_peer_write not in self._open:
+                return  # 这一头已经关了：号码可能已经是下一个测试的管道，不能再往上写
             view = memoryview(data)
             while view:
                 view = view[os.write(self.from_peer_write, view) :]
@@ -92,16 +95,19 @@ class Peer:
         self._close(self.to_peer_read)
 
     def _close(self, fd: int) -> None:
-        if fd in self._open:
-            self._open.discard(fd)
-            os.close(fd)
+        with self._write_lock:  # 和 send_raw 同一把锁：不会一边关、一边往上写
+            if fd in self._open:
+                self._open.discard(fd)
+                os.close(fd)
 
     def shutdown(self) -> None:
-        # 先让读线程读到结尾、自己停下，再关我们这一头：读线程停在 os.read 里时关掉它的描述符，
-        # 这个号码可能马上被下一个测试的管道用上
-        self.hang_up()
-        self.connection._reader.join(2)
-        self.connection.close()
+        # 两边的读线程都先读到结尾、自己停下，再关它们读的那一头：读线程还在用的号码被关掉，马上就会被下一个测试的管道用上，
+        # 它下一圈读到的、回答的就是下一个测试的东西（CI 的 Windows 上真的串过：上一个测试的 -32000 落到了下一个测试里）
+        self.hang_up()  # 我们的读线程读到结尾，自己关掉它那一头（见 Connection._read_loop）
+        self.connection._reader.join(5)
+        self.connection.close()  # 关掉写给对面的那一头：对面的读线程读到结尾
+        if self._thread is not None:
+            self._thread.join(5)
         self.stop_reading()
 
 
@@ -467,3 +473,33 @@ def test_writing_to_a_chrome_that_stopped_reading_raises_closed(peer):
     assert fake.connection.closed
     assert fake.closes == 1
     assert fake.connection._pending == {}
+
+
+# ---- 关掉以后不再碰那两个描述符的号码 ---------------------------------------------------------
+# 描述符关掉以后，号码马上会被下一根管道用上（比如再开一个 Chrome）。还拿着旧号码去读、去写的话，读到的、写进去的
+# 就是另一根管道的东西：一个 Chrome 的回答落到另一个连接上（CI 的 Windows 上，测试之间真的串过一次）
+
+
+def test_after_close_nothing_more_is_written_to_the_old_number(peer, monkeypatch):
+    fake = peer(answer())
+    fake.connection.close()
+    writes = []
+    monkeypatch.setattr(cdp.os, "write", lambda fd, data: writes.append(fd) or len(data))
+    with pytest.raises(CDPClosed):
+        fake.connection._write({"id": 99, "method": "Page.reload"})  # call() 查过"没关"以后、真的写之前，连接被关了
+    assert writes == []  # 一个字节都没往那个号码上写
+
+
+def test_the_reader_closes_its_own_end_after_its_last_read(peer):
+    # close() 不替还在读的读线程关它那一头：读线程读完最后一次（对面也关了）再自己关。
+    # 不然它下一圈 os.read 用的号码可能已经是别人的管道了
+    fake = peer(answer())
+    read_fd = fake.connection._read_fd
+    fake.connection.close()
+    os.fstat(read_fd)  # 对面（Chrome）还开着：读线程还在等，它那一头还开着，号码没有让出去
+    assert fake.connection._reader.is_alive()
+    fake.hang_up()  # Chrome 退出了：读线程读到结尾，自己关掉、退出
+    fake.connection._reader.join(5)
+    assert not fake.connection._reader.is_alive()
+    with pytest.raises(OSError):
+        os.fstat(read_fd)

@@ -195,20 +195,28 @@ class Connection:
             pending.settle(error=Cancelled())
 
     def close(self) -> None:
-        """关掉连接（我们这一头的两个描述符）。所有还在等的都收到 CDPClosed。"""
+        """关掉连接。所有还在等的都收到 CDPClosed。
+
+        描述符关掉以后，它的号码马上可能被下一根管道用上（再开一个 Chrome）。所以两头都只在确定没人再用的时候关：
+          写的那一头：拿着写锁关，_write 也在写锁里先看"关了没有"，不会有一次写落在已经让出去的号码上。
+          读的那一头：不在这里关。读线程可能正在 os.read 里，或者刚读完、下一圈就要再读；替它关掉的话，它下一圈用的
+            号码可能已经是别人的管道，读到的就是另一个 Chrome 的回答。所以只叫它停下（Windows 上 CancelIoEx，见 _cancel_read；
+            别的系统上 Chrome 退出时它读到结尾），由读线程自己在最后一次读完以后关（见 _read_loop）。"""
         self._shut("连接已经关闭")
+        with self._write_lock:
+            if self._write_fd >= 0:
+                with contextlib.suppress(OSError):
+                    os.close(self._write_fd)
+                self._write_fd = -1
         _cancel_read(self._read_fd)
-        for fd in (self._write_fd, self._read_fd):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
 
     # ---- 收发 ---------------------------------------------------------------
 
     def _write(self, message: dict) -> None:
         data = to_json(message).encode() + b"\0"
         with self._write_lock:
+            if self._write_fd < 0:  # 已经关了（call() 查过"没关"以后、拿到写锁之前，别的线程关掉了它）：号码可能已经是别人的
+                raise CDPClosed(message.get("method", "?"), "连接已经关闭")
             view = memoryview(data)
             try:
                 while view:
@@ -225,6 +233,8 @@ class Connection:
                 chunk = os.read(self._read_fd, 1 << 16)
                 if not chunk:
                     break  # Chrome 关掉了它那一头
+                if self._closed:
+                    continue  # 已经关了（见 close）：读下去只是为了等到结尾、关掉自己这一头，读到的不再交给谁
                 buffer += chunk
                 while (end := buffer.find(b"\0")) >= 0:
                     raw, buffer = bytes(buffer[:end]), buffer[end + 1 :]
@@ -235,6 +245,9 @@ class Connection:
                     break
         except OSError:
             pass
+        # 读的那一头只由这里关：这是最后一次用它（见 close）
+        with contextlib.suppress(OSError):
+            os.close(self._read_fd)
         self._shut("Chrome 已经退出")
 
     def _dispatch(self, raw: bytes) -> None:
