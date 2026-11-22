@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import io
 import json
-import stat
 import zipfile
 
 import pytest
 from fake_openai import FakeOpenAI
+from modes import has_mode
 from test_export import export_bytes
 
 from harness.endpoints import EndpointError, EndpointStore, urls
@@ -188,7 +188,7 @@ def test_the_store_writes_a_private_file_and_reads_it_back(tmp_path):
     path = tmp_path / "data" / "endpoints.json"
     store = EndpointStore(path)
     saved = store.save(form(name="网关", base_url="https://llm.example.com/v1", api_key=GATEWAY_KEY, models=[{"id": "gpt-x", "vision": True, "tools": True, "pdf": True, "price": {"input": 2, "output": 8}}]))
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert has_mode(path, 0o600)  # Windows 上看的是 ACL（见 tests/modes.py）
     again = EndpointStore(path)
     assert again.list() == [saved] and again.problem is None
     assert again.prices() == {"custom-endpoint/gpt-x": {"input": 2.0, "output": 8.0, "cache_read": 2.0, "cache_write": 2.0}}

@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from modes import has_mode
 
 from harness import pathnames
 from harness.config import UNDO_KEEP_DAYS
@@ -183,12 +184,13 @@ def test_snapshots_are_private(rig):
     rig.act("undo", summary["set"])
 
     folder = rig.root / summary["set"]
-    assert mode_of(rig.root) == 0o700 and mode_of(folder) == 0o700
+    assert has_mode(rig.root, 0o700) and has_mode(folder, 0o700)  # Windows 上看的是 ACL，不是权限位（见 tests/modes.py）
     assert names(folder) == ["0-after", "0-before", "0-undo-1", "manifest.json"]
     for name in names(folder):
-        assert mode_of(folder / name) == 0o600, name
+        assert has_mode(folder / name, 0o600), name
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 上的文件没有可执行这一位：chmod 只能改只读，权限位读回来总是 666")
 def test_commands_flag_is_passed_through(rig):
     """这一轮还执行过命令时，事件上带着 commands：页面把"命令改动的文件没法自动撤回"写得醒目一点。"""
     path = rig.work / "a.txt"

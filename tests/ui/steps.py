@@ -37,7 +37,7 @@ def send(page: Page, text: str) -> None:
     page.click("#input")
     page.type(text)
     page.key("Enter")
-    page.wait(f"[...document.querySelectorAll('#log .msg.user')].some((node) => node.textContent === {json.dumps(text)})", 10, "发出的消息出现在对话里")
+    page.wait(f"[...document.querySelectorAll('#log .msg.user')].some((node) => node.textContent === {json.dumps(text)})", 20, "发出的消息出现在对话里")  # 慢的机器（CI 的 Windows）上 10 秒偶尔不够
 
 
 def reply(page: Page, contains: str, timeout: float = 20) -> None:
