@@ -21,10 +21,12 @@ import json
 import math
 import os
 import secrets
+import time
 from pathlib import Path
 from typing import IO, Any
 
-from . import winacl
+from . import machine, winacl
+from .config import WINDOWS_REPLACE_TRIES, WINDOWS_REPLACE_WAIT
 
 REPLACEMENT = "�"  # 显示成"�"：这里本来有一个没法表示的字符
 
@@ -142,10 +144,25 @@ def write_file(path: Path, text: str | bytes) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp, path)
+        replace(temp, path)
     except BaseException:
         temp.unlink(missing_ok=True)  # 没写成：不留下半截的临时文件
         raise
+
+
+def replace(temp: Path, path: Path) -> None:
+    """用 temp 一步替换掉 path（os.replace）。Windows 上 path 正被别的程序开着时会被拒绝（PermissionError）：
+    杀毒软件、索引服务刚好在看它，或者另一个线程正在读。这种拒绝一般转眼就过去，所以隔一会儿再试几次
+    （config.WINDOWS_REPLACE_TRIES、WINDOWS_REPLACE_WAIT）。没换成的时候 temp 还在原处，再试一次是安全的；
+    试完还不行就照样抛出去。macOS、Linux 上替换不在乎文件开没开着，被拒绝就是真的没有权限，不重试。"""
+    for attempt in range(1, WINDOWS_REPLACE_TRIES + 1):
+        try:
+            os.replace(temp, path)
+            return
+        except PermissionError:
+            if machine.system() != machine.WINDOWS or attempt == WINDOWS_REPLACE_TRIES:
+                raise
+            time.sleep(attempt * WINDOWS_REPLACE_WAIT)
 
 
 def write_stream(path: Path, source: IO[bytes], most: int) -> int:
@@ -166,7 +183,7 @@ def write_stream(path: Path, source: IO[bytes], most: int) -> int:
                 handle.write(chunk)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp, path)
+        replace(temp, path)
     except BaseException:
         temp.unlink(missing_ok=True)
         raise

@@ -99,6 +99,8 @@
      - 命令用 PowerShell（优先 pwsh 7），`-EncodedCommand` 传进去，`-NoProfile`，不改执行策略；环境里照样去掉 `SECRET_ENV_VARS`。
      - "只读命令不用问"和你自己加的命令在 Windows 上一律不算（`commands.WINDOWS`）：拆词和名单是照 bash 写的，看不准 PowerShell。测试里 conftest 把它设成 False。
      - Chrome 只走管道（`--remote-debugging-io-pipes`，只让它继承那两个句柄）加作业对象，不开端口：端口本机任何程序都连得上。
+     - 替换文件被拒绝（旧文件正被杀毒软件、索引服务、另一个线程开着）时 `safe.replace` 隔一会儿再试几次（`WINDOWS_REPLACE_TRIES`），只在 Windows 上；
+       测试里读演示数据目录的文件用 `steps.saved_json`（服务器正在替换的那一刻读也会被拒绝一下）。
      - 文件按字节原样写（`safe.write_file` 用 O_BINARY 和 `newline=""`），文件工具保留原来的换行，页面的编辑器比较内容用 `sameText`（记事本的 \r\n 不算改过）。
        **有意的破例**：`tools/memory.py` 在 Windows 上替换了 Anthropic SDK 记忆工具里的 os（`_BinaryOs`），为的是不改换行。
      - 文件权限靠 `winacl`（去掉继承，只留你的 SID、SYSTEM、Administrators）；设不成功只写警告、不拦着用。

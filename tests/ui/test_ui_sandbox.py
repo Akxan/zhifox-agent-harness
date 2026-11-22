@@ -202,7 +202,7 @@ def test_a_task_keeps_its_own_sandbox(page):
     page.wait("document.getElementById('task-sandbox-text').textContent.length > 0")
     page.click("#task-save")
     page.wait(f"!{steps.is_open('task-editor')}", what="存好了")
-    tasks = json.loads((page.demo.root / "data" / "tasks.json").read_text(encoding="utf-8"))["tasks"]
+    tasks = steps.saved_json(page, "tasks.json")["tasks"]
     task = next(item for item in tasks if item["title"] == "沙箱里的任务")
     try:
         assert task["sandbox"] == "network"
@@ -226,7 +226,7 @@ def telegram(page):
 
 
 def _channel_saved(page) -> dict:
-    return json.loads((page.demo.root / "data" / "channels.json").read_text(encoding="utf-8"))["platforms"]["telegram"]
+    return steps.saved_json(page, "channels.json")["platforms"]["telegram"]
 
 
 def _step_four(page) -> None:

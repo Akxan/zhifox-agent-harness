@@ -33,7 +33,8 @@ def test_backup_models_are_added_moved_and_removed_in_place(page):
     _pick(page, SONNET)
     page.wait(f"document.querySelectorAll({ROWS!r}).length === 1", what="加上了第一个备用模型")
     assert page.js("document.activeElement.id") == "fallback-add"  # 焦点还在下拉框上，接着能再加
-    assert "备用模型已保存" in page.text("#settings-message")
+    # 新的一行由状态更新画出来，"已保存"这句要等保存的请求回来才写：机器慢的时候前者先到，所以等它，不直接读
+    page.wait("document.getElementById('settings-message').textContent.includes('备用模型已保存')", what="说已保存")
     _pick(page, FABLE)
     page.wait(f"document.querySelectorAll({ROWS!r}).length === 2", what="加上了第二个")
     assert page.js(ORDER) == [SONNET, FABLE]
