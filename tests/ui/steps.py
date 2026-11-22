@@ -14,7 +14,7 @@ import sys
 import urllib.request
 import zipfile
 
-from .pilot import Page
+from .pilot import Page, PageError
 
 # 页面上没有正在播的动画了（无限循环的不算，比如背景的极光和"正在工作"的圈）
 IDLE = (
@@ -84,10 +84,32 @@ def flyout_open(panel: str) -> str:
     return f"document.getElementById({json.dumps(panel)}).matches(':popover-open')"
 
 
+# 记下小面板开过、收起过几次（toggle 事件），没弹出来的时候好看出是根本没开，还是开了又被收起来了（焦点被别处拿走、点到了外面）
+FLYOUT_WATCH = """(() => {
+  const panel = document.getElementById(__PANEL__);
+  if (!panel.__watched) {
+    panel.__watched = [];
+    panel.addEventListener('toggle', (event) => panel.__watched.push(event.newState + '@' + Math.round(performance.now())));
+  }
+  panel.__watched.length = 0;
+})()"""
+FLYOUT_STATE = """(() => {
+  const panel = document.getElementById(__PANEL__), button = document.querySelector(__BUTTON__), active = document.activeElement;
+  const who = active ? active.tagName.toLowerCase() + (active.id ? '#' + active.id : '') : 'none';
+  return 'aria-expanded=' + button.getAttribute('aria-expanded') + '，焦点在 ' + who + '，开关的经过：' + (panel.__watched.join(' ') || '一次都没开过')
+    + '，打开着的窗口：' + ([...document.querySelectorAll('dialog[open]')].map((one) => one.id).join(' ') || '没有');
+})()"""
+
+
 def open_flyout(page: Page, button: str, panel: str) -> None:
-    """点顶栏上的按钮，等它的小面板弹出来、动画播完。"""
+    """点顶栏上的按钮，等它的小面板弹出来、动画播完。没弹出来时报错里写明当时的样子（见 FLYOUT_STATE）。"""
+    page.js(FLYOUT_WATCH.replace("__PANEL__", json.dumps(panel)))
     page.click(button)
-    page.wait(flyout_open(panel), what=f"{panel} 弹出来")
+    try:
+        page.wait(flyout_open(panel), what=f"{panel} 弹出来")
+    except PageError as error:
+        seen = page.js(FLYOUT_STATE.replace("__PANEL__", json.dumps(panel)).replace("__BUTTON__", json.dumps(button)))
+        raise PageError(f"{error}；{seen}") from None
     idle(page)
 
 
