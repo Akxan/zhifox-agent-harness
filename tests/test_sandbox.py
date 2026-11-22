@@ -28,6 +28,10 @@ from harness.trace.text import _row
 
 # ---- 规矩 ------------------------------------------------------------------
 
+# Windows 上的命令是 PowerShell（没有 touch、>&2 这些写法），而且 Windows 上本来就没有沙箱（见 harness/sandbox/windows.py）
+BASH_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="这一项用 bash 的写法运行命令；Windows 上的命令是 PowerShell，沙箱在 Windows 上也用不了")
+
+
 
 @pytest.fixture
 def place(tmp_path):
@@ -187,6 +191,7 @@ def test_the_mac_probe(monkeypatch):
     macos.forget()
 
 
+@BASH_ONLY
 def test_the_mac_probe_when_sandbox_exec_refuses(monkeypatch, tmp_path):
     macos.forget()
     program = tmp_path / "sandbox-exec"
@@ -375,12 +380,14 @@ def test_the_card_line(layout):
 # ---- 接进 Shell --------------------------------------------------------------------
 
 
+@BASH_ONLY
 def test_a_shell_without_a_sandbox_is_unchanged(tmp_path):
     shell = Shell(tmp_path)
     assert shell.facts({"command": "ls"}) is None and shell.check({"command": "ls"}) is None
     assert shell.run("echo hi") == "hi"
 
 
+@BASH_ONLY
 def test_the_shell_wraps_refuses_and_explains(layout, monkeypatch, place):
     fake = install(monkeypatch)
     found, _ = layout

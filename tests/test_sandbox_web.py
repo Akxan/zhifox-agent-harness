@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -31,6 +32,10 @@ from harness.tools.shell import Shell, make_shell_tool
 from harness.webui import sandbox_api
 
 DAILY = {"type": "daily", "time": "09:00"}
+
+# Windows 上的命令是 PowerShell（没有 touch、>&2 这些写法），而且 Windows 上本来就没有沙箱（见 harness/sandbox/windows.py）
+BASH_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="这一项用 bash 的写法运行命令；Windows 上的命令是 PowerShell，沙箱在 Windows 上也用不了")
+
 
 
 def until(check, what: str = "", timeout: float = 5):
@@ -328,6 +333,7 @@ def test_no_silent_fallback_when_this_machine_cannot_sandbox(start, monkeypatch)
     assert not (h.config.workspace / "marker").exists() and fake.calls == []
 
 
+@BASH_ONLY
 def test_running_one_command_outside_always_asks_even_with_everything_allowed(start, monkeypatch):
     fake = install_fake(monkeypatch)
     h = start(command("t1", "touch outside-marker", unsandboxed=True), reply(text("好了")))
@@ -363,6 +369,7 @@ def test_unsandboxed_means_nothing_when_the_sandbox_is_off(start, monkeypatch):
     assert h.ui.results[0] == ("hi", False) and fake.calls == []
 
 
+@BASH_ONLY
 def test_a_blocked_command_is_explained_to_the_model(start, monkeypatch):
     install_fake(monkeypatch)
     h = start(command("t1", "echo 'cat: x: Operation not permitted' >&2; exit 1"), reply(text("被挡住了")))
