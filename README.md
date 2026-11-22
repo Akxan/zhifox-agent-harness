@@ -368,6 +368,7 @@ Each part of the harness has its own file or directory:
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
+| Fork a conversation | [harness/fork.py](harness/fork.py), [harness/webui/fork_api.py](harness/webui/fork_api.py) | Rewinding only reaches the last turn. Forking starts a new conversation from any finished turn and leaves the original untouched: where to cut (the same positions rewinding uses), what is copied and what stays behind (see [Forking a conversation from a turn](#forking-a-conversation-from-a-turn)) |
 | Undo file changes | [harness/undo/](harness/undo/) | Rewinding brings back the conversation, not the files. Each turn records what the file tool changed (a copy of each file from before, kept under `data/backups/turns/`), and the files can be undone one by one or all at once, then redone; a content hash catches files that changed since (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)) |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
@@ -713,6 +714,52 @@ the side panel aren't reduced. The context size updates with the next request.
 opens a conversation. Every open tab redraws in place without reloading. A request names the conversation and the
 turn it means, so a tab that is behind is turned away instead of rewinding something else, and a tab that was in the
 middle of an edit puts the unsent text back into its input box.
+
+### Forking a conversation from a turn
+
+Rewinding only reaches the last turn. To take a conversation in another direction from turn 3, fork it: the original
+stays byte for byte as it was, and a new conversation picks up from that turn. Every finished turn has two **Fork**
+buttons:
+
+- **Fork from here (keep this turn)**, next to **Copy** under a reply: the new conversation holds everything up to the
+  end of that turn. Whatever you say next takes it somewhere new.
+- **Fork from this message (edit and resend)**, beside your message on hover (left of **Edit** on the last one): the new
+  conversation stops just before that turn, and the message (text and attachments) is put back in the input box to
+  change and send again. Forking at the first message gives an empty conversation that, like a new one, is only saved
+  after its first turn.
+
+The new conversation opens at once. Its title ends in "(fork)", a small fork icon marks it in the sidebar, and a line at
+the top says where it came from; **Open the original** goes back and scrolls to that turn (once the original is deleted,
+only the text is left).
+
+**Why it doesn't break append-only.** Nothing in either history is edited. The new conversation's `messages` are a
+prefix of the original's, cut where a turn starts, which is the same thing rewinding does: every block that remains has
+exactly what came before it, so the cache still matches and Claude's thinking signatures still verify. It keeps the
+provider, the model and the custom agent, and from then on it only appends.
+
+**Where the cut goes** ([harness/fork.py](harness/fork.py)). It uses the positions recorded on `user` events (see
+above): forking from a message cuts at that turn's own position, forking from a reply at the next turn's position (or
+takes the whole history at the last turn). Whether a position still starts a turn is answered by the adapter's own rule
+(`providers.saved_before`, the same bookkeeping as `Backend.turn_at`). For GPT, Gemini and DeepSeek, a cut inside the
+part already folded into a summary is refused, as with rewinding, and those buttons are greyed out with the reason; a
+cut after the summary keeps the summary and carries `dropped` over, so the new conversation's recorded positions match
+too (you can edit or regenerate its last turn). A turn without a recorded position (one a scheduled task ran by itself,
+or one saved by an older version) can't be forked. `events` are cut at the same place, so a turn's run trace, subagent
+cards and approvals go with it.
+
+**What stays behind.** The record of file changes (the **Changed N files** line and its undos) isn't copied: the
+backups under `data/backups/turns/` are keyed by turn and there is only one copy of each file on disk, so if both
+conversations could undo the same turn, an undo in one would leave the other claiming the files were never undone.
+Undo stays with the original, and the new conversation's top line says so when those turns changed files. A fork of a
+scheduled task's or a chat channel's conversation is an ordinary web conversation (no `task` or `channel` mark), so it
+has no `send_file`. Money already spent stays spent; the new conversation's context size is estimated from its last
+run trace.
+
+**On the page.** Forking switches conversations, so it waits until your own turn is over. It only reads the original
+from disk (under the conversation store's lock, so a half-written file is never seen) and doesn't claim it, so a
+conversation a chat channel is using can be forked too. The request names the conversation and the turn, so a tab that
+is behind is turned away. The terminal UI keeps a single conversation in memory and never saves or opens conversations,
+so there is no original to keep and nowhere to switch to: forking is a web UI feature.
 
 ### Undoing a turn's file changes
 
@@ -2398,6 +2445,10 @@ This starts a small server on your computer and opens the chat page in your brow
   first lists those steps and asks once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
   (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)). When that turn changed
   files, the same card offers to undo them too.
+- **Fork.** To go another way from an earlier turn, use **Fork** on it: next to **Copy** under a reply (keeps that turn),
+  or beside your message on hover (stops before it and puts the message back in the input box). The original stays as
+  it was; the new conversation opens at once, with a line at the top that leads back (see
+  [Forking a conversation from a turn](#forking-a-conversation-from-a-turn)).
 - **Run trace.** The row of buttons under the last reply shows how long the turn took and what it cost; click it for a
   waterfall chart of the turn: how many model calls, which tools, when each step started and ended, how long it waited
   for your approval, tokens and cost (see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)).
@@ -2939,6 +2990,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 
 Press Ctrl-C while the model is replying to interrupt it.
 
+The terminal UI doesn't save or open conversations, so forking a conversation is only in the web UI.
 The terminal UI doesn't run scheduled tasks or chat channels. You can ask the assistant to add or delete tasks here too;
 they run while the web UI or `harness serve` is running.
 

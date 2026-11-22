@@ -179,6 +179,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
 | `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
 | `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
+| `harness/fork.py`、`harness/webui/fork_api.py` | 从某一轮分叉成一段新对话：截到哪、复制什么、什么不跟过来（fork.py，不碰网页）；`/api/fork` 和状态里的 `fork`（fork_api.py）；页面在 `page/scripts/fork.js` |
 | `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
 | `harness/hooks/`、`harness/webui/hooks_api.py` | 你的钩子：config（`data/hooks.json`）、runner（启动、沙箱、超时）、protocol（退出码和 JSON）、engine（每次运行的 HookRun）、cli（`harness hooks`） |
 | `harness/redact.py` | 遮住工具结果里像密钥的东西：各家密钥的格式（`KEY_SHAPES`，导出和 MCP 设置页也用它）、已知的值、`password=` 后面的长串；页面在 `page/scripts/redact.js` |
@@ -211,6 +212,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   这一轮做过可能改动东西的事，倒回之前在原地问一次（`rewind.effects`；操作过整台电脑、浏览器的另外单独一句，`rewind.operated`）。
   新加的工具默认算"改动"；只读的动作要在 `rewind.py` 里登记。账本和信息栏的用量都不因为倒回而减少。
   压缩的切口只落在 `compaction.is_turn_start` 认的一轮开头：工具结果后面补的图片消息（`TOOL_IMAGES_NOTE`）不算。
+- **从某一轮分叉（`harness/fork.py`）是另存一个前缀，不是改中间。** 原会话只读：从磁盘读（`ConversationStore.load` 拿着会话库的锁，
+  读不到写了一半的），不认领、一个字节都不写，所以聊天通道正占着的会话也能分叉。新会话的 `messages` 是原来那段切在某一轮开头的前缀，
+  `dropped` 原样带过去（事件里每一轮的 mark 照样对得上，新会话里照样能倒回最后一轮），之后照常只追加；provider、model、agent 不变。
+  切口只用 `user` 事件上的 mark：在消息上分叉（at=message）切在这一轮自己的 mark，在回答上分叉（at=reply）切在下一轮的 mark，
+  最后一轮是整段。位置认不认只由 `providers.saved_before` 说了算（和 `Backend.turn_at` 同一笔账，各家的格式写在各自的适配层里）：
+  落在压缩进摘要的那一段的、没记 mark 的一律拒绝，不猜。`events` 截到同一个位置；`file_changes`、`file_undo` 不复制
+  （`fork.LEFT_OUT`：留底按一轮的编号存、磁盘上的文件只有一份，两段会话都能撤回同一轮就会对不上，所以撤回只在原会话里做，
+  `forked_from.changes` 让新会话顶上说一句）；`task`、`channel` 不带（新会话是普通的网页会话，没有 send_file）。
+  分叉要换会话，所以拿 `WebApp._turn`（你的一轮没结束时回答"先等"）；页面只给会话编号、那一轮 user 事件的编号和 at，对不上就 409。
+  以后新加"跟着一轮走、但不能在两段会话里各管一份"的事件，加进 `fork.LEFT_OUT`。
 - **历史里只放普通的字典和字符串**，这样才能原样存成 JSON 文件、读回来原样发给 API。
 - **每个工具调用都必须有对应的结果**，包括被用户中断的情况。相关逻辑在 `Agent._run_tools` 的 `finally` 里。
 - **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则。
@@ -464,7 +475,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
