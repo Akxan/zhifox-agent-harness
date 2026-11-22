@@ -679,11 +679,17 @@ test('a mark added while streaming only redraws the block it is in', () => {
 
 // ---- 很长的输入 --------------------------------------------------------------
 
+// 防的是"输入一长就慢得不成比例"（比如某个正则在特定的文字上回溯爆炸）：那种慢每次都慢。
+// 机器忙的时候（几个测试进程、几个子代理一起跑）偶尔一次超时不算数：连着三次都超了才算
 function timed(label, budget, run) {
-  const start = performance.now();
-  run();
-  const spent = performance.now() - start;
-  assert.ok(spent < budget, `${label} 用了 ${Math.round(spent)} ms（上限 ${budget} ms）`);
+  const spent = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const start = performance.now();
+    run();
+    spent.push(performance.now() - start);
+    if (spent[spent.length - 1] < budget) return;
+  }
+  assert.fail(`${label} 连着三次都超了：${spent.map(Math.round).join('、')} ms（上限 ${budget} ms）`);
 }
 
 const LINES = 10000;
