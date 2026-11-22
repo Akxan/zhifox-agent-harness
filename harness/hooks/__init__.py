@@ -67,7 +67,8 @@
       "stop_hook_active": false             永远是 false（Stop 在这里只是通知，不会让这一轮接着做）
     }
 
-另外环境变量里有 HARNESS_HOOK_EVENT、HARNESS_HOOK_NAME、HARNESS_PROJECT_DIR（工作目录，相当于 Claude Code 的 CLAUDE_PROJECT_DIR）。
+另外环境变量里有 HARNESS_HOOK_EVENT、HARNESS_HOOK_NAME、HARNESS_PROJECT_DIR（工作目录，相当于 Claude Code 的 CLAUDE_PROJECT_DIR）；
+JSON 全是 ASCII（中文写成 \\uXXXX），钩子的输出按 UTF-8 读（用 Python 写的钩子另外设上 PYTHONIOENCODING=utf-8，Windows 上才不会乱码）。
 
 ## 钩子怎么回答（退出码和标准输出，见 protocol.py）
 

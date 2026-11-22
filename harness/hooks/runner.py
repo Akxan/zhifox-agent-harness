@@ -52,9 +52,13 @@ class Ran:
 
 
 def hook_env(event: str, name: str, workspace: Path) -> dict[str, str]:
-    """钩子拿到的环境变量：你的环境（PATH、HOME 这些它多半要用），去掉智狐自己的密钥，再加上几个说明。"""
+    """钩子拿到的环境变量：你的环境（PATH、HOME 这些它多半要用），去掉智狐自己的密钥，再加上几个说明。
+
+    交给它的 JSON 全是 ASCII（中文写成 \\uXXXX），哪种编码读都一样；它的输出我们按 UTF-8 读。Windows 上 Python 往管道里写字
+    默认用系统的编码（不是 UTF-8），写中文会出错或者变成乱码，所以替用 Python 写的钩子设上 PYTHONIOENCODING=utf-8（你自己设了的不动）。"""
     env = {key: value for key, value in os.environ.items() if key.upper() not in SECRET_ENV_VARS}
     env.update(HARNESS_HOOK_EVENT=event, HARNESS_HOOK_NAME=name, HARNESS_PROJECT_DIR=str(workspace))
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     return env
 
 
