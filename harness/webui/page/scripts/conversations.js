@@ -1,6 +1,6 @@
 // ---- 会话列表 ------------------------------------------------------------
 // 左边栏的会话列表：按时间分组、搜索（在助手程序那边搜，这里标出命中的字）、当前那一段的高亮，
-// 每一行悬停时的"在访达中显示 / 重命名 / 删除"。
+// 每一行悬停时的"在访达中显示 / 重命名 / 删除"。在后台跑着的那几段还有它们的标记和"停止"（见 live.js）。
 
 let filter = '';         // 搜索框里的字
 let found = null;        // 搜索结果：{stamp, results}。没在搜索时是 null
@@ -115,7 +115,7 @@ function renderConversations() {
 
   // 状态隔一会儿就会更新一次（比如用量变了），列表多半没变。没变就不重画，
   // 免得鼠标正悬在某一行上、或者正在改名时，那一行被换成新的。
-  const print = JSON.stringify([list, state.conversation, query, found && found.stamp, renaming && renaming.id, deleting, startOfDay(new Date()), language]);
+  const print = JSON.stringify([list, state.conversation, query, found && found.stamp, renaming && renaming.id, deleting, startOfDay(new Date()), language, liveMarks]);
   if (print === drawn) return;
   drawn = print;
 
@@ -178,7 +178,8 @@ function renderConversations() {
 // 列表里的一行。item 平时是会话的基本信息；搜索时还带着命中的情况（title_marks、snippet）
 function conversationRow(item) {
   const isCurrent = item.id === state.conversation;
-  const row = el('div', 'conv' + (isCurrent ? ' active' : '') + (item.snippet ? ' hit' : ''));
+  const mark = liveOf(item.id);  // 在后台跑着的、跑完了你还没看的（见 live.js）
+  const row = el('div', 'conv' + (isCurrent ? ' active' : '') + (item.snippet ? ' hit' : '') + (mark ? ' live-' + mark : ''));
 
   // 删除前先在原地确认一下，不弹对话框
   if (deleting === item.id) {
@@ -233,13 +234,16 @@ function conversationRow(item) {
   if (isCurrent) open.setAttribute('aria-current', 'true');
   paint(open.appendChild(el('span', 'conv-title')), item.title, item.title_marks);
   const hit = item.snippet;
+  const tag = liveTag(item.id);
   if (hit) {  // 搜索结果：第二行是命中的那段文字，前面标明是谁说的
     const line = open.appendChild(el('span', 'conv-snippet'));
+    if (tag) line.appendChild(tag);
     line.appendChild(el('span', 'conv-kind', KINDS[hit.kind] ? t(KINDS[hit.kind]) : ''));
     paint(line, hit.text, hit.marks);
   } else {
     // 定时任务跑出来的会话标一下，免得以为是自己聊的；用 Agent 开始的，前面是那个 Agent 的名字（带着它的颜色）
     const meta = open.appendChild(el('span', 'conv-meta'));
+    if (tag) meta.appendChild(tag);
     if (item.forked) meta.appendChild(forkMark());  // 从别的会话分叉出来的：前面一个小小的分叉图标（见 fork.js）
     if (item.agent) meta.appendChild(el('span', 'persona-badge', item.agent)).dataset.color = (agentByName(item.agent) || {}).color || '';
     const origin = item.task ? t('定时任务') + ' · ' : item.channel ? channelLabel(item.channel) + ' · ' : '';  // 在聊天通道里聊的，标着是哪个平台
@@ -248,18 +252,20 @@ function conversationRow(item) {
   open.addEventListener('click', () => {
     const target = hit ? { id: item.id, kind: hit.kind, find: hit.find } : null;
     if (isCurrent) { if (target) reveal(target); return; }
-    if (busy) { toast(t(BUSY_HINT)); return; }
+    // 这一段正在跑也可以打开别的：它留在后台接着跑（见 live.js）
     jump = target;  // 打开之后滚到命中的位置（见 settle）
     post('/api/conversation/open', { id: item.id });
     if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，选完就收起来
   });
 
   const actions = row.appendChild(el('div', 'conv-actions'));
+  const stop = liveStop(item.id);  // 后台在跑的那一段：先是"停止"，再是那三个
+  if (stop) actions.appendChild(stop);
   const locate = actions.appendChild(iconButton('folder', showLabel()));
   locate.addEventListener('click', () => showFile(item.id));
   const rename = actions.appendChild(iconButton('edit', k('重命名')));
   const remove = actions.appendChild(iconButton('trash', k('删除')));
-  rename.classList.add('idle-only');  // 助手工作时这两个按钮藏起来（服务器这时也不让改）
+  rename.classList.add('idle-only');  // 这一段在跑时这两个按钮藏起来（服务器这时也不让改；别的会话照常能改）
   remove.classList.add('idle-only');
   rename.addEventListener('click', () => { deleting = null; renaming = { id: item.id, draft: item.title }; renderConversations(); });
   remove.addEventListener('click', () => { renaming = null; deleting = item.id; focusCancel = true; renderConversations(); });

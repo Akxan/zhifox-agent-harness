@@ -24,6 +24,7 @@ async function sendMessage() {
   const files = pending.slice();
   if (busy && (text || files.length)) { toast(t(BUSY_HINT)); return; }
   if ((!text && !files.length) || busy || sending) return;
+  if (parallelFull()) { toast(parallelText()); return; }  // 别的几段在跑、到了上限（见 live.js）：文字和附件都留着
   // 整条消息（连同附件）最多约 64 MB，超过的助手程序会直接退回。base64 编码后的大小就是要发的字节数，文字按最坏情况算
   const bytes = files.reduce((sum, item) => sum + (item.data || '').length + (item.thumb || '').length + (item.preview || '').length + (item.text || '').length * 3, text.length * 3);
   if (bytes > 62e6) { toast(t('附件加起来太大了：一条消息连同附件最多约 64 MB。可以分成几条发。')); return; }
@@ -60,9 +61,9 @@ input.addEventListener('keydown', (key) => {
 });
 input.addEventListener('input', () => { resizeInput(); refreshStatus(); });
 
-// agent：用哪个自定义 Agent 当这段对话的角色（见"新对话旁边的 Agent 选择"）；不给就是普通的新对话
+// agent：用哪个自定义 Agent 当这段对话的角色（见"新对话旁边的 Agent 选择"）；不给就是普通的新对话。
+// 这一段正在跑也可以开：它留在后台接着跑（见 live.js）
 function startNew(agent) {
-  if (busy) { toast(t(BUSY_HINT)); return; }
   post('/api/new', typeof agent === 'string' ? { agent } : {});
   if (overlayNav.matches) setNav(false, false);  // 窄屏上会话栏盖着对话，点完就收起来
   input.focus();

@@ -3638,5 +3638,14 @@
  "已经有 {n} 段对话在同时进行，这是上限。等其中一段结束，或者先在会话栏上停下一段，再发。": "Ya hay {n} conversaciones en marcha a la vez, que es el límite. Espera a que termine alguna, o detén una en la barra lateral, y luego envía.",
  "这段会话现在没有在进行。": "Esta conversación no está en marcha ahora mismo.",
  "「{title}」等 {n} 段对话正在进行。等它们结束，或者在会话栏上停下它们，再试。": "«{title}» y otras conversaciones ({n} en total) están en marcha. Espera a que terminen, o detenlas en la barra lateral, y vuelve a intentarlo.",
- "「{title}」正在进行一轮对话。等它结束，或者先停下它，再试。": "«{title}» está a mitad de un turno. Espera a que termine, o detenlo primero, y vuelve a intentarlo."
+ "「{title}」正在进行一轮对话。等它结束，或者先停下它，再试。": "«{title}» está a mitad de un turno. Espera a que termine, o detenlo primero, y vuelve a intentarlo.",
+ "正在进行": "En marcha",
+ "有新回复": "Respuesta nueva",
+ "停下这一段": "Detener esta conversación",
+ "「{title}」在等你确认": "«{title}» espera tu aprobación",
+ "点这里打开这段对话，在里面答复。": "Haz clic aquí para abrir esta conversación y responder allí.",
+ "「{title}」出错了": "«{title}» ha dado un error",
+ "「{title}」回复完了": "«{title}» ha terminado de responder",
+ "点这里打开这段对话。": "Haz clic aquí para abrir esta conversación.",
+ "{n} 段对话在等你确认": "{n} conversaciones esperan tu aprobación"
 }

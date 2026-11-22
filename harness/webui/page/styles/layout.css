@@ -50,9 +50,9 @@ mark { color: inherit; background: var(--select); border-radius: 3px; }
 .conv:hover .conv-actions, .conv:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
 .conv:hover .conv-title, .conv:focus-within .conv-title, .conv:hover .conv-meta, .conv:focus-within .conv-meta { padding-right: 82px; }
 .conv.hit .conv-actions { top: 6px; transform: none; }  /* 搜索结果：按钮对齐标题那一行，不挡摘录 */
-.busy .idle-only { display: none; }  /* 助手工作时不能改名和删除；"在访达中显示"照常可以点 */
-.busy .conv:hover .conv-title, .busy .conv:focus-within .conv-title, .busy .conv:hover .conv-meta, .busy .conv:focus-within .conv-meta { padding-right: 28px; }
-.busy .conv:not(.active) .conv-main { cursor: not-allowed; }
+/* 正在跑的那一段（你正看着的，或者后台的，见 live.css）不能改名和删除；"在访达中显示"照常可以点。别的会话照常能改、能打开 */
+.busy .conv.active .idle-only { display: none; }
+.busy .conv.active:hover .conv-title, .busy .conv.active:focus-within .conv-title, .busy .conv.active:hover .conv-meta, .busy .conv.active:focus-within .conv-meta { padding-right: 28px; }
 .conv-edit { flex: 1; min-width: 0; height: 36px; margin: 0 8px; padding: 0 10px; font-size: 14px; background: var(--surface); border: 1px solid var(--accent); border-radius: 9px; outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
 .conv-confirm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; font-size: 13px; }
 .conv-confirm span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

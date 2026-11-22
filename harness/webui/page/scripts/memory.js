@@ -353,7 +353,7 @@ function drawViewerFoot() {
     remove.append(icon('trash'), t('删除'));
     remove.addEventListener('click', () => {
       // 助手工作时服务器不让删（见 memory_api.py 的 delete_memory）。在这里就说清楚，不用等它退回来
-      if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
+      if (anyRunning()) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
       viewing.confirm = true;
       viewing.message = null;
       drawViewer();
@@ -371,7 +371,7 @@ const SAVE_HINT = forKeys(k('⌘Enter 保存，Esc 退出编辑'), k('Ctrl+Enter
 
 function startEdit() {
   if (!viewing || !viewing.data) return;
-  if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
+  if (anyRunning()) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
   if (!viewing.data.editable) {
     // 只读出了开头的、不是 UTF-8 的，在这里改了再存回去就把文件弄坏了
     viewing.message = { bad: true, key: viewing.data.truncated
@@ -421,7 +421,7 @@ function leaveEdit(closing) {
 async function saveEdit() {
   const edit = viewing && viewing.edit;
   if (!edit || edit.saving) return;
-  if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
+  if (anyRunning()) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
   const name = $('memory-edit-name').value.trim();
   if (!name) { viewing.message = { key: k('文件名不能为空。'), bad: true }; drawViewer(); $('memory-edit-name').focus(); return; }
   const path = viewing.path;

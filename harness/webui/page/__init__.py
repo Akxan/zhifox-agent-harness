@@ -65,6 +65,7 @@ STYLES = (
     "styles/skills.css",  # 扩展 · Skill
     "styles/mcp.css",  # 扩展 · MCP
     "styles/channels.css",  # 扩展 · 通道
+    "styles/live.css",  # 几段对话同时进行：会话栏上的标记、后台那一段的"停止"、顶上那条"在等你确认"（排在任务、通道的提示后面，好把它们往下挪）
     "styles/memory-editor.css",  # 记忆窗口里的编辑
     "styles/agents.css",  # 自定义 Agent
     "styles/hooks.css",  # 扩展 · 钩子
@@ -124,6 +125,7 @@ SCRIPTS = (
     "scripts/sidebars.js",  # 两边的栏：展开和收起
     "scripts/appearance.js",  # 外观：颜色和动效
     "scripts/conversations.js",  # 会话列表
+    "scripts/live.js",  # 几段对话同时进行：会话栏上的标记、后台那一段的"停止"、顶上那条"在等你确认"、提醒
     "scripts/info.js",  # 信息栏
     "scripts/capabilities.js",  # 信息栏 · 智狐能做的事（清单由 harness/capabilities.py 算）
     "scripts/spending.js",  # 花费

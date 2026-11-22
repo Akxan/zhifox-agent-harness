@@ -7,7 +7,8 @@
 //      标题前写着"等你确认"，点是红的。回到页面就清掉。这一样不看设置里的开关：它不打扰人，也不用浏览器允许。
 //   3. 设置里"系统通知"一节：开关（记在这个浏览器里，和外观、动效一样：浏览器允不允许通知本来就是每个浏览器各管各的）、
 //      浏览器允许了没有、没允许时怎么允许。授权只在这里问（askNotify），定时任务列表里那句"开启系统通知"也是调它。
-// 定时任务的提醒、超出预算也走这里的 systemNotify（tasks-alerts.js、spending.js），同一个开关管着。
+// 定时任务的提醒、超出预算、后台另一段对话的"等你确认""回复完了"（tasks-alerts.js、spending.js、live.js）也走这里的 systemNotify，
+// 同一个开关管着。
 //
 // 只有实时发生的才算（isLive()，见 state.js）：刷新页面、打开旧会话、倒回一轮时重放出来的确认卡片和回复，不弹通知，
 // 也不在标题上标"做完了""出错了"（只有一张重放出来、还真的在等你的确认卡片，会让标题写着"等你确认"：那是现在的样子，
@@ -35,6 +36,7 @@ let plainTitle = document.title;   // 不带标记的标题（state 每次给，
 let attention = '';                // 页面在后台时攒下的："error" 出错了、"done" 做完了。等你确认不记在这里，按现在的样子算
 let turnFailed = false;            // 这一轮里出过错：一轮结束时不再说"回复完了"（出错的那一条已经说过了）
 let tasksWaiting = false;          // 有定时任务在等你确认（tasks-alerts.js 告诉这里）
+let chatsWaiting = false;          // 后台的另一段对话在等你确认（live.js 告诉这里）
 let badged = false;                // 装成应用的图标上现在有没有点
 
 const notifySupported = () => 'Notification' in window;
@@ -204,6 +206,21 @@ function noteTasksWaiting(waiting) {
   drawAttention();
 }
 
+// 后台的另一段对话有没有在等你确认（live.js 每来一份状态说一次）。弹通知由 live.js 自己做（它知道是哪一段），这里只管标题和图标
+function noteChatsWaiting(waiting) {
+  if (chatsWaiting === waiting) return;
+  chatsWaiting = waiting;
+  drawAttention();
+}
+
+// 后台的另一段对话刚跑完（done）、出错了（error）：页面在后台的话，标签页上也标出来，和你正看着的这一段的一样
+function noteBackground(kind) {
+  if (!document.hidden) return;
+  if (kind === 'error') attention = 'error';
+  else if (attention !== 'error') attention = 'done';
+  drawAttention();
+}
+
 // ---- 标题和图标 ----------------------------------------------------------------
 
 // 标签页的标题（不带标记的那一截）。state 每次都给（会话的标题 · 智狐），换语言时也给一次
@@ -214,7 +231,7 @@ function setPageTitle(text) {
 
 function attentionLevel() {
   if (!document.hidden) return '';
-  if ((busy && !stopping && confirms.size > 0) || tasksWaiting) return 'confirm';
+  if ((busy && !stopping && confirms.size > 0) || tasksWaiting || chatsWaiting) return 'confirm';
   return attention;
 }
 

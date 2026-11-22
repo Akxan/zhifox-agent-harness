@@ -231,7 +231,6 @@ function agentRow(agent, fresh) {
 
 // 用一个 Agent 开始新对话：先关上扩展（要是有没保存的修改，会先提醒一次）
 function startWithAgent(name) {
-  if (busy) { extensionSay(BUSY_HINT, null, 'bad'); return; }
   if (extensionsDialog.open && !requestCloseExtensions()) return;
   startNew(name);
 }

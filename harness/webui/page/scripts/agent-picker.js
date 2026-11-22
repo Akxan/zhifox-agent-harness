@@ -37,7 +37,6 @@ function drawPersonaMenu() {
 }
 
 function openPersonaMenu(last) {
-  if (busy) { toast(t(BUSY_HINT)); return; }
   drawPersonaMenu();
   personaMenu.hidden = false;
   personaOpen.setAttribute('aria-expanded', 'true');
