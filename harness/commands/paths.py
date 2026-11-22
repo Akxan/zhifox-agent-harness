@@ -96,9 +96,18 @@ class Places:
         if any(_inside(_folded(os.path.normpath(path)), item) for item in UNTOUCHABLE):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         try:
-            return path.resolve()
+            resolved = path.resolve()
         except (OSError, RuntimeError, ValueError) as exc:  # 符号链接绕成了圈、名字太长、有不能用的字符……
             raise Unclear(f"看不清 {raw} 指的是哪里") from exc
+        # 顺着符号链接走完的路径里不会再有符号链接。还剩一个，说明走到一个圈上停下了：Python 3.12 以前这里会抛 RuntimeError，
+        # 3.13 起不抛了，原样交回绕圈的那一段（GitHub 上 3.13 的测试抓到的）。看不清，就不能算"只是看看"
+        try:
+            linked = any(os.path.islink(part) for part in (resolved, *resolved.parents))
+        except (OSError, ValueError) as exc:
+            raise Unclear(f"看不清 {raw} 指的是哪里") from exc
+        if linked:
+            raise Unclear(f"看不清 {raw} 指的是哪里（符号链接绕成了圈）")
+        return resolved
 
     def check(self, raw: str) -> None:
         """命令里的一个词。当作路径时，它指向不该不问就读的地方，就抛出 Unclear。"""
