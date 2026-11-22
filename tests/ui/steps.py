@@ -162,7 +162,8 @@ def import_view(page: Page, tab: str) -> None:
     """打开"扩展"里一页的"从其他工具导入"（mcp、skills、agents），等清单画好，把最下面的"没找到的"也点开。"""
     extensions_tab(page, tab)
     page.click(IMPORT_BUTTONS[tab])
-    page.wait(f"document.querySelector('#panel-{tab} .import-overview')", what=f"{tab} 的导入页画好")
+    # 要把二十几个工具放东西的地方挨个看一遍：慢的机器上（CI 的 Windows）10 秒偶尔不够
+    page.wait(f"document.querySelector('#panel-{tab} .import-overview')", timeout=30, what=f"{tab} 的导入页画好")
     page.js(f"document.querySelectorAll('#panel-{tab} details.import-missing').forEach((details) => {{ details.open = true; }})")
     idle(page)
 
