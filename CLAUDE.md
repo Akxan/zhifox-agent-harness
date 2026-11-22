@@ -90,6 +90,21 @@
    - **系统相关的代码只放在一处**：文件锁、路径检查（盘符、反斜杠、设备名、末尾的点和空格这些 Windows 的花招）、执行命令用哪个 shell、
      后台服务（launchd / systemd / 任务计划程序）、"在文件管理器里显示"、文件权限（600 和 Windows 的 ACL）、启动 Chrome 的管道，
      都各有一个小模块按系统分开写，别处只调用它。新加的功能要用到这类东西时，复用它们，不要自己判断 `sys.platform`。
+     这些模块是：`filelock`（文件锁：fcntl / msvcrt）、`pathnames`（Windows 的路径花招、比较用的 `key`、目录联接）、`winacl`（icacls 设 ACL）、
+     `winjob`（作业对象：停下时连孙进程一起结束）、`console`（管道输出用 UTF-8）、`exits`（SIGTERM 之外还有 SIGBREAK）、`machine`（mac / windows / linux）、
+     `tools/shell`（`command_line`、`kill_tree`、`system32`）、`browser/chrome`（`_launch_windows`）、`service/windows` 加 `service/supervise`、
+     `webui/server` 的 reveal；页面是 `platform.js`：`forKeys` / `commandHeld` 看浏览器所在的系统（快捷键），`byServer` / `showLabel` 看助手程序所在的电脑
+     （"访达""文件资源管理器""文件管理器"）。页面里不要再写"`ON_MAC` 就写访达"这种判断。
+   - **Windows 上的几条规矩**（2026-11-22 合并 Windows 支持时定下的）：
+     - 命令用 PowerShell（优先 pwsh 7），`-EncodedCommand` 传进去，`-NoProfile`，不改执行策略；环境里照样去掉 `SECRET_ENV_VARS`。
+     - "只读命令不用问"和你自己加的命令在 Windows 上一律不算（`commands.WINDOWS`）：拆词和名单是照 bash 写的，看不准 PowerShell。测试里 conftest 把它设成 False。
+     - Chrome 只走管道（`--remote-debugging-io-pipes`，只让它继承那两个句柄）加作业对象，不开端口：端口本机任何程序都连得上。
+     - 文件按字节原样写（`safe.write_file` 用 O_BINARY 和 `newline=""`），文件工具保留原来的换行，页面的编辑器比较内容用 `sameText`（记事本的 \r\n 不算改过）。
+       **有意的破例**：`tools/memory.py` 在 Windows 上替换了 Anthropic SDK 记忆工具里的 os（`_BinaryOs`），为的是不改换行。
+     - 文件权限靠 `winacl`（去掉继承，只留你的 SID、SYSTEM、Administrators）；设不成功只写警告、不拦着用。
+     - 服务器拒绝 POST 之前先读掉（不大的）请求体：Windows 上关掉还有没读完数据的连接会发 RST，对方连 403 都收不到。
+     - 测试里查文件权限用 `tests/modes.has_mode`，开子进程用 `tests/processes`（不要用 `os.kill(pid, 0)`：它在 Windows 上会发 Ctrl-C），
+       真要执行的命令用 `tests/oscmd`。测试用的真 Chrome 要这个账号真正的 USERPROFILE（换了它就不回答），所以只在别处换家目录。
    - **某个系统上做不到的**（比如操作整台电脑暂时没有 Windows 版）：界面上明说"这个系统上暂时不支持"和原因，测试里按系统跳过并写明原因，
      不要让它在那个系统上悄悄出错。
    - **测试三个系统都跑**：GitHub Actions 的矩阵里有 ubuntu、macos、windows；只在某个系统上才有的测试（比如 Xvfb、Windows 的服务）
@@ -124,7 +139,7 @@ uv run harness --web             # 网页界面
 一个手写的 agent harness：运行在用户自己电脑上的个人助手，有终端和网页两种界面，支持 Claude、GPT、Gemini、
 DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每个文件只讲一件事，注释写的是"为什么"。
 详细的说明在 `README.md`（英文）和 `README.zh-CN.md`（中文），改了行为就要两份一起更新。
-每次推送都会由 GitHub Actions 在 Ubuntu 和 macOS 上跑测试（`.github/workflows/tests.yml`），推送后看一眼结果。
+每次推送都会由 GitHub Actions 在 Ubuntu、macOS 和 Windows 上跑测试（`.github/workflows/tests.yml`），推送后看一眼结果。
 
 **给人看的名字是"智狐"，英文名 ZhiFox，标志是一只小狐狸**（都是用户定的）。GitHub 仓库名是
 `Akxan/zhifox-agent-harness`（2026-11-20 用户选定改名）。界面里在任何语言下都写"智狐"；助手用中文以外的语言回答时称自己 ZhiFox
@@ -154,7 +169,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
-| `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
+| `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、windows（任务计划程序）和 supervise（自己的看护进程：任务计划程序失败重启时不看退出码）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
 | `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
 | `harness/capabilities.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开 |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
@@ -172,6 +187,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
+| `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
@@ -392,7 +408,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   自己填地址的服务不发任何密钥，明文的 http 只许连本机；选自定义接口的，只认本机和内网的，带它自己的密钥（外面的网关每分钟多少钱不知道，不给选）。
   太长（`VOICE_MAX_SECONDS`）、太大（`VOICE_MAX_BYTES`）的在下载之前就拦下。每转一条用 `Ledger.record_audio(source="voice")` 记一笔，
   价格只在 `pricing.transcribe_cost` 里算（按分钟估，有的模型其实按 token 计费）。现在只有 Telegram 收语音，别的平台回答"暂时只有 Telegram 支持"。
-- **本机的 Python 是 3.11，CI 跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
+- **本机的 Python 是 3.11，CI 在三个系统上各跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
   拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
@@ -448,7 +464,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
