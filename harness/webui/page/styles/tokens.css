@@ -20,6 +20,7 @@
   --a3: #ec4899;
   --a4: #f59e0b;
   --teal: #0d9488;
+  --hook: #c0266d;        /* 你的钩子（扩展 · 钩子、运行记录里它的那一段）：品红，比 --a3 深一些，小字也够清楚 */
   --aurora: linear-gradient(115deg, var(--a1), var(--a2) 40%, var(--a3) 75%, var(--a4));
   --aurora-text: linear-gradient(100deg, var(--a1), var(--a2) 50%, var(--a3));
   --aurora-solid: linear-gradient(135deg, #4f6bff, #8b5cf6 55%, #ec4899);  /* 上面要放白色图标，所以两套外观都用深的这一组 */
@@ -74,6 +75,7 @@
   --a3: #f472b6;
   --a4: #fbbf24;
   --teal: #2dd4bf;
+  --hook: #f472b6;
   --accent: #a99bff;
   --accent-soft: rgba(169, 155, 255, .16);
   --bubble: #2a2c35;

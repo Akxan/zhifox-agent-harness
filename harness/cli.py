@@ -5,6 +5,7 @@
     harness serve [--web]         服务器上的服务：定时任务和聊天通道，没有浏览器（见 serve.py）
     harness channels ...          设置聊天通道（见 channels/cli.py）
     harness commands ...          你自己加的"不用问的命令"（见 commands/cli.py）
+    harness hooks ...             你的钩子：在固定的时刻运行你配置的命令（见 hooks/cli.py）
     harness sandbox ...           命令的沙箱：状态、哪一档、额外允许的路径、试一下（见 sandbox/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
     harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
@@ -26,6 +27,7 @@ from .channels import cli as channels_cli
 from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
 from .evals import cli as eval_cli
+from .hooks import cli as hooks_cli
 from .i18n import k, t
 from .permissions import MODES
 from .pricing import estimate
@@ -316,10 +318,21 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
+    hooks_cli.add_parser(commands)
     sandbox_cli.add_parser(commands)
     service_cli.add_parser(commands)
     eval_cli.add_parser(commands)
+    # "harness hooks add 名字 --event … -- 程序 参数"：-- 后面的原样交给那个命令。自己先在第一个 -- 处切开，再交给 argparse：
+    # Python 3.11 的 argparse 不认子命令里一个位置参数后面跟着的 --（3.12 起才认），钩子的命令在 3.11 上就加不进去（GitHub 的测试抓到的）
+    argv = list(sys.argv[1:] if argv is None else argv)
+    after: list[str] | None = None
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, after = argv[:cut], argv[cut + 1 :]
     args = parser.parse_args(argv)
+    args.after_dashes = after
+    if after is not None and not (args.command == "hooks" and getattr(args, "hooks_action", None) == "add"):
+        parser.error(t("只有 harness hooks add 认 -- 后面的内容"))
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
         if not workspace.is_dir():
@@ -334,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
         return channels_cli.run(args, config)
     if args.command == "commands":
         return commands_cli.run(args, config)
+    if args.command == "hooks":
+        return hooks_cli.run(args, config)
     if args.command == "sandbox":
         return sandbox_cli.run(args, config)
     if args.command == "service":

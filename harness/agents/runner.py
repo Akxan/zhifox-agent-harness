@@ -209,6 +209,8 @@ class Delegator:
         sub = Agent(backend=backend, config=sub_config, tools=ToolRegistry([]), permissions=parent.permissions, ui=ui, clock=parent.clock)
         # 运行记录：和叫它的那一方读同一个表（timer），它的每一段才画得在同一条时间轴上（做完挂到那一方的这次调用下面，见 finally）
         sub.trace = Tracer(timer=parent.trace.timer, wall=parent.trace.wall)
+        # 你的钩子：它的工具调用前后也跑（JSON 里写着 agent_type），自己一份，停下它只结束它自己正在跑的钩子
+        sub.hooks = parent.hooks.child(agent.name)
         # 它还能不能再往下交：叫它的那一方手里有 agent 工具、它自己的 tools 放开了、层数也没到上限
         nested = self.tool_for(sub, depth + 1) if parent.tools.get(agent_tools.AGENT_TOOL) is not None else None
         if nested is not None:
@@ -224,6 +226,7 @@ class Delegator:
 
         def stop() -> None:
             own_shell.kill_running()
+            sub.hooks.stop()
             self.mcp.cancel_running(owner)
 
         within = parent.ui.run if isinstance(parent.ui, SubUI) else ""

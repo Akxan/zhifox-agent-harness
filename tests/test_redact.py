@@ -16,6 +16,9 @@ import pytest
 import test_webui
 from fake_api import reply, text, tool_use
 from test_agent import tool_results
+from test_hooks import add as add_hook
+from test_hooks import calls_of
+from test_hooks import script as hook_script
 from test_webui import latest_state
 
 from harness import export, log, redact
@@ -291,6 +294,23 @@ def test_turning_it_off_in_settings_passes_results_through(start):
     assert GITHUB in result["content"] and "已遮住" not in result["content"]
     span = next(item for item in h.agent.trace.last["spans"] if item["kind"] == "tool")
     assert "redacted" not in span
+
+
+def test_your_post_tool_use_hook_only_sees_the_masked_result(start):
+    # 钩子（hooks/）挂在结果放进去以后：它收到的、它补完以后交给模型的，都是遮好的那一份
+    h = start(
+        reply(tool_use("toolu_1", "str_replace_based_edit_tool", {"command": "view", "path": "creds.txt"}), stop_reason="tool_use"),
+        reply(text("看完了。")),
+    )
+    (h.config.workspace / "creds.txt").write_text(f"token={GITHUB}\n", encoding="utf-8")
+    argv, log = hook_script(h.config.workspace.parent / "hooks", "after")
+    add_hook(h, "after", "PostToolUse", argv)
+    h.agent.run_turn("看看")
+    (seen,) = calls_of(log)
+    response = json.dumps(seen["payload"]["tool_response"], ensure_ascii=False)
+    assert GITHUB not in response and "‹已遮住：疑似 GitHub 令牌›" in response
+    (result,) = tool_results(h.api.requests[1])
+    assert GITHUB not in json.dumps(result, ensure_ascii=False)
 
 
 def test_other_runs_share_the_same_redactor(start):

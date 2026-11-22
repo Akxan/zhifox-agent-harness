@@ -66,6 +66,7 @@ STYLES = (
     "styles/channels.css",  # 扩展 · 通道
     "styles/memory-editor.css",  # 记忆窗口里的编辑
     "styles/agents.css",  # 自定义 Agent
+    "styles/hooks.css",  # 扩展 · 钩子
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/fallback.css",  # 设置 · 备用模型
@@ -100,6 +101,7 @@ SCRIPTS = (
     "scripts/follow.js",  # 跟着最新内容滚动
     "scripts/requests.js",  # 提示和请求：toast()、call()、post()、announce()
     "scripts/approval-modes.js",  # 要不要先问你：几档的名字和说明（对话、任务、通道三处共用）
+    "scripts/hook-words.js",  # 钩子的几个说法：四个时刻、结论的名字（运行记录和"扩展 · 钩子"共用）
     "scripts/settle.js",  # 空白页和收尾，定位到搜索命中的地方
     "scripts/markdown-view.js",  # 回复里的 Markdown（接上 markdown.js）
     "scripts/citations.js",  # 回答引用的网页：记号、浮出的卡片、来源列表、复制时带上来源
@@ -149,6 +151,10 @@ SCRIPTS = (
     "scripts/channels-list.js",  # 扩展 · 通道 · 列表、顶上等你批准的提示
     "scripts/channels-wizard.js",  # 扩展 · 通道 · 设置向导的框架
     "scripts/channels-steps.js",  # 扩展 · 通道 · 设置向导的四步
+    "scripts/hooks.js",  # 扩展 · 钩子：共用的状态和小工具
+    "scripts/hooks-list.js",  # 扩展 · 钩子 · 列表
+    "scripts/hooks-detail.js",  # 扩展 · 钩子 · 打开一个、试运行
+    "scripts/hooks-form.js",  # 扩展 · 钩子 · 添加和编辑
     "scripts/language.js",  # 语言
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）

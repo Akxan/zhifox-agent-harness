@@ -33,6 +33,7 @@ from .desktop.manager import DesktopManager
 from .desktop.session import DesktopSession
 from .endpoints import PREFIX as ENDPOINT_PREFIX
 from .endpoints import EndpointError, EndpointStore
+from .hooks import HookConfig, HookRun, Hooks
 from .i18n import t
 from .ledger import Ledger
 from .mcp import McpConfig, McpManager
@@ -119,6 +120,7 @@ class App:
     chat_browser: BrowserSession  # 你正在看的这段对话用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
     desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
     chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
+    hooks: Hooks  # 你的钩子（data/hooks.json，见 hooks/）：每次运行各用一个 HookRun，配置和"上一次跑得怎么样"是共用的这一份
     sandbox_layout: Layout  # 命令的沙箱要用的几个地方（见 sandbox/）：每次运行的 Sandbox 都照着它建
     endpoints: EndpointStore  # 自定义模型接口（data/endpoints.json，见 endpoints/）。providers.find / every 也看得到它们
     changes: FileChanges  # 每一轮文件工具改了哪些文件，和撤回、重做（见 undo/）。只有你的对话记账，定时任务和聊天通道不记
@@ -308,12 +310,16 @@ class App:
         agent.fallbacks = self.agent.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
+        # 你的钩子也照样跑（runsIn 里有 task / channel 的那些，默认都有，理由见 hooks/__init__.py）。
+        # 这次运行自己一份：停下这次运行只结束它自己正在跑的钩子。会话编号由调用的人在知道以后填上（见 scheduler.py、channels/session.py）
+        agent.hooks = HookRun(self.hooks, source, sandbox=lambda: shell.sandbox)
         # 也能用 Skill：历史是空的话，第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
         agent.notes.append(notifier(self.skills))
         agent.notes.append(agent_notifier(self.agents, lambda: agent.tools))  # 有哪些 Agent 可以交给，也一样
 
         def stop() -> None:
             shell.kill_running()
+            agent.hooks.stop()
             self.mcp.cancel_running(owner)
             browser[0].stop()
             desktop[0].stop()
@@ -700,6 +706,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序。
     # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上。
     # commands.json（你自己加的"不用问的命令"）也是：改了它，模型就能让自己想运行的命令不再问你（见 commands/allowlist.py）。
+    # hooks.json（你的钩子）也是：改了它，就能让智狐在固定的时刻运行任何命令（见 hooks/）
     # endpoints.json（自定义模型接口）也是：里面有密钥，改了它的地址还能让你的对话发到别人的服务器上
     commands = CommandList(config.commands_file)
     protected = config.protected_files
@@ -774,10 +781,13 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         chat_browser=browser.session("chat"),
         desktop=desktop,
         chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
+        hooks=Hooks(HookConfig(config.hooks_file), config.workspace),
         sandbox_layout=layout,
         endpoints=endpoints,
         changes=changes,
     )
+    # 你的钩子：你的对话（网页和终端）用这一份。交给钩子的 session_id 是此刻正在看的这段会话
+    agent.hooks = HookRun(app.hooks, "chat", session=lambda: app.conversation.id, sandbox=lambda: app.shell.sandbox)
     # 你撤回、重做了文件以后，这段会话的下一条消息前面附一段说明，模型才知道它记得的文件内容过时了（见 undo/notes.py）
     agent.notes.append(lambda history: changes.notes.text(app.conversation.id))
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。

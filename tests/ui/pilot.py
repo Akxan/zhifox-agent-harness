@@ -284,7 +284,12 @@ class Page:
         self.call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
 
     def emulate(self, **features: str) -> None:
-        """模拟系统设置，比如 emulate(prefers_color_scheme="dark", prefers_reduced_motion="reduce")。不给的恢复成默认。"""
+        """模拟系统设置，比如 emulate(prefers_color_scheme="dark", prefers_reduced_motion="reduce")。不给的恢复成默认。
+
+        "减少动态效果"不给的话一律当成"没要求减少"，而不是跟着这台机器：GitHub 的 macOS 机器系统里开着"减少动态效果"，
+        页面照着它不播动画（这是对的），查"实时的变化会淡入"的测试就在那里失败了，在本机却通过。每个测试从同一个样子开始。
+        """
+        features.setdefault("prefers_reduced_motion", "no-preference")
         self.call("Emulation.setEmulatedMedia", {"features": [{"name": name.replace("_", "-"), "value": value} for name, value in features.items()]})
 
     def screenshot(self, path: Path) -> None:

@@ -17,6 +17,9 @@
   /* 窄窗口：顶栏里放不下了（标题、模型、几个按钮已经挤满），改成浮在顶栏下面正中间的一条，和"任务在跑"的提示一样。
      居中用 translate 属性，不用 transform：入场动画改的是 transform，两样不会互相盖掉 */
   .browser-live { position: absolute; z-index: 6; top: 58px; left: 50%; translate: -50% 0; max-width: calc(100% - 32px); box-shadow: var(--shadow-2); }
+  /* 浮在对话上面的这一条不接点击，只有"停止"接：不然它下面的按钮（比如"重新生成"）点不到（页面测试抓到过） */
+  .browser-live { pointer-events: none; }
+  .browser-live-stop { pointer-events: auto; }
   .browser-live > .icon { display: none; }
 }
 

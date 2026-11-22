@@ -448,6 +448,8 @@ class Session:
                 self.ui, approval, conversation.provider, conversation.model, self._persona(conversation), outlet=self.outlet, sandbox=self._sandbox,
             )
             self.agent = self.run.agent
+            # 交给你的钩子的 session_id：这个聊天此刻的那段会话（/new 以后换成新的一段）
+            self.agent.hooks.session = lambda: self.conversation.id if self.conversation is not None else ""
             if conversation.messages:
                 self.agent.backend.restore(conversation.messages, conversation.dropped)
             self.agent.usage.context_tokens = conversation.context_tokens

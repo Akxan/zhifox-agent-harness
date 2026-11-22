@@ -33,6 +33,7 @@
   POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
   POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
   POST /api/commands/add、edit、delete、reveal   你自己加的"不用问的命令"：加、改、删、在访达中显示 commands.json（见 commands_api.py）
+  POST /api/hooks/list、save、delete、enable、test、reveal   你的钩子：列出、添加或修改、删除、开关、试运行、在访达中显示 hooks.json（见 hooks_api.py）
   POST /api/sandbox/level、add、edit、delete、reveal  命令的沙箱：对话用哪一档、额外允许的路径（加、改、删、在访达中显示列表里的一条，见 sandbox_api.py）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
@@ -151,6 +152,7 @@ from .changes_api import ChangesAPI, issues
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .endpoints_api import EndpointsAPI
+from .hooks_api import HooksAPI
 from .page import assemble as assemble_page
 from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
@@ -243,6 +245,7 @@ class WebApp:
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         self.voice = VoiceAPI(self)  # 设置里"语音转文字"一节的接口（聊天里发来的语音，见 ../voice/）
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
+        self.hooks = HooksAPI(self, lambda path: reveal_in_file_manager(path))  # "扩展 → 钩子"一页的接口
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
         self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
@@ -258,6 +261,7 @@ class WebApp:
         # 还有正在做的浏览器动作：只是这段对话自己的（换一段对话就换一个，所以每次现找）
         ui.on_stop(lambda: app.chat_browser.stop())
         ui.on_stop(lambda: app.chat_desktop.stop())  # 正在操作电脑的那一步也停下（同样只是这段对话自己的）
+        ui.on_stop(lambda: app.agent.hooks.stop())  # 正在跑的钩子也结束掉（只是对话自己的那一个，见 hooks/engine.py）
         app.browser.on_change = self.publish_state  # 浏览器开了、关了、忙起来了：页面顶上的提示跟着变
         app.desktop.on_change = self.publish_state  # 有运行开始、停止操作电脑：页面顶上"智狐正在控制这台电脑"跟着变
         app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
@@ -334,6 +338,7 @@ class WebApp:
             mcp=self._mcp_state(),
             approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
+            hooks=self.hooks.summary(),  # 你的钩子：有几个、文件有没有问题（完整的列表打开那一页时再要，见 hooks_api.py）
             sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
             redact_secrets=settings.redact_secrets,  # 工具的结果先遮一遍密钥再交给模型（见 redact.py），设置里能关
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
@@ -1642,6 +1647,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/commands/"):
             status, payload = web.commands.route(path.removeprefix("/api/commands/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/hooks/"):
+            status, payload = web.hooks.route(path.removeprefix("/api/hooks/"), body)
             self._send_json(status, payload)
         elif path.startswith("/api/sandbox/"):
             status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)

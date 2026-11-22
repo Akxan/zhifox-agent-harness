@@ -48,6 +48,8 @@ class ToolOutput:
     state_only: bool = False
     # preview：只给界面看的东西（截图的小图和大图的编号），不发给模型
     preview: dict | None = None
+    # shown：给人看的说法和给模型的不一样时用（t() 译好的）。比如被你的钩子拦下的调用：模型看到中文原文，你看到界面的语言
+    shown: str = ""
 
 
 @dataclass(frozen=True)
