@@ -37,6 +37,8 @@ def _surfaces(page):
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("沙箱的路径", lambda: _sandbox(page), ["#sandbox-dialog"], "sandbox-dialog"),
+        # 从备份恢复的预览：很长的文件名（省略）、两张方式的卡片（窄屏上下排）、每一样会怎样、要重新填的密钥（JSON 里的位置折行）
+        ("从备份恢复（预览）", lambda: _restore(page), ["#restore-dialog"], lambda: steps.close_restore(page)),
         # 第一下 Esc 只收起问的那一块（焦点在它里面），第二下才关上设置窗口
         ("设置 · 遮住密钥（关掉之前）", lambda: _redact(page), ["#redact-section"],
          lambda: (page.key("Escape"), page.wait("document.getElementById('redact-confirm').hidden"), steps.escape_closes(page, "settings"))),
@@ -67,6 +69,12 @@ def _fallbacks(page) -> None:
     page.demo.api("/api/fallbacks", {"provider": "anthropic", "models": ["claude-sonnet-5-5", "claude-fable-5-2"]})
     steps.open_dialog(page, "#settings-open", "settings")
     page.wait("document.querySelectorAll('#fallback-list .fallback-row').length === 2", what="备用模型的名单画出来")
+
+
+def _restore(page) -> None:
+    """从备份恢复：选了一个文件名很长的备份，备份里还有一个密钥要重新填的 MCP 服务器。只上传、不恢复。"""
+    steps.open_restore(page)
+    steps.choose_backup(page, steps.backup_bytes(page.demo, missing_key=True), "zhifox-backup-20261120-0930-from-the-old-laptop-before-moving-to-the-new-one.zip")
 
 
 def _commands(page) -> None:

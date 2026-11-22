@@ -291,11 +291,13 @@ async function openRestore() {
   restoreView = { step: 'pick' };
   restoreArmed = false;
   restoreSay('');
+  delete restoreDialog.dataset.ready;
   drawRestore();
   restoreDialog.showModal();
   drawRestore(true);
   const reply = await call('/api/restore/info');
   restoreInfo = reply.ok ? reply.data : null;
+  restoreDialog.dataset.ready = '';  // 知道上传最多多大了（页面测试等它）
   if (restoreDialog.open && restoreView.step === 'pick') drawRestore();
 }
 

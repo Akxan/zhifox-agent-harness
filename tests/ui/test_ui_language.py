@@ -122,6 +122,23 @@ def _sweep(page) -> dict[str, list[str]]:
     page.click("#commands-list .cmd-confirm button.danger")
     page.wait("!document.querySelector('#commands-list li.cmd-row')")
     steps.escape_closes(page, "commands-dialog")
+    # 从备份恢复：选文件的那一步、上传以后的预览（两种方式、会怎样、要重新填的密钥）、覆盖之前的确认、关之前的提醒。
+    # 只上传、不恢复（演示是大家共用的）：真的恢复在 test_ui_restore.py 里另开一个演示
+    steps.open_restore(page)
+    look("从备份恢复", ["#restore-dialog"])
+    steps.choose_backup(page, steps.backup_bytes(page.demo, missing_key=True))
+    look("从备份恢复（预览）", ["#restore-dialog"])
+    page.click("#restore-body .restore-mode:last-child")
+    page.wait("document.querySelector('#restore-body .restore-mode:last-child').classList.contains('on')", what="换成合并")
+    look("从备份恢复（合并的预览）", ["#restore-dialog"])
+    page.click("#restore-body .restore-mode:first-child")
+    page.wait("document.querySelector('#restore-body .restore-mode:first-child').classList.contains('on')", what="换回覆盖")
+    page.click("#restore-actions [data-focus='go']")
+    page.wait("document.querySelector(\"#restore-actions [data-focus='sure']\")", what="覆盖之前在原地再问一次")
+    look("从备份恢复（覆盖之前的确认）", ["#restore-dialog"])
+    page.key("Escape")  # 收起确认，回到预览
+    page.wait("document.querySelector(\"#restore-actions [data-focus='go']\")")
+    steps.close_restore(page)
     # 沙箱：设置里的那一节（选了一档），额外允许的路径的窗口（一条路径、原地编辑、删除确认）
     page.demo.api("/api/sandbox/level", {"level": "workspace"})
     page.demo.api("/api/sandbox/add", {"path": steps.SANDBOX_EXTRA, "write": True})

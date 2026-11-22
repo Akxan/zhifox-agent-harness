@@ -6,9 +6,13 @@ pilot.py 只会"点、按、读"，不知道页面长什么样；这里知道。
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import sys
+import urllib.request
+import zipfile
 
 from .pilot import Page
 
@@ -241,3 +245,55 @@ def voice_local(page: Page) -> None:
     pick(page, "#voice-provider", "local")
     page.wait("!document.getElementById('voice-local').hidden && document.activeElement.id === 'voice-url'", what="兼容服务的那几格出来")
     idle(page)
+
+
+# ---- 从备份恢复（page/scripts/restore.js）----
+
+
+def backup_bytes(demo, missing_key: bool = False) -> bytes:
+    """演示的数据文件夹导出一份（和设置里的"导出全部数据"一样）。missing_key：再往 mcp.json 里加一个现在没有的服务器，
+    它的密钥是占位符，预览里就有"恢复以后要重新填"的那一块。只是做一个压缩包，不改演示的数据。"""
+    request = urllib.request.Request(
+        demo.origin + "/api/export", data=b"{}", method="POST", headers={"Content-Type": "application/json", "X-Harness-Token": demo.token}
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        raw = response.read()
+    if not missing_key:
+        return raw
+    source, out = zipfile.ZipFile(io.BytesIO(raw)), io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as target:
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename == "mcp.json":
+                config = json.loads(data)
+                config.setdefault("mcpServers", {})["restored-only"] = {"command": "npx", "args": ["-y", "some-server"], "env": {"API_TOKEN": "<removed-from-backup>"}}
+                data = json.dumps(config).encode()
+            target.writestr(info, data)
+    return out.getvalue()
+
+
+def open_restore(page: Page) -> None:
+    """设置 → "从备份恢复…"，等窗口打开（设置会先关上）。"""
+    open_dialog(page, "#settings-open", "settings")
+    page.reach("#restore-open")
+    page.click("#restore-open")
+    page.wait(f"{is_open('restore-dialog')} && !{is_open('settings')} && document.querySelector('#restore-body .restore-drop')", what="从备份恢复的窗口打开")
+    idle(page)
+
+
+def choose_backup(page: Page, data: bytes, name: str = "zhifox-backup-20261120-0930.zip") -> None:
+    """像用户在文件选择框里选了一个文件一样（给 <input type=file> 放进一个文件、发 change），等预览出来。"""
+    page.js(
+        "(() => { const bytes = Uint8Array.from(atob(" + json.dumps(base64.b64encode(data).decode()) + "), (c) => c.charCodeAt(0));"
+        " const box = new DataTransfer(); box.items.add(new File([bytes], " + json.dumps(name) + ", { type: 'application/zip' }));"
+        " const input = document.getElementById('restore-file'); input.files = box.files; input.dispatchEvent(new Event('change')); })()"
+    )
+    page.wait("document.querySelector('#restore-body .restore-modes')", 30, "备份的预览出来")
+    idle(page)
+
+
+def close_restore(page: Page) -> None:
+    """上传了一份、还没恢复：第一下 Esc 只提醒，第二下才关上（上传的那一份也删掉）。"""
+    page.key("Escape")
+    page.wait("document.getElementById('restore-message').classList.contains('bad')", what="先提醒一次")
+    escape_closes(page, "restore-dialog")
