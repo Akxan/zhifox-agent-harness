@@ -45,6 +45,8 @@
 还可以装 Skill，教它按你的方法做某一类事（格式是开放的 [Agent Skills](https://agentskills.io) 标准，见下面的"Skill 是怎么工作的"）。
 还可以通过 MCP 接上别人写好的工具（本地的程序或者网址），每次调用之前默认先问你。在 Claude Code、Cursor、VS Code、Codex、
 Gemini CLI 这些工具里已经配好的 MCP 服务器、写好的 Skill 和 Agent，点几下就能导入（见下面的"从其他工具导入"）。
+还可以挂上你自己的钩子（照着 Claude Code 的 hooks 做的）：工具执行之前（确认之后）、执行之后、你发消息时、一轮答完时运行你的脚本，
+它能拦下一步、要你再确认一次，但不能放宽任何确认（见下面的"你的钩子：在固定的时刻运行你自己的脚本"）。
 还可以让它用浏览器（browser use）：在设置里打开以后，助手在一个智狐自己启动的 Chrome 里打开网页、读、点、输入、截图。
 这个 Chrome 用的是智狐自己的配置文件夹，和你平时用的浏览器完全分开，看不到你的任何登录；和它说话的是手写的 DevTools 协议客户端，
 走管道、不开端口，别的程序连不上。看网页直接做；输入文字、提交表单、去一个新的网站先问你，往密码框、银行卡里输入不管选了哪一档都要问。
@@ -331,6 +333,12 @@ uv run harness --web
   保存之后页面上只显示最后 4 位；编辑时留空表示不变。"粘贴 JSON"收从 Claude Desktop、Claude Code、Cursor、
   VS Code 的配置里复制来的内容；"从其他工具导入"列出 Claude Desktop、Claude Code、Cursor、VS Code、Codex、Gemini CLI、Goose
   和[别的支持的工具](#从其他工具导入)里配好的服务器（只在你打开这一页时读），勾选要复制过来的；换写法时改了什么写在每一项上。改动从下一段新对话开始生效（原因见"MCP：别人写好的工具"）。
+- 扩展 → 钩子：你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)。最上面清楚地写着：它们会用你账号的权限在这台电脑上运行命令。
+  每一行写着事件、对哪些工具、命令（像令牌的部分遮住）和上一次跑得怎么样（结果和用时；智狐这次启动以来的），
+  前面是启用开关和"试运行"，后面是和别处一样的"在访达中显示"（`data/hooks.json`）、编辑、删除（在原地确认一次）。
+  "添加钩子"打开一张表单：名字、事件、对哪些工具（功能的小按钮，加上工具名或带 `*` 的通配）、程序和每行一个的参数、时限、
+  钩子自己出错时怎么办、在哪些运行里生效（对话、定时任务、聊天通道）；有没保存的修改时离开之前先问。"试运行"显示钩子将收到的示例 JSON
+  （可以先改），真的运行一次，告诉你退出码、输出，以及智狐会怎么办（"会拦下这次调用，模型看到的原因：……"）。
 - 外观和动效（右上角的太阳/月亮按钮）：点开是一个小面板，上下两排。
   - 外观：默认是浅色，可以换成深色，或者跟随系统的深浅色。
   - 动效：默认跟随系统设置（macOS 是"系统设置 → 辅助功能 → 显示 → 减弱动态效果"，Windows 是
@@ -689,6 +697,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 设置和计价 | [harness/settings.py](harness/settings.py)、[harness/pricing.py](harness/pricing.py) | 记住你选的模型和填的密钥，把 token 换算成钱 |
 | 模型目录 | [harness/model_catalog.py](harness/model_catalog.py)、[harness/webui/models_api.py](harness/webui/models_api.py) | 光看模型的名字，不知道它能做什么、多少钱。一份由程序算好的目录：每一家有没有密钥（只露最后 4 位）、能选哪些模型、每个模型能做什么、价格（来自 `pricing.py`）、换过去会怎样；网页上换模型的面板（`POST /api/model/catalog`）和终端的 `/model` 都只是照着它画 |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
+| 钩子 | [harness/hooks/](harness/hooks/)、[harness/webui/hooks_api.py](harness/webui/hooks_api.py) | 有些规矩想每次自动照办、不用每次点卡片：拦下某类命令、改完文件就格式化、每轮记日志。你的脚本在循环的几个记录点旁边的四个时刻运行，从标准输入收一份 JSON，用退出码回答（和 Claude Code 一样）；它只能让事情更严（见[你的钩子](#你的钩子在固定的时刻运行你自己的脚本)） |
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
@@ -824,7 +833,8 @@ harness 看到后去执行，再把结果作为一条新消息放回历史里：
 终端里输入 `/trace`，看最后一轮的同一份记录。刷新页面、重新打开旧会话以后它都还在；定时任务和聊天通道里跑的每一轮也有。
 
 **怎么读。** 窗口最上面是合计：一共多久、花了多少、输入里有多少命中了缓存、调用了几次模型和工具，
-还有一根分成四段的横条：模型在答、工具在执行、等你确认、别的零碎（存盘、组装请求）。下面是一张瀑布图，每一段一行：
+还有一根分成四段的横条：模型在答、工具在执行、等你确认、别的零碎（存盘、组装请求）；这一轮跑过你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)的话，
+多一段是钩子的时间，每跑一次钩子也是单独的一行（`PreToolUse`、`PostToolUse` 的挂在那次工具调用下面）。下面是一张瀑布图，每一段一行：
 
 ```
                        0          1 秒        2 秒
@@ -2178,6 +2188,82 @@ MCP 的调用也会停下来等你批准。
 要知道的局限：像密钥的名字是猜的，所以它只会让命令多问，从不放行；在智狐之外建的、指向 `data/` 里文件的硬链接认不出来
 （指向密钥文件的认得出）；这一档会让模型读到工作目录之外的文件，"每次确认"和"自动允许改文件"不会。
 
+### 你的钩子：在固定的时刻运行你自己的脚本
+
+确认卡片让你一步一步地决定做不做。有些规矩你想一次写好、每次自动照办："不许删 `~/Documents` 里的东西""改完 Python 文件就跑一遍格式化"
+"每轮答完往日志里记一笔""定时任务跑完发个通知"。**钩子**就是你写的一个小脚本：智狐到了某个固定的时刻运行它，听它怎么说。
+做法照着 [Claude Code 的 hooks](https://code.claude.com/docs/en/hooks)：同样的事件名、同样的 matcher 概念、同样从标准输入交一份 JSON、
+同样用退出码和标准输出里的 JSON 回答。Claude Code 的钩子一般只要改一下工具的名字（`run_command`、`str_replace_based_edit_tool`，
+而不是 `Bash`、`Edit`）就能用。
+
+| 事件 | 什么时候 | 钩子能做什么 |
+|---|---|---|
+| `PreToolUse` | 一个工具马上要执行，**已经过了确认这一关**（你点了允许，或者这一档本来不用问） | 拦下它：这次调用照样有结果，模型看到"这次调用被用户的钩子拦下了……"和你写的原因。或者要你再确认一次（哪一档都问）。不能改参数，也不能让一个本来要问的操作不问 |
+| `PostToolUse` | 工具做完了 | 在这一条工具结果后面接一小段话交给模型（最多 `HOOK_NOTE_CHARS`，2000 字）。它看到的结果和模型将看到的一模一样 |
+| `UserPromptSubmit` | 你发了一条消息、它进历史之前 | 拦下它（原因给你看，什么都不发、不花钱），或者给这条消息附一段说明交给模型 |
+| `Stop` | 一轮答完了（答完、被截断、被拒绝、步数用完） | 只是通知：跑格式化、记日志、发通知。你点了停止、出错了、消息被钩子拦下的那一轮不跑 |
+
+**约定。** 钩子从标准输入收到一个 JSON 对象：`hook_event_name`、`hook_name`、`session_id`、`cwd`、`permission_mode`（`ask` / `readonly` /
+`edits` / `all`）、`source`（`chat`、`task` 或 `channel`）、`provider`、`model`、`agent_type`（只有子 Agent 里才有）、`test`（只有试运行才有）；
+工具的两个事件多 `tool_name`、`tool_group`（属于哪种功能，和功能清单一样）、`tool_input`、`tool_use_id`、`mcp_server`；
+`PostToolUse` 再多 `tool_response`、`is_error`、`duration_ms`；`UserPromptSubmit` 多 `prompt`、`attachments`；`Stop` 多
+`last_assistant_message`、`ended`、`stop_hook_active`（永远是 false）。然后：
+
+- **退出码 0**：成功。标准输出可以是一个 JSON 对象，字段和 Claude Code 的一样：`{"decision": "block", "reason": "…"}`、
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny" | "ask", "permissionDecisionReason": "…"}}`、
+  `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "…"}}`（`UserPromptSubmit` 也一样），
+  以及给你看一句话的 `{"systemMessage": "…"}`。不是 JSON 的输出只有 `UserPromptSubmit` 当成附给模型的说明。
+  `"allow"` 不认：钩子只能让确认更严，不能放宽；`updatedInput`、`updatedToolOutput`、`continue: false` 也不认，试运行时会告诉你。
+- **退出码 2**：拦下，标准错误就是原因（`PostToolUse` 的接在结果后面，`Stop` 的给你看）。
+- **别的退出码**、超时（默认 `HOOK_TIMEOUT` 30 秒，最长 `HOOK_MAX_TIMEOUT`）、程序启动不了：钩子自己出错了。提醒你一句，照常继续；
+  除非这个钩子写了 `"onFailure": "block"`，那么 `PreToolUse` 和 `UserPromptSubmit` 上的出错当成拦下：管安全的钩子坏了的时候宁可不做。
+
+几个钩子对上同一个时刻时，按文件里的顺序一个接一个地跑（Claude Code 是同时跑），第一个拦下的说了算。
+每跑一次钩子，[运行记录](#看懂一轮对话运行记录)里就有一段。
+
+**在哪儿跑。** 你的对话、定时任务、聊天通道，默认三处都跑；`runsIn` 可以改小。为什么没人看着的运行里也默认跑：
+钩子只能让事情更严，多跑不会让哪里变得不安全；反过来，一个管安全的钩子要是在定时任务里悄悄不算数，正好是没人看着、最需要它的时候。
+子 Agent 的工具调用也跑工具前后的两个钩子（带着 `agent_type`）；它的"一轮"不是你发的消息，所以不跑 `UserPromptSubmit` 和 `Stop`。
+"重新生成"不再跑 `UserPromptSubmit`：那条消息原样留在历史里。
+
+**历史仍然只在末尾追加。** 钩子的话只放进此刻正在生成的那条工具结果、那条用户消息里，包成 `<hook_note name="…">` 或
+`<hook_context name="…">`；历史里已有的内容一个字都不改，系统提示词和工具清单也不变。
+
+**安全。** 保存一个钩子，就是让智狐在你的电脑上运行这个命令，所以它和本地的 MCP 服务器守同样的规矩：
+只有带着这次运行的口令的页面（**扩展 → 钩子**）或者命令行（`harness hooks …`）能保存；命令在工作目录里用参数列表启动，从不经过 shell
+（`command` 里有空格又没有 `args` 的会被退回，并说明要怎么写）；环境里去掉了各家模型的密钥和机器人的 token，引用它们的
+（`$ANTHROPIC_API_KEY`、`${…}`、`%…%`、`$env:…`）保存时退回、运行前再查一遍；模型没有任何能添加或修改钩子的工具，
+`data/hooks.json` 和 `.env`、`mcp.json` 一样在文件工具的 protected 名单里；文件权限 600、导出时遮住，页面上的参数里像令牌的部分也遮住。
+每次运行的钩子各是各的：对话里点"停止"只结束对话自己的钩子，停下一个任务只结束那个任务的。
+[命令的沙箱](#命令的沙箱命令只碰得到该碰的地方)开着的时候，钩子和这次运行的命令关在同一个沙箱里、同一档：脚本是你写的，可它读到的 JSON 里有模型给的参数、
+工具的输出，写得不小心的脚本（拿参数去拼一条命令）就会把手借给被网页带偏的模型。钩子自己的程序和脚本（写成绝对路径的）在里面可以读；
+工作目录之外的别的地方（写日志、联网发通知），要在沙箱的设置里加上路径，或者选"工作目录 + 联网"。沙箱开着、这台电脑上却用不了的话，
+钩子根本不运行（算出错，`onFailure` 照常起作用），绝不悄悄在沙箱之外运行。
+
+```json
+{
+  "hooks": {
+    "no-rm": {"event": "PreToolUse", "matcher": "shell", "command": "python3", "args": ["/Users/me/hooks/no_rm.py"],
+              "timeout": 10, "onFailure": "block"},
+    "fmt":   {"event": "PostToolUse", "matcher": "files", "command": "python3", "args": ["scripts/format.py"]},
+    "done":  {"event": "Stop", "command": "python3", "args": ["/Users/me/hooks/notify.py"], "runsIn": ["task"]}
+  }
+}
+```
+
+matcher 写功能的名字（`shell`、`files`、`browser`、`mcp`……，和功能清单一样）、工具的真名（`run_command`、`browser.left_click`、
+`mcp__github__create_issue`）或者带 `*` 的通配（`mcp__github__*`），用 `|` 隔开；空的或 `*` 是全部工具。不认正则表达式：够用，
+也写不出会卡死的正则。Claude Code 的设置按事件分组，这里摊平成"名字 → 一个钩子"，页面上才能一个个地开关、编辑、试运行。命令行里：
+
+```bash
+uv run harness hooks add no-rm --event PreToolUse --matcher shell --on-failure block -- python3 /Users/me/hooks/no_rm.py
+uv run harness hooks list            # 还有 enable / disable / remove / test 名字
+```
+
+```powershell
+uv run harness hooks add no-rm --event PreToolUse --matcher shell --on-failure block -- python C:\Users\me\hooks\no_rm.py
+```
+
 ## 在后台一直运行
 
 用 `uv run harness --web` 开起来的智狐，是那个终端的子进程：终端关了，或者开它的 Claude Code 会话结束了，它也跟着退出，
@@ -2443,6 +2529,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），以及命令的沙箱（`"sandbox": {"level", "paths"}`）。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
+| `data/hooks.json` | 你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)：名字 → 事件、matcher、程序和参数、时限、`onFailure`、`runsIn`、`enabled`。参数里可能有令牌，所以只有你的账号能读，助手的文件工具打不开它，导出时遮住 |
 | `data/endpoints.json` | 自定义模型接口：名字、地址、可选的密钥，以及每个模型能做什么、上下文上限和价格。只有你的账号能读；助手的文件工具打不开它；导出时密钥遮住，页面上只看得到最后 4 位 |
 | `data/channels.json` | 聊天通道，每个平台一份：凭据（机器人的 token，或者应用的 ID 和密钥；密钥就是钥匙）、机器人的名字、配对的主人的账号编号和名字、确认方式、沙箱的档位、正在用的配对码、每个聊天接着的是哪一段会话，以及 Telegram 的消息读到了哪里。只有你的账号能读；助手的文件工具打不开它；导出时遮住 |
 | `data/browser/profile/` | 智狐自己那个 Chrome 的配置文件夹：你在里面登录过的网站的 cookie 和登录状态、缓存、历史记录。只有你的账号能读。"设置 → 浏览器 → 清除"会删掉它 |
@@ -2471,7 +2558,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 （文件管理器）的按钮，所以服务器对它们格外小心：页面只能告诉服务器"哪一段会话""哪一条记忆"（列表里给它的名字，
 按下面说的办法检查）、"哪一个 Skill"（只能是一段名字，而且必须是 `data/skills/` 里真实存在的一个文件夹）、
 "哪一个附件"（"会话/第几条消息/第几个"这样的编号，在索引里查过；文件名由内容的 SHA-256 定）、
-助手自己的哪一个数据文件（`tasks`、`todos` 或 `prompt`），或者打开记忆、Skill 的文件夹、`data/mcp.json` 和浏览器的配置文件夹时什么都不用说；
+助手自己的哪一个数据文件（`tasks`、`todos` 或 `prompt`），或者打开记忆、Skill 的文件夹、`data/mcp.json`、`data/hooks.json` 和浏览器的配置文件夹时什么都不用说；
 路径由服务器自己算，页面没有办法让它打开别的路径。下载附件也是这样：页面只给编号，文件以下载的方式回来
 （`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`），写着 HTML 的文本文件也只当成文字。
 浏览器截图的大图也是这样取的：页面只给它的编号（64 个十六进制字符，拼不出任何路径），回答一律是 `image/jpeg`，
@@ -2503,7 +2590,8 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 `<removed-from-backup>`：环境变量、请求头、名字像 key、token、password 的字段、`--token` 这类开关后面的值、网址里的密码，
 以及长得像 API 密钥的字符串；名字都留着，恢复以后知道要填回哪几项。这个文件不是合法的 JSON 的话，整个不导出，
 宁可少导出一份也不冒险带出密钥。`data/channels.json` 里每个机器人的 token、应用的密钥和正在用的配对码，
-导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
+导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。`data/hooks.json` 也一样处理（钩子的参数里可能有令牌，比如 `--token xxx`）。
+符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
 `README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出。压缩包在数据文件夹以外的临时文件里生成，
 发给浏览器之后就删掉。
 
@@ -2637,7 +2725,13 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 它们在网页上的接口在 [tests/test_spending_web.py](tests/test_spending_web.py)。
 运行记录在 [tests/test_trace.py](tests/test_trace.py)（用一块假的表，每一段的开始、结束、首字时间、等你多久都按毫秒比对；钱和账本里的那一笔一样；
 允许、拒绝、没问就放行；子 Agent 挂在那一步下面；停下、出错时还开着的那一段怎么收尾；有没有运行记录，发出去的请求一个字节都不差；
-存进会话、重新打开、重新生成；定时任务和聊天通道；终端的 `/trace`），页面上的瀑布图在 [tests/ui/test_ui_trace.py](tests/ui/test_ui_trace.py)。
+存进会话、重新打开、重新生成；定时任务和聊天通道；终端的 `/trace`；钩子的那几段），页面上的瀑布图在 [tests/ui/test_ui_trace.py](tests/ui/test_ui_trace.py)。
+钩子的测试在 [tests/test_hooks.py](tests/test_hooks.py)：钩子都是临时目录里的一小段 Python 脚本，用 `sys.executable` 运行，
+所以同样的测试在 Windows 上也能跑。测的是 `data/hooks.json` 的检查（不经过 shell、不许引用模型的密钥、时限）、环境里没有密钥、
+在工作目录里跑、标准输入里的 JSON、每一种退出码和 JSON 回答、超时、输出很多也不卡住、"停止"只结束这次运行的钩子，
+以及每个事件在真实的循环里的样子（确认之后才拦、再问你一次、`allow` 从不省掉一次确认、补的话只接在新的那条工具结果后面、
+被拦下的消息一个请求都不发）、定时任务、聊天通道和子 Agent、运行记录里的那几段、文件工具碰不了它、导出时遮住；
+页面和命令行在 [tests/test_hooks_web.py](tests/test_hooks_web.py) 和 [tests/ui/test_ui_hooks.py](tests/ui/test_ui_hooks.py)。
 模型目录在 [tests/test_model_catalog.py](tests/test_model_catalog.py)（页面拿到的 JSON：密钥只有最后 4 位、标签、自己填的和内置的价格、闲时价；
 换模型的接口和目录对得上：同一家接着聊、换一家开始新的一段而旧的那段还在、聊天通道占着这段会话时不许换、对话进行中目录照样能看但不能换、
 角色不变；还有终端的 `/model`）。

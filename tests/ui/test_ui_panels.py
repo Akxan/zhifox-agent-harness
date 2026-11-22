@@ -1,4 +1,4 @@
-"""几个面板和窗口：扩展的四页、空的样子、多媒体库和查看器、设置里换模型。"""
+"""几个面板和窗口：扩展的五页、空的样子、多媒体库和查看器、设置里换模型。"""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ from . import steps
 
 def test_extension_tabs_open_with_keyboard_and_mouse(page):
     steps.open_dialog(page, "#extensions-open", "extensions")
-    # 演示里每一页都有东西：4 个 Skill、5 个 MCP 服务器、3 个 Agent；通道还没接上，是介绍的样子（空状态）
+    # 演示里每一页都有东西：4 个 Skill、5 个 MCP 服务器、3 个 Agent；通道还没接上、钩子一个都没有，是介绍的样子（空状态）
     expected = {
         "skills": "#panel-skills li.skill-row",
         "mcp": "#panel-mcp li.mcp-server",
         "channels": "#panel-channels .chan-hero",
         "agents": "#panel-agents li.agents-row",
+        "hooks": "#panel-hooks .hooks-empty",
     }
     for tab, selector in expected.items():
         steps.extensions_tab(page, tab)
@@ -22,13 +23,13 @@ def test_extension_tabs_open_with_keyboard_and_mouse(page):
     assert page.js("document.querySelectorAll('#panel-skills li.skill-row').length") == 4
     assert page.js("document.querySelector('#panel-channels .chan-picks button')") is not None  # 空状态里能直接选一个平台连接
     # 方向键在标签之间走（WAI-ARIA 的标签页），Home / End 到头尾
-    page.focus("#tab-agents")
+    page.focus("#tab-hooks")
     page.key("Home")
     page.wait("document.activeElement.id === 'tab-skills' && !document.getElementById('panel-skills').hidden")
     page.key("ArrowRight")
     page.wait("document.activeElement.id === 'tab-mcp' && !document.getElementById('panel-mcp').hidden")
     page.key("End")
-    page.wait("document.activeElement.id === 'tab-agents' && !document.getElementById('panel-agents').hidden")
+    page.wait("document.activeElement.id === 'tab-hooks' && !document.getElementById('panel-hooks').hidden")
     steps.escape_closes(page, "extensions")
 
 

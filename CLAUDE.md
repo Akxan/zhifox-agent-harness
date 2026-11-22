@@ -165,6 +165,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
 | `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
 | `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
+| `harness/hooks/`、`harness/webui/hooks_api.py` | 你的钩子：config（`data/hooks.json`）、runner（启动、沙箱、超时）、protocol（退出码和 JSON）、engine（每次运行的 HookRun）、cli（`harness hooks`） |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -368,6 +369,14 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `/api/sandbox/reveal` 只认设置里"额外允许的路径"列表里已有的一条。
 - **写测试别赌时机**：GitHub 的 macOS、Windows 机器比本机慢得多。等条件成立（`until`、`page.wait`）不写固定的 sleep；不要"赶在 0.3 秒的动画里
   去看它在不在播"，而是记下调用过没有；换外观以后等过渡播完再量颜色；量耗时的测试连着几次超了才算。推送以后一定看 CI 的结果，红了马上修。
+- **你的钩子只能更严，不能放宽。** agent.py 在记录点旁边各一行（UserPromptSubmit 在 `_submit`、PreToolUse 在确认之后、PostToolUse 在
+  `results.append` 之后、Stop 在 `turn_ended` 之前），逻辑都在 `hooks/engine.py`，不进记录器。PreToolUse 只能拦下或者 ask，`allow`、改参数都不认；
+  补的话只接在正在生成的那条结果、那条消息里。命令用参数列表在工作目录里启动、不经过 shell，环境里去掉 `SECRET_ENV_VARS`，引用它们的保存和运行前都拒绝；
+  这次运行的沙箱开着就进同一个沙箱，开着却用不了就不运行。`data/hooks.json` 在 protected 名单和 `export.MASKED_FILES` 里，模型没有能改它的工具；
+  只有带口令的页面和 `harness hooks` 能改。定时任务、聊天通道默认也跑，子 Agent 只跑工具前后的两个。测试里的钩子一律用 `sys.executable` 跑 Python 脚本。
+  命令行里 `--` 后面的内容由 `cli.main` 先切出来再交给 argparse（Python 3.11 的 argparse 不认子命令里的 `--`）。
+- **本机的 Python 是 3.11，CI 跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
+  拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。

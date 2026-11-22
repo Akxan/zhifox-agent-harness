@@ -138,6 +138,8 @@ class Demo:
         # 待办也一样：让模型记过待办的测试没删干净，排在它后面的测试就看到一条多出来的（真出过：test_ui_capabilities 记的那一条
         # 留下来，同一个进程里后跑的 test_empty_states 找不到"没有未完成的待办"）。待办每次都从文件读（tools/todo.py），删掉就一条都没有
         (self.root / "data" / "todos.json").unlink(missing_ok=True)
+        # 你的钩子也一样：测试存过的钩子会在后面的测试里跑起来（比如把 [ui:approve] 的命令拦下）。程序每次要跑之前看一眼文件，删掉就一个都没有
+        (self.root / "data" / "hooks.json").unlink(missing_ok=True)
         # 命令的沙箱：测试改了档位、加了路径忘了收（或者失败在半路），后面的测试里命令就会被关进沙箱、卡片上多一行。
         # 档位改回"关"，加过的路径一条条删掉（路径记在设置文件里，见 harness/settings.py）
         status, reply = self.api("/api/sandbox/level", {"level": "off"})

@@ -61,6 +61,7 @@ const handlers = {
     renderSpend(event.spend);
     renderCapabilities(event.capabilities);
     renderMcpState(event.mcp);
+    renderHooksState(event.hooks);  // 你的钩子：扩展标签上的个数；那一页开着的话，钩子变了就重新取一次列表
     renderBrowser(event.browser);
     renderComputer(event.computer);
     if (settings.open) renderSettings();

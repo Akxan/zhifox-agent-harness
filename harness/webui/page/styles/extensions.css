@@ -1,5 +1,5 @@
 /* ---- 扩展 ------------------------------------------------------------------
-   "扩展"对话框的壳：大小、四个标签。每一页里面的样子在 skills.css、mcp.css、channels.css、agents.css。 */
+   "扩展"对话框的壳：大小、五个标签。每一页里面的样子在 skills.css、mcp.css、channels.css、agents.css、hooks.css。 */
 /* 扩展：比设置面板宽一些、高度固定（切换标签页时对话框不跟着内容忽大忽小） */
 .settings.extensions { width: min(860px, calc(100vw - 32px)); height: min(720px, calc(100vh - 48px)); }
 .extensions-head { min-width: 0; }
@@ -11,7 +11,7 @@
 .tab[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .06); }
 .tab-count { font-size: 11.5px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .tab-count:empty { display: none; }
-/* 四个标签在窄窗口里放不下：不许把字挤成两行，放不下就横着滑（滚动条藏起来，方向键切换时会自己滚到那一个）；
+/* 五个标签在窄窗口里放不下：不许把字挤成两行，放不下就横着滑（滚动条藏起来，方向键切换时会自己滚到那一个）；
    再窄一点，图标先收起来 */
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
