@@ -139,7 +139,31 @@ uvx ruff check harness tests     # 代码检查（可以加 --fix，不要加 --
 uv run --with mypy==1.19.0 mypy  # 类型检查（配置在 pyproject.toml）；加 --platform win32 / linux 换成那个系统的眼光查，CI 三个都查
 uv run harness                   # 终端界面
 uv run harness --web             # 网页界面
+uv run harness --version         # 智狐的版本（从仓库里运行时带着提交）
 ```
+
+## 发布新版本
+
+发布是公开的，推出去的 tag、GitHub Release（以后还有 PyPI）别人马上就能装，**用户说了"发"才发**，上一次的同意不能沿用到下一次
+（2026-11-22 用户让发了第一个版本 0.2.0）。做法（两份 README 的"Releases / 发布"一节写给别人看的是同一套）：
+
+1. 版本号只写在 `pyproject.toml`，只在发布时改：`uv version 0.3.0`（顺手改 `uv.lock`），程序里读它的只有 `harness/version.py`。
+   `CHANGELOG.md` 的 `[Unreleased]` 改成 `## [0.3.0] - 日期`，上面另留一个空的 `## [Unreleased]`；文件末尾加
+   `[0.3.0]: https://github.com/Akxan/zhifox-agent-harness/releases/tag/v0.3.0`，`[Unreleased]` 的对比链接改成从 v0.3.0 起。
+   两份 README 里写着版本号的安装地址（"装某一个发布版 / Installing a released version"那一段）一起改。
+   `tests/test_release.py` 会查 pyproject 的版本号在 CHANGELOG 里有没有写着日期的一节和链接。
+2. 提交、推送，等这个提交在 main 上的 CI 全绿。
+3. `git tag -a v0.3.0 -m "v0.3.0"`，`git push origin v0.3.0`。`.github/workflows/release.yml` 接着做：对一遍 tag、版本号和 CHANGELOG
+   （`tests/release_notes.py`，同时写出发布说明：英文为主，附一句中文），在干净的检出里打包，三个系统上各试装一次
+   （`tests/smoke_release.py`：harness/ 下 git 记着的文件一个不少、命令能启动），再建 GitHub Release、挂上 wheel 和源码包。
+   推完照样稀疏地看结果。哪一步红了：修好、合进 main 以后删掉 tag（`git push origin :refs/tags/v0.3.0`、`git tag -d v0.3.0`）
+   重新打；Release 已经建好的，工作流再跑只换安装包。
+4. PyPI 那一项要用户自己设置，之前一直显示为跳过：在 pypi.org 加一个"待定的受信任的发布者"（项目名 harness-assistant、
+   Owner Akxan、仓库 zhifox-agent-harness、工作流 release.yml、环境 pypi），在仓库的 Settings → Environments 建 `pypi`，
+   Settings → Variables 加 `PYPI_PUBLISH=true`。设好以后在 Actions 里把这一版那次运行 "Re-run all jobs"（30 天以内）就能补发。
+   我们不碰 PyPI 的账号和令牌。
+5. release.yml 里的 action 都钉在 40 位的提交编号上，后面注释写版本（`tests/test_release.py` 会查）：这个工作流能改 Release、
+   能拿发布凭据，tag 是可以被挪走的。能拿到 `id-token: write` 的只有 pypi 那一项，它不签出代码、不运行仓库里的任何东西。
 
 ## 这个项目是什么
 
@@ -202,6 +226,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
+| `harness/version.py`、`.github/workflows/release.yml`、`tests/release_notes.py`、`tests/smoke_release.py` | 版本号（只写在 pyproject.toml，`harness --version` 和 doctor 都从 `version.py` 拿）和发布（见上面的"发布新版本"） |
 | `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
 
 ## 改代码时必须守住的几条

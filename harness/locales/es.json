@@ -3647,5 +3647,6 @@
  "「{title}」出错了": "«{title}» ha dado un error",
  "「{title}」回复完了": "«{title}» ha terminado de responder",
  "点这里打开这段对话。": "Haz clic aquí para abrir esta conversación.",
- "{n} 段对话在等你确认": "{n} conversaciones esperan tu aprobación"
+ "{n} 段对话在等你确认": "{n} conversaciones esperan tu aprobación",
+ "显示智狐的版本，然后退出": "muestra la versión de 智狐 y sale"
 }

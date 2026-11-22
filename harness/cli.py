@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import capabilities, console, i18n, model_catalog, restore_cli, rewind
+from . import capabilities, console, i18n, model_catalog, restore_cli, rewind, version
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -330,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
     parser.add_argument("--no-browser", action="store_true", help=t("启动网页界面时不自动打开浏览器"))
     parser.add_argument("--workspace", type=Path, default=None, help=t("工作目录：助手读写文件、执行命令的地方（默认是现在所在的目录）"))
+    # 版本号只在 harness/version.py 里算：装成工具时是 0.2.0，从仓库里运行时还带着提交（那时几十个提交都叫 0.2.0）
+    parser.add_argument("--version", action="version", version=version.shown(), help=t("显示智狐的版本，然后退出"))
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     serve = commands.add_parser("serve", help=t("在服务器上一直运行：定时任务和聊天通道，不开浏览器"))
     serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))

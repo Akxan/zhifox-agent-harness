@@ -1,0 +1,135 @@
+# 发布一个版本：推一个 v0.2.0 这样的 tag，这里就在干净的环境里打包、在三个系统上试装、建 GitHub Release、把安装包挂上去。
+# 怎么发、发之前要做什么，见 CLAUDE.md 的"发布新版本"。打 tag 之前，那个提交在 main 上的测试（tests.yml）要先全绿。
+#
+#   build   取发布说明（tests/release_notes.py：tag、pyproject.toml 的版本号、CHANGELOG.md 那一节有一样对不上就停下），
+#           再打包：wheel 和源码包（uv build）
+#   smoke   Ubuntu、macOS、Windows 上各装一次、试一次（tests/smoke_release.py：harness/ 下的文件一个不少、命令能启动）
+#   github  建 GitHub Release，挂上两个安装包（已经有这个 Release 时只换安装包，这样可以重跑）
+#   pypi    发到 PyPI。要仓库主人先设置好（PyPI 的"受信任的发布者"、仓库的 pypi 环境和变量 PYPI_PUBLISH），
+#           没设之前这一项显示为跳过（skipped），不算失败
+#
+# 写法照 uv 的文档（https://docs.astral.sh/uv/guides/integration/github/#publishing-to-pypi）：
+#   - 打包和发布分成两项，能拿到发布凭据（id-token: write）的那一项里不运行仓库里的任何代码，只上传打好的包；
+#   - 发布用 PyPI 的"受信任的发布者"（Trusted Publishing）：仓库里不存任何密钥，每次运行凭 GitHub 签发的身份换一个几分钟就过期的令牌；
+#   - 发布用的 uv 不开缓存。
+# 这里的 action 钉在提交编号上，不用 v4 这样会移动的 tag：这个工作流能改 Release、能发 PyPI，tag 被人挪到别的代码上就危险了。
+# 后面的注释写着是哪一版，Dependabot 每周照样会来更新（它认这种写法）。
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"  # 只认 v0.2.0 这样的正式版本号
+
+permissions: {}  # 默认什么权限都不给，每一项自己写要什么
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false  # 同一个 tag 不会同时发两次；已经在发的那一次不打断
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false  # 后面用不着推送，不把令牌留在 .git 里
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          enable-cache: false
+      - name: release notes (checks the tag, pyproject.toml and CHANGELOG.md)
+        run: uv run --frozen python tests/release_notes.py "$GITHUB_REF_NAME" > notes.md
+      - name: build the wheel and the source archive
+        run: uv build --no-sources  # --no-sources：照 uv 文档，确认不靠 tool.uv.sources 也打得出来
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: release
+          path: |
+            dist/
+            notes.md
+          if-no-files-found: error
+
+  smoke:
+    name: smoke · ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash  # Windows 上是 Git 带的 bash，下面的写法三个系统一样
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false  # 试装脚本要对照 git 里 harness/ 下的文件清单；代码本身不用（用的是装好的包）
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          enable-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release
+          path: release-files
+      - name: install and try the wheel (Python 3.11 and 3.13) and the source archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          wheel=$(ls release-files/dist/*.whl)
+          sdist=$(ls release-files/dist/*.tar.gz)
+          uv run --isolated --no-project --python 3.11 --with "$wheel" tests/smoke_release.py "$version"
+          uv run --isolated --no-project --python 3.13 --with "$wheel" tests/smoke_release.py "$version"
+          uv run --isolated --no-project --python 3.13 --with "$sdist" tests/smoke_release.py "$version"
+
+  github:
+    name: GitHub Release
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # 建 Release、上传安装包
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release
+          path: release-files
+      - name: create the release, or replace its files when it exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd release-files
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+              --title "ZhiFox (智狐) ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          fi
+
+  pypi:
+    name: PyPI
+    if: vars.PYPI_PUBLISH == 'true'
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/harness-assistant/
+    permissions:
+      id-token: write  # 只给这一项：凭它向 PyPI 换上传令牌（受信任的发布者）
+    steps:
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          enable-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release
+          path: release-files
+      - name: publish
+        run: uv publish release-files/dist/*

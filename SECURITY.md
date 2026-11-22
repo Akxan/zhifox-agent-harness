@@ -9,8 +9,11 @@ welcome.
 
 ## Supported versions
 
-ZhiFox has no numbered releases yet. Fixes land on the `main` branch, and only the latest `main` is supported: update
-with `git pull` and `uv sync` before reporting, and say which commit you tested.
+Fixes land on the `main` branch first and go out in the next [release](https://github.com/Akxan/zhifox-agent-harness/releases).
+Only the latest release and the latest `main` are supported; ZhiFox is before 1.0, so older releases don't get fixes.
+Before reporting, update (`uv tool upgrade harness-assistant`, the latest release's install line with `--force`, or
+`git pull` and `uv sync` in a clone) and say which version you tested: `harness --version` prints it, with the commit
+when you run from a clone.
 
 ## Reporting a vulnerability
 
@@ -87,7 +90,9 @@ These are the safeguards ZhiFox promises. A way around any of them is a vulnerab
 智狐是运行在你自己电脑上、用你自己的账户运行的个人助手。经你同意，它会执行命令、改文件、打开网页，打开相应的选项后还会操作整台电脑。
 所以"模型问了、你同意了"和"没问就做了"之间的那条线很要紧，能让这条线挪动的问题非常欢迎报告。
 
-**支持的版本：** 还没有带编号的发布版。修复都在 `main` 分支上，只支持最新的 `main`。报告之前请先 `git pull`、`uv sync`，并写明你测的是哪个提交。
+**支持的版本：** 修复先进 `main` 分支，随下一个[发布版](https://github.com/Akxan/zhifox-agent-harness/releases)发出去。只支持最新的发布版和最新的 `main`；
+智狐还没到 1.0，旧的发布版不再单独修。报告之前请先更新（`uv tool upgrade harness-assistant`、加上 `--force` 运行最新发布版的那一行，
+或者在 clone 里 `git pull`、`uv sync`），并写明你测的是哪一版：`harness --version` 会显示，从仓库里运行时还带着提交。
 
 **怎么私下报告：** 安全问题请**不要开公开的 issue**，用 GitHub 的
 [私下报告漏洞](https://docs.github.com/zh/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)：

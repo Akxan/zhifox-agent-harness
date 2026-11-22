@@ -7,6 +7,7 @@
 **一个手写的 AI agent harness：运行在你自己电脑上的个人助手。**
 
 [![Tests](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml/badge.svg)](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/Akxan/zhifox-agent-harness?sort=semver)](https://github.com/Akxan/zhifox-agent-harness/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![No agent framework](https://img.shields.io/badge/agent%20framework-none-f0532e.svg)](#harness-是什么)
@@ -129,6 +130,17 @@ uv tool uninstall harness-assistant    # 卸掉程序；你的数据文件夹原
 
 装成了[后台服务](#在后台一直运行)的话，更新以后运行一次 `harness service restart`。
 
+**装某一个发布版。** 上面几行装的是 `main` 上最新的代码。每一个[发布版](https://github.com/Akxan/zhifox-agent-harness/releases)还附着打好的安装包，
+装的就是那一版，不需要 Git，macOS、Linux、Windows 都一样：
+
+```bash
+uv tool install https://github.com/Akxan/zhifox-agent-harness/releases/download/v0.2.0/harness_assistant-0.2.0-py3-none-any.whl
+```
+
+有 Git 的话，`uv tool install git+https://github.com/Akxan/zhifox-agent-harness@v0.2.0` 从那一版的 tag 装，结果一样。
+这两种装法都会停在那一版（`uv tool upgrade` 会说没有可更新的）：要换到别的发布版，运行那一版的这一行并加上 `--force`。
+`harness --version` 显示你装的是哪一版（从仓库里运行时还显示是哪个提交）。
+
 **数据和密钥在哪儿。** 这样装的时候，程序在 uv 自己的文件夹里，`uv tool upgrade` 和 `uv tool uninstall` 会替换、删掉它。
 所以会话、记忆、设置放在它外面、你这个账号自己的一个文件夹里，API 密钥（`.env`）也在这个文件夹里：
 
@@ -239,7 +251,8 @@ uv tool install git+https://github.com/Akxan/zhifox-agent-harness
 harness --web
 ```
 
-（不想装 Git 的话，`uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` 也行。）
+（不想装 Git 的话，装[发布版](https://github.com/Akxan/zhifox-agent-harness/releases)附着的安装包（见[一行命令装上](#一行命令装上)里的"装某一个发布版"），
+或者用 `uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` 装最新的代码。）
 想改代码的话，改成 clone 下来：
 
 ```powershell
@@ -876,6 +889,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
+| 版本和发布 | [harness/version.py](harness/version.py)、[release.yml](.github/workflows/release.yml) | 这是哪一版（`harness --version`、`harness doctor`）：装好的包里读，从仓库里运行时读 `pyproject.toml` 再加上 git 提交。推一个版本的 tag 就发布：先对一遍 `CHANGELOG.md`，在三个系统上试装，再挂到 GitHub Release 上（见[发布](#发布)） |
 | 装在哪儿 | [harness/install.py](harness/install.py) | 从仓库里运行，还是用 `uv tool install` 装上的：只在这一处判断，数据文件夹和 `.env` 的默认位置、智狐让你运行的命令（`uv run harness` 还是 `harness`）都跟着它 |
 | 系统之间的差别 | [filelock.py](harness/filelock.py)、[pathnames.py](harness/pathnames.py)、[winacl.py](harness/winacl.py)、[winjob.py](harness/winjob.py)、[console.py](harness/console.py)、[exits.py](harness/exits.py)、[machine.py](harness/machine.py)、[tools/shell.py](harness/tools/shell.py)、[browser/chrome.py](harness/browser/chrome.py)、[service/windows.py](harness/service/windows.py) | macOS、Linux、Windows 锁文件、写路径、保护文件、结束进程树、给输出编码、执行命令的办法都不一样。每一处差别只放在一个小模块里（或者用到它的那个模块的一个函数里），别处只调用它 |
 
@@ -3290,6 +3304,27 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 只在某一个系统上才说得通的测试，跳过时会写明原因：Windows 的路径装不进 launchd 的 plist 和 systemd 的 unit；Windows 上没有
 3、4 号文件描述符和进程组；`icacls`、作业对象和真的 PowerShell 只在 Windows 上测；Windows 上建符号链接要管理员权限或者开发者模式，
 做不到时那几个测试照这个原因跳过。别的在三个系统上都跑。
+
+### 发布
+
+版本号只写在 `pyproject.toml` 里，而且只在发布的时候才改，和 `CHANGELOG.md` 一起改：`uv version 0.3.0`（会顺手更新
+`uv.lock`），再把 `[Unreleased]` 那一节改成 `## [0.3.0] - 日期`，文件末尾加上这一版的链接。`pyproject.toml` 里的版本号
+在 CHANGELOG 里没有写着日期的一节和链接时，[tests/test_release.py](tests/test_release.py) 会失败，所以忘了写 CHANGELOG
+在平常跑测试时就能发现，不用等到发布那一刻。
+
+这个提交到了 `main`、测试全绿以后，推一个 `v0.3.0` 的 tag，就会运行
+[.github/workflows/release.yml](.github/workflows/release.yml)：
+
+1. **build**：用 [tests/release_notes.py](tests/release_notes.py) 把 tag 和 `pyproject.toml`、`CHANGELOG.md` 对一遍（同时写出
+   发布说明），然后在干净的检出里打出 wheel 和源码包。
+2. **smoke**：在 Ubuntu、macOS、Windows 上，各在一个什么别的都没装的环境里装上这两个包，运行
+   [tests/smoke_release.py](tests/smoke_release.py)：`harness/` 下的文件一个不少、网页拼得出来、`harness --version`、
+   `--help` 和 `harness doctor --json` 都能用。
+3. **GitHub Release**：用那份说明建好发布版，挂上两个安装包。
+4. **PyPI**：用 PyPI 的"受信任的发布者"（Trusted Publishing）发上去，哪里都不存令牌。仓库设置好之前（pypi.org 上的受信任的发布者、
+   仓库里叫 `pypi` 的环境、仓库变量 `PYPI_PUBLISH` 设成 `true`）这一项跳过；智狐现在还没有上 PyPI。
+
+这个工作流里的 action 钉在提交编号上，不用 `v4` 这样的 tag：它能改发布版、能发包，能拿到发布凭据的那一项不运行仓库里的任何代码。
 
 ## 评测：助手到底好不好用
 

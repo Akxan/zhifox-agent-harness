@@ -1,6 +1,6 @@
 [project]
 name = "harness-assistant"
-version = "0.1.0"
+version = "0.2.0"
 description = "ZhiFox (智狐): a hand-written AI agent harness in Python, no frameworks. A local-first personal assistant with a terminal and web UI for Claude, GPT, Gemini and DeepSeek."
 readme = "README.md"
 license = "MIT"

@@ -9,6 +9,8 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+# uv build 打出来的安装包（发布用的由 .github/workflows/release.yml 在干净的检出里另打）
+dist/
 
 # Claude Code：子代理的临时工作副本、本机的设置
 .claude/worktrees/

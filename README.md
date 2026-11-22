@@ -7,6 +7,7 @@
 **A hand-written AI agent harness: your own personal assistant, running on your computer.**
 
 [![Tests](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml/badge.svg)](https://github.com/Akxan/zhifox-agent-harness/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/Akxan/zhifox-agent-harness?sort=semver)](https://github.com/Akxan/zhifox-agent-harness/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![No agent framework](https://img.shields.io/badge/agent%20framework-none-f0532e.svg)](#how-it-works)
@@ -191,6 +192,19 @@ uv tool uninstall harness-assistant    # remove the program; your data folder st
 
 If ZhiFox runs as a [background service](#run-it-in-the-background), run `harness service restart` after updating.
 
+**Installing a released version.** The lines above install the latest code on `main`. Each
+[release](https://github.com/Akxan/zhifox-agent-harness/releases) also has a ready-built package attached, which
+installs exactly that version and needs no Git, on macOS, Linux and Windows alike:
+
+```bash
+uv tool install https://github.com/Akxan/zhifox-agent-harness/releases/download/v0.2.0/harness_assistant-0.2.0-py3-none-any.whl
+```
+
+With Git, `uv tool install git+https://github.com/Akxan/zhifox-agent-harness@v0.2.0` does the same from the release's
+tag. An install made either way stays at its version (`uv tool upgrade` says there is nothing to upgrade): to move to
+another release, run its line with `--force` added. `harness --version` shows which version you have (and, in a clone,
+which commit).
+
 **Where your data and keys are.** Installed this way, the program lives in uv's own folder, which `uv tool upgrade` and
 `uv tool uninstall` replace and delete. So your conversations, memory and settings are kept outside it, in a folder of
 your own account, and the API keys (`.env`) are in that same folder:
@@ -317,7 +331,9 @@ uv tool install git+https://github.com/Akxan/zhifox-agent-harness
 harness --web
 ```
 
-(Without Git, `uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` works too.)
+(Without Git, install the package attached to a [release](https://github.com/Akxan/zhifox-agent-harness/releases) (see
+[Installing a released version](#install-with-one-command)), or
+`uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` for the latest code.)
 To work on the code, clone it instead:
 
 ```powershell
@@ -545,6 +561,7 @@ Each part of the harness has its own file or directory:
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
+| Version and releases | [harness/version.py](harness/version.py), [release.yml](.github/workflows/release.yml) | Which version this is (`harness --version`, `harness doctor`): read from the installed package, or from `pyproject.toml` plus the git commit in a clone. Pushing a version tag builds the release: checked against `CHANGELOG.md`, smoke-tested on three systems, attached to the GitHub Release (see [Releases](#releases)) |
 | Where it's installed | [harness/install.py](harness/install.py) | Running from a clone or installed with `uv tool install`: decided in one place, and with it the default data folder, `.env` and the command ZhiFox tells you to run (`uv run harness` or `harness`) |
 | Platform differences | [filelock.py](harness/filelock.py), [pathnames.py](harness/pathnames.py), [winacl.py](harness/winacl.py), [winjob.py](harness/winjob.py), [console.py](harness/console.py), [exits.py](harness/exits.py), [machine.py](harness/machine.py), [tools/shell.py](harness/tools/shell.py), [browser/chrome.py](harness/browser/chrome.py), [service/windows.py](harness/service/windows.py) | macOS, Linux and Windows lock files, name paths, protect files, end process trees, encode output and run shells differently. Each difference lives in one small module (or one function of the module that uses it), and the rest of the code just calls it |
 
@@ -4102,6 +4119,31 @@ Tests that only make sense on one system say so when they're skipped: a launchd 
 installed from a Windows path, there are no file descriptors 3 and 4 or process groups on Windows, `icacls`, job objects
 and the real PowerShell run only on Windows, and creating symbolic links on Windows needs administrator rights or
 Developer Mode (those tests skip there with that reason). Everything else runs on all three.
+
+### Releases
+
+The version number lives only in `pyproject.toml`, and it changes only when a version is released, together with
+`CHANGELOG.md`: `uv version 0.3.0` (which updates `uv.lock` too), and the `[Unreleased]` section renamed to
+`## [0.3.0] - date`, with its link at the bottom of the file. [tests/test_release.py](tests/test_release.py) fails when
+the version in `pyproject.toml` has no dated section and link, so a forgotten changelog shows up in the ordinary test run
+rather than at release time.
+
+Once that commit is on `main` and its tests are green, pushing the tag `v0.3.0` runs
+[.github/workflows/release.yml](.github/workflows/release.yml):
+
+1. **build** checks the tag against `pyproject.toml` and `CHANGELOG.md` with
+   [tests/release_notes.py](tests/release_notes.py), which also writes the release notes, then builds the wheel and the
+   source archive in a clean checkout.
+2. **smoke** installs each of them on Ubuntu, macOS and Windows, in an environment with nothing else in it, and runs
+   [tests/smoke_release.py](tests/smoke_release.py): every file under `harness/` made it into the package, the web page
+   assembles, and `harness --version`, `--help` and `harness doctor --json` work.
+3. **GitHub Release** creates the release with those notes and attaches both files.
+4. **PyPI** publishes them with PyPI's Trusted Publishing, so no token is stored anywhere. It is skipped until the
+   repository is set up for it (a trusted publisher on pypi.org, a `pypi` environment and the repository variable
+   `PYPI_PUBLISH` set to `true`); ZhiFox isn't on PyPI yet.
+
+The actions in this workflow are pinned to commit hashes rather than to tags such as `v4`, because the workflow can
+write releases and publish packages; the job that can publish runs none of the repository's code.
 
 ## Evals: is the assistant actually any good?
 

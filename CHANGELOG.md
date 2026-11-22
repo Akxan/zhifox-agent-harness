@@ -8,16 +8,7 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ## [Unreleased]
 
-### Added
-
-- Several conversations at once in the web UI: while one is working or waiting for your approval, open another or
-  start a new one and the first keeps running in the background. The sidebar marks each one (running, needs your
-  approval, failed, new reply) and can stop it; an approval waiting in the background shows at the top of the page and
-  as a system notification. At most `MAX_PARALLEL_CHATS` (3) run at the same time.
-
-## [0.2.0]
-
-_Not released yet; the date is set when it is._
+## [0.2.0] - 2026-11-22
 
 ### Added
 
@@ -30,6 +21,10 @@ _Not released yet; the date is set when it is._
   `.env` in the project.
 - From a clone: `uv sync`, then `uv run harness` (terminal UI) or `uv run harness --web` (web UI). Needs Python 3.11+
   and uv, on macOS, Linux or Windows.
+- Each release's wheel and source archive are attached to its GitHub Release, so a released version installs without
+  Git: `uv tool install https://github.com/Akxan/zhifox-agent-harness/releases/download/v0.2.0/harness_assistant-0.2.0-py3-none-any.whl`
+  (or `uv tool install git+https://github.com/Akxan/zhifox-agent-harness@v0.2.0`).
+- `harness --version` prints the version, and the git commit when running from a clone.
 
 #### Agent loop and models
 
@@ -80,9 +75,15 @@ _Not released yet; the date is set when it is._
 #### Web UI
 
 - `uv run harness --web` serves a local page over SSE, on 127.0.0.1 only, behind a per-run token (`--port`,
-  `--no-browser`).
+  `--no-browser`). When the browser accepts gzip, the page (a little over 1 MB) is sent compressed to about a third of
+  that, which helps from a phone or through a tunnel; it reflects nothing from the request, so compression attacks
+  such as BREACH don't apply.
 - Conversations are saved automatically to `data/conversations/` and can be opened, renamed, deleted or shown in the
   file manager from the sidebar.
+- Several conversations at once: while one is working or waiting for your approval, open another or start a new one
+  and the first keeps running in the background. The sidebar marks each one (running, needs your approval, failed, new
+  reply) and can stop it; an approval waiting in the background shows at the top of the page and as a system
+  notification. At most `MAX_PARALLEL_CHATS` (3) run at the same time.
 - Full-text search across saved conversations (⌘F or ⌘K, Ctrl+F or Ctrl+K), by title and content, tolerant of typos and
   skipped characters, with no search library; a result opens at the matching passage.
 - Replies rendered as Markdown (headings, lists, task lists, tables, code blocks with a copy button) by a small
@@ -102,8 +103,17 @@ _Not released yet; the date is set when it is._
   **Show in Finder** / **Edit** / **Delete** buttons, with deletes confirmed in place; editors ask before discarding
   unsaved changes.
 - Approval cards with **Allow** and **Deny**; a denial can carry a reason, which is passed to the model.
+- System notifications while the page is in the background: an approval waiting for you, a finished reply, an error.
+  Clicking one brings the page back to that card or reply; nothing pops up while you're looking at the page or for
+  what's replayed on reload. The tab title and icon get a mark too. On by default once the browser allows it
+  (**Settings → System notifications**, with **Send a test** and how to allow it in each browser).
 - **Edit** the last message and **Regenerate** the last answer. Only the last turn can be rewound, and if it ran
   commands or changed files, ZhiFox lists those steps and asks once first.
+- Fork a conversation from any finished turn: **Fork from here** under a reply keeps that turn, **Fork from this
+  message** puts your message (text and attachments) back in the input box to change and resend. The original stays
+  byte for byte as it was; the new one opens at once, its title ending in "(fork)" and a line at the top linking back.
+  Undoing file changes stays with the original, and turns already folded into a GPT, Gemini or DeepSeek summary can't
+  be forked.
 - Undo a turn's file changes: a **Changed N files** line with a line-by-line preview, undo and redo per file or per
   turn, and a check for files that changed since. Files changed by shell commands are named as not undoable.
 - A run trace for every turn: a waterfall of model calls, tool calls and time spent waiting for approval, with tokens
@@ -113,7 +123,21 @@ _Not released yet; the date is set when it is._
 #### Terminal UI
 
 - `uv run harness` with `/help`, `/new`, `/todos`, `/tools`, `/trace`, `/usage`, `/model`, `/mcp`, `/auto`, `/retry`,
-  `/edit`, `/undo` and `/exit`. Conversations in the terminal UI are not saved.
+  `/edit`, `/undo`, `/doctor` and `/exit`. Conversations in the terminal UI are not saved.
+- Commands that never call a model (`harness --help`, `service`, `hooks`, `sandbox`, `channels`, `commands`,
+  `eval tasks`…) no longer load the Anthropic and OpenAI SDKs, so loading ZhiFox's command line takes about 0.15 s
+  instead of about 0.9 s.
+
+#### Troubleshooting
+
+- `harness doctor` (`/doctor` in the terminal UI) shows on one screen how ZhiFox is set up on this computer: Python
+  and ZhiFox's version, folder permissions, whether another ZhiFox holds the data folder, which providers have a key,
+  Chrome, the sandbox, computer use permissions, the background service, extensions and network settings. Each line
+  is OK, Problem or Not used, every problem comes with a fix for your shell (zsh, bash or PowerShell), and the exit
+  code is 1 when anything is a problem.
+- It only looks: no files, permissions or settings are changed, nothing is started and nothing goes over the network.
+  Keys are reported as present or missing, never with their last characters; `--json` gives the same report for
+  scripts or for attaching to a bug report, without keys, tokens or tokenized addresses.
 
 #### Permissions and approvals
 
@@ -151,6 +175,8 @@ _Not released yet; the date is set when it is._
 - The web page loads no external resources and shows model and tool output as text only; the server checks the token,
   Host and Origin of every request, and API keys are never sent to the browser.
 - Only one ZhiFox can use a data folder at a time; a second one says which ZhiFox holds it.
+- `SECURITY.md` explains how to report a vulnerability privately (GitHub's private vulnerability reporting),
+  summarizes the security model and lists what is out of scope.
 
 #### Extensions: MCP, skills and custom agents
 
@@ -249,6 +275,13 @@ _Not released yet; the date is set when it is._
 - An optional monthly budget that reminds you once when you pass it and never blocks anything.
 - **Settings → Export all data** downloads the data folder as a zip: without `.env` or the browser profile, and with the
   secrets in `mcp.json`, `channels.json`, `endpoints.json` and `hooks.json` masked.
+- **Settings → Restore from backup…**, or `harness restore <zip>` (`--merge`, `--yes`) with ZhiFox stopped: the zip is
+  checked as untrusted input against the export's own list of files, and a preview shows what's in it and what
+  **Overwrite** or **Merge** would do. Before writing anything, the current data is exported to `data/restore-backups/`
+  (secrets masked, the newest 5 kept, never exported), and ZhiFox then starts again in place, so the page just redraws.
+- Masked secrets in a backup never overwrite the keys you have now: where the current file has a real value in the
+  same place, it is kept, and the placeholders still to fill in are listed with where to do it. Restoring is refused
+  while a conversation, a scheduled task or a chat channel is in the middle of a turn.
 
 #### Evals
 
@@ -265,6 +298,8 @@ _Not released yet; the date is set when it is._
 - `data\` and `.env` are restricted to your account, SYSTEM and Administrators with an ACL. Path tricks such as `.env.`,
   `::$DATA`, short names, UNC paths, device names and directory junctions are refused, and the file tool keeps a file's
   line endings.
+- Saving a file that another program has open (an antivirus or the search indexer taking a look) is retried up to 8
+  times, a bit over a second in all, before it fails.
 - The web UI says Ctrl instead of ⌘, and **Show in File Explorer** (**Show in file manager** on Linux), decided by the
   computer the browser and ZhiFox each run on.
 - Browser use with Chrome, or Microsoft Edge when Chrome isn't installed, still over a pipe; the background service
@@ -279,8 +314,15 @@ _Not released yet; the date is set when it is._
 - Page tests in `tests/ui/` drive headless Chrome through ZhiFox's own CDP client against the demo server
   (`uv run pytest -m ui`).
 - GitHub Actions runs the tests on Ubuntu, macOS and Windows with Python 3.11 and 3.13.
+- The whole `harness` package is type-checked with mypy (`uv run --with mypy==1.19.0 mypy`), once each as Linux, macOS
+  and Windows see the code (`--platform`); CI runs all three.
+- Releases are built by GitHub Actions from a version tag (`.github/workflows/release.yml`): the wheel and source
+  archive are built in a clean checkout, installed and smoke-tested on Ubuntu, macOS and Windows, and attached to the
+  GitHub Release.
+- Dependabot checks the Python dependencies (uv) and GitHub Actions weekly, grouped into one pull request each (plus
+  one for security updates); the Feishu and DingTalk SDKs stay below their upper bounds in `pyproject.toml`.
 - `uv run python tests/demo_web.py` starts the web UI with a fake model, temporary data and fake chat platforms, so you
   can try it without spending anything.
 
 [Unreleased]: https://github.com/Akxan/zhifox-agent-harness/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/Akxan/zhifox-agent-harness/commits/main
+[0.2.0]: https://github.com/Akxan/zhifox-agent-harness/releases/tag/v0.2.0

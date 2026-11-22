@@ -10,22 +10,23 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import os
 import platform
 import shutil
 import stat
 import sys
-import tomllib
 from pathlib import Path
 
 from .. import instance, machine, winacl
 from ..config import COMMAND, FROM_SOURCE, PROJECT_ROOT, Config, env_file_names
 from ..i18n import Message, k, t
+from ..version import (  # 智狐的版本和提交只在 harness/version.py 里算（harness --version 也用它）
+    commit,
+    version,
+)
 from . import fixes
 from .report import OK, PROBLEM, UNUSED, Check, Section
 
-PACKAGE = "harness-assistant"  # pyproject.toml 里的名字
 MIN_PYTHON = (3, 11)
 
 # 占着数据目录的是哪一种（instance.py 的 kind），给人看的说法。和 service/cli.py 的 WHO 是同样的几句，
@@ -42,49 +43,6 @@ which = shutil.which
 
 
 # ---- 环境 ------------------------------------------------------------------------
-
-
-def version() -> str:
-    """智狐的版本：装好的包里的版本号（uv sync 装的），没装过的话读 pyproject.toml。"""
-    try:
-        return importlib.metadata.version(PACKAGE)
-    except importlib.metadata.PackageNotFoundError:
-        pass
-    try:
-        return str(tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
-    except (OSError, ValueError, KeyError):
-        return ""
-
-
-def commit(root: Path = PROJECT_ROOT) -> str:
-    """现在的 git 提交（前 7 位）。版本号很少变，提交才说得清是哪一版。
-
-    不运行 git（这台电脑上不一定有），直接读 .git 里的文件：HEAD 指向哪个分支，分支在 refs/ 或者 packed-refs 里。
-    .git 是一个文件的时候（git worktree），里面写着真正的文件夹在哪儿。不是 git 仓库（下载的 ZIP）返回空字符串。"""
-    try:
-        git = root / ".git"
-        if git.is_file():
-            pointer = git.read_text(encoding="utf-8").strip()
-            if not pointer.startswith("gitdir:"):
-                return ""
-            git = (root / pointer.removeprefix("gitdir:").strip()).resolve()
-        head = (git / "HEAD").read_text(encoding="utf-8").strip()
-        if not head.startswith("ref:"):
-            return head[:7]  # 没在任何分支上：HEAD 里就是提交本身
-        ref = head.removeprefix("ref:").strip()
-        common = git
-        if (git / "commondir").is_file():
-            common = (git / (git / "commondir").read_text(encoding="utf-8").strip()).resolve()
-        for base in (git, common):
-            if (base / ref).is_file():
-                return (base / ref).read_text(encoding="utf-8").strip()[:7]
-        for line in (common / "packed-refs").read_text(encoding="utf-8").splitlines():
-            found, _, name = line.partition(" ")
-            if name.strip() == ref:
-                return found[:7]
-    except OSError:
-        pass
-    return ""
 
 
 def system_label() -> str:
