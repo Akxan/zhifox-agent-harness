@@ -31,7 +31,7 @@ import openai
 
 from ..config import PROJECT_ROOT
 from ..i18n import t
-from ..providers import PROVIDERS
+from ..providers import PROVIDERS, find
 from .spec import Reply, Task
 
 FAKES = PROJECT_ROOT / "tests"
@@ -115,7 +115,7 @@ class DryDriver:
     def connect(self, task: Task, provider: str) -> Connection:
         replies = script(task, self.null)
         servers: list[Any] = []
-        if PROVIDERS[provider].kind == "anthropic":
+        if (find(provider) or PROVIDERS["anthropic"]).kind == "anthropic":  # 自定义接口也是 OpenAI 格式（见 harness/endpoints/）
             server = _fake("fake_api").FakeAPI(_anthropic_replies(replies)).start()
             client = anthropic.Anthropic(api_key="dry-run", base_url=server.base_url, max_retries=0)
         else:

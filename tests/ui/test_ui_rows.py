@@ -35,6 +35,7 @@ ROWS = [
     Rows("聊天通道", "#panel-channels li.chan-row", ".chan-actions", ".chan-open", hover=".chan-main"),
     Rows("不用问的命令", "#commands-list > li.cmd-row", ".cmd-actions", ""),
     Rows("沙箱的路径", "#sandbox-list > li.sandbox-row", ".sandbox-actions", ""),
+    Rows("自定义模型接口", "#endpoints-list > li.endpoint-row", ".endpoint-actions", ".endpoint-open"),  # 演示里预先加好了一个
 ]
 
 
@@ -55,6 +56,9 @@ def _show(page, rows: Rows) -> None:
         steps.open_dialog(page, "#settings-open", "settings")
         page.click("#sandbox-paths-open")
         page.wait(steps.is_open("sandbox-dialog"), what="沙箱的路径窗口打开")
+    elif rows.name == "自定义模型接口":
+        steps.open_dialog(page, "#settings-open", "settings")
+        page.js("document.getElementById('endpoints-section').scrollIntoView({ block: 'center' })")
     else:
         tab = {"Skill": "skills", "MCP 服务器": "mcp", "Agent": "agents", "聊天通道": "channels"}[rows.name]
         steps.extensions_tab(page, tab)
@@ -63,7 +67,7 @@ def _show(page, rows: Rows) -> None:
 
 
 def _hide(page) -> None:
-    for dialog in ("memory-dialog", "extensions", "commands-dialog", "sandbox-dialog"):
+    for dialog in ("memory-dialog", "extensions", "commands-dialog", "sandbox-dialog", "settings"):
         if page.js(steps.is_open(dialog)):
             steps.escape_closes(page, dialog)
     steps.close_side(page)
@@ -130,7 +134,7 @@ def test_every_local_item_has_reveal_edit_delete_on_hover_and_focus(stocked):
     assert len(set(sizes.values())) == 1, f"每一种的三个按钮应该一样大：{sizes}"
 
 
-@pytest.mark.parametrize("which", ["会话", "待办", "记忆", "不用问的命令", "沙箱的路径"])
+@pytest.mark.parametrize("which", ["会话", "待办", "记忆", "不用问的命令", "沙箱的路径", "自定义模型接口"])
 def test_delete_asks_in_place_and_escape_cancels(stocked, which):
     page = stocked
     rows = next(item for item in ROWS if item.name == which)

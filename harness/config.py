@@ -60,6 +60,19 @@ COMPACTION_THRESHOLD = 0.7
 COMPACTION_KEEP_TURNS = 2
 
 
+# 自定义模型接口（见 endpoints/）：Ollama、LM Studio、vLLM、llama.cpp、公司自己的网关……任何 OpenAI 格式的地址。
+# 最多接这么多个，每个最多记这么多个模型（vLLM、网关的模型列表可能很长，全记下来换模型的面板就没法看了）
+MAX_ENDPOINTS = 20
+MAX_ENDPOINT_MODELS = 300
+# 一个模型没填上下文上限、服务器也没说的时候按多少算（压缩历史看它，见 providers/compaction.py）。
+# 本地的模型上限各不相同：Ollama 默认只给 4096（要用 OLLAMA_CONTEXT_LENGTH 调大），智狐自己的系统提示词和工具说明书
+# 就要好几千个 token。取 32768：比它小的装不下几轮带工具结果的对话；比它大的，你在设置里填上真实的数就行
+CUSTOM_CONTEXT_WINDOW = 32_768
+# 测试连接、同步模型列表时，一个请求最多等这么久（秒）。本地的服务器一般零点几秒就回答；等太久，页面上的按钮就一直在转
+ENDPOINT_PROBE_SECONDS = 8
+# 同步模型列表时，最多为这么多个模型逐个去问"你能做什么"（Ollama 的 /api/show）。再多的照名字猜，不再一个个问
+ENDPOINT_DETECT_MODELS = 40
+
 # 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）之前，这一轮做过的、可能改动了东西的事要列给你看：
 # 最多列这么多行，再多的合成一句"还有几项"
 MAX_REWIND_EFFECTS = 6
@@ -383,14 +396,19 @@ class Config:
         return self.data_dir / "channels.json"  # 聊天通道的设置：机器人的 token（密钥）、绑定的账号（见 channels/store.py）
 
     @property
+    def endpoints_file(self) -> Path:
+        return self.data_dir / "endpoints.json"  # 自定义模型接口：地址、可选的密钥、每个模型能做什么（见 endpoints/store.py）
+
+    @property
     def commands_file(self) -> Path:
         return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
 
     @property
     def protected_files(self) -> list[Path]:
         """文件工具碰不了、沙箱里也碰不到的几个文件（见 app.py 的 build_app 和 sandbox/policy.py）：
-        .env 和 mcp.json、channels.json、commands.json——里面是密钥，或者改了它就能让智狐运行别的东西、不再问你。"""
-        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file]
+        .env 和 mcp.json、channels.json、commands.json、endpoints.json——里面是密钥，或者改了它就能让智狐运行别的东西、不再问你、
+        把请求发到别处。"""
+        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file]
 
     @property
     def web_address_file(self) -> Path:

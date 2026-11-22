@@ -55,7 +55,7 @@ from ..mcp import McpManager
 from ..mcp.bridge import PREFIX as MCP_PREFIX
 from ..mcp.bridge import McpTool
 from ..pricing import estimate, usage_key
-from ..providers import PROVIDERS, ClientFactory, ProviderError, has_key, make_backend
+from ..providers import ClientFactory, ProviderError, find, has_key, make_backend
 from ..providers.base import Usage
 from ..skills import SkillStore
 from ..skills.catalog import notifier as skill_notifier
@@ -199,8 +199,9 @@ class Delegator:
         # 自己的 shell，但和叫它的那一方用同一个沙箱（同一档、同样能不能请人放行）：子 Agent 只会更少，不会更多
         own_shell, owner = Shell(self.config.workspace, _sandbox_of(parent)), object()
         tools = self._tools(parent, agent, own_shell, owner)
-        provider = PROVIDERS[provider_id]
-        web = self.config.web and provider.web and agent_tools.has_web(tools)
+        provider = find(provider_id)
+        assert provider is not None  # _model 已经查过：找不到的话在那里就交不出去了
+        web =self.config.web and provider.web and agent_tools.has_web(tools)
         prompt = subagent_prompt(self.config, agent, web)
         backend = make_backend(provider, model, sub_config, ToolRegistry([]), prompt, self.client_factory(provider))
         run_id = secrets.token_hex(4)
@@ -258,7 +259,9 @@ class Delegator:
         if not agent.spec.model:
             return parent.backend.provider, parent.backend.model
         provider_id, model = agent.spec.provider, agent.spec.model_id
-        provider = PROVIDERS[provider_id]
+        provider = find(provider_id)
+        if provider is None:  # 文件里写的是一个自定义接口，它后来被删掉了
+            raise ToolError(f"Agent「{agent.name}」用的是 {provider_id}，但这个自定义模型接口已经不在了，所以交不出去。可以自己做，或者请用户在设置里重新添加它、或者改一改这个 Agent 的 model。")
         # 和叫它的那一方是同一家的话，密钥一定是有的（不然那一方也跑不起来）；另一家要看一眼
         if provider_id != parent.backend.provider and not has_key(provider):
             raise ToolError(f"Agent「{agent.name}」用的是 {provider.label} 的 {model}，但用户还没有设置 {provider.label} 的 API 密钥，所以交不出去。可以自己做，或者请用户去设置里填上密钥。")
@@ -290,7 +293,7 @@ class Delegator:
             # 不算"调用了几次模型"（那是叫它的那一方自己的步数，定时任务的进度靠它），也不碰上下文的大小
             spent = dataclasses.replace(usage, requests=0, context_tokens=0)
             parent.usage.add(spent)
-            parent.usage_by_model.setdefault(usage_key(model, moment), Usage()).add(spent)
+            parent.usage_by_model.setdefault(usage_key(model, moment, provider), Usage()).add(spent)
             if parent.on_usage is not None:
                 parent.on_usage()
             return cost

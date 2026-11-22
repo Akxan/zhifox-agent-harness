@@ -147,6 +147,8 @@ class Backend(Protocol):
 
     provider: str  # 提供方的名字，如 "anthropic"
     model: str
+    # 这个模型能不能用工具。内置的几家都能；自定义接口上的模型不一定（见 openai_compat.py），不能的话一个工具都不发
+    tools_supported: bool
 
     @property
     def messages(self) -> list: ...  # 对话历史（各家格式不同）

@@ -208,7 +208,7 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
             (ui.plain if style == "plain" else ui.info)(text)
     elif command == "/usage":
         usage = app.agent.usage
-        cost, unpriced = estimate(app.agent.usage_by_model, app.settings.prices)
+        cost, unpriced = estimate(app.agent.usage_by_model, app.prices())
         note = t("（不含 {models}：没有设置价格）", models=t("、").join(unpriced)) if unpriced else ""
         ui.plain(
             t(

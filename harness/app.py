@@ -31,22 +31,31 @@ from .conversations import (
 from .desktop import manager as desktop_labels
 from .desktop.manager import DesktopManager
 from .desktop.session import DesktopSession
+from .endpoints import PREFIX as ENDPOINT_PREFIX
+from .endpoints import EndpointError, EndpointStore
 from .i18n import t
 from .ledger import Ledger
 from .mcp import McpConfig, McpManager
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .media import MediaStore
 from .permissions import Permissions
+from .pricing import price_of as builtin_price
 from .prompt import build_system_prompt, reset_template, save_template
 from .providers import (
     PROVIDERS,
     ClientFactory,
     Provider,
     ProviderError,
+    caps,
+    continues,
+    find,
     has_key,
     list_models,
     make_backend,
     make_client,
+    probe_models,
+    switch_model,
+    use_custom,
 )
 from .sandbox import DEFAULT as SANDBOX_DEFAULT
 from .sandbox import Layout, Sandbox
@@ -64,6 +73,15 @@ from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
 from .tools.skill import TOOL_NAME as SKILL_TOOL
 from .tools.todo import TodoStore
+
+# 设置里选的那一家不在了（自定义接口被删掉了、设置文件被改坏了）时，退回到这一家的这个模型
+FALLBACK = ("anthropic", "claude-opus-5-5")
+
+
+def merged_prices(settings: Settings, endpoints: EndpointStore) -> dict[str, dict]:
+    """算钱用的价格表：你在设置里给内置模型填的（按模型名），加上自定义接口上每个模型的（按"接口/模型"，见 pricing.usage_key）。
+    两边的名字不会撞上：自定义接口的带着 custom- 的前缀。"""
+    return {**settings.prices, **endpoints.prices()}
 
 
 @dataclass
@@ -100,6 +118,7 @@ class App:
     desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
     chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
     sandbox_layout: Layout  # 命令的沙箱要用的几个地方（见 sandbox/）：每次运行的 Sandbox 都照着它建
+    endpoints: EndpointStore  # 自定义模型接口（data/endpoints.json，见 endpoints/）。providers.find / every 也看得到它们
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -110,8 +129,28 @@ class App:
 
     @property
     def provider(self) -> Provider:
-        """当前使用的是哪一家。"""
-        return PROVIDERS[self.settings.provider]
+        """当前使用的是哪一家。选中的自定义接口刚被删掉的话（删不掉正在用的，见 delete_endpoint，所以只有手改文件才会这样），
+        按内置的默认那一家算。"""
+        return find(self.settings.provider) or PROVIDERS["anthropic"]
+
+    def prices(self) -> dict[str, dict]:
+        """算钱用的价格表（见 merged_prices）。"""
+        return merged_prices(self.settings, self.endpoints)
+
+    def price_of(self, provider_id: str, model: str, offpeak: bool = False) -> dict[str, float] | None:
+        """一个模型的价格：自定义接口上的看 endpoints.json（本机和内网的默认不花钱），内置的看你填的和内置的价格表。"""
+        provider = find(provider_id)
+        if provider is not None and provider.endpoint is not None:
+            return provider.endpoint.price_of(model)
+        return builtin_price(model, self.settings.prices, offpeak=offpeak)
+
+    def set_price(self, provider_id: str, model: str, price: dict | None) -> None:
+        """设置里"价格"一节：自定义接口上的模型记进 endpoints.json，内置的记进 settings.json。"""
+        provider = find(provider_id)
+        if provider is not None and provider.endpoint is not None:
+            self.endpoints.set_price(provider.id, model, price)
+        else:
+            self.settings.set_price(model, price)
 
     # 换模型、打开会话都要同时换掉好几样东西：循环背后的适配层、当前会话、记住的选择。
     # 规矩是"要么全换，要么都不动"：可能失败的步骤（读会话文件、建新的适配层）先做完，
@@ -123,10 +162,14 @@ class App:
 
         同一家之内换模型，历史的格式不变，可以接着聊。换到另一家时，
         历史的格式不通用，只能从头开始（记忆和待办在磁盘上，不受影响）。
+        自定义接口上从能用工具的模型换到不能用的（或者反过来），也要从头开始：工具说明书在一段对话里不变（见 providers.continues）。
         """
-        same_provider = provider_id == self.agent.backend.provider
+        provider = find(provider_id)
+        if provider is None:
+            raise ProviderError(t("这个模型接口已经不在了，可能刚被删掉。"))
+        same_provider = continues(self.agent.backend, provider, model)
         if same_provider:
-            self.agent.backend.model = model
+            switch_model(self.agent.backend, provider, model)
             self.conversation.model = model
         else:
             backend = self._backend_for(provider_id, model, self.persona, channel="")  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
@@ -157,8 +200,11 @@ class App:
 
     def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None, channel: str | None = None) -> Any:
         """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。
-        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是当前这段的。"""
-        provider = PROVIDERS[provider_id]
+        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是当前这段的。
+        这一家不在了（自定义接口被删掉了）时抛出 ProviderError。"""
+        provider = find(provider_id)
+        if provider is None:
+            raise ProviderError(t("这个模型接口已经不在了，可能刚被删掉。"))
         tools = self.conversation_tools(persona, channel=channel)
         web = self.config.web and provider.web  # 能不能联网，要看是哪一家
         if persona is None:
@@ -254,7 +300,7 @@ class App:
         # 用一个 Agent 当角色的：只留它放开的工具（和网页上的 conversation_tools 一样）
         agent.use_tools(ToolRegistry(agent_tools.allowed(persona.spec.tools, everything) if persona is not None else everything))
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
-        agent.on_call = self.ledger.recorder(lambda: self.settings.prices, source=source)
+        agent.on_call = self.ledger.recorder(self.prices, source=source)
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
         # 也能用 Skill：历史是空的话，第一条消息就带上此刻的 Skill 目录（见 skills/catalog.py）
@@ -294,15 +340,24 @@ class App:
             provider_id, model = persona.spec.provider, persona.spec.model_id
         else:
             provider_id, model = self.settings.provider, self.settings.model
+        provider = find(provider_id)
+        if provider is None:  # 设置里选的自定义接口不在了（手改了 endpoints.json）：用内置的默认那一家
+            provider_id, model = FALLBACK
+            provider = PROVIDERS[provider_id]
         backend = self.agent.backend
-        if persona is not None or self.persona is not None or self.prompt_in_use != self.system_prompt or provider_id != backend.provider:
+        if (
+            persona is not None
+            or self.persona is not None
+            or self.prompt_in_use != self.system_prompt
+            or not continues(backend, provider, model)
+        ):
             # 提示词不一样了（换了角色、用户改过提示词、换了一家）：新的一段用新的。提示词存在适配层里，
-            # 所以换一个新建的（历史本来就要清空）
+            # 所以换一个新建的（历史本来就要清空）。自定义接口上能不能用工具不一样了，也换一个新建的（见 providers.continues）
             self.agent.backend = self._backend_for(provider_id, model, persona, channel="")
             self.prompt_in_use = self.system_prompt
         else:
             self.agent.reset()
-            backend.model = model
+            switch_model(backend, provider, model)
         self.persona = persona
         self.conversation = self._new(provider_id, model, persona)
         self.agent.usage.context_tokens = 0
@@ -322,7 +377,10 @@ class App:
         下一次请求会把这份历史一起发给模型，模型就"想起"了之前聊过什么。
         """
         conversation = self.store.load(conversation_id)
-        if conversation.provider not in PROVIDERS:
+        provider = find(conversation.provider)
+        if provider is None and conversation.provider.startswith(ENDPOINT_PREFIX):
+            raise ConversationError(t("这段会话用的是自定义模型接口（{provider}），它已经被删掉了。在设置里重新添加一个同名的接口，就能接着聊。", provider=conversation.provider))
+        if provider is None:
             raise ConversationError(t("这段会话用的模型提供方，这个版本的程序已经不支持了。"))
         # 用 Agent 开始的会话：照着这个 Agent 现在的文件接着聊（和内置的提示词一样，用的是现在的那一版）。
         # 它被删掉了、或者现在不合格的话，退回到普通的对话，并且说一声
@@ -333,11 +391,11 @@ class App:
             except AgentError as exc:
                 self.warnings.append(t("这段会话是用 Agent「{name}」开始的，但它现在用不了（{reason}）。接着聊会用内置的提示词和全部工具。", name=conversation.agent, reason=exc))
         # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
-        same_provider = conversation.provider == self.agent.backend.provider
+        same_provider = continues(self.agent.backend, provider, conversation.model)
         # 同一家、提示词也没改过、前后都不是角色，就接着用现在的适配层；否则新建一个（带着现在的提示词）
         reuse = same_provider and self.prompt_in_use == self.system_prompt and persona is None and self.persona is None
         backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona, channel=conversation.channel)
-        backend.model = conversation.model
+        switch_model(backend, provider, conversation.model)
         backend.restore(conversation.messages, conversation.dropped)
         self.agent.backend = backend
         self.prompt_in_use = self.system_prompt
@@ -496,9 +554,11 @@ class App:
         self.name_conversation(text, attachments)
 
     def attachment_problem(self, attachments: Sequence[Attachment]) -> str:
-        """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。"""
+        """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。
+        自定义接口按这个模型算（同一个 Ollama 上有的模型看得懂图，有的看不懂，见 providers.caps）。"""
         provider = self.provider
-        return unsupported(attachments, provider.label, provider.vision, provider.pdf)
+        accepts = caps(provider, self.settings.model)
+        return unsupported(attachments, provider.label, accepts.vision, accepts.pdf)
 
     def _is_unsaved_current(self, conversation_id: str) -> bool:
         """是不是"列在会话栏里、但还没有写到磁盘上"的当前会话（第一轮还没存，或者存盘失败了）。"""
@@ -532,7 +592,7 @@ class App:
         return items
 
     def set_api_key(self, provider_id: str, key: str) -> None:
-        """保存（或删除）一家的 API 密钥，并让它立即生效。"""
+        """保存（或删除）一家的 API 密钥，并让它立即生效。只管内置的几家：自定义接口的密钥在它自己的设置里（见 save_endpoint）。"""
         provider = PROVIDERS[provider_id]
         save_api_key(self.config.env_file, provider.key_env, key)
         if provider_id == self.agent.backend.provider:
@@ -564,24 +624,78 @@ class App:
         }
 
     def sync_models(self, provider_id: str) -> list[str]:
-        """向一家的服务器询问有哪些模型，并把列表记下来。"""
-        provider = PROVIDERS[provider_id]
+        """向一家的服务器询问有哪些模型，并把列表记下来。
+
+        自定义接口记的不只是名字：每个模型能做什么也一起猜（见 endpoints/probe.py），你改过的设置保留（见 endpoints/spec.merged）。
+        """
+        provider = find(provider_id)
+        if provider is None:
+            raise ProviderError(t("这个模型接口已经不在了，可能刚被删掉。"))
+        if provider.endpoint is not None:
+            found = probe_models(provider)
+            if not found.listed:
+                raise ProviderError(t("{provider} 不提供模型列表（/models）。请在设置的“自定义模型接口”里自己填模型名。", provider=provider.label))
+            try:
+                endpoint = self.endpoints.set_models(provider.id, found.models)
+            except EndpointError as exc:
+                raise ProviderError(exc.message) from None
+            self._endpoint_changed(provider.id)
+            return [model.id for model in endpoint.models]
         if not has_key(provider):
             raise ProviderError(t("还没有设置 {provider} 的 API 密钥。", provider=provider.label))
         models = list_models(provider, self.client_factory(provider))
         self.settings.set_models(provider_id, models)
         return models
 
+    # ---- 自定义模型接口（见 endpoints/）-------------------------------------------
+
+    def save_endpoint(self, form: dict, provider_id: str | None = None) -> Any:
+        """新建（provider_id 为 None）或者修改一个自定义接口，返回存好的 Endpoint。表单不对时抛出 EndpointError。"""
+        endpoint = self.endpoints.save(form, provider_id)
+        self._endpoint_changed(endpoint.provider_id)
+        return endpoint
+
+    def delete_endpoint(self, provider_id: str) -> None:
+        """删掉一个自定义接口。正在用它的话不删：先换一个模型（不然这段对话、下次启动就不知道该用谁了）。"""
+        if provider_id in (self.agent.backend.provider, self.settings.provider):
+            raise EndpointError(t("正在用这个接口上的模型。先在换模型的面板里换一个，再删除它。"))
+        self.endpoints.delete(provider_id)
+
+    def _endpoint_changed(self, provider_id: str) -> None:
+        """一个自定义接口改了。你正在用它的话：
+
+          - 这段对话还没开始：整个换成新的（新的地址、密钥、能力，能不能用工具也马上按新的）；
+          - 已经开始了：换上新的连接（地址、密钥可能变了）、新的名字、这个模型看不看得懂图和上下文多大。
+            能不能用工具不换：工具说明书在一段对话里不变，从下一段对话开始按新的来。
+        """
+        backend = self.agent.backend
+        provider = find(provider_id)
+        if backend.provider != provider_id or provider is None:
+            return
+        if not backend.export():
+            self.agent.backend = self._backend_for(provider_id, backend.model, self.persona)
+            self.prompt_in_use = self.system_prompt
+            self.refresh_tools()
+            return
+        backend.client = self.client_factory(provider)
+        backend.label = provider.label
+        backend.stream_usage = provider.endpoint.stream_usage if provider.endpoint is not None else True
+        switch_model(backend, provider, backend.model)
+
 
 def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_client) -> App:
     settings = Settings(config.settings_file, config.default_provider, config.default_model)
-    if settings.provider not in PROVIDERS:
-        settings.provider, settings.model = "anthropic", "claude-opus-5-5"
     i18n.choose(settings.language)  # 界面语言：从这里开始，程序里所有 t() 都译成它
+    # 自定义模型接口（见 endpoints/）：交给 providers 的登记表，之后 find / every 都看得到它们
+    endpoints = EndpointStore(config.endpoints_file)
+    use_custom(endpoints)
+    if find(settings.provider) is None:
+        settings.provider, settings.model = FALLBACK
 
     # mcp.json 和 .env 一样不让文件工具碰：里面有 MCP 服务器的密钥，而且改了它就能让智狐下次启动时运行任意程序。
     # channels.json 也是：里面有聊天机器人的 token（见 channels/store.py），改了它还能把机器人绑到别人的账号上。
-    # commands.json（你自己加的"不用问的命令"）也是：改了它，模型就能让自己想运行的命令不再问你（见 commands/allowlist.py）
+    # commands.json（你自己加的"不用问的命令"）也是：改了它，模型就能让自己想运行的命令不再问你（见 commands/allowlist.py）。
+    # endpoints.json（自定义模型接口）也是：里面有密钥，改了它的地址还能让你的对话发到别人的服务器上
     commands = CommandList(config.commands_file)
     protected = config.protected_files
     files = FileEditor(config.workspace, config.backup_dir, protected=protected)
@@ -594,25 +708,30 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     tools = build_registry(config, files, todos, shell, tasks, skills)
     system_prompt = build_system_prompt(config)
 
-    provider = PROVIDERS[settings.provider]
+    provider = find(settings.provider) or PROVIDERS[FALLBACK[0]]
     prompt = build_system_prompt(config, web=config.web and provider.web)
     backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
     mcp = McpManager(McpConfig(config.mcp_file))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp, commands=commands)
     agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
     # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）。
-    # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）
+    # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）。
+    # 用不了工具的模型（自定义接口上的一些模型）也一样：工具一个都没发给它
     skill_note = notifier(skills)
-    agent.notes.append(lambda history: skill_note(history) if agent.tools.get(SKILL_TOOL) is not None else "")
+    agent.notes.append(lambda history: skill_note(history) if agent.tools.get(SKILL_TOOL) is not None and agent.backend.tools_supported else "")
     # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
     ledger = Ledger(config.ledger_file)
-    agent.on_call = ledger.recorder(lambda: settings.prices)
+
+    def prices() -> dict[str, dict]:
+        return merged_prices(settings, endpoints)
+
+    agent.on_call = ledger.recorder(prices)
     # 每一轮结束时的运行记录（见 trace/）：网页界面存进会话的事件里，终端界面留着给 /trace。界面没有这一项（测试用的界面）就不交
     agent.on_trace = getattr(ui, "trace", None)
     # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）
     agents = AgentStore(config.agents_dir)
-    agent.notes.append(agent_notifier(agents, lambda: agent.tools))
-    delegator = Delegator(config, agents, skills, mcp, ledger, lambda: settings.prices, client_factory)
+    agent.notes.append(agent_notifier(agents, lambda: agent.tools if agent.backend.tools_supported else ToolRegistry([])))
+    delegator = Delegator(config, agents, skills, mcp, ledger, prices, client_factory)
     store = ConversationStore(config.conversations_dir)
     browser = BrowserManager(config.browser_dir, settings)
     desktop = DesktopManager(config.desktop_dir, settings)
@@ -640,6 +759,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         desktop=desktop,
         chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
         sandbox_layout=layout,
+        endpoints=endpoints,
     )
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
     # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）

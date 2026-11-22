@@ -102,6 +102,37 @@ GPT 和 Gemini 是对照各自的官方文档写的，并用本地的假服务�
 各家的 API 都按用量计费，和它们聊天产品的订阅是分开的，一般需要先充值。
 密钥可以在网页界面的设置里填，也可以把 `.env.example` 复制成 `.env` 后直接写在里面，两种方式存的是同一个地方。
 
+### 本地模型和自己的网关（Ollama、LM Studio、vLLM、llama.cpp）
+
+任何支持 OpenAI Chat Completions 格式的服务器，都可以在**设置 → 自定义模型接口**里加进来：这台电脑上跑的模型、
+内网里的一台显卡机器，或者公司自己的网关。本机和内网的接口，对话不出你的网络，也不花钱（换模型的面板里写着
+"本地，不计费"）。每个接口在换模型的面板里是单独的一组。
+
+**Ollama，一步接上**：Ollama 开着（`ollama serve`，或者开着它的桌面程序）时，点**添加接口**，选**Ollama**
+（`http://localhost:11434/v1`），点**测试连接**，再点**保存**。智狐会列出你拉下来的模型，并问 Ollama 每个模型能做什么
+（能不能用工具、看不看得懂图片、上下文多大）。
+
+**LM Studio，一步接上**：在 LM Studio 的"开发者"一页点**启动服务器**（Start Server），然后添加接口、选**LM Studio**
+（`http://localhost:1234/v1`），**测试连接**、**保存**。
+
+vLLM（`http://localhost:8000/v1`）和 llama.cpp 的 `llama-server`（`http://localhost:8080/v1`）也一样。
+API 密钥可以不填；你的服务器或者网关要的话再填。
+
+**怎么挑本地模型**：读写文件、执行命令、记待办，都要模型支持工具调用（function calling）。Qwen 3、Llama 3.1 以上、
+Mistral、GPT-OSS 支持；小的、老的模型（Llama 2、Gemma 2、Phi-3）多半不行。用不了工具的模型只能用文字回答：
+服务器第一次拒绝带工具的请求时，智狐把这个模型标成**不能用工具**，在对话里说一声，"智狐能做的事"里每一项都写着用不了和原因。
+vLLM 要加 `--enable-auto-tool-choice --tool-call-parser …`、llama.cpp 要加 `--jinja` 才能用工具。
+智狐自己的系统提示词和工具说明书就要好几千个 token，所以上下文要给够：Ollama 默认只给 4096，更长的提示会被它悄悄截掉开头；
+启动它之前设 `OLLAMA_CONTEXT_LENGTH=32768`（或者更大），并在接口的设置里把这个模型的上下文上限填成同样的数，
+智狐靠这个数决定什么时候压缩对话。
+
+安全上的规矩：外面的地址必须是 `https://`；明文的 `http://` 只许这台电脑（`localhost`、`127.x`、`::1`）和内网的地址
+（`10.x`、`172.16–31.x`、`192.168.x`、Tailscale 用的 `100.64.x`、`*.local`、`*.internal`、没有点的单个名字）。
+所有请求都从智狐的程序发出去，页面从来不直接连这个地址。密钥存在 `data/endpoints.json`（只有你的账号能读、导出时遮住、
+页面上只看得到最后 4 位），不进环境变量，所以命令和 MCP 服务器都看不到它。内置几家的密钥和设置（`OPENAI_API_KEY`、
+`OPENAI_ORG_ID`、`OPENAI_CUSTOM_HEADERS`……）永远不会发给自定义接口；重定向不跟；改了接口的服务器地址，要重新填一次密钥。
+Agent 文件和别的程序用 `custom-<编号>/<模型名>` 指定接口上的模型，比如 `custom-ollama/qwen3:8b`。
+
 ### 网页界面
 
 ```bash
@@ -554,6 +585,7 @@ uv run --project "/这个项目的完整路径" harness
 | 循环 | [harness/agent.py](harness/agent.py) | 模型一次只能回复一段。循环反复调用它，直到任务做完 |
 | 工具 | [harness/tools/](harness/tools/) | 模型不能执行操作。工具替它执行，再把结果告诉它 |
 | 模型适配层 | [harness/providers/](harness/providers/) | 各家 API 的格式不一样。适配层把差别包起来，循环不用关心背后是哪一家 |
+| 自定义模型接口 | [harness/endpoints/](harness/endpoints/)、[harness/webui/endpoints_api.py](harness/webui/endpoints_api.py) | 内置的几家都在别人的服务器上。接口是任何 OpenAI 格式的地址（Ollama、LM Studio、vLLM、llama.cpp、公司的网关）：地址的规矩（https，明文的 http 只许你自己的网络）、带可选密钥的存储、从不带上别家密钥也不跟重定向的客户端、猜每个模型能做什么、不花钱地测试连接（见[本地模型和自己的网关](#本地模型和自己的网关ollamalm-studiovllmllamacpp)） |
 | 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
 | 压缩历史 | [harness/providers/compaction.py](harness/providers/compaction.py) | 历史每轮整段重发，越聊越贵，最后超出模型的上限。GPT、Gemini、DeepSeek 的对话太长时，请模型把较早的部分写成摘要（Claude 由 API 自己压缩） |
 | 会话存档 | [harness/conversations.py](harness/conversations.py) | 程序关掉后内存里的对话历史就没了。把它存成文件，下次读回来就能接着聊 |
@@ -794,6 +826,12 @@ GPT、Gemini、DeepSeek 都支持这套格式，只是服务器地址不同，�
 | 缓存 | 由我们在请求里标记 | 各家自动处理 |
 
 要接入另一家支持 OpenAI 格式的厂商，在 [harness/providers/\_\_init\_\_.py](harness/providers/__init__.py) 的 `PROVIDERS` 里加一项就够了。
+
+自定义接口（见[本地模型和自己的网关](#本地模型和自己的网关ollamalm-studiovllmllamacpp)）用的也是这个适配层，有三处不同。
+一个模型能做什么（看图、工具、PDF、上下文多大）按模型记，不按家记：同一个 Ollama 上可能一个模型能用工具、旁边一个不能。
+只做了一部分这套格式的服务器，退一步就行：服务器不认 `stream_options`，就不再要用量；这段对话还没用过工具时服务器拒绝了工具，
+这段对话就不带工具接着聊（被拒绝的那次请求服务器根本没处理，所以历史一个字都没改）。两样都记进 `data/endpoints.json`，
+下一段对话一开始就按对的办法发。最后，同一个接口上能不能用工具不一样的两个模型之间换，要开始新的一段：一段对话的工具清单从来不变。
 
 ### 对话太长了怎么办：压缩历史
 
@@ -2257,6 +2295,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），以及命令的沙箱（`"sandbox": {"level", "paths"}`）。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
+| `data/endpoints.json` | 自定义模型接口：名字、地址、可选的密钥，以及每个模型能做什么、上下文上限和价格。只有你的账号能读；助手的文件工具打不开它；导出时密钥遮住，页面上只看得到最后 4 位 |
 | `data/channels.json` | 聊天通道，每个平台一份：凭据（机器人的 token，或者应用的 ID 和密钥；密钥就是钥匙）、机器人的名字、配对的主人的账号编号和名字、确认方式、沙箱的档位、正在用的配对码、每个聊天接着的是哪一段会话，以及 Telegram 的消息读到了哪里。只有你的账号能读；助手的文件工具打不开它；导出时遮住 |
 | `data/browser/profile/` | 智狐自己那个 Chrome 的配置文件夹：你在里面登录过的网站的 cookie 和登录状态、缓存、历史记录。只有你的账号能读。"设置 → 浏览器 → 清除"会删掉它 |
 | `data/browser/shots/` | 浏览器每一步截图的大图，文件名是内容的 SHA-256。30 天后删掉，对话里的小图还在 |
@@ -2459,6 +2498,11 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 所以几个任务一起跑时结果也是确定的）。
 MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.py](tests/test_mcp_web.py)，对着的是
 [tests/fake_mcp.py](tests/fake_mcp.py)：一个两代协议都会说、stdio 和 HTTP 都能用的假 MCP 服务器。
+自定义模型接口对着的是 `fake_openai.py`，可以装成 Ollama、LM Studio，或者没有模型列表、不认工具、不认 `stream_options` 的服务器：
+[tests/test_endpoints.py](tests/test_endpoints.py)（地址的规矩、表单的检查、存储、猜能力、测试连接、不跟重定向、导出时遮住密钥）、
+[tests/test_endpoints_chat.py](tests/test_endpoints_chat.py)（完整的一轮和工具调用、不认工具或 `stream_options` 时退一步、
+别家的密钥和请求头一个都不带过去、按模型的上下文和价格、换模型的规矩、换模型的目录和"智狐能做的事"）、
+[tests/test_endpoints_web.py](tests/test_endpoints_web.py)（网页的接口、"不改"的密钥不会跟着地址跑到别处、发给浏览器的东西里没有密钥）。
 多媒体库的测试在 [tests/test_media.py](tests/test_media.py)（原件的存储和去重；从 Claude 和 OpenAI 两种格式的旧历史里找回附件；
 筛选和翻页；拼不出路径的编号；只在没有会话再用时才删原件）和 `tests/test_webui.py` 里多媒体的那一节（接口和响应头）。
 编辑和重新生成的测试在 [tests/test_rewind.py](tests/test_rewind.py)（两种格式都测：新请求的开头和原来一字不差、没有落单的工具结果、
@@ -2620,6 +2664,8 @@ uv run harness eval compare <运行A> <运行B>     # 任意两次（编号写�
 ```
 
 Windows 的 PowerShell 里命令一样。`--model` 写"提供方/模型"（也可以只写模型名，比如 `deepseek-flash`），不写就用你现在选的那个。
+自定义接口上的模型写成 `custom-<编号>/<模型名>`，比如 `--model custom-ollama/qwen3:8b`（见[本地模型和自己的网关](#本地模型和自己的网关ollamalm-studiovllmllamacpp)）：
+接口的设置会抄进每一遍自己的数据目录，本地的模型不花钱。
 `--tasks` 写逗号隔开的编号（可以用 `*` 通配）或标签。别的选项：`--repeat N`（模型每次回答不完全一样，一个任务只跑一遍，
 过没过有一半是运气，下结论之前多跑几遍）、`--prompt 文件路径` 或 `--prompt builtin`（默认用你现在的提示词：在设置里改了提示词，
 再跑一遍评测，就知道改得好不好）、`--effort`、`--parallel N`、`--judge` / `--judge-model`，以及 `--keep`：跑完留着每个任务的临时文件夹，
@@ -2721,6 +2767,9 @@ say = "改好了。"
 - 评测（`harness eval`）只做过对着本地假服务器的演习，还没有真的跑过：起步任务在真模型上得多少分、花费的估算准不准，都还没有核对过。
   也不检查回答请求的是不是要的那个模型（被拒绝后服务器换了备用模型，只在记录里留一句提示）。
 - 用 GPT、Gemini、DeepSeek 时没有联网搜索。
+- 自定义模型接口只对着本地的假服务器测过（模仿 Ollama、LM Studio 和只做了一部分 OpenAI 格式的服务器），没有接过真的
+  Ollama、LM Studio、vLLM、llama.cpp 或者网关。流式回答里不报告用量的服务器，看不到 token 数，它的对话也不会自动压缩。
+  PDF 只能按 OpenAI 自己的写法发给自定义接口，本地的服务器一般读不了。
 - GPT、Gemini、DeepSeek 的压缩是智狐自己做的，还没有用真实的密钥测过。摘要难免丢掉细节；切口只能落在两轮之间，
   所以一轮对话自己就超出模型的上限时（比如一轮里读了很多大文件）压缩不了；不在 `config.py` 表里的模型一律按 12.8 万 token 的上限算，
   上限更大的模型会压缩得早一些。打开一段旧会话后，要等第一次请求量出它有多大，才知道要不要压缩。

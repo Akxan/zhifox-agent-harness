@@ -52,6 +52,10 @@
     （卡片上带着危险按键的警告，可以拒绝看看一串操作怎么停下）。顶栏上会出现"智狐正在控制这台电脑"和"停止"。
     这一段的回复也不占下面那一串（见 computer_reply）。
 
+  - 自定义模型接口（设置 → 自定义模型接口）预先加好了一个假的"本机 Ollama"（也是 tests/fake_openai.py，只在这台电脑上）：
+    qwen3:8b 能用工具，llava:13b 看得懂图片，gemma2:2b 什么工具都用不了。在换模型的面板里能换过去聊（回复是它自己那一串）；
+    编辑它、点"测试连接""同步模型"，看得到智狐认出它是 Ollama、猜出每个模型能做什么（nomic-embed-text 是向量模型，会被去掉）。
+
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
 一次 MCP 工具调用；然后是两次"交给子 Agent"：先交给资料研究员（它读一个文件、联网搜索、交回一段 Markdown），
@@ -120,8 +124,10 @@ from harness.app import build_app
 from harness.channels import platforms
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.endpoints import EndpointStore
 from harness.i18n import t
 from harness.imports import places as import_places
+from harness.providers import make_client
 from harness.sandbox import backend as sandbox_backend
 from harness.sandbox import linux as sandbox_linux
 from harness.tasks import new_run
@@ -462,6 +468,19 @@ compat = FakeOpenAI(
     models=["deepseek-flash", "deepseek-v4-pro"],
 ).start()
 
+# 一个假的"本机 Ollama"（自定义模型接口，见 harness/endpoints/）：也是 OpenAI 格式，另外像 Ollama 那样回答 /api/version、/api/show，
+# "测试连接""同步模型"认得出它、猜得出每个模型能做什么。设置里预先加好了它（见下面的 endpoints.json），换模型的面板里能换过去。
+# 它只在这台电脑上，不花钱；gemma2 那个模型用不了工具（服务器会拒绝带工具的请求，看智狐怎么退一步）
+ollama = FakeOpenAI(
+    [chat("你好！我是这台电脑上的模型，对话不出你的电脑。") for _ in range(40)],  # 每次都一样：页面测试不管先后，看到的都是这一句
+    models=["qwen3:8b", "llava:13b", "gemma2:2b", "nomic-embed-text"],
+    ollama={
+        "qwen3:8b": {"capabilities": ["completion", "tools", "thinking"], "model_info": {"qwen3.context_length": 40960}},
+        "llava:13b": {"capabilities": ["completion", "vision"], "model_info": {"llama.context_length": 4096}},
+        "gemma2:2b": {"capabilities": ["completion"], "model_info": {"gemma2.context_length": 8192}},
+    },
+).start()
+
 root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 # "从其他工具导入"会去读 HOME 下面别的工具（Claude Desktop、Claude Code、Cursor……）的配置。演示里换成临时目录里编造的那几份，
 # 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
@@ -741,7 +760,10 @@ config = Config(
 
 
 def client_factory(provider):
-    """所有厂商的连接都指向上面两个假服务器。"""
+    """所有厂商的连接都指向上面两个假服务器。自定义接口用正式程序的那一个（make_client：别家的密钥不带过去、不跟重定向），
+    它的地址就是上面那个假的 Ollama。"""
+    if provider.custom:
+        return make_client(provider)
     key = os.environ.get(provider.key_env) or "missing"
     if provider.kind == "anthropic":
         return anthropic.Anthropic(api_key=key, base_url=claude.base_url, max_retries=0)
@@ -771,6 +793,23 @@ if options.no_sandbox:
     # 当作没装 bubblewrap 的 Linux：设置里选了一档的话，命令一律会被拒绝执行（和真的用不了时一样）
     missing = dataclasses.replace(sandbox_backend.LINUX, problem=lambda: t("这台电脑上没有装 bubblewrap（bwrap）。{install}", install=t(sandbox_linux.INSTALL)))
     sandbox_backend.detect = lambda: missing
+if not config.endpoints_file.exists():
+    # 预先加好的自定义接口：假的本机 Ollama（地址每次启动都不一样，所以已有的数据目录里也换成这一次的）
+    EndpointStore(config.endpoints_file).save({
+        "name": "Ollama",
+        "base_url": ollama.base_url + "/v1",
+        "api_key": "",
+        "models": [
+            {"id": "qwen3:8b", "vision": False, "tools": True, "pdf": False, "context": 40960},
+            {"id": "llava:13b", "vision": True, "tools": False, "pdf": False, "context": 4096},
+            {"id": "gemma2:2b", "vision": False, "tools": False, "pdf": False, "context": 8192},
+        ],
+    })
+else:
+    seeded = EndpointStore(config.endpoints_file)
+    for endpoint in seeded.list():
+        if endpoint.id == "ollama":
+            seeded.save({**endpoint.saved(), "base_url": ollama.base_url + "/v1", "api_key": {"keep": True} if endpoint.api_key else ""}, endpoint.provider_id)
 app = build_app(config, ui, client_factory=client_factory)
 # 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
@@ -812,4 +851,5 @@ finally:
     for fake in others.values():
         fake.stop()
     docs_server.stop()
+    ollama.stop()
     shop.server.shutdown()

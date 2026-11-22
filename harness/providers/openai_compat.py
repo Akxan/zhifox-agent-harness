@@ -9,12 +9,23 @@
   - 没有服务器端的联网搜索；缓存是各家自动做的、不用我们管。
   - API 不会替我们压缩历史。对话太长时，由智狐自己请模型把较早的部分写成摘要（见 compaction.py）。
   - 用户消息带图片时，内容是一个列表，图片写成 data: 地址；这套格式里没有各家通用的 PDF 写法。
+
+自定义接口（Ollama、LM Studio、vLLM、llama.cpp、公司的网关，见 harness/endpoints/）也走这里。它们照着这套格式做，
+但不一定做全，所以多了几样（只对自定义接口打开，内置的三家不会碰到，碰到了也是真的出了错，不该悄悄绕过去）：
+
+  - 不认 stream_options（流式回答里报告用量）的：第一次被拒绝（400）就不再发它，接着请求一次；
+  - 模型用不了工具的（Ollama 的 "does not support tools"、vLLM 没开工具解析、llama.cpp 没加 --jinja）：
+    这段对话还没调用过工具的话，从这一次起不发工具，接着请求一次。被拒绝的那一次服务器根本没处理，
+    所以对模型来说，这段对话从头就是"没有工具"的，历史一个字都没改（"只在末尾追加"照样成立）。已经调用过工具的不退：
+    说明它其实能用，这次多半是别的原因，照常报错；
+  - 上下文上限按这个模型自己的（你在设置里填的，或者同步时服务器说的），不按内置的表。
+退了一步的都记进 data/endpoints.json（degrade 回调），以后的对话直接按新的办法发，不再碰一次壁。
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import openai
@@ -51,6 +62,11 @@ class OpenAICompatBackend:
         *,
         vision: bool = False,
         pdf: bool = False,
+        tools_supported: bool = True,
+        context_window: int | None = None,
+        stream_usage: bool = True,
+        degrade: Callable[..., None] | None = None,
+        explain: Callable[[openai.APIError, str], str] | None = None,
     ):
         self.client = client
         self.provider = provider
@@ -58,6 +74,14 @@ class OpenAICompatBackend:
         self.model = model
         self.config = config
         self.vision, self.pdf = vision, pdf  # 这一家能不能收图片、PDF（见 providers/__init__.py 的 PROVIDERS）
+        # 下面几项只有自定义接口会改（见开头的说明和 providers.make_backend）
+        self.tools_supported = tools_supported  # 这个模型能不能用工具。不能的话一个工具都不发
+        self.context_window = context_window  # 上下文上限；None 按 config 里的表
+        self.stream_usage = stream_usage  # 请求里带不带 stream_options
+        # 服务器拒绝了 stream_options、工具时退一步，并告诉 degrade（模型名，stream_usage=False 或 tools=False）记下来。
+        # None 表示不退：内置的三家被拒绝了就是真的出错了
+        self._degrade = degrade
+        self._explain_custom = explain  # 自定义接口出错时说得更具体（连不上时教你怎么启动服务器，见 endpoints/errors.py）
         self.use_tools(tools)
         self._system = {"role": "system", "content": system_prompt}
         self._start_history([])
@@ -167,8 +191,9 @@ class OpenAICompatBackend:
             self._messages.append({"role": "user", "content": content})
 
     def sends(self, tool: Any) -> bool:
-        """这个工具发不发给模型：要有各家通用的说明书、在本地执行；全靠截图的只给看得懂图片的（见 use_tools）。"""
-        return tool.portable is not None and tool.run is not None and (self.vision or not tool.vision)
+        """这个工具发不发给模型：要有各家通用的说明书、在本地执行；全靠截图的只给看得懂图片的（见 use_tools）。
+        这个模型用不了工具（自定义接口上的一些模型）的话，一个都不发。"""
+        return self.tools_supported and tool.portable is not None and tool.run is not None and (self.vision or not tool.vision)
 
     def tool_names(self) -> list[tuple[str, bool]]:
         return [(tool.name, True) for tool in self._local_tools]
@@ -177,12 +202,9 @@ class OpenAICompatBackend:
 
     def _request(self, messages: list[dict]) -> dict[str, Any]:
         """一次流式请求的参数。写摘要的请求也用它：两者只有历史的末尾不同，开头一样才能命中缓存。"""
-        request: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},  # 让最后一块数据带上 token 用量
-        }
+        request: dict[str, Any] = {"model": self.model, "messages": messages, "stream": True}
+        if self.stream_usage:
+            request["stream_options"] = {"include_usage": True}  # 让最后一块数据带上 token 用量
         if self.tool_specs:
             request["tools"] = self.tool_specs
         return request
@@ -196,7 +218,45 @@ class OpenAICompatBackend:
                 # 再调用一次 step，那一次才是真正的请求。不和真正的请求合成一步，是因为那一次万一失败，
                 # 写摘要已经花掉的钱也要记上
                 return Step(status="compacted", usage=usage)
+        while True:
+            try:
+                return self._step(ui)
+            except openai.APIError as exc:
+                # 自定义接口不认某个参数：退一步再请求一次（见开头的说明）。每样最多退一次，所以这个循环最多三圈
+                if not self._degraded(exc, ui):
+                    raise ProviderError(self._explain(exc)) from exc
 
+    def _degraded(self, exc: openai.APIError, ui: StreamUI) -> bool:
+        """服务器是因为不认 stream_options、用不了工具才拒绝的吗？是的话退一步（只对自定义接口），返回 True。"""
+        if self._degrade is None or not isinstance(exc, (openai.BadRequestError, openai.UnprocessableEntityError)):
+            return False
+        said = str(exc.message or exc).lower()
+        if self.stream_usage and ("stream_options" in said or "include_usage" in said):
+            self.stream_usage = False
+            self._degrade(self.model, stream_usage=False)
+            ui.notice(
+                "info",
+                t("{provider} 不认 stream_options（在流式回答里报告用量），以后不再要了。这个接口用了多少 token、上下文多大，智狐都看不到，对话太长时也不会自动压缩。", provider=self.label),
+            )
+            return True
+        if self.tool_specs and ("tool" in said or "function" in said) and not _has_tool_calls(self._messages):
+            self.tools_supported = False
+            self._local_tools, self.tool_specs = [], []
+            self._degrade(self.model, tools=False)
+            ui.notice(
+                "info",
+                t("{provider} 的 {model} 用不了工具（{error}）。这段对话里它只能用文字回答；要读写文件、执行命令，换一个能用工具的模型。", provider=self.label, model=self.model, error=brief(exc.message)),
+            )
+            return True
+        return False
+
+    def _explain(self, exc: openai.APIError) -> str:
+        if self._explain_custom is not None:
+            return self._explain_custom(exc, self.model)
+        return _explain(exc, self.label, self.model)
+
+    def _step(self, ui: StreamUI) -> Step:
+        """真正的一次请求：边收边显示，收完把回复追加进历史。"""
         text, reasoning, finish, raw_usage = "", "", None, None
         calls: dict[int, dict] = {}  # 工具调用是一小段一小段到达的，按序号拼起来
         try:
@@ -222,10 +282,8 @@ class OpenAICompatBackend:
                     for piece in delta.tool_calls or []:
                         _merge_tool_call(calls, piece)
                     finish = choice.finish_reason or finish
-        except openai.APIError as exc:
-            raise ProviderError(_explain(exc, self.label, self.model)) from exc
         finally:
-            ui.end_stream()
+            ui.end_stream()  # 出错（openai.APIError）由 step 接住：看要不要退一步，不退就翻译成 ProviderError
 
         step = Step(status="done", usage=_usage(raw_usage), truncated=finish == "length", stop_reason=finish or "")
         self._context_tokens = step.usage.context_tokens  # 下一次请求之前，看它决定要不要先压缩
@@ -264,7 +322,7 @@ class OpenAICompatBackend:
 
     def _compaction_cut(self) -> int | None:
         """现在该不该先压缩：该的话返回切口的位置（见 compaction.find_cut），不该返回 None。"""
-        if self._compaction_failed or not compaction.is_due(self._context_tokens, self.model):
+        if self._compaction_failed or not compaction.is_due(self._context_tokens, self.model, self.context_window):
             return None
         return compaction.find_cut(self._messages)
 
@@ -320,7 +378,7 @@ class OpenAICompatBackend:
                     if chunk.choices and chunk.choices[0].delta.content:
                         text += clean_text(chunk.choices[0].delta.content)  # 摘要要放进历史，同样先洗一遍
         except openai.APIError as exc:
-            raise ProviderError(_explain(exc, self.label, self.model)) from exc
+            raise ProviderError(self._explain(exc)) from exc
         if not text.strip():
             raise ProviderError(t("模型没有写出摘要。"))
         usage = _usage(raw_usage)
@@ -330,6 +388,11 @@ class OpenAICompatBackend:
         details = getattr(raw_usage, "completion_tokens_details", None)
         reasoning = getattr(details, "reasoning_tokens", None) or 0
         return text, usage, max(0, usage.output_tokens - reasoning)
+
+
+def _has_tool_calls(messages: list[dict]) -> bool:
+    """这段历史里模型调用过工具没有（调用过，说明它其实能用工具，见 _degraded）。"""
+    return any(message.get("role") == "assistant" and message.get("tool_calls") for message in messages)
 
 
 def _merge_tool_call(calls: dict[int, dict], piece: Any) -> None:
