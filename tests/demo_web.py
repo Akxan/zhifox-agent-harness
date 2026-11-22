@@ -73,6 +73,7 @@ import argparse
 import dataclasses
 import json
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -335,7 +336,18 @@ class SlowClaude:
                 self.send_header("content-type", "text/event-stream")
                 self.end_headers()
                 time.sleep(options.think)  # 模型开口之前先"想"一会儿
-                for event in in_small_pieces(_events(scripted)):
+                pieces = in_small_pieces(_events(scripted))
+                # 第一条消息里写着 [midgate:名字]：回复发到一半，root/ui-gates/名字 这个文件还在的话就停下等，删掉了再接着发。
+                # 页面测试用它在"确定写了一半"的时候换走、换回来（tests/ui/test_ui_parallel.py），不赌机器快慢
+                gate = re.search(r"\[midgate:([\w-]+)\]", first)
+                deltas = [index for index, event in enumerate(pieces) if event["type"] == "content_block_delta"]
+                halfway = deltas[len(deltas) // 2] if gate and deltas else -1
+                for index, event in enumerate(pieces):
+                    if index == halfway:
+                        closed = root / "ui-gates" / gate.group(1)
+                        deadline = time.monotonic() + 120
+                        while closed.exists() and time.monotonic() < deadline:
+                            time.sleep(0.02)
                     self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
                     self.wfile.flush()
                     if event["type"] == "content_block_delta":

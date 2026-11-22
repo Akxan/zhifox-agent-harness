@@ -317,16 +317,21 @@ def test_a_conversation_waiting_in_the_background_is_marked_and_the_alert_takes_
 
 def test_switching_back_to_a_reply_halfway_through_keeps_it_streaming(live):
     page = live.page
-    title = live.name("[ui:hello] 换回来接着看")
+    # [midgate:名字]：演示的假模型把回复发到一半就停下，等闸门打开再接着发（见 tests/demo_web.py）。这样换走、换回来的时候
+    # 回复一定正写到一半，不用赶在它写完之前点完（慢的机器上赶不上：换回来的时候它已经写完了，或者还没开始）
+    gate = live.gates / "half"
+    gate.write_text("closed", encoding="utf-8")
+    title = live.name("[ui:hello] [midgate:half] 换回来接着看")
     steps.send(page, title)
-    # 回复开始一个字一个字地出现了（一百五十个字，三个字一段、30 毫秒一段，要一秒半才写完）：这时换走、马上换回来。
-    # 这里不等动画播完（live.fresh 会等）：点得到就点，免得慢的机器上回来的时候它已经写完了
     page.wait("[...document.querySelectorAll('#log .msg.assistant')].some((node) => node.textContent.length > 0)", what="回复开始出现")
-    page.click("#new")
-    page.wait("!document.querySelector('#log .msg') && !document.body.classList.contains('busy')", what="换成一段空的新对话")
+    live.fresh()  # 换成一段空的新对话：写了一半的那一段留在后台，停在闸门上
     page.js(WATCH_REPLY)
     page.click(f"{_row(title)} .conv-main")
     page.wait(f"document.getElementById('title').textContent === {json.dumps(title, ensure_ascii=False)}", what="换回那一段")
+    # 重放出来的是写了一半的那一段：有字，还没写完，还在"正在输出"
+    page.wait("[...document.querySelectorAll('#log .msg.assistant')].some((node) => node.textContent.length > 0)", what="写了一半的回复重放出来")
+    assert "详细的说明在" not in page.text("#log .msg.assistant"), "闸门还关着：回复应该只写了一半"
+    gate.unlink()  # 闸门打开：后一半接着一小段一小段地来
     steps.reply(page, "详细的说明在")
     lengths = [size for size in page.js("window.__watch.disconnect(), window.__lengths") if size]
     # 重放出来的是写了一半的那一段（不是整段），之后一小段一小段接着长，最后是完整的回复
