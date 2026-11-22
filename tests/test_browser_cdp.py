@@ -79,7 +79,9 @@ class Peer:
             while view:
                 view = view[os.write(self.from_peer_write, view) :]
 
-    def next(self, timeout: float = 3) -> dict:
+    def next(self, timeout: float = 10) -> dict:
+        # 等对面收到下一条。只有等不到（测试要失败）时才真的等这么久；GitHub 的 Windows 机器忙的时候，
+        # 几个线程同时发的请求 3 秒都没到齐过一次，所以放宽到 10 秒。要断言"没有发"的地方自己给短的 timeout
         return self.received.get(timeout=timeout)
 
     def hang_up(self) -> None:
