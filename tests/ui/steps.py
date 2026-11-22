@@ -241,3 +241,64 @@ def voice_local(page: Page) -> None:
     pick(page, "#voice-provider", "local")
     page.wait("!document.getElementById('voice-local').hidden && document.activeElement.id === 'voice-url'", what="兼容服务的那几格出来")
     idle(page)
+
+
+# 系统通知（page/scripts/notify.js）：测试里不弹真的系统通知，也不真的把窗口藏到后面去。
+#   window.Notification 换成一个只记下调用的假货：window.__notes 是弹过的每一条（title、options、closed、onclick），
+#     权限是 window.__permission（granted / default / denied），requestPermission 记一次数（window.__asked），
+#     把 default 换成 window.__answer（默认 granted）。
+#   document.hidden、visibilityState 换成 window.__setHidden(true / false) 管的值，换的时候和浏览器一样发一个 visibilitychange。
+#   window.focus()（点通知时页面会调用它）记一次数（window.__focused），像真的浏览器那样让页面回到眼前。
+# 页面每次要用时才读这几样，所以装在已经打开的页面上也行；要刷新以后还在（看重放弹不弹），给 keep=True。
+FAKE_NOTIFICATIONS = """(() => {
+  window.__permission = __PERMISSION__;
+  if (window.__notes) return;
+  window.__notes = [];
+  window.__asked = 0;
+  window.__focused = 0;
+  let hidden = __HIDDEN__;
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') });
+  window.__setHidden = (value) => {
+    if (hidden === value) return;
+    hidden = value;
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+  class FakeNotification {
+    constructor(title, options) { this.title = title; this.options = options || {}; this.closed = false; window.__notes.push(this); }
+    close() { if (this.closed) return; this.closed = true; if (this.onclose) this.onclose(); }
+    static get permission() { return window.__permission; }
+    static requestPermission(callback) {
+      window.__asked += 1;
+      if (window.__permission === 'default') window.__permission = window.__answer || 'granted';
+      if (callback) callback(window.__permission);
+      return Promise.resolve(window.__permission);
+    }
+  }
+  window.Notification = FakeNotification;
+  window.focus = () => { window.__focused += 1; window.__setHidden(false); };
+})()"""
+
+
+def fake_notifications(page: Page, permission: str = "granted", keep: bool = False, hidden: bool = False) -> None:
+    """把这个标签页的系统通知和"页面在不在眼前"换成假的（见 FAKE_NOTIFICATIONS），再装一次就是换权限。
+    装好以后页面照着假的权限重画设置里的"系统通知"一节（发一个 visibilitychange：页面回到眼前时本来就会重画）。
+    keep：以后刷新、重新打开的页面也在脚本跑起来之前装上，hidden 是那时页面一开始在不在后台（看重放弹不弹通知）。"""
+    if keep:
+        source = FAKE_NOTIFICATIONS.replace("__PERMISSION__", json.dumps(permission)).replace("__HIDDEN__", json.dumps(hidden))
+        page.call("Page.addScriptToEvaluateOnNewDocument", {"source": source})
+    page.js(FAKE_NOTIFICATIONS.replace("__PERMISSION__", json.dumps(permission)).replace("__HIDDEN__", "false"))
+    page.js("document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def background(page: Page, hidden: bool = True) -> None:
+    """让页面"切到后台"（hidden=True）或者"回到眼前"。先装好 fake_notifications。"""
+    page.js(f"window.__setHidden({json.dumps(hidden)})")
+
+
+def notes(page: Page) -> list[dict]:
+    """假的系统通知弹过的每一条：标题、正文、tag、是不是要一直留着（等你确认的那种）、收掉了没有。"""
+    return page.js(
+        "window.__notes.map((note) => ({ title: note.title, body: note.options.body, tag: note.options.tag,"
+        " urgent: note.options.requireInteraction === true, closed: note.closed }))"
+    )

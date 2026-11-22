@@ -87,6 +87,7 @@ STYLES = (
     "styles/voice.css",  # 语音转文字：设置里的一节、消息上的小标记
     "styles/trace.css",  # 运行记录：每一轮上的入口、滑出来的窗口（合计、瀑布图、逐段的详情）
     "styles/service.css",  # 设置里的"后台运行"
+    "styles/notify.css",  # 设置 · 系统通知：浏览器允许了没有、怎么允许的那一块（沿用 browser.css 的开关，所以排在它后面）
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
 )
 
@@ -110,6 +111,7 @@ SCRIPTS = (
     "scripts/subagent-cards.js",  # 交给子 Agent 的卡片
     "scripts/trace.js",  # 运行记录：每一轮上的入口、记录的检查、窗口的开和关
     "scripts/trace-chart.js",  # 运行记录 · 窗口里画的东西：合计、瀑布图、逐段的详情
+    "scripts/notify.js",  # 系统通知：页面在后台时等你确认、回复完了、出错了弹通知，标签页的标题和图标标出来；设置里的开关和授权
     "scripts/events.js",  # 每种事件怎么画
     "scripts/attachments.js",  # 附件
     "scripts/viewer.js",  # 查看器

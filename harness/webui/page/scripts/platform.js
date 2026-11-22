@@ -6,7 +6,7 @@
 //   文件管理器的名字（访达 / 文件资源管理器 / 文件管理器）看助手程序所在的电脑（状态里的 platform，
 //     由 harness/machine.py 算）：点"在访达中显示"，打开的是那台电脑上的窗口。"操作整台电脑"操作的也是那一台。
 //
-// 两条规矩都只写在这里。别处要写快捷键用 forKeys()，判断按没按"命令键"用 commandHeld()；
+// 两条规矩都只写在这里。别处要写快捷键用 forKeys()，判断按没按"命令键"用 commandHeld()，按浏览器那台电脑说别的话用 byBrowser()；
 // 要按助手程序所在的电脑说话用 byServer()，三种说法都写成 k('…')（检查漏翻译的测试靠它找到这些句子）。
 
 // 打开页面的这台电脑。navigator.platform 已经不推荐用了，但每个浏览器都还有，而且是唯一一个不用另外请求就能读到的
@@ -18,6 +18,9 @@ const ON_MAC = BROWSER_SYSTEM === 'mac';
 
 // 写给人看的组合键：Mac 上的写法（⌘、⌥），别的电脑上的写法（Ctrl、Alt）
 const forKeys = (mac, other) => (ON_MAC ? mac : other);
+
+// 按打开页面的这台电脑选一种说法（三种系统各一句）：比如系统的通知设置在哪儿（见 notify.js），弹通知的是这台电脑
+const byBrowser = (mac, windows, linux) => (BROWSER_SYSTEM === 'windows' ? windows : BROWSER_SYSTEM === 'linux' ? linux : mac);
 
 // 按没按"命令键"：Mac 上是 ⌘，别的电脑上是 Ctrl。另一个键不能同时按着：Mac 上的 Ctrl+K 是"删到行尾"、
 // Ctrl+F 是"光标右移一格"，不能占用；Windows 上按着 Windows 键的组合是系统的

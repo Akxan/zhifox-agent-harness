@@ -96,6 +96,13 @@ def _sweep(page) -> dict[str, list[str]]:
 
     steps.open_dialog(page, "#settings-open", "settings")
     look("设置", ["#settings"])
+    # 系统通知：浏览器拦下了、允许了的那两种说明（权限是假的，见 steps.fake_notifications；"还没问过"的样子上面已经看过）
+    steps.fake_notifications(page, permission="denied")
+    page.wait("document.getElementById('notify-permission').classList.contains('warn')", what="系统通知：被拦下的样子")
+    look("设置 · 系统通知（被浏览器拦下）", ["#notify-section"])
+    steps.fake_notifications(page, permission="granted")
+    page.wait("!document.getElementById('notify-try').hidden", what="系统通知：允许了的样子")
+    look("设置 · 系统通知（浏览器允许了）", ["#notify-section"])
     # 自定义模型接口：编辑窗口（叠在设置上面），测试连接以后的结果和猜出来的能力
     page.click("#endpoints-list > li.endpoint-row .endpoint-open")
     page.wait(steps.is_open("endpoint-dialog"), what="编辑接口的窗口打开")

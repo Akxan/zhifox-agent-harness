@@ -1,0 +1,21 @@
+/* 设置里"系统通知"一节（scripts/notify.js）。开关和说明沿用浏览器那一节的 .browser-option / .browser-switch（写在 browser.css 里，
+   所以这个文件排在它后面，才盖得过它的 margin），这里只有下面那一块：浏览器允许了没有、怎么允许。三种样子：
+     ask   浏览器还没问过：中性的底色，一个"允许通知"
+     good  允许了：一个对勾、"发一条试试"、看不到通知时去系统的哪里看
+     warn  被浏览器拦下了，或者这个浏览器不支持：警告的颜色（和沙箱用不了的提示一样） */
+.notify-option { margin-top: 4px; }
+.notify-permission { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); background: var(--sunken); border: 1px solid var(--line); border-radius: 12px; }
+.notify-permission[hidden], .notify-permission-actions[hidden], .notify-permission-more[hidden] { display: none; }
+.notify-permission > .icon { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--ink-3); }
+.notify-permission-words { flex: 1; min-width: 0; }
+.notify-permission-words p { margin: 0; overflow-wrap: anywhere; text-wrap: pretty; }
+.notify-permission-words .notify-permission-more { margin-top: 4px; color: var(--ink-3); }
+.notify-permission-actions { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.notify-permission.good > .icon { color: var(--ok); }
+.notify-permission.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+.notify-permission.warn > .icon { color: var(--warn); }
+/* 窄屏：按钮放不下就挪到文字下面，和文字左边对齐（让开前面的图标） */
+@media (max-width: 560px) {
+  .notify-permission { flex-wrap: wrap; }
+  .notify-permission-actions { flex-basis: 100%; padding-left: 25px; }
+}

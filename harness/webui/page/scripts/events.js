@@ -45,7 +45,7 @@ const handlers = {
     renderAgents(event.agents);   // 先于会话列表：列表里的小标记要用 Agent 的颜色
     renderChannelsState(event.channels);  // 也先于会话列表：在聊天通道里聊的那几段要写平台的名字（不然刷新后写成小写的 telegram）
     renderPersona(event.persona);
-    document.title = (event.title ? event.title + ' · ' : '') + t('智狐');
+    setPageTitle((event.title ? event.title + ' · ' : '') + t('智狐'));  // 页面在后台、有事等你时，前面再加一个标记（见 notify.js）
     $('setup').hidden = current.has_key;
     $('cards').hidden = !current.has_key;
     $('setup-text').textContent = t('还没有设置 {provider} 的 API 密钥，填好之后就可以开始对话。', { provider: current.label });
@@ -98,13 +98,15 @@ const handlers = {
   // 重放旧会话时不在每一轮都刷新"正在工作"：一段 150 轮的会话会把 body.busy 来回切换 300 次，
   // 而 Chrome 在用户真的在输入框里打过字之后，每切换一次就同步重算一遍整页的样式（实测卡 1.4 秒）。
   // 重放是在同一个任务里画完的，中间状态本来就看不到；画完之后按最终状态刷新一次（见 state）
-  turn_start() { busy = true; stopping = false; if (!replaying) { refreshStatus(); renderTurnTools(); } },
+  turn_start() { busy = true; stopping = false; noteTurnStart(); if (!replaying) { refreshStatus(); renderTurnTools(); } },
 
   turn_end() {
     endBlock();
     if (toolCard) finishTool('stopped', k('没有执行完'));  // 这一轮结束时工具还没给出结果（比如被中断了）
+    const stopped = stopping;
     busy = stopping = false;
     if (!replaying) { refreshStatus(); renderTurnTools(); }
+    noteTurnEnd(stopped);  // 页面在后台的话：弹一个"回复完了"的系统通知，标签页上标出来（见 notify.js）
   },
 
   thinking(event) { stream('thinking', event.text); },
@@ -120,6 +122,7 @@ const handlers = {
     // 助手程序给了原文（key）的提示，换语言时也能跟着换；没给的（比如旧的会话记录）照原样显示
     node.appendChild(event.key ? tel('span', null, event.key, event.values) : el('span', null, String(event.text)));
     add(node);
+    if (event.level === 'error') noteError(node);  // 页面在后台的话弹一个系统通知（见 notify.js）
   },
 
   tool_call(event) {
@@ -223,6 +226,7 @@ const handlers = {
     announce(t('需要你确认') + '：' + what.textContent);
     confirms.set(event.id, { card, actions, heading });
     refreshStatus();
+    noteConfirm(event, card);  // 页面在后台的话：弹一个系统通知，标签页的标题写上"等你确认"（见 notify.js）
   },
 
   subagent(event) { subagentStep(event); },
@@ -244,5 +248,6 @@ const handlers = {
     pending.card.classList.remove('alert');
     confirms.delete(event.confirm);
     refreshStatus();
+    noteConfirmDone(event.confirm);  // 为它弹的系统通知收掉，标题上的"等你确认"去掉
   },
 };

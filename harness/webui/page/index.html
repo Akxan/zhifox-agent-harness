@@ -473,6 +473,30 @@ __STYLES__
       </div>
       <p class="hint" data-i18n>这个月的花费超过它时提醒你一次，不会拦住任何操作。调高以后又超过了，会再提醒一次。</p>
     </section>
+    <!-- 系统通知（scripts/notify.js）：页面在后台时，等你确认、一轮回复完了、出错了，弹一个系统通知。开关记在这个浏览器里（和外观一样），
+         下面那一块按浏览器的权限（Notification.permission）写：还没问过、允许了、被拦下了、不支持 -->
+    <section id="notify-section">
+      <h3><span data-i18n>系统通知</span> <small id="notify-state"></small></h3>
+      <div class="browser-option notify-option">
+        <div class="browser-option-words">
+          <b id="notify-title" data-i18n>页面在后台时弹出系统通知</b>
+          <span class="browser-note" data-i18n>你切到别的窗口时，智狐停下来等你确认、一轮回复完了、出错了，还有定时任务的提醒、超出预算，都弹一个系统通知。点它回到这里，停在那张卡片或那条回复上。</span>
+        </div>
+        <button id="notify-enabled" class="browser-switch" type="button" role="switch" aria-checked="true" aria-labelledby="notify-title"></button>
+      </div>
+      <div id="notify-permission" class="notify-permission" role="note" hidden>
+        <svg class="icon" aria-hidden="true"><use id="notify-permission-icon" href="#i-bell"/></svg>
+        <div class="notify-permission-words">
+          <p id="notify-permission-text"></p>
+          <p id="notify-permission-more" class="notify-permission-more" hidden></p>
+        </div>
+        <div id="notify-permission-actions" class="notify-permission-actions">
+          <button id="notify-ask" class="button primary" type="button" hidden data-i18n>允许通知</button>
+          <button id="notify-try" class="button" type="button" hidden data-i18n>发一条试试</button>
+        </div>
+      </div>
+      <p class="hint" data-i18n>标签页上的标记不用浏览器允许，一直都有：页面在后台、有事等你时，标题前多一个圆点（等你确认时写着“等你确认”），图标上也有一个小点。回到页面就没了。这个开关只记在这个浏览器里。</p>
+    </section>
     <section id="browser-section">
       <h3><span data-i18n>浏览器</span> <small id="browser-state"></small></h3>
       <div id="browser-card" class="browser-card">

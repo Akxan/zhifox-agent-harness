@@ -1,5 +1,6 @@
 // ---- 定时任务 · 提醒、通知、主区域顶部的那条提示 ----------------------------
-// 到点的提醒卡片；有新的提醒、新的"等你确认"时在页面上弹一条提示（页面不在眼前时再弹一个系统通知）；
+// 到点的提醒卡片；有新的提醒、新的"等你确认"时在页面上弹一条提示（页面不在眼前时再弹一个系统通知，
+// 弹不弹、浏览器允许了没有都由 notify.js 管，和对话里的通知是同一个开关、同一次授权）；
 // 主区域顶上那条"有任务在运行"的提示；以及让"已经用了多久"每秒走一下的计时（只在有任务在跑、
 // 或者正看着任务列表和详情时开着）。
 
@@ -33,42 +34,40 @@ async function dismiss(data) {
   if (!reply.ok) toast(reply.error);
 }
 
-// 新到的提醒、新出现的"等你确认"：页面上弹一条提示；页面不在眼前、又允许了系统通知的话，再弹一个系统通知。
-// 刚打开页面时重放出来的那些不算"新"，不弹
+// 新到的提醒、新出现的"等你确认"：页面上弹一条提示；页面不在眼前、又允许了系统通知的话，再弹一个系统通知
+// （见 notify.js 的 systemNotify：点它回到页面；等你确认的那条点了还会打开任务列表，停在这个任务上）。
+// 刚打开页面时重放出来的那些不算"新"，不弹。有任务在等你确认时，标签页的标题和图标也标出来（noteTasksWaiting）
 function noticeNewThings() {
   const live = isLive();
   for (const item of reminders) {
     if (!knownReminders || !live || knownReminders.has(item.id)) continue;
     toast(t('提醒：{title}', { title: item.title }));
-    systemNotify(t('提醒：{title}', { title: item.title }), item.text || '');
+    systemNotify(t('提醒：{title}', { title: item.title }), item.text || '', { tag: 'harness-reminder-' + item.id });
   }
   knownReminders = new Set(reminders.map((item) => item.id));
   const waits = tasks.filter((task) => task.running && task.running.confirm);
   for (const task of waits) {
     if (!knownWaits || !live || knownWaits.has(task.running.confirm.id)) continue;
     announce(t('定时任务“{title}”在等你确认', { title: task.title }));
-    systemNotify(t('定时任务“{title}”在等你确认', { title: task.title }), task.running.confirm.summary || '');
+    systemNotify(t('定时任务“{title}”在等你确认', { title: task.title }), task.running.confirm.summary || '',
+      { tag: 'harness-task-confirm-' + task.running.confirm.id, urgent: true, open: () => showTask(task.id) });
   }
   knownWaits = new Set(waits.map((task) => task.running.confirm.id));
+  noteTasksWaiting(waits.length > 0);
 }
 
-function systemNotify(title, text) {
-  if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;  // 页面就在眼前时，页面里的提示就够了
-  try { new Notification(title, { body: text }); } catch (_) { /* 有的浏览器不让在这里直接创建，就算了 */ }
-}
-
+// 任务列表里那句"开启系统通知"：有任务、浏览器还没问过、设置里的"系统通知"也开着时才有。问的是同一次授权（askNotify）
 function renderNotifyOffer() {
   const box = $('task-notify');
-  const show = 'Notification' in window && Notification.permission === 'default' && tasks.length > 0;
+  const show = notifyOn && notifyPermission() === 'default' && tasks.length > 0;
   box.hidden = !show;
   if (!show || box.dataset.language === language) return;
   box.dataset.language = language;
   const ask = el('button', 'mini', t('开启系统通知'));
   ask.type = 'button';
   ask.addEventListener('click', async () => {
-    try { await Notification.requestPermission(); } catch (_) { /* 用户关掉了询问 */ }
-    box.dataset.language = '';
-    renderNotifyOffer();
+    box.dataset.language = '';  // 问完以后重画（还是没允许的话，换一个按钮也一样能点）
+    await askNotify();
   });
   box.replaceChildren(el('span', null, t('到点的时候，就算这个页面不在眼前，也可以弹出系统通知。')), ask);
 }
@@ -100,12 +99,14 @@ function renderTaskAlert() {
   alert.dataset.id = (waiting[0] || active[0]).id;
 }
 
-$('task-alert').addEventListener('click', () => {
-  const id = $('task-alert').dataset.id;
+$('task-alert').addEventListener('click', () => showTask($('task-alert').dataset.id));
+
+// 打开左边栏的任务列表，焦点停在这个任务上（顶上那条提示、系统通知点回来都用它）
+function showTask(id) {
   setNavTab('tasks');
   if (overlayNav.matches && body.classList.contains('nav-closed')) setNav(true, false);
   if (id) focusTask(id);
-});
+}
 
 // 只在有东西要走字的时候开着：有任务在运行，或者正看着任务列表、任务详情
 function syncTaskTimer() {
