@@ -403,7 +403,9 @@ class Session:
             return t("还没有设置 {provider} 的 API 密钥，请先在智狐的网页界面（或者 .env 文件）里填写。", provider=provider.label)
         if self.agent is None:
             approval = self.router.store.get(self.platform)["approval"]
-            self.run = app.channel_agent(self.ui, approval, conversation.provider, conversation.model, self._persona(conversation), outlet=self.outlet)
+            self.run = app.channel_agent(
+                self.ui, approval, conversation.provider, conversation.model, self._persona(conversation), outlet=self.outlet, sandbox=self._sandbox,
+            )
             self.agent = self.run.agent
             if conversation.messages:
                 self.agent.backend.restore(conversation.messages, conversation.dropped)
@@ -500,6 +502,13 @@ class Session:
             self.router.store.remember_chat(self.platform, self.chat, conversation.id)
         except ChannelError:
             pass  # 设置文件坏了：记不下"接着哪一段"，重启以后会开始一段新的，会话本身已经存好了
+
+    def _sandbox(self) -> str:
+        """这个通道现在选的沙箱（每条命令前读一次：你在页面上改了，下一条命令就按新的来）。读不出来时跟着设置走。"""
+        try:
+            return self.router.store.get(self.platform).get("sandbox", "default")
+        except ChannelError:
+            return "default"
 
     # ---- 确认请求 --------------------------------------------------------------
 

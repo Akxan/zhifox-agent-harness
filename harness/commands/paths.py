@@ -117,10 +117,15 @@ class Places:
             resolved = path.resolve()
         except (OSError, RuntimeError, ValueError) as exc:  # 符号链接绕成了圈、名字太长、有不能用的字符……
             raise Unclear(f"看不清 {raw} 指的是哪里") from exc
-        # 展开之后还是一个链接：没能顺着它走到头（绕成了圈、指向的地方看不了）。Windows 上 resolve 碰到这种情况
-        # 不报错，原样交回来（macOS、Linux 上会报错，走上面那一支）
-        if pathnames.is_link(resolved):
-            raise Unclear(f"看不清 {raw} 指的是哪里（链接没能走到头）")
+        # 顺着符号链接走完的路径里不会再有符号链接。还剩一个，说明走到一个圈上停下了：Python 3.12 以前这里会抛 RuntimeError，
+        # 3.13 起不抛了，原样交回绕圈的那一段（GitHub 上 3.13 的测试抓到的）。Windows 上 resolve 碰到走不到头的链接也是原样交回，
+        # 而且那里的"链接"还包括目录联接（pathnames.is_link 认得它，os.path.islink 认不得）。看不清，就不能算"只是看看"
+        try:
+            linked = pathnames.is_link(resolved) or any(os.path.islink(part) for part in (resolved, *resolved.parents))
+        except (OSError, ValueError) as exc:
+            raise Unclear(f"看不清 {raw} 指的是哪里") from exc
+        if linked:
+            raise Unclear(f"看不清 {raw} 指的是哪里（符号链接绕成了圈）")
         return resolved
 
     def check(self, raw: str) -> None:

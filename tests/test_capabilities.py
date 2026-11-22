@@ -696,7 +696,7 @@ def test_your_own_commands_are_mentioned_where_they_count(start):
         assert expected in item(overview(s), "shell").approval.note, mode
     s.agent.permissions.mode = "all"
     assert item(overview(s), "shell").approval.note == ""  # 什么都不问了，不用再提
-    assert actions(item(overview(s), "shell")) == [("approval", ""), ("commands", "")]
+    assert actions(item(overview(s), "shell")) == [("approval", ""), ("commands", ""), ("settings", "sandbox")]
 
 
 def test_on_windows_the_shell_says_every_command_asks_and_why(start, monkeypatch):

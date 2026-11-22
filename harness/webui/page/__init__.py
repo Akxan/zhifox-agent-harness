@@ -69,6 +69,7 @@ STYLES = (
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/commands.css",  # 不用问的命令
+    "styles/sandbox.css",  # 命令的沙箱
     "styles/endpoints.css",  # 自定义模型接口：设置里的那一节和编辑的窗口
     "styles/spending.css",  # 花费
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
@@ -149,6 +150,8 @@ SCRIPTS = (
     "scripts/language.js",  # 语言
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）
+    "scripts/sandbox.js",  # 命令的沙箱：设置里的一节，任务、通道共用的"选哪一档"
+    "scripts/sandbox-paths.js",  # 命令的沙箱 · 额外允许的路径
     "scripts/settings.js",  # 设置面板
     "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
     "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么

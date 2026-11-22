@@ -117,7 +117,9 @@ def test_a_cited_answer_shows_marks_a_card_and_its_sources_and_replays_the_same(
     for theme in ("light", "dark"):
         page.js(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
         page.mouse(2, 2)  # 鼠标挪开：量的是平时的样子，不是悬停时的
-        steps.idle(page)  # 换外观时颜色有过渡：等它走完再量（慢一些的机器上，量到的会是过渡到一半的颜色）
+        # 换外观时底色有一小段过渡：机器慢的时候（GitHub 的 macOS），量的那一刻底色还停在浅色上，对比度算出来只有 2（真出过）。
+        # 等过渡都播完再量
+        page.wait("document.getAnimations().every((a) => a.playState !== 'running')", what=f"换成{theme}的过渡播完")
         for selector, ratio in page.js(f"({CONTRAST})({targets!r})"):
             assert ratio is not None and ratio >= 4.5, f"{theme} 下 {selector} 的对比度只有 {ratio}"
     page.js("document.documentElement.dataset.theme = 'light'")

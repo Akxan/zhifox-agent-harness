@@ -49,6 +49,7 @@ NAMES = [
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
+    ".sandbox-path",  # 你加进沙箱的路径
     ".endpoint-name", ".endpoint-model-name", ".models-label",  # 自定义模型接口的名字、模型名（你起的、服务器给的）
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
     ".changes-path", ".changes-warn-path",  # "改了 N 个文件"那一行、撤回之前的提醒里的文件路径（文件名是你的或者模型起的）
@@ -292,14 +293,15 @@ _REVEALS = r"""
   const describe = __DESCRIBE__;
   const shown = (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden';
   return [...document.querySelectorAll('button')]
-    .filter((button) => button.querySelector('use[href="#i-folder"]') && !button.closest('.starter') && button.dataset.key !== 'pick-folder' && shown(button))
+    // 不算的：建议卡片、"选择文件夹"、沙箱的"管理路径"（打开一个窗口，不是打开文件管理器，图标只是说它管的是文件夹）
+    .filter((button) => button.querySelector('use[href="#i-folder"]') && !button.closest('.starter') && button.dataset.key !== 'pick-folder' && button.id !== 'sandbox-paths-open' && shown(button))
     .map((button) => ({ where: describe(button), label: button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent.trim() }));
 })()
 """.replace("__DESCRIBE__", _DESCRIBE.strip())
 
 
 def reveal_labels(page: Page) -> list[dict]:
-    """页面上画出来的每个"在文件管理器里显示、打开"的按钮：带文件夹图标的那些，除了建议卡片和"选择文件夹"。
+    """页面上画出来的每个"在文件管理器里显示、打开"的按钮：带文件夹图标的那些，除了建议卡片、"选择文件夹"和沙箱的"管理路径"。
     只看画出来的（悬停才淡入的也算）：关着的窗口里的按钮，打开的时候才按当前的语言重画。
     返回 [{where, label}]，label 是读屏软件读的那句（aria-label，没有的话 title，再没有就是按钮上的字）。"""
     return page.js(_REVEALS)

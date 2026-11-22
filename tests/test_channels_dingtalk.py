@@ -140,7 +140,8 @@ def test_a_real_channel_without_the_sdk_shows_an_error(fake, monkeypatch):
 def test_a_secret_reset_on_dingtalk_shows_an_error_instead_of_retrying_silently(bot):
     bot.fake.client_secret = "the-new-secret-after-a-reset-0123"  # 在开放平台上重置过：存着的那个不对了
     s = bot(online=False)
-    until(lambda: s.platform()["status"]["state"] == "error", what="页面上的错误")
+    # 等得久一点：GitHub 的 macOS 机器慢，连接、换票据、出错要十几秒（条件一成立就往下走，平时不会多等）
+    until(lambda: s.platform()["status"]["state"] == "error", timeout=30, what="页面上的错误")
     assert "不认这个 Client ID 和 Client Secret" in s.platform()["status"]["message"]
     assert s.fake.listener is None  # SDK 不会说密钥不对、只会一直重试：所以根本没去连
     assert set(s.fake.requests) == {"POST /v1.0/oauth2/accessToken"}

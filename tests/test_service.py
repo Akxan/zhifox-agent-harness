@@ -1259,7 +1259,12 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
         process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **own_group())
     address = data / ".web-address"
     try:
-        url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=60, what="网页的地址")  # CI 上几个测试进程一起跑，一个新的 Python 进程开起来可能要很久
+        try:
+            url = until(lambda: process.poll() is None and address.is_file() and address.read_text(encoding="utf-8").strip(), timeout=60, what="网页的地址")
+        except AssertionError:
+            # 等不到的时候说清楚是进程已经退出了，还是还在跑、只是慢（GitHub 的 macOS 上出过，本机复现不了）：带上退出码和日志
+            log = log_file.read_text(encoding="utf-8", errors="replace") if log_file.exists() else "（没有日志文件）"
+            raise AssertionError(f"等不到网页的地址；进程{'还在跑' if process.poll() is None else f'已经退出，退出码 {process.returncode}'}。日志：\n{log[-3000:]}") from None
         assert re.fullmatch(r"http://127\.0\.0\.1:\d+/\?token=[\w-]+", url)
         assert has_mode(address, 0o600)
         # 数据目录的锁上记着：它是后台服务。Windows 上 .venv\Scripts\python.exe 只是一个启动器，它再开真正的 Python，

@@ -153,7 +153,7 @@ def test_schedule_errors_follow_the_interface_language(monkeypatch):
 def test_tasks_are_checked():
     daily = {"type": "daily", "time": "09:00"}
     task = check_task({"title": "  喝水 \n 提醒 ", "kind": "reminder", "schedule": daily})
-    assert task == {"title": "喝水 提醒", "kind": "reminder", "prompt": "", "schedule": daily, "enabled": True, "approval": "ask"}
+    assert task == {"title": "喝水 提醒", "kind": "reminder", "prompt": "", "schedule": daily, "enabled": True, "approval": "ask", "sandbox": "default"}
     assert check_task({"title": "安排", "kind": "agent", "prompt": " 看看待办 ", "schedule": daily, "enabled": False})["prompt"] == "看看待办"
     for bad in (
         {"title": "", "kind": "reminder", "schedule": daily},

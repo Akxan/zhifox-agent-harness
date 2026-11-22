@@ -37,13 +37,17 @@ from collections.abc import Callable
 from typing import IO, Any
 
 from . import instance, log
-from .app import build_app
+from .app import App, build_app
 from .channels.platforms import ORDER, label
+from .channels.store import ChannelStore
 from .config import APP_NAME, EXIT_BUSY, EXIT_CONFIG, EXIT_OK, Config
 from .exits import EXIT_SIGNALS
 from .i18n import t
 from .providers import has_key
 from .safe import write_file
+from .sandbox import DEFAULT as SANDBOX_DEFAULT
+from .sandbox import LEVELS as SANDBOX_LEVELS
+from .sandbox import backend as sandbox_backend
 from .webui import lifecycle
 from .webui.server import SHUTDOWN_WAIT_SECONDS, WebApp, claim_data_dir, create_server
 from .webui.token import stable_token
@@ -144,6 +148,7 @@ def serve(
         logger.warning("%s", t("还没有设置 {provider} 的 API 密钥：聊天和定时任务都会失败。把它写进 .env（或者 HARNESS_ENV_FILE 指的文件）再重启。", provider=provider.label))
     if app.tasks.problem:
         logger.warning("%s", app.tasks.problem)
+    _log_sandbox(app, store)
     configured = [platform for platform in ORDER if store.configured(platform)]
     if not configured:
         logger.warning("%s", t("还没有设置任何聊天通道。运行 harness channels setup telegram（或者 discord、slack、feishu、dingtalk、qq）设置一个。"))
@@ -182,3 +187,17 @@ def serve(
             address.unlink(missing_ok=True)
         logger.info("%s", t("再见。"))
     return EXIT_OK
+
+
+def _log_sandbox(app: App, store: ChannelStore) -> None:
+    """命令的沙箱：开着的话说一声是哪一档；开着却用不了（没装 bwrap……），在日志里说清楚命令会被拒绝（见 sandbox/session.py）。"""
+    default = app.settings.sandbox["level"]
+    levels = {default} | {store.get(platform).get("sandbox", SANDBOX_DEFAULT) for platform in ORDER if store.configured(platform)}
+    levels = {default if level == SANDBOX_DEFAULT else level for level in levels} - {"off"}
+    if not levels:
+        return
+    problem = sandbox_backend.detect().problem()
+    if problem is not None:
+        logger.warning("%s", t("沙箱开着，可是这台电脑上用不了，命令会被拒绝执行：{problem}", problem=problem))
+    elif default != "off":
+        logger.info("%s", t("命令在沙箱里运行：{level}", level=t(SANDBOX_LEVELS[default])))

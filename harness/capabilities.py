@@ -43,7 +43,7 @@
     note      补充的一句（"子 Agent 的每一步照样按这里的规矩问你"），没有是空的
 
   Rule        text 这类操作、outcome：free 直接做 / ask 先问你 / always 哪一档都问 / never 根本不做（比如只许读文件的角色去改文件）
-  Action      kind：settings（target 是 browser / computer）/ extensions（skills / mcp / agents / channels）/
+  Action      kind：settings（target 是 browser / computer / sandbox）/ extensions（skills / mcp / agents / channels）/
               models（打开换模型的面板）/ approval / commands / memory / tasks / new（开始新对话）；label 是按钮上的话
 """
 
@@ -66,6 +66,7 @@ from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool, server_prefix
 from .mcp.config import transport_of
 from .providers import PROVIDERS, caps, find
+from .sandbox import LEVELS as SANDBOX_LEVELS
 from .tools import agent as agent_tool
 from .tools import files, shell, skill
 from .tools import send as send_tool
@@ -76,6 +77,7 @@ from .tools.browser import BrowserTool, is_browser
 from .tools.computer import TOOLSET as COMPUTER
 from .tools.computer import DesktopTool, is_computer
 from .tools.send import SendFacts, SendTool
+from .tools.shell import ShellTool
 
 
 @dataclass
@@ -491,10 +493,35 @@ def _shell(context: _Context) -> Capability:
         note = t("你自己加的 {n} 条命令也不用问。", n=listed)
     elif listed and context.permissions.mode in ("ask", "edits"):
         note = t("你自己加的 {n} 条“不用问的命令”，只在“只读的命令不用问”这一档里算数。", n=listed)
+    facts = _sandbox_facts(here)
+    if facts is not None and facts.on:
+        # 沙箱开着：在沙箱之外运行一条在哪一档都问（或者这次运行根本不许）。拿一次真的调用去问，规矩改了这里跟着变
+        escape = Probe(shell.TOOL_NAME, {"command": "ls", "unsandboxed": True}, here[0])
+        rules.append(context.rule(k("在沙箱之外运行一条命令"), [escape], k("在沙箱之外运行直接执行"), k("在沙箱之外运行前，每次都问你"), k("不能在沙箱之外运行")))
     approval = _approval(rules, all_free=k("命令都直接执行"), all_ask=k("每条命令都先问你"))
     approval.note = note
-    actions = [Action("approval", "", t("改确认方式")), Action("commands", "", t("不用问的命令"))]
-    return _item("shell", "on", approval=approval, tools=technical_names(here), actions=actions)
+    actions = [Action("approval", "", t("改确认方式")), Action("commands", "", t("不用问的命令")), Action("settings", "sandbox", t("沙箱"))]
+    return _item("shell", "on", _sandbox_reason(facts), approval=approval, tools=technical_names(here), actions=actions)
+
+
+def _sandbox_facts(here: list[Tool]) -> Any:
+    """这段对话（或者这次运行）的 run_command 带着的沙箱现在是什么情况（见 sandbox/session.py）；没有沙箱这回事是 None。"""
+    tool = next((tool for tool in here if isinstance(tool, ShellTool)), None)
+    sandbox = getattr(tool.shell, "sandbox", None) if tool is not None else None
+    return sandbox.facts() if sandbox is not None else None
+
+
+def _sandbox_reason(facts: Any) -> str:
+    """"执行命令"那一项的一句话：命令在沙箱里的哪一档运行；开着却用不了的，说清楚命令会被拒绝。沙箱关着的不说。"""
+    if facts is None:
+        return ""
+    if facts.on and facts.problem is not None:
+        return t("沙箱是“{level}”，可是这台电脑上用不了，命令会被拒绝执行：{problem}", level=t(SANDBOX_LEVELS[facts.level]), problem=facts.problem)
+    if facts.on:
+        return t("命令在沙箱里运行：{level}", level=t(SANDBOX_LEVELS[facts.level]))
+    if facts.default != "off":
+        return t("这次运行没有用沙箱")
+    return ""
 
 
 def _web(context: _Context) -> Capability:

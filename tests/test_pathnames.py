@@ -359,7 +359,7 @@ def test_a_link_that_resolve_cannot_follow_is_unclear(places, monkeypatch, symli
     """Windows 上 resolve 碰到绕成圈的链接不报错，原样交回来：交回来的还是链接，就当作看不清。"""
     (places.workspace / "loop").symlink_to(places.workspace / "loop")
     monkeypatch.setattr(Path, "resolve", lambda self, strict=False: self)  # 像 Windows 那样不报错
-    with pytest.raises(Unclear, match="链接没能走到头"):
+    with pytest.raises(Unclear, match="看不清 .* 指的是哪里（符号链接绕成了圈）"):
         places.check("loop")
 
 

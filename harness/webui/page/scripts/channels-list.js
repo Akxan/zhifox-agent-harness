@@ -5,7 +5,8 @@
 
 function drawChanList(focus) {
   // "5 分钟前"这类时间每分钟要重写一次，所以把现在是第几分钟也算进"变了没有"里
-  const print = JSON.stringify([chanState, chanDeleting, [...chanPending], language, Math.floor(Date.now() / 60000)]);
+  // 每一行写着这个通道的命令在沙箱的哪一档：跟随设置的，设置里那一档变了也要重画
+  const print = JSON.stringify([chanState, chanDeleting, [...chanPending], language, Math.floor(Date.now() / 60000), sandboxInfo && sandboxInfo.level]);
   if (!focus && print === chanDrawn && chanPanel.dataset.view === 'list') return;
   chanDrawn = print;
   const nodes = [chanToolbar()];
@@ -108,6 +109,11 @@ function chanMeta(item) {
   const bits = [t(CHAN_STATUS[status] || status)];
   if (item.owner) bits.push(t('主人：{name}', { name: item.owner.name }));
   bits.push(t(APPROVAL[item.approval] || APPROVAL.ask));
+  const sandbox = sandboxInfo ? sandboxResolved(item.sandbox || 'default') : 'off';
+  if (sandbox !== 'off') {
+    const level = sandboxLevel(sandbox);
+    bits.push(t('沙箱：{level}', { level: sandboxValue(level && level.label) }));
+  }
   if (item.ignored) bits.push(item.ignored === 1 ? t('忽略了 1 条陌生人的消息') : t('忽略了 {n} 条陌生人的消息', { n: item.ignored.toLocaleString(LOCALES[language]) }));
   return bits.join(' · ');
 }
@@ -145,6 +151,8 @@ function chanRow(item) {
   else if (item.pairing) line.appendChild(el('span', 'chan-flag calm', t('正在配对')));
   else if (!item.owner) line.appendChild(el('span', 'chan-flag', t('还没配对')));
   if (item.approval === 'all') line.appendChild(el('span', 'chan-flag', t('全部自动允许')));
+  // 设置里打开了沙箱，这个通道却自己选了"关"：标出来，免得以为它也在沙箱里
+  if (sandboxInfo && sandboxInfo.level !== 'off' && item.sandbox === 'off') line.appendChild(el('span', 'chan-flag', t('不用沙箱')));
   const meta = words.appendChild(el('span', 'chan-meta', chanMeta(item)));
   meta.title = meta.textContent;
   if (item.enabled && item.status.message && status !== 'online') words.appendChild(el('span', 'chan-error', item.status.message));

@@ -33,6 +33,7 @@ def _surfaces(page):
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
+        ("沙箱的路径", lambda: _sandbox(page), ["#sandbox-dialog"], "sandbox-dialog"),
         # 自定义模型接口的编辑窗口（叠在设置上面）：很长的地址、模型名，每个模型的三个开关和三个数字
         ("自定义模型接口（编辑）", lambda: _endpoint_editor(page), ["#endpoint-dialog"], lambda: (steps.escape_closes(page, "endpoint-dialog"), steps.escape_closes(page, "settings"))),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
@@ -57,6 +58,14 @@ def _commands(page) -> None:
     steps.open_dialog(page, "#approval", "approval-dialog")
     page.click("#approval-commands")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
+
+
+def _sandbox(page) -> None:
+    """沙箱里额外允许的路径，里面有一条很长的路径（要整条看得到，所以折行，不能冲出去）。"""
+    page.demo.api("/api/sandbox/add", {"path": "/srv/a-rather-long-folder-name/with/several/levels/that-goes-on-and-on-and-on-and-on", "write": True})
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.click("#sandbox-paths-open")
+    page.wait(f"{steps.is_open('sandbox-dialog')} && document.querySelector('#sandbox-list li.sandbox-row')", what="沙箱的路径窗口打开")
 
 
 def _endpoint_editor(page) -> None:

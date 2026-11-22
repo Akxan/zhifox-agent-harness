@@ -10,6 +10,7 @@
   bot        机器人自己的名字（@username）、打开和它聊天的链接，给页面显示用
   enabled    开着没有
   approval   这个通道里"要不要先问你"：ask / readonly / edits / all，和对话里的几档同名、同义（见 ../permissions.py）
+  sandbox    这个通道里命令的沙箱：default 跟随设置 / off / workspace / network（见 ../sandbox/）
   owner      配对绑定的主人：账号编号、名字、什么时候配对的。只有他发来的消息会被处理（见 pairing.py）
   pairing    正在进行的配对：配对码（secret）、什么时候过期、猜错了几次、提醒过哪些人
   chats      每个聊天接着的是哪一段会话（重启以后还接着聊），最后一次说话是什么时候
@@ -43,6 +44,8 @@ from ..config import PAIRING_ATTEMPTS, PAIRING_SECONDS
 from ..i18n import t
 from ..permissions import MODES
 from ..safe import private_dir, to_json, write_file
+from ..sandbox import CHOICES as SANDBOX_CHOICES
+from ..sandbox import DEFAULT as SANDBOX_DEFAULT
 from . import pairing
 from .base import ChannelError
 from .platforms import fields, secret_fields
@@ -66,7 +69,7 @@ def _fresh() -> dict:
 
 def _blank() -> dict:
     """一个平台还什么都没设置时的样子。"""
-    return {"enabled": True, "approval": "ask", "credentials": {}, "bot": None, "owner": None, "pairing": None, "chats": {}, "offset": 0, "ignored": 0, "last_active": 0.0}
+    return {"enabled": True, "approval": "ask", "sandbox": SANDBOX_DEFAULT, "credentials": {}, "bot": None, "owner": None, "pairing": None, "chats": {}, "offset": 0, "ignored": 0, "last_active": 0.0}
 
 
 def _text(value: Any, limit: int = 300) -> str:
@@ -128,6 +131,7 @@ def _normalize(raw: Any) -> dict:
         entry = _blank()
         entry["enabled"] = item.get("enabled") is not False
         entry["approval"] = item.get("approval") if item.get("approval") in MODES else "ask"
+        entry["sandbox"] = item.get("sandbox") if item.get("sandbox") in SANDBOX_CHOICES else SANDBOX_DEFAULT
         entry["credentials"] = _credentials(item)
         entry["bot"] = _bot(item.get("bot"))
         owner = item.get("owner")
@@ -287,6 +291,11 @@ class ChannelStore:
             raise ChannelError(t("没有 {mode} 这种模式。", mode=mode))
         self._change(lambda data: self._entry(data, platform).update(approval=mode))
 
+    def set_sandbox(self, platform: str, level: str) -> None:
+        if level not in SANDBOX_CHOICES:
+            raise ChannelError(t("没有 {mode} 这种沙箱。", mode=level))
+        self._change(lambda data: self._entry(data, platform).update(sandbox=level))
+
     def remove(self, platform: str) -> None:
         """忘掉这个平台的一切：token、绑定、聊天记录（会话本身还在会话列表里）。"""
         self._change(lambda data: data["platforms"].pop(platform, None))
@@ -402,6 +411,7 @@ class ChannelStore:
             "configured": self.configured(platform),
             "enabled": entry["enabled"],
             "approval": entry["approval"],
+            "sandbox": entry["sandbox"],
             "token_hint": hints.get(secrets[0], "") if secrets else "",
             "hints": hints,
             "bot": shown,

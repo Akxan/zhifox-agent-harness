@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import fake_sandbox
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
@@ -192,6 +193,9 @@ def isolated_environment(monkeypatch, tmp_path):
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
     # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
     monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
+    # 命令的沙箱：测试里默认用假的（能用，只记下"本该在沙箱里"，命令照原样运行），不建真的沙箱。
+    # 真的 sandbox-exec、bwrap 只在 test_sandbox_macos.py、test_sandbox_linux.py 里测
+    fake_sandbox.install(monkeypatch)
     # 后台服务：测试永远不在这台电脑上真的装上、开起一个服务（会改动系统，还可能对着真正的数据再开一个智狐）。
     # launchctl、systemctl、journalctl 一律不许运行，浏览器也不许打开；要测的给一个假的系统（tests/test_service.py 的 FakeSystem）
     def forbidden(*args, **kwargs):

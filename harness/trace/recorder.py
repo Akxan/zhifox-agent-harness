@@ -131,6 +131,9 @@ class Tracer:
         data = {"name": name[:80], "group": label.group, "icon": label.icon, "label": label.label, "detail": short(detail, TRACE_SUMMARY_CHARS)}
         if label.server:
             data["server"] = clean_text(label.server)[:80]
+        sandbox = _sandbox(tool, call.input)
+        if sandbox:
+            data["sandbox"] = sandbox
         span = Span("tool", self.timer(), data=data)
         self.spans.append(span)
         self._tool = span
@@ -327,3 +330,15 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
         "refused": counts["refused"],
         "auto": counts["auto"],
     }
+
+
+def _sandbox(tool: Any, tool_input: object) -> str:
+    """执行命令时沙箱是哪一档（格式见 __init__.py 的 sandbox）。不是 run_command、没有沙箱这回事、从来没打开过沙箱的，是空的。
+    看的是工具自己的 look（和问你时看到的是同一份，见 tools/base.FactsTool）。"""
+    look = getattr(tool, "look", None)
+    if getattr(tool, "shell", None) is None or look is None or not isinstance(tool_input, dict):
+        return ""
+    facts = look(tool_input)
+    if facts is None or (not facts.on and facts.default == "off"):
+        return ""
+    return "outside" if facts.escapes else facts.level

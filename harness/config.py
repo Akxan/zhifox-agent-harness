@@ -103,6 +103,14 @@ SOURCE_URL_CHARS = 2048
 # 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
 MAX_PARALLEL_TASKS = 3
 
+# 命令的沙箱（见 sandbox/）：设置里"额外允许的路径"最多这么多条，每条最长这么多个字符
+SANDBOX_MAX_PATHS = 50
+SANDBOX_PATH_CHARS = 1000
+# 看一眼这台电脑上的沙箱能不能用（真的建一个什么都不做的沙箱试一下）：最多等这么久；
+# 结果记这么久（秒），之后再问就重新试一次：你可能刚装好 bubblewrap，不用重启智狐
+SANDBOX_PROBE_SECONDS = 10
+SANDBOX_PROBE_TTL = 60
+
 # 花费账本（见 ledger.py）。超过这么多天的明细，合并成"每天、每个模型、每种来源一行"，账本文件不会无限变大；
 # 每天、每月、每个模型花了多少都不变，只是看不到一笔一笔的时间了
 LEDGER_DETAIL_DAYS = 90
@@ -424,6 +432,13 @@ class Config:
     @property
     def commands_file(self) -> Path:
         return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
+
+    @property
+    def protected_files(self) -> list[Path]:
+        """文件工具碰不了、沙箱里也碰不到的几个文件（见 app.py 的 build_app 和 sandbox/policy.py）：
+        .env 和 mcp.json、channels.json、commands.json、endpoints.json——里面是密钥，或者改了它就能让智狐运行别的东西、不再问你、
+        把请求发到别处。"""
+        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file]
 
     @property
     def web_address_file(self) -> Path:

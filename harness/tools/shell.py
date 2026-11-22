@@ -14,6 +14,8 @@ Windows 上的几处不同：
   - 结束一条命令：Windows 没有进程组和信号。每条命令放进一个作业对象（winjob.py），结束时结束整个作业，
     它和它启动的所有子孙进程一个不剩；作业没建成时退一步用 taskkill /T /F。
   - CREATE_NO_WINDOW：作为后台服务运行时（没有控制台），每条命令不会闪出一个黑色的窗口。
+
+设置里打开了沙箱的话，命令还会被关进沙箱里运行（见 sandbox/）：确认是第一道关卡，沙箱是第二道。
 """
 
 from __future__ import annotations
@@ -23,10 +25,13 @@ import os
 import shutil
 import signal
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .. import winjob
-from .base import Tool, ToolError, function_tool
+from ..sandbox import Facts, Sandbox
+from .base import FactsTool, ToolError, function_tool
 
 TOOL_NAME = "run_command"
 DEFAULT_TIMEOUT = 60
@@ -110,17 +115,23 @@ def _kill(process: subprocess.Popen, job: winjob.Job | None = None) -> None:
 class Shell:
     """在工作目录里执行命令，并记住正在运行的那个进程，方便从外面把它结束掉。"""
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, sandbox: Sandbox | None = None):
         self.workspace = workspace
+        self.sandbox = sandbox  # 这次运行的沙箱（见 sandbox/session.py）；None 是没有沙箱这回事（测试、旧的调用方）
         self._running: subprocess.Popen | None = None
         self._job: winjob.Job | None = None  # Windows：正在运行的命令所在的作业
         self._stopped = False  # 正在运行的命令是不是被 kill_running 结束的
 
-    def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
+    def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT, unsandboxed: bool = False) -> str:
         timeout = max(1, min(timeout_seconds, MAX_TIMEOUT))
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS}
+        argv = command_line(command)  # bash，Windows 上是 PowerShell（见 command_line）
+        # 沙箱开着就包进去；开着却用不了，这里抛出 ToolError、什么都不运行（不会悄悄在沙箱之外运行，见 sandbox/session.py）
+        jail = self.sandbox.enter(argv, env, unsandboxed) if self.sandbox is not None else None
+        if jail is not None:
+            argv, env = jail.argv, jail.env
         process = subprocess.Popen(
-            command_line(command),
+            argv,
             cwd=self.workspace,
             env=env,
             stdin=subprocess.DEVNULL,
@@ -156,7 +167,21 @@ class Shell:
         result = _clip(output).rstrip("\n") or "（没有输出）"
         if process.returncode != 0:
             result += f"\n[退出码 {process.returncode}]"
+            if jail is not None:
+                result += jail.explain(output)  # 像是被沙箱挡住的：告诉模型是怎么回事、能怎么办
         return result
+
+    def facts(self, tool_input: dict) -> Facts | None:
+        """这次调用在沙箱这件事上是什么情况（permissions.py 照着它写卡片）。没有沙箱这回事时是 None。"""
+        if self.sandbox is None:
+            return None
+        return self.sandbox.facts(tool_input.get("unsandboxed") is True)
+
+    def check(self, tool_input: dict) -> str | None:
+        """明知不会运行的（沙箱开着却用不了、这次运行不许在沙箱之外运行）：直接告诉模型原因，不弹确认卡片。"""
+        if self.sandbox is None:
+            return None
+        return self.sandbox.refusal(tool_input.get("unsandboxed") is True)
 
     def kill_running(self) -> None:
         """结束正在运行的命令（如果有）。网页界面的"停止"按钮会调用它。"""
@@ -191,18 +216,39 @@ def describe() -> tuple[str, str]:
     )
 
 
-def make_shell_tool(shell: Shell) -> Tool:
-    description, command_description = describe()
-    return function_tool(
+# 说明书里关于沙箱的那一句，和 unsandboxed 参数的说明。一直都在（沙箱关着也在）：一段对话里说明书不能变，
+# 你在设置里中途打开、关掉沙箱，说明书照旧，变的只是命令怎么运行
+SANDBOX_NOTE = (
+    "用户可能打开了沙箱：命令在沙箱里运行时，只能读写工作目录，读不到家目录里别的东西，可能不能联网，"
+    "HOME 和 TMPDIR 是临时的空文件夹；被沙箱挡住时，结果里会说明。"
+)
+UNSANDBOXED = (
+    "只在命令被沙箱挡住、而且确实必须在沙箱之外运行时才设为 true：这会单独请用户放行，每次都问。"
+    "沙箱关着时没有作用。不要为了省事使用。"
+)
+
+
+@dataclass(frozen=True)
+class ShellTool(FactsTool):
+    """run_command。带着它的 Shell：叫出来的子 Agent 用同一个沙箱（见 agents/runner.py）。"""
+
+    shell: Any = field(default=None, compare=False, repr=False)
+
+
+def make_shell_tool(shell: Shell) -> ShellTool:
+    description, command_description = describe()  # bash 还是 PowerShell，按这台电脑写（见上面）
+    base = function_tool(
         name=TOOL_NAME,
-        description=description,
+        description=description + SANDBOX_NOTE,
         properties={
             "command": {"type": "string", "description": command_description},
             "timeout_seconds": {
                 "type": "integer",
                 "description": f"最长运行多少秒，默认 {DEFAULT_TIMEOUT}，最大 {MAX_TIMEOUT}",
             },
+            "unsandboxed": {"type": "boolean", "description": UNSANDBOXED},
         },
         required=["command"],
         function=shell.run,
     )
+    return ShellTool(spec=base.spec, run=base.run, portable=base.portable, check=shell.check, facts=shell.facts, shell=shell)
