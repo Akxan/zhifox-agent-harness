@@ -9,8 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from harness.i18n import Message, t
+from harness.sandbox import backend as _backend
 from harness.sandbox.backend import Backend
 from harness.sandbox.policy import Policy
+
+# 真的那个 detect（conftest 换掉它之前拿到的）：要看"这个系统用哪一个后端"、要建真的沙箱的测试用它
+REAL_DETECT = _backend.detect
 
 
 @dataclass
