@@ -19,6 +19,7 @@
     它没在跑的话，和以前一样直接换掉它的内容（还是同一个 Session、同一份日志），名单里还是只有它。
   - 后台的一段跑完了、存好了盘：从名单里拿掉（东西都在磁盘上，再打开就从磁盘读），会话栏上留一个"跑完了""出错了"的标记，
     你打开它的时候去掉。没存上盘的留着（内容只在内存里），等你打开它、或者退出时再存一次。
+    第一条消息就没答出来的（磁盘上什么都没有）也留着，标着"出错了"：不然你不在眼前的时候它就悄悄没了，你都不知道为什么。
   - 同一段会话最多只有一个 Session：打开一段正在后台跑的会话，就是换过去看它（事件重放出来，流式输出接着来）。
 
 锁的顺序（只能从前往后拿，拿着后面的不去等前面的）：
@@ -123,12 +124,13 @@ class Sessions:
         """会话栏上的标记：会话编号 → RUNNING / CONFIRM / ERROR / DONE。正看着的那一段也在里面（页面不给它画标记）。"""
         with self._lock:
             sessions, marks = list(self._all), dict(self._unseen)
+        viewed = self.viewed
         for session in sessions:
             if session.ui.waiting():
                 marks[session.id] = CONFIRM
             elif session.running:
                 marks[session.id] = RUNNING
-            elif session.unsaved:
+            elif session.unsaved and session is not viewed:
                 marks[session.id] = ERROR
         return marks
 
@@ -184,7 +186,8 @@ class Sessions:
             if session is not self._viewed:
                 if outcome:
                     self._unseen[session.id] = outcome
-                if not session.unsaved and session in self._all:
+                # 存好了盘才拿掉。没存上的、第一条消息就没答出来（磁盘上什么都没有）的留着：内容只在内存里
+                if not session.unsaved and session.chat.conversation.saved and session in self._all:
                     self._all.remove(session)
                     dropped = True
             self._released.notify_all()

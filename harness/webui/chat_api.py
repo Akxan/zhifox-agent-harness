@@ -104,7 +104,10 @@ class ChatActions:
                 ui.end_stream()
                 self._finish_changes(session, journal, start)
                 self._save(session)  # 每一轮结束都存一次盘，所以最多只会丢失正在进行的这一轮
-                self.publish_state()
+                if not chat.conversation.saved and session is not self.sessions.viewed:
+                    # 第一条消息就没答出来（出了错、你停下了），你又没在看它：存盘时当它没发生过、标题也清掉了。
+                    # 在后台的这一段不能就这样悄悄没了：标题放回去，它留在会话栏上（见 Sessions.finish），打开就能看到为什么、再发一次
+                    self.app.name_conversation(text, attachments, chat=chat)
             finally:
                 try:
                     # 这一轮结束：屏幕让出来，还按着的鼠标键松开（见 desktop/session.py）。让出屏幕会刷新一次状态，
@@ -112,7 +115,7 @@ class ChatActions:
                     chat.desktop.release()
                     self.claims.release(chat.conversation.id, "web")
                 finally:
-                    # "这一轮结束了"要等存盘和刷新状态都做完、马上就要放开锁的时候才通知页面。
+                    # 记下跑完了、发一次状态，"这一轮结束了"要等这些都做完、马上就要放开锁的时候才通知页面。
                     # 如果先通知再存盘，页面一收到通知就发来的请求会撞上还没放开的锁，被误判成"上一轮还没结束"（见 _settle）
                     self._settle(session)
 

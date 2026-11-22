@@ -18,6 +18,7 @@ s.ui 是一开始那一段的日志，换着看以后它可能已经在后台了
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -26,7 +27,7 @@ import pytest
 import test_restore_web
 import test_rewind_web
 import test_webui
-from fake_api import reply, text, tool_use
+from fake_api import failure, reply, text, tool_use
 from fake_desktop import FakeDesktop, install
 from test_rewind_web import dumps
 from test_webui import MISSING, Browser, kinds, latest_state, saved_file
@@ -278,6 +279,42 @@ def test_a_new_conversation_while_one_runs_leaves_that_one_in_the_background(sta
     answer(s, card["id"])
     gone(s, a)
     assert outcome(saved_file(s.config, a)) == ["allowed"]
+
+
+def test_a_first_message_that_fails_in_the_background_stays_listed_and_marked(start):
+    """一段新对话的第一条消息在后台失败了（你已经换去看别的了）：存盘时它"当没发生过"，磁盘上什么都没有。
+    它不能就这样悄悄没了：留在名单里、会话栏上照样列着（标题是那句话），标着"出错了"；打开它看得到为什么，还能再发一次。"""
+    s = start({A: [failure(400, "invalid_request_error", "甲的请求不对"), reply(text("甲这次答了"))]})
+    gate = threading.Event()
+    real = s.api.next_reply
+
+    def held(body: dict) -> dict | None:
+        if A in json.dumps((body.get("messages") or [None])[0], ensure_ascii=False):
+            gate.wait(10)  # 甲的第一个请求先停在这里，等测试换去看别的
+        return real(body)
+
+    s.api.next_reply = held
+    a = viewing(s)
+    send(s, A + "第一句")
+    until(lambda: len(s.api.requests) == 1, "甲的第一个请求到了假 API")
+    new_chat(s)  # 甲在跑：留在后台
+    gate.set()
+    mark = seen(s.browser)
+    failed = s.browser.events[wait_new(s.browser, "state", mark, check=lambda event: event["live"].get(a) == "error")]
+    session = alive(s, a)  # 没存盘：还活着
+    assert not session.running and not session.chat.conversation.saved and not (s.config.conversations_dir / f"{a}.json").exists()
+    assert (a, A + "第一句") in [(item["id"], item["title"]) for item in failed["conversations"]]
+
+    # 打开它：看得到那条消息和出错的原因；"出错了"的标记去掉
+    _, replayed, state = open_chat(s, a)
+    assert texts(replayed, "user") == [A + "第一句"] and "甲的请求不对" in dumps(replayed)
+    assert a not in state["live"]
+    # 再发一次（重新生成）：这次答了，存进它自己的文件
+    retry = {"conversation": a, "turn": state["rewind"]["turn"]}
+    start_at = seen(s.browser)
+    post_ok(s.browser, "/api/turn/retry", retry)
+    wait_new(s.browser, "turn_end", start_at)
+    assert texts(saved_file(s.config, a)["events"], "text") == ["甲这次答了"]
 
 
 # ---- 3. 换回正在后台跑着的那一段 --------------------------------------------------------
@@ -712,7 +749,7 @@ class SlowToRead(Session):
 
 
 def test_the_limit_holds_when_many_conversations_start_at_the_same_moment():
-    many = [SlowToRead(SimpleNamespace(conversation=SimpleNamespace(id=f"c{n}")), WebUI()) for n in range(15)]
+    many = [SlowToRead(SimpleNamespace(conversation=SimpleNamespace(id=f"c{n}", saved=True)), WebUI()) for n in range(15)]
     sessions = Sessions(many[0])
     for session in many[1:]:
         sessions.add(session)

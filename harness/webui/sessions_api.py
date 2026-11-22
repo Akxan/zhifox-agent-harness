@@ -151,18 +151,21 @@ class SessionActions:
     # ---- 一轮结束 ----------------------------------------------------------------
 
     def _settle(self, session: Session) -> None:
-        """一轮的收尾做完了（存了盘、发了状态、让出了屏幕、放开了会话的认领），最后这几步（见 chat_api._run_turn）：
+        """一轮的收尾做完了（存了盘、让出了屏幕、放开了会话的认领），最后这几步（见 chat_api._run_turn）：
 
-        先记下它跑完了（在后台的话标上"跑完了""出错了"，存好了盘的从名单里拿掉），再告诉页面"这一轮结束了"，紧接着放开这一段的锁。
+        先记下它跑完了（在后台的话标上"跑完了""出错了"，存好了盘的从名单里拿掉），发一次状态（会话栏的标记、"同时在跑几段"
+        都已经是跑完以后的样子），再告诉页面"这一轮结束了"，紧接着放开这一段的锁。
         "结束了"和放开锁之间不做别的：页面一收到它就可能发下一条消息，不能撞上还没放开的锁。
-        从名单里拿掉了的，关掉它的浏览器标签页；在后台的，会话栏上的标记跟着变（发一次状态）。"""
+        认领要在拿掉之前放开：拿掉以后马上就可能有人从磁盘再打开它、开始一轮，那时这段会话要是还被这边认领着，
+        那边的认领就会被这边随后的 release 一起放掉。从名单里拿掉了的，最后关掉它的浏览器标签页。"""
         dropped = self.sessions.finish(session, self._outcome(session))
-        session.ui.end_turn()
-        self.sessions.unlock(session)
+        try:
+            self.publish_state()
+        finally:
+            session.ui.end_turn()
+            self.sessions.unlock(session)
         if dropped:
             self.app.close_chat(session.chat)
-        if session is not self.sessions.viewed:
-            self.publish_state()
 
     def _outcome(self, session: Session) -> str:
         """这一轮结束时，要是它在后台，会话栏上标什么：出了错（或者没存上盘）是 ERROR，好好跑完的是 DONE，你自己停下的不标。"""
