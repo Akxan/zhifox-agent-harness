@@ -32,6 +32,7 @@ from .base import Backend, ProviderError
 # 这些小命令也就跟着等。登记表（PROVIDERS、find、caps、has_key……）本身用不到 SDK。
 # 真正要连接、发请求的时候（make_client、make_backend、list_models）才导入，那时候反正要用
 if TYPE_CHECKING:
+    import anthropic
     import openai
 
     from ..endpoints import probe as endpoint_probe
@@ -241,10 +242,12 @@ def saved_before(provider: Provider, saved: list, dropped: int, mark: int) -> li
     一轮的开头、而且还在历史里（和 Backend.turn_at 同一个规矩），或者正好是末尾。不是的返回 None。
     不用为此建一个适配层：保存的会话不一定是现在用的这一家（见 fork.py）。历史的格式只看是哪一类接口（make_backend 也这样分）。"""
     if provider.kind == "anthropic":
-        from .claude import AnthropicBackend as backend  # 用到时才导入（见文件开头）
-    else:
-        from .openai_compat import OpenAICompatBackend as backend
-    return backend.saved_before(saved, dropped, mark)
+        from .claude import AnthropicBackend  # 用到时才导入（见文件开头）
+
+        return AnthropicBackend.saved_before(saved, dropped, mark)
+    from .openai_compat import OpenAICompatBackend
+
+    return OpenAICompatBackend.saved_before(saved, dropped, mark)
 
 
 def switch_model(backend: Any, provider: Provider, model: str) -> None:
@@ -272,6 +275,7 @@ def make_client(provider: Provider, timeout: float | None = None) -> Any:
         from ..endpoints import client as endpoint_client  # 用到时才导入（见文件开头）
 
         return endpoint_client.make(provider.endpoint, timeout=timeout)
+    client: anthropic.Anthropic | openai.OpenAI
     if provider.kind == "anthropic":
         import anthropic  # 用到时才导入（见文件开头）
 

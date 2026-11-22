@@ -329,7 +329,7 @@ class Permissions:
         )
 
     def _review_task_delete(self, tool_input: dict) -> str | None:
-        task = self.tasks.get(tool_input.get("id")) if self.tasks is not None else None
+        task = self.tasks.get(tool_input.get("id")) if self.tasks is not None else None  # 模型没给 id 时 get 照样回答 None
         if task is None or task["kind"] != "agent":
             return None  # 不存在（工具会报错）或者只是提醒：不用问
         return t("删除定时任务“{title}”（{when}），以后它不会再自动运行。", title=task["title"], when=describe(task["schedule"]))
@@ -527,13 +527,14 @@ _DIRECTIONS = {"up": k("向上"), "down": k("向下"), "left": k("向左"), "rig
 def offering(question: str, offer: str) -> str:
     """一个问题，确认卡片上多给一个选择（offer 是固定的几个词之一，页面按它画按钮，见 webui/ui.py 的 confirm）。
     问题本身是 t() 给的一句话（带着原文，页面换语言时能重译），选择记在它身上，不改它的文字。"""
-    question.offer = offer  # type: ignore[attr-defined]
+    # question 其实是 t() 给的 Message（str 的子类，能挂上属性），页面用 getattr 取（见 webui/ui.py 的 confirm）；类型上写的是 str
+    question.offer = offer  # type: ignore[attr-defined]  # 见上一行
     return question
 
 
 def always(question: str) -> str:
     """一个在任何模式下都要问的问题：页面上就不放"不想每次都问？"的入口（换哪一档都不会少问这一次），也不放"不再问"的选择。"""
-    question.always = True  # type: ignore[attr-defined]
+    question.always = True  # type: ignore[attr-defined]  # 和 offering 一样：挂在 t() 给的 Message 上
     return question
 
 

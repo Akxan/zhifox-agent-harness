@@ -126,17 +126,17 @@ def events(chord: Chord) -> list[dict]:
         key, code, keycode = _MODIFIER_KEYS[bit]
         out.append({"type": "rawKeyDown", "key": key, "code": code, "windowsVirtualKeyCode": keycode, "modifiers": state})
     if chord.key is not None:
-        key = chord.key
-        down: dict = {"type": "keyDown", "key": key.key, "code": key.code, "windowsVirtualKeyCode": key.keycode, "modifiers": state}
+        pressed = chord.key  # 不叫 key：上下两个循环里的 key 是修饰键的名字（字符串），这里是一个 Key
+        down: dict = {"type": "keyDown", "key": pressed.key, "code": pressed.code, "windowsVirtualKeyCode": pressed.keycode, "modifiers": state}
         # 按着 Ctrl / Cmd 的时候不打出字来（ctrl+a 是全选，不是在输入框里写一个 a）
-        if key.text and not state & (1 | 2 | 4):
-            down["text"] = key.text.upper() if state & 8 and key.text.isalpha() else key.text
+        if pressed.text and not state & (1 | 2 | 4):
+            down["text"] = pressed.text.upper() if state & 8 and pressed.text.isalpha() else pressed.text
         else:
             down["type"] = "rawKeyDown"
         if chord.command:
             down["commands"] = [chord.command]
         out.append(down)
-        out.append({"type": "keyUp", "key": key.key, "code": key.code, "windowsVirtualKeyCode": key.keycode, "modifiers": state})
+        out.append({"type": "keyUp", "key": pressed.key, "code": pressed.code, "windowsVirtualKeyCode": pressed.keycode, "modifiers": state})
     for bit in reversed(chord.held):
         key, code, keycode = _MODIFIER_KEYS[bit]
         state &= ~bit

@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .. import i18n
 from ..app import build_app
@@ -90,6 +90,14 @@ class CaseResult:
     row: dict  # 存进 results.jsonl 的一行（见 results.py）
     trace: list[dict] = field(default_factory=list)  # 这一遍发生的每一件事（见 recorder.py），第一项是系统提示词
     history: list = field(default_factory=list)  # 发给模型的原始对话历史（各家的格式）
+
+
+class Driver(Protocol):
+    """怎么连模型：RealDriver（各家真正的 API）或者 DryDriver（演习用的假服务器，见 dryrun.py）。"""
+
+    dry: bool
+
+    def connect(self, task: Task, provider: str) -> Connection: ...
 
 
 class RealDriver:
@@ -166,7 +174,7 @@ def _write_settings(config: Config, target: Target, options: Options) -> None:
 
 
 def run_case(
-    task: Task, rep: int, target: Target, options: Options, driver: Any, watch: Callable[[Recorder], None] | None = None
+    task: Task, rep: int, target: Target, options: Options, driver: Driver, watch: Callable[[Recorder], None] | None = None
 ) -> CaseResult:
     """跑一个任务的一遍。不会抛出异常：出了什么事都写进返回的那一行里。"""
     row: dict[str, Any] = {
@@ -316,7 +324,7 @@ def run_all(
     repeat: int,
     target: Target,
     options: Options,
-    driver: Any,
+    driver: Driver,
     record: Callable[[CaseResult], None],
     parallel: int,
 ) -> str:

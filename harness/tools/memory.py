@@ -86,7 +86,7 @@ class _BinaryOs:
         return getattr(os, name)
 
     @staticmethod
-    def open(path: object, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+    def open(path: str | bytes | os.PathLike[str] | os.PathLike[bytes], flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
         return os.open(path, flags | pathnames.BINARY, mode, dir_fd=dir_fd)
 
 
@@ -99,7 +99,8 @@ def _binary_writes() -> None:
         except ImportError:
             continue
         if getattr(module, "os", None) is os:
-            module.os = _BinaryOs()
+            # 换掉 SDK 模块里的 os（见上面）。类型检查只知道它是一个模块，不知道里面有 os 这个名字
+            module.os = _BinaryOs()  # type: ignore[attr-defined]  # 见上一行
 
 
 def make_memory_tool(data_dir: Path) -> Tool:

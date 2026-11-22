@@ -431,7 +431,7 @@ def replace_fields(text: str, values: dict[str, str | None]) -> str:
         lines[start:stop] = [] if written is None else written.split("\n")
         if start < end:
             end += (0 if written is None else len(written.split("\n"))) - (stop - start)
-    added = [values[key] for key in values if key not in front.spans and values[key] is not None]
+    added = [value for key, value in values.items() if key not in front.spans and value is not None]
     for written in reversed(added):
         lines[end:end] = written.split("\n")
     # 原来是 Windows 的换行（\r\n）就还用它：只改这几项，别的一个字节都不动

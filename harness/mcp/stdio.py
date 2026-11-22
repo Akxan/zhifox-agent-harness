@@ -25,6 +25,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -32,7 +33,7 @@ from pathlib import Path
 
 from ..i18n import t
 from ..safe import clean, tame, to_json
-from ..tools.shell import SECRET_ENV_VARS, WINDOWS, kill_tree
+from ..tools.shell import NO_WINDOW, SECRET_ENV_VARS, WINDOWS, kill_tree
 from . import jsonrpc
 from .jsonrpc import McpError, RpcError, Slot
 from .log import ServerLog
@@ -77,7 +78,7 @@ class StdioTransport:
                 env=env,
                 cwd=Path(self.cwd).expanduser() if self.cwd else None,
                 start_new_session=not WINDOWS,  # 单独的进程组，见文件开头的说明
-                creationflags=subprocess.CREATE_NO_WINDOW if WINDOWS else 0,  # 后台服务里运行时不闪出黑色的窗口
+                creationflags=NO_WINDOW,  # 后台服务里运行时不闪出黑色的窗口
             )
         except FileNotFoundError as exc:
             if WINDOWS:
@@ -213,7 +214,8 @@ class StdioTransport:
 
     def _dispatch(self, message: object) -> None:
         kind = jsonrpc.kind(message)
-        assert isinstance(message, dict) or not kind  # 给类型检查看的：kind 不是空字符串，message 就一定是字典
+        if not isinstance(message, dict):  # 不是字典的 kind 一定是空字符串，下面哪一种都不是。写在这里，类型检查才知道下面的 message 是字典
+            return
         if kind == "response":
             with self._lock:
                 slot = self._pending.pop(message["id"], None)
@@ -269,7 +271,7 @@ class StdioTransport:
 def _end_group(pid: int) -> None:
     """结束整个进程组：先客气地请它退出（SIGTERM），一秒之内还有没退出的，再强制结束（SIGKILL）。
     Windows 上没有信号可发（关上 stdin 已经是客气的那一步了），直接连同子进程一起结束。"""
-    if WINDOWS:
+    if sys.platform == "win32":  # 和 WINDOWS 一样；写成 sys.platform，mypy 才知道下面的 killpg、SIGKILL 只在 macOS、Linux 上用
         kill_tree(pid)
         return
     for sig in (signal.SIGTERM, signal.SIGKILL):

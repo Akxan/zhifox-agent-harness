@@ -41,6 +41,7 @@ import platform
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -84,6 +85,9 @@ WINDOWS_APPS = [
     ("ProgramFiles", ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")),
     ("LOCALAPPDATA", ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")),
 ]
+# 找 Chrome 时看的是哪个系统（测试里换成 True / False，看别的系统上的样子）。真的去调用只有某个系统才有的
+# 东西（posix_spawn、killpg、msvcrt……）的地方另外写成 sys.platform 的判断：两者是一回事，但类型检查（mypy）
+# 只认 sys.platform，认得出来才知道那几行只在哪个系统上走（见 pyproject.toml 的 [tool.mypy]）
 WINDOWS = os.name == "nt"
 
 # 环境变量：在 settings 里没填路径时，可以用它指定（服务器上常用）
@@ -174,6 +178,8 @@ class Chrome:
         """进程还在不在。顺便把已经退出的收掉（不然它会变成僵尸进程）。"""
         if self._process is not None:
             return self._process.poll() is None
+        if sys.platform == "win32":  # 走不到：Windows 上的 Chrome 都有 _process（见 _launch_windows）。写给 mypy 看，见 WINDOWS 那里
+            return False
         try:
             done, _ = os.waitpid(self.pid, os.WNOHANG)
         except ChildProcessError:
@@ -206,9 +212,9 @@ class Chrome:
         self._signal(force=True)
         if self._process is not None:
             self._process.poll()
-            return
-        with contextlib.suppress(ChildProcessError, OSError):
-            os.waitpid(self.pid, os.WNOHANG)
+        elif sys.platform != "win32":  # 没有 _process 的只有 macOS、Linux（posix_spawn 启动的，见 launch）
+            with contextlib.suppress(ChildProcessError, OSError):
+                os.waitpid(self.pid, os.WNOHANG)
 
     def _signal(self, force: bool) -> None:
         """请整个进程组退出（SIGTERM），或者立刻结束它（force：SIGKILL）。"""
@@ -219,10 +225,10 @@ class Chrome:
                 self._job.terminate()
             elif self.alive():
                 _taskkill(self.pid, force=force)
-            return
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            # 进程组的编号就是主进程的编号（启动时 setpgroup=0）。SIGKILL 只有 macOS、Linux 有，所以在这里才取
-            os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
+        elif sys.platform != "win32":  # 没有 _process 的只有 macOS、Linux（posix_spawn 启动的，见 launch）
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                # 进程组的编号就是主进程的编号（启动时 setpgroup=0）。SIGKILL 只有 macOS、Linux 有，所以在这里才取
+                os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
 
     def _wait(self, seconds: float) -> bool:
         deadline = time.monotonic() + seconds
@@ -249,7 +255,9 @@ def _high(fd: int) -> int:
     后面要在子进程里把它放到 3、4 号上（dup2）。要是它本来就是 3 号，dup2(3, 3) 什么都不做，
     "不继承"的标记还在，Chrome 就拿不到它了。挪开了就没有这个问题。
     """
-    import fcntl  # 只有 macOS、Linux 有；Windows 走 _launch_windows
+    if sys.platform == "win32":  # 走不到：Windows 走 _launch_windows。写给 mypy 看，见 WINDOWS 那里
+        raise OSError("Windows 上不这样启动 Chrome")
+    import fcntl  # 只有 macOS、Linux 有
 
     moved = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 10)
     os.close(fd)
@@ -269,7 +277,7 @@ def launch(
     """
     profile.mkdir(parents=True, exist_ok=True)
     os.chmod(profile, 0o700)
-    if WINDOWS:
+    if sys.platform == "win32":  # 见 WINDOWS 那里：这里真的要分系统调用，所以写成 mypy 认得的样子
         return _launch_windows(executable, profile, headless, on_close, extra_args)
     to_chrome_read, to_chrome_write = (_high(fd) for fd in os.pipe())
     from_chrome_read, from_chrome_write = (_high(fd) for fd in os.pipe())
@@ -304,6 +312,8 @@ def _launch_windows(
     executable: Path, profile: Path, headless: bool, on_close: Callable[[], None] | None, extra_args: list[str] | None,
 ) -> Chrome:
     """Windows 上的启动：管道的两个句柄写进 --remote-debugging-io-pipes，只让 Chrome 继承这两个（见文件开头）。"""
+    if sys.platform != "win32":  # 走不到：只有 Windows 上的 launch 才叫它。写给 mypy 看，见 WINDOWS 那里
+        raise OSError("只有 Windows 上这样启动 Chrome")
     import msvcrt
 
     from ..tools.shell import SECRET_ENV_VARS

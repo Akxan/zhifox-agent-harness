@@ -83,8 +83,8 @@ def last_turn(events: Sequence[dict], start: int = 0) -> Turn | None:
     for index in range(len(events) - 1, -1, -1):
         event = events[index]
         if isinstance(event, dict) and event.get("type") == "user":
-            text = event.get("text") if isinstance(event.get("text"), str) else ""
-            number = event.get("id") if isinstance(event.get("id"), int) else None
+            text = given if isinstance(given := event.get("text"), str) else ""
+            number = given_id if isinstance(given_id := event.get("id"), int) else None
             return Turn(start + index, mark_of(event), number, text, from_saved(event.get("attachments")), list(events[index:]))
     return None
 
@@ -168,8 +168,8 @@ def _executed(events: Sequence[dict]) -> list[tuple[str, str]]:
         kind = event.get("type")
         step = event.get("step") if kind == "subagent" else None
         if kind == "tool_call" or step == "tool_call":
-            name = event.get("name") if isinstance(event.get("name"), str) else ""
-            summary = event.get("summary") if isinstance(event.get("summary"), str) else name
+            name = given_name if isinstance(given_name := event.get("name"), str) else ""
+            summary = given_summary if isinstance(given_summary := event.get("summary"), str) else name
             if changes(name, event.get("input")):
                 done.append((name, summary or "?"))
                 pending = (name, True)
@@ -188,7 +188,7 @@ def _executed(events: Sequence[dict]) -> list[tuple[str, str]]:
                 done.pop()  # 拒绝了、或者停下了：没有执行
                 pending = None
         elif kind == "confirm_done":
-            position = asked.pop(event.get("confirm"), None) if isinstance(event.get("confirm"), int) else None
+            position = asked.pop(confirm, None) if isinstance(confirm := event.get("confirm"), int) else None
             if position is not None and not event.get("allowed") and position == len(done) - 1:
                 done.pop()
                 pending = None

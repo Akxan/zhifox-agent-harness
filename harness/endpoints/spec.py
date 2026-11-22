@@ -205,11 +205,11 @@ def check_model(value: object) -> EndpointModel:
     if not isinstance(value, dict):
         raise EndpointError(t("参数不正确"))
     name = check_model_id(value.get("id"))
-    flags = {flag: value.get(flag) for flag in ("vision", "tools", "pdf")}
-    if any(not isinstance(flag, bool) for flag in flags.values()):
+    vision, tools, pdf = value.get("vision"), value.get("tools"), value.get("pdf")
+    if not isinstance(vision, bool) or not isinstance(tools, bool) or not isinstance(pdf, bool):  # 逐个判断，类型检查才知道下面三个都是 bool
         raise EndpointError(t("参数不正确"))
     return EndpointModel(
-        id=name, vision=flags["vision"], tools=flags["tools"], pdf=flags["pdf"],
+        id=name, vision=vision, tools=tools, pdf=pdf,
         context=check_context(value.get("context"), name), price=check_price(value.get("price"), name),
     )
 

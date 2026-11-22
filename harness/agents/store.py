@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import builtins
 import os
 import stat
 import threading
@@ -100,7 +101,7 @@ class AgentStore:
                 entries = sorted(listing, key=lambda entry: normal(entry.name))
         except OSError:
             return []  # 还没有这个文件夹：一个都没有
-        found = []
+        found: list[CustomAgent] = []
         for entry in entries:
             if len(found) >= MAX_AGENTS:
                 break
@@ -130,7 +131,8 @@ class AgentStore:
             raise AgentInvalid(agent.problems)
         return agent
 
-    def catalog(self) -> list[tuple[str, str]]:
+    # 这个类里有一个叫 list 的方法：在它后面写 list[...]，类型检查会以为说的是这个方法，所以写成 builtins.list
+    def catalog(self) -> builtins.list[tuple[str, str]]:
         """告诉模型的那些：合格的。[(名字, 它擅长什么、什么时候交给它)]"""
         return [(agent.name, agent.spec.description) for agent in self.list() if agent.usable]
 

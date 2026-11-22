@@ -30,6 +30,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from .. import log
@@ -257,7 +258,7 @@ class QQChannel(PushChannel):
         message_id = str(data.get("id") or "")
         if not self._first_time(message_id):
             return None
-        author = data.get("author") if isinstance(data.get("author"), dict) else {}
+        author = who if isinstance(who := data.get("author"), dict) else {}
         openid = str(author.get("user_openid") or author.get("member_openid") or author.get("id") or "")
         if not openid:
             return None
@@ -291,7 +292,7 @@ class QQChannel(PushChannel):
                     media_type=kind if "/" in kind else "application/octet-stream",
                     size=item.get("size") if isinstance(item.get("size"), int) else None,
                     kind="photo" if kind.startswith("image/") else "document",
-                    fetch=lambda url=url: self._download(url),
+                    fetch=partial(self._download, url),  # partial 当场绑住这一个附件的地址（循环变量会变）
                 )
             )
         if inbound.files or inbound.text:

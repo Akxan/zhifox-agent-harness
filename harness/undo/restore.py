@@ -66,7 +66,7 @@ def fold(set_id: str, events: Iterable[dict], count: int) -> list[FileState]:
         if not isinstance(event, dict) or event.get("type") != "file_undo" or event.get("set") != set_id:
             continue
         action = event.get("action")
-        for item in event.get("files") if isinstance(event.get("files"), list) else []:
+        for item in files if isinstance(files := event.get("files"), list) else []:
             index = item.get("index") if isinstance(item, dict) else None
             if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < count:
                 continue
@@ -241,10 +241,10 @@ class Restorer:
         if entry["before"] is None:
             path.unlink(missing_ok=True)  # 为它新建的文件夹等这一次的都做完再收拾（见 _sweep）
         else:
-            data = self.store.get(set_id, store.before(entry["slot"]), entry["before"]["sha256"])
-            if data is None:
+            kept = self.store.get(set_id, store.before(entry["slot"]), entry["before"]["sha256"])
+            if kept is None:
                 raise OSError("留底不见了")
-            _put(path, data, entry["before"].get("mode"))
+            _put(path, kept, entry["before"].get("mode"))
         return {"index": index, "n": number, "replaced": replaced}
 
     def _redo(self, set_id: str, entry: dict, state: FileState, index: int) -> dict:

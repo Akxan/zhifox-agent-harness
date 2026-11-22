@@ -370,7 +370,7 @@ def install(args: argparse.Namespace, config: Config, system: System) -> int:
         manager.stop()
         if not _wait_free(system, plan.data_dir):
             system.warn(t("旧的那个还没退出；新的会等它放开数据目录再开起来。"))
-    manager.write(plan, content)
+    manager.write(plan, content)  # type: ignore[arg-type]  # content 是这个 manager 自己 render 的（launchd、任务计划程序是 bytes，systemd 是 str），mypy 对不上 union 里谁和谁配对
     loaded = manager.load()
     if not loaded.ok:
         system.warn(t("服务的设置写好了，但没能启动它：{error}", error=loaded.message()))
@@ -416,32 +416,34 @@ def uninstall(config: Config, system: System) -> int:
     return 0
 
 
-def _installed(system: System) -> tuple[State, Plan | None] | None:
+def _installed(system: System) -> tuple[Manager, State, Plan | None] | None:
+    """装好的服务：（服务管家，现在的状态，装的时候的 Plan）。没装的话说一声，返回 None。
+    把查过不是 None 的 manager 一起交回去，调用的地方就不用再查一遍。"""
     manager = system.manager
     assert manager is not None
     state = manager.state()
     if not state.installed:
         system.warn(t("还没有装后台服务。装上它：{command} service install", command=COMMAND))
         return None
-    return state, manager.read_plan()
+    return manager, state, manager.read_plan()
 
 
 def start(config: Config, system: System) -> int:
     found = _installed(system)
     if found is None:
         return 1
-    state, plan = found
+    manager, state, plan = found
     plan = plan or make_plan(config, environ=system.environ)
     if state.running:
         if state.pid is None:  # Windows：任务在运行，智狐还没开好
-            system.say(_headline(system.manager, _describe(state, system.manager)))  # type: ignore[arg-type]
+            system.say(_headline(manager, _describe(state, manager)))
         else:
             system.say(t("已经在运行了（进程 {pid}）。", pid=state.pid))
         return 0
     blocked, holder = _blocker(plan.data_dir, state)
     if blocked:
         return _refuse(system, plan.data_dir, holder, f"{COMMAND} service start")
-    result = system.manager.start(state)  # type: ignore[union-attr]
+    result = manager.start(state)
     if not result.ok:
         system.warn(t("没能启动：{error}", error=result.message()))
         return 1
@@ -473,12 +475,12 @@ def restart(config: Config, system: System) -> int:
     found = _installed(system)
     if found is None:
         return 1
-    state, plan = found
+    manager, state, plan = found
     plan = plan or make_plan(config, environ=system.environ)
     blocked, holder = _blocker(plan.data_dir, state)
     if blocked:
         return _refuse(system, plan.data_dir, holder, f"{COMMAND} service restart")
-    result = system.manager.restart(state)  # type: ignore[union-attr]
+    result = manager.restart(state)
     if not result.ok:
         system.warn(t("没能重启：{error}", error=result.message()))
         return 1

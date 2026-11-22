@@ -33,7 +33,7 @@ class ChannelUI(WebUI):
         self,
         on_text: Callable[[str], None],
         on_notice: Callable[[str, str], None],
-        on_confirm: Callable[[int, str], None],
+        on_confirm: Callable[[int, str, str], None],
         on_settled: Callable[[int, bool, bool], None],
         on_auto: Callable[[str, str], None],
     ):

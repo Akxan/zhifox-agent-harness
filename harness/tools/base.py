@@ -108,7 +108,7 @@ class FactsTool(Tool):
 
 
 # 参数的类型。对象和数组只检查最外面这一层，里面的内容由工具自己检查（比如定时任务的时间表，见 tasks.py）
-_JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "object": dict, "array": list}
+_JSON_TYPES: dict[str, type | tuple[type, ...]] = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "object": dict, "array": list}
 
 
 def check_input(schema: dict, tool_input: object) -> dict:
@@ -149,7 +149,7 @@ def function_tool(
     description: str,
     properties: dict,
     required: list[str],
-    function: Callable[..., str],
+    function: Callable[..., str | ToolOutput],
 ) -> Tool:
     """把一个普通的 Python 函数包装成工具。自定义工具都用它来创建。"""
     schema = {
@@ -167,7 +167,7 @@ def function_tool(
         "eager_input_streaming": True,
     }
 
-    def run(tool_input: dict) -> str:
+    def run(tool_input: dict) -> str | ToolOutput:  # 和 Tool.run 一样：多数工具交回文字，有的还带图片（agent 工具交回子 Agent 的结果）
         return function(**check_input(schema, tool_input))
 
     # 自定义工具的说明书本来就是我们写的，换个包装就能给其他厂商用

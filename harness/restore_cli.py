@@ -84,7 +84,7 @@ def _confirmed(args: argparse.Namespace, out: IO[str], ask: Callable[[str], str]
 
 def preview_lines(archive: restore.Archive, plan: restore.Plan, path: Path, data_dir: Path) -> list[str]:
     """恢复之前打印的预览：哪个备份、什么时候导出的、每一样东西会怎样、哪些密钥要重新填。"""
-    lines = [t("备份：{path}（解开以后 {size}，{n} 个文件）", path=path, size=size_text(archive.total), n=len(archive.entries))]
+    lines: list[str] = [t("备份：{path}（解开以后 {size}，{n} 个文件）", path=path, size=size_text(archive.total), n=len(archive.entries))]
     if archive.exported_at is not None:
         lines.append(t("导出时间：{time}", time=f"{archive.exported_at.astimezone():%Y-%m-%d %H:%M}"))
     else:

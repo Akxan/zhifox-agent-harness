@@ -152,17 +152,17 @@ class McpClient:
             if code not in jsonrpc.MODERN_ERRORS:
                 return "legacy"
             if code == jsonrpc.UNSUPPORTED_VERSION:
-                data = problem.get("data") if isinstance(problem.get("data"), dict) else {}
+                data = raw_data if isinstance(raw_data := problem.get("data"), dict) else {}
                 return self._pick(data.get("supported"))
             raise RpcError(code, problem.get("message"), problem.get("data"))
-        result = message.get("result") if isinstance(message.get("result"), dict) else {}
+        result = raw_result if isinstance(raw_result := message.get("result"), dict) else {}
         era = self._pick(result.get("supportedVersions"))
         if era == "modern":
-            self.capabilities = result.get("capabilities") if isinstance(result.get("capabilities"), dict) else {}
-            meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
+            self.capabilities = raw_capabilities if isinstance(raw_capabilities := result.get("capabilities"), dict) else {}
+            meta = raw_meta if isinstance(raw_meta := result.get("_meta"), dict) else {}
             info = meta.get("io.modelcontextprotocol/serverInfo")
             self.server_info = info if isinstance(info, dict) else {}
-            self.instructions = result.get("instructions") if isinstance(result.get("instructions"), str) else ""
+            self.instructions = raw_instructions if isinstance(raw_instructions := result.get("instructions"), str) else ""
         return era
 
     def _pick(self, supported: object) -> str:
@@ -183,9 +183,9 @@ class McpClient:
         if version not in LEGACY_VERSIONS:
             raise McpError(t("服务器要用 MCP 协议的 {version} 版，智狐不认识这个版本。", version=version))
         self.era, self.version = "legacy", str(version)
-        self.capabilities = result.get("capabilities") if isinstance(result.get("capabilities"), dict) else {}
-        self.server_info = result.get("serverInfo") if isinstance(result.get("serverInfo"), dict) else {}
-        self.instructions = result.get("instructions") if isinstance(result.get("instructions"), str) else ""
+        self.capabilities = raw_capabilities if isinstance(raw_capabilities := result.get("capabilities"), dict) else {}
+        self.server_info = raw_server_info if isinstance(raw_server_info := result.get("serverInfo"), dict) else {}
+        self.instructions = raw_instructions if isinstance(raw_instructions := result.get("instructions"), str) else ""
         self.transport.protocol_version = self.version  # 老一代：握手之后的每个 HTTP 请求都带上选定的版本
         self.transport.notify("notifications/initialized")
 
@@ -244,7 +244,7 @@ class McpClient:
                 if exc.code == jsonrpc.METHOD_NOT_FOUND and cursor is None:
                     return [], []  # 这个服务器没有工具（它可能只提供资源或提示词）
                 raise
-            for raw in result.get("tools") if isinstance(result.get("tools"), list) else []:
+            for raw in listed if isinstance(listed := result.get("tools"), list) else []:
                 tool, problem = self._check_tool(raw)
                 if problem:
                     rejected.append({"name": (tool.get("name") if isinstance(tool, dict) else None) or "?", "reason": problem})
@@ -308,7 +308,7 @@ class McpClient:
 
     def _notified(self, message: dict) -> None:
         method = message["method"]
-        params = message.get("params") if isinstance(message.get("params"), dict) else {}
+        params = raw_params if isinstance(raw_params := message.get("params"), dict) else {}
         if method == "notifications/tools/list_changed":
             self.log.note(t("服务器说它的工具列表变了。"))
             self.on_tools_changed()

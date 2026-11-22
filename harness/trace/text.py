@@ -66,7 +66,7 @@ def lines(record: dict | None) -> list[tuple[str, str]]:
     head = [t("这一轮的运行记录"), t("一共 {time}", time=seconds(wall)), money(totals.get("cost"))]
     if totals.get("cache_hit") is not None:
         head.append(t("缓存命中 {percent}%", percent=round(totals["cache_hit"] * 100)))
-    head.append(t(ENDED.get(record.get("ended"), k("出错了"))))
+    head.append(t(ENDED.get(record.get("ended") or "", k("出错了"))))  # 没写的当作空串：查不到，和认不出的一样算"出错了"
     out = [(" · ".join(head), "plain")]
     split = [(k("模型 {time}"), "model"), (k("工具 {time}"), "tools"), (k("钩子 {time}"), "hooks"), (k("等你确认 {time}"), "waiting"), (k("其他 {time}"), "other")]
     # 钩子那一项只在这一轮真的跑过钩子时才写（以前的记录里没有这一项）
@@ -109,7 +109,7 @@ def _bar(span: dict, wall: int) -> str:
     first = min(BAR - 1, int(start * scale))
     last = max(first + 1, min(BAR, round(end * scale)))
     cells = ["·"] * BAR
-    fill = {"model": "█", "hook": "▒"}.get(span.get("kind"), "▓")
+    fill = {"model": "█", "hook": "▒"}.get(span.get("kind") or "", "▓")  # 没写 kind 的和别的一样用 ▓
     for index in range(first, last):
         cells[index] = fill
     if span.get("asked") is not None and span.get("waited"):

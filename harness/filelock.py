@@ -15,14 +15,16 @@ Windows 没有"共享锁"，看一眼有没有人占着（instance.in_use）就�
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import IO
 
-WINDOWS = os.name == "nt"
 LOCK_OFFSET = 0x7FFF_FFF0  # Windows 上锁的那一个字节的位置（见上面）：远在文件内容之外，又在 32 位的范围以内
 _POLL_SECONDS = 0.05  # Windows 上"等到能锁为止"：msvcrt 的阻塞锁只重试 10 秒就放弃，所以自己一小段一小段地等
 
-if WINDOWS:
+# 这个文件里分系统的地方都写成 sys.platform == "win32"（和 os.name == "nt" 是一回事）：类型检查（mypy）只认这种写法，
+# 认得出来，它才知道 msvcrt 只在 Windows 的分支里用、fcntl 只在另一个分支里用（见 pyproject.toml 的 [tool.mypy]）
+if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
@@ -37,35 +39,35 @@ def lock(handle: IO, wait: bool = True) -> None:
 
     文件系统不支持锁（少数网络盘）时抛出 OSError，由调用的人决定是照常运行还是停下。
     """
-    if not WINDOWS:
+    if sys.platform != "win32":
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         except BlockingIOError as exc:
             raise Busy from exc
-        return
-    fd = handle.fileno()
-    while True:
-        try:
-            _at_offset(fd, msvcrt.LK_NBLCK)
-            return
-        except OSError as exc:
-            # 锁不到时 msvcrt 报的是 EDEADLOCK（36）或者 EACCES（13）：别人锁着。别的错误照原样交出去
-            if exc.errno not in (13, 36):
-                raise
-            if not wait:
-                raise Busy from exc
-        time.sleep(_POLL_SECONDS)
+    else:
+        fd = handle.fileno()
+        while True:
+            try:
+                _at_offset(fd, msvcrt.LK_NBLCK)
+                return
+            except OSError as exc:
+                # 锁不到时 msvcrt 报的是 EDEADLOCK（36）或者 EACCES（13）：别人锁着。别的错误照原样交出去
+                if exc.errno not in (13, 36):
+                    raise
+                if not wait:
+                    raise Busy from exc
+            time.sleep(_POLL_SECONDS)
 
 
 def unlock(handle: IO) -> None:
     """放开 lock 锁住的。没锁着的话什么都不做。（关掉文件也会放开，所以多数时候用不着它。）"""
-    if not WINDOWS:
+    if sys.platform != "win32":
         fcntl.flock(handle, fcntl.LOCK_UN)
-        return
-    try:
-        _at_offset(handle.fileno(), msvcrt.LK_UNLCK)
-    except OSError:
-        pass
+    else:
+        try:
+            _at_offset(handle.fileno(), msvcrt.LK_UNLCK)
+        except OSError:
+            pass
 
 
 def held_elsewhere(handle: IO) -> bool:
@@ -80,12 +82,14 @@ def held_elsewhere(handle: IO) -> bool:
     return False
 
 
-def _at_offset(fd: int, mode: int) -> None:
-    """在 LOCK_OFFSET 那一个字节上加锁或者放开（只在 Windows 上用）。用完把读写的位置挪回原处：
-    .lock 是追加着打开的，写"是谁占着"那一行之前位置本来就会挪到末尾，这里只是不留下意外。"""
-    position = os.lseek(fd, 0, os.SEEK_CUR)
-    os.lseek(fd, LOCK_OFFSET, os.SEEK_SET)
-    try:
-        msvcrt.locking(fd, mode, 1)
-    finally:
-        os.lseek(fd, position, os.SEEK_SET)
+if sys.platform == "win32":  # 只在 Windows 上有（也只在 Windows 上用）：写在这个判断里，mypy 在别的系统上就不查它
+
+    def _at_offset(fd: int, mode: int) -> None:
+        """在 LOCK_OFFSET 那一个字节上加锁或者放开。用完把读写的位置挪回原处：
+        .lock 是追加着打开的，写"是谁占着"那一行之前位置本来就会挪到末尾，这里只是不留下意外。"""
+        position = os.lseek(fd, 0, os.SEEK_CUR)
+        os.lseek(fd, LOCK_OFFSET, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, mode, 1)
+        finally:
+            os.lseek(fd, position, os.SEEK_SET)

@@ -353,7 +353,7 @@ def _block_content(block: dict) -> tuple[str, str, str] | None:
         source = block.get("source")
         if isinstance(source, dict) and source.get("type") == "base64" and isinstance(source.get("data"), str):
             media_type = source.get("media_type")
-            title = block.get("title") if isinstance(block.get("title"), str) else ""
+            title = given if isinstance(given := block.get("title"), str) else ""
             if (kind == "image" and media_type in IMAGE_TYPES) or (kind == "document" and media_type == PDF_TYPE):
                 return media_type, source["data"], title
         return None
@@ -366,7 +366,7 @@ def _block_content(block: dict) -> tuple[str, str, str] | None:
         return None
     media_type = match.group(1)
     if (kind == "image_url" and media_type in IMAGE_TYPES) or (kind == "file" and media_type == PDF_TYPE):
-        name = holder.get("filename") if isinstance(holder.get("filename"), str) else ""
+        name = given if isinstance(given := holder.get("filename"), str) else ""
         return media_type, match.group(2), name
     return None
 

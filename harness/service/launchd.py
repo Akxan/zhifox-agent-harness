@@ -89,7 +89,8 @@ class Launchd:
     def __init__(self, home: Path, runner: Runner, uid: int | None = None, version: tuple[int, ...] | None = None):
         self.file = home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
         self.run = runner
-        self.uid = os.getuid() if uid is None else uid
+        # launchd 只在 macOS 上用（见 service/cli.py 的 detect），Windows 上没有 os.getuid：mypy 按 Windows 查时不知道这一点
+        self.uid = os.getuid() if uid is None else uid  # type: ignore[attr-defined, unused-ignore]  # 见上一行
         self.legacy = (version or _mac_version()) < (10, 10)  # 10.10 以前没有 bootstrap / bootout / kickstart
         self.domain = f"gui/{self.uid}"
         self.target = f"{self.domain}/{LABEL}"

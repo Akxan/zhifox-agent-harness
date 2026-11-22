@@ -133,7 +133,7 @@ def normalize(name: str, entry: object) -> dict:
     approval = entry.get("approval")
     if isinstance(approval, dict):
         default = approval.get("default") if approval.get("default") in APPROVALS else "ask"
-        tools = approval.get("tools") if isinstance(approval.get("tools"), dict) else {}
+        tools = given if isinstance(given := approval.get("tools"), dict) else {}
         kept = {tool: value for tool, value in tools.items() if isinstance(tool, str) and value in APPROVALS and value != default}
         if default != "ask" or kept:
             out["approval"] = {"default": default, **({"tools": kept} if kept else {})}
@@ -219,7 +219,7 @@ def model_key_references(entry: dict) -> list[str]:
     启动时 expand 会拒绝它们；从别处导入、粘贴进来的时候就先查一遍，有的话这个服务器不加进来（见 importers.py）。
     """
     texts = [entry.get(key) for key in ("command", "cwd", "url")]
-    texts += entry.get("args") if isinstance(entry.get("args"), list) else []
+    texts += args if isinstance(args := entry.get("args"), list) else []
     for key in ("env", "headers"):
         if isinstance(entry.get(key), dict):
             texts += list(entry[key].values())
@@ -429,7 +429,7 @@ class McpConfig:
         approval = raw.get("approval") if isinstance(raw, dict) else None
         if not isinstance(approval, dict):
             return "ask"
-        tools = approval.get("tools") if isinstance(approval.get("tools"), dict) else {}
+        tools = given if isinstance(given := approval.get("tools"), dict) else {}
         value = tools.get(tool, approval.get("default"))
         return "auto" if value == "auto" else "ask"
 
@@ -470,7 +470,7 @@ class McpConfig:
         """改"问不问你"。tool 为 None 时改这个服务器的默认值；否则只改这一个工具（和默认值一样时就不单独记了）。"""
 
         def change(entry: dict) -> None:
-            approval = entry.get("approval") if isinstance(entry.get("approval"), dict) else {}
+            approval = given if isinstance(given := entry.get("approval"), dict) else {}
             default = approval.get("default", "ask")
             tools = dict(approval.get("tools") or {})
             if tool is None:
@@ -489,9 +489,10 @@ class McpConfig:
                 raise ConfigError(t("没有找到服务器“{name}”，它可能已经被删掉了。", name=name))
             entry = normalize(name, raw)  # 写错了的配置在这里就会报出来，不会被悄悄改掉
             change(entry)
-            self._raw[name] = normalize(name, entry)
+            saved = normalize(name, entry)
+            self._raw[name] = saved
             self._write()
-            return self._raw[name]
+            return saved
 
     def _fresh(self) -> None:
         """改之前先确认手里的是文件现在的内容，并且这个文件是读得出来的。调用的人要先拿到锁。"""

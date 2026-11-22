@@ -111,7 +111,8 @@ class HttpTransport:
     def send(self, method: str, params: dict | None = None, headers: dict | None = None, timeout: float = 600) -> Slot:
         """发出一个请求，返回等它回答的座位（不等）。真正的收发在一个后台线程里做，这样随时可以挂断。"""
         id = next(self._ids)
-        slot, box = Slot(id, method), []
+        slot = Slot(id, method)
+        box: list = []  # 这个请求用的连接底下的 socket（见 _hang_up）
         with self._lock:
             self._open[id] = box
         message = jsonrpc.request(id, method, params)

@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import threading
 from copy import deepcopy
@@ -137,7 +138,8 @@ class EndpointStore:
                 raise EndpointError(t("这个接口已经不在了，可能刚被删掉。"))
             self._write(items)
 
-    def set_models(self, provider_id: str, found: list[EndpointModel]) -> Endpoint:
+    # 这个类里有一个叫 list 的方法：在它后面写 list[...]，类型检查会以为说的是这个方法，所以写成 builtins.list
+    def set_models(self, provider_id: str, found: builtins.list[EndpointModel]) -> Endpoint:
         """同步来的模型列表（规矩见 spec.merged）。"""
         return self._change(provider_id, lambda item: setattr(item, "models", merged(item.models, found)))
 
@@ -191,7 +193,7 @@ class EndpointStore:
         if self._broken:
             raise EndpointError(t("{file} 读不懂，修好它（或者删掉它）之前不能保存，免得把里面的内容冲掉。", file=self.path))
 
-    def _write(self, items: list[Endpoint]) -> None:
+    def _write(self, items: builtins.list[Endpoint]) -> None:
         """写回文件（权限 600），成了才换掉内存里的。调用的人拿着 _lock。"""
         private_dir(self.path.parent)
         data = {"version": VERSION, "endpoints": [*(item.saved() for item in items), *self._kept]}

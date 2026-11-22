@@ -37,7 +37,7 @@ def pad(text: str, width: int) -> str:
 def lines(report: Report) -> list[tuple[str, str]]:
     app = report.app
     version = t("{version} · 提交 {commit}", version=app["version"] or "?", commit=app["commit"]) if app["commit"] else (app["version"] or "?")
-    out = [(t("{name}自检（{version}）", name=APP_NAME, version=version), "plain")]
+    out: list[tuple[str, str]] = [(t("{name}自检（{version}）", name=APP_NAME, version=version), "plain")]
     out.append((t("只看不改：不联网，不改任何文件、权限和设置；密钥只说有没有。"), "info"))
     words = {status: t(STATUS_TEXT[status]) for status in STATUSES}
     status_width = max(columns(word) for word in words.values())

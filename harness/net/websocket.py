@@ -320,7 +320,8 @@ class WebSocket:
             except (OSError, ValueError):  # 套接字已经被别的线程关掉了
                 ready = [sock]
             if not ready:
-                return WINDOWS and (wait is None or step < wait)  # Windows 上只是一小段到了，还没到时候：回去看一眼再等
+                # Windows 上只是一小段到了，还没到时候：回去看一眼再等。（wait 不是 None 时 step 也不是，写出来是给类型检查看的）
+                return WINDOWS and (wait is None or (step is not None and step < wait))
         try:
             chunk = sock.recv(65_536)
         except TimeoutError:

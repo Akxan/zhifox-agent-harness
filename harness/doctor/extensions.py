@@ -54,7 +54,7 @@ def mcp(config: Config) -> Check:
         return Check("mcp", label, PROBLEM, store.problem, [edit], {"count": 0})
     servers = store.servers()
     enabled = [(name, entry) for name, (entry, _) in servers.items() if entry is not None and entry["enabled"]]
-    facts = {"count": len(servers), "enabled": len(enabled)}
+    facts: dict[str, object] = {"count": len(servers), "enabled": len(enabled)}  # 下面还要放进名字的列表
     if not servers:
         return Check("mcp", label, UNUSED, t("没有"), facts=facts)
     problems = _broken(servers)
@@ -68,7 +68,7 @@ def mcp(config: Config) -> Check:
     count = t("{n} 个，开着 {on} 个", n=len(servers), on=len(enabled))
     if not problems and not missing:
         return Check("mcp", label, OK, count, facts=facts)
-    fix = []
+    fix: list[str] = []  # t() 译好的话（Message）和别的文字放在一起
     if problems:
         fix.append(edit)
     for name, command in missing:
@@ -96,7 +96,8 @@ def channels(config: Config, store: ChannelStore, running: bool) -> Check:
     facts = {"count": len(known), "enabled": len(enabled), "platforms": known}
     if not known:
         return Check("channels", label, UNUSED, t("没有"), facts=facts)
-    problems, fix = [], []
+    problems: list[str] = []
+    fix: list[str] = []
     for name in enabled:
         shown = platforms.label(name)
         if not store.configured(name):
@@ -129,11 +130,11 @@ def hooks(config: Config) -> Check:
         return Check("hooks", label, PROBLEM, store.problem, [edit], {"count": 0})
     found = store.hooks()
     enabled = [(name, entry) for name, (entry, _) in found.items() if entry is not None and entry["enabled"]]
-    facts = {"count": len(found), "enabled": len(enabled)}
+    facts: dict[str, object] = {"count": len(found), "enabled": len(enabled)}  # 下面还要放进名字的列表
     if not found:
         return Check("hooks", label, UNUSED, t("没有"), facts=facts)
     problems = _broken(found)
-    fix = [edit] if problems else []
+    fix: list[str] = [edit] if problems else []
     missing = [(name, entry["command"]) for name, entry in enabled if not program_found(argv_of(entry["command"], entry["args"], config.workspace)[0], config.workspace)]
     for name, command in missing:
         problems.append(t("{name} 要运行的 {command} 找不到", name=name, command=command))

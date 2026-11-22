@@ -93,6 +93,7 @@ def price_of(model: str, custom: dict[str, dict], offpeak: bool = False) -> dict
 
     offpeak：要闲时的价格。没有闲时价的模型，闲时和平时一样。
     """
+    price: dict | None
     if custom.get(model):
         price = custom[model]
     else:

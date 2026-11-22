@@ -119,6 +119,7 @@ def save(root: Path, relative: object, name: object, text: object, modified: flo
     改名是一步完成的系统调用。
     """
     target = _locate(root, relative)
+    assert isinstance(relative, str)  # _locate 只认字符串：不是的话上一行已经抛出 MemoryFileError 了
     name = _valid_name(name)
     if not isinstance(text, str):
         raise MemoryFileError(t("参数不正确"))

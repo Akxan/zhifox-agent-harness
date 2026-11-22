@@ -195,7 +195,7 @@ def _valid_entry(entry: object) -> bool:
     return _valid_state(entry.get("after"))
 
 
-def _valid_manifest(data: object, set_id: str) -> bool:
+def _valid_manifest(data: object, set_id: object) -> bool:  # set_id 只拿来和清单里写的比一比
     if not isinstance(data, dict) or data.get("version") != VERSION or data.get("id") != set_id:
         return False
     files = data.get("files")

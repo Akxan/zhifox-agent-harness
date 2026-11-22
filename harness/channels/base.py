@@ -166,6 +166,9 @@ class Channel(ABC):
 
     platform: str
     capabilities: Capabilities
+    # 状态变了就通知一声（hub.py 建好通道后设上，用来刷新页面；PushChannel 和 TelegramChannel 在 __init__ 里先设成 None）。
+    # 这里只是声明有这个属性（不赋值，什么都不改），hub 给它赋值时 mypy 才认得
+    on_status: Callable[[], None] | None
 
     @abstractmethod
     def start(self, deliver: Callable[[Event], None]) -> None: ...

@@ -329,9 +329,10 @@ class HookConfig:
                 raise HookError(t("没有找到钩子“{name}”，它可能已经被删掉了。", name=name))
             entry = normalize(name, raw)  # 写错了的配置在这里就报出来，不会被悄悄改掉
             entry["enabled"] = enabled
-            self._raw[name] = normalize(name, entry)
+            saved = normalize(name, entry)
+            self._raw[name] = saved
             self._write()
-            return self._raw[name]
+            return saved
 
     def _fresh(self) -> None:
         self._read()

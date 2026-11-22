@@ -96,7 +96,9 @@ class _Parser:
         if self.depth > MAX_DEPTH:
             raise YamlError(t("嵌套得太深了。"), self.index + 1)
         try:
-            number, _, content = self._peek()
+            line = self._peek()
+            assert line is not None  # 叫它的地方都刚看过：下一行有内容（document、_after_key、_sequence 都先判断过）
+            number, _, content = line
             if _is_item(content):
                 return self._sequence(indent)
             if _key(content) is not None:

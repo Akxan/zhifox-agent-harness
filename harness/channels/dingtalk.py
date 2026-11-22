@@ -426,7 +426,7 @@ class DingTalkChannel(PushChannel):
                 }
         inbound = Inbound(platform=self.platform, chat=chat, user=user, name=str(data.get("senderNick") or user), private=private)
         kind = str(data.get("msgtype") or "")
-        content = data.get("content") if isinstance(data.get("content"), dict) else {}
+        content = given if isinstance(given := data.get("content"), dict) else {}
         if kind == "text":
             inbound.text = str((data.get("text") or {}).get("content") or "").strip()
         elif kind == "picture" and content.get("downloadCode"):

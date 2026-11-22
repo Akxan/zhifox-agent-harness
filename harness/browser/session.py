@@ -422,10 +422,10 @@ class BrowserSession:
         """现在开着哪些标签页、哪个在前面（Claude 的工具包要的格式）。和上次报告的一样、也没有新变化，返回 None。"""
         self._drain()  # 这个动作做的时候页面开了新标签页、弹了对话框……也算进这一次的结果里
         infos = {info["targetId"]: info for info in connection.call("Target.getTargets", owner=self).get("targetInfos", [])}
-        tabs = []
+        tabs: list[dict] = []
         for tab in self.tabs.values():
             info = infos.get(tab.target, {})
-            entry = {"tab_id": tab.id, "title": _clean_title(info.get("title", "")), "url": urls.shown(info.get("url", ""), 1000)}
+            entry: dict = {"tab_id": tab.id, "title": _clean_title(info.get("title", "")), "url": urls.shown(info.get("url", ""), 1000)}
             if tab.id == self.active:
                 entry["active"] = True
             tabs.append(entry)

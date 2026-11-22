@@ -69,13 +69,13 @@ def _fill(backup: Any, current: Any, path: Path, result: Filled) -> Any:
         here = current if isinstance(current, dict) else {}
         return {key: _fill(item, here.get(key, MISSING), (*path, str(key)), result) for key, item in backup.items()}
     if isinstance(backup, list):
-        here = current if isinstance(current, list) else []
+        entries = current if isinstance(current, list) else []
         if _keyed(backup):
-            found = {_ident(item): item for item in here if isinstance(item, dict) and _ident(item)}
+            found = {_ident(item): item for item in entries if isinstance(item, dict) and _ident(item)}
             return [_fill(item, found.get(_ident(item), MISSING), (*path, _ident(item)), result) for item in backup]
         # 不带名字的一串（命令行参数）：除了占位符那几项，两边一模一样才认是同一串
-        same = len(here) == len(backup) and all(_alike(mine, theirs) for mine, theirs in zip(backup, here, strict=True))
-        return [_fill(item, here[index] if same else MISSING, (*path, f"#{index + 1}"), result) for index, item in enumerate(backup)]
+        same = len(entries) == len(backup) and all(_alike(mine, theirs) for mine, theirs in zip(backup, entries, strict=True))
+        return [_fill(item, entries[index] if same else MISSING, (*path, f"#{index + 1}"), result) for index, item in enumerate(backup)]
     if isinstance(backup, str) and PLACEHOLDER in backup:
         if _fits(backup, current):
             result.kept.append(path)

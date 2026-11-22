@@ -43,6 +43,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from .. import log
@@ -233,7 +234,7 @@ class DiscordChannel(PushChannel):
             raise
         if not isinstance(info, dict) or not isinstance(info.get("url"), str):
             raise ChannelError(t("Discord 的回答看不懂。"))
-        limit = info.get("session_start_limit") if isinstance(info.get("session_start_limit"), dict) else {}
+        limit = given if isinstance(given := info.get("session_start_limit"), dict) else {}
         if limit.get("remaining") == 0:  # 今天登录的次数用完了：再登录会让 token 作废
             seconds = max(60.0, float(limit.get("reset_after") or 0) / 1000)
             raise Wait(t("今天连接 Discord 的次数用完了，{minutes} 分钟以后再连。", minutes=round(seconds / 60)), seconds)
@@ -248,9 +249,9 @@ class DiscordChannel(PushChannel):
     def _dispatch(self, kind: str, data: dict) -> None:
         deliver = self._deliver
         if kind == "READY":
-            user = data.get("user") if isinstance(data.get("user"), dict) else {}
+            user = me if isinstance(me := data.get("user"), dict) else {}
             self.me = str(user.get("id", ""))
-            application = data.get("application") if isinstance(data.get("application"), dict) else {}
+            application = app if isinstance(app := data.get("application"), dict) else {}
             self.app_id = self.app_id or str(application.get("id", ""))
             return
         if deliver is None or self._stopping.is_set():
@@ -264,7 +265,7 @@ class DiscordChannel(PushChannel):
             deliver(event)
 
     def _message(self, data: dict) -> Inbound | None:
-        author = data.get("author") if isinstance(data.get("author"), dict) else {}
+        author = who if isinstance(who := data.get("author"), dict) else {}
         if not author or author.get("bot") or str(author.get("id", "")) == self.me:
             return None  # 自己发的（Discord 也会推回来）、别的机器人发的：不理
         inbound = Inbound(
@@ -286,7 +287,7 @@ class DiscordChannel(PushChannel):
                     media_type=str(item.get("content_type") or "application/octet-stream"),
                     size=size,
                     kind=kind,
-                    fetch=lambda url=url, size=size: self._download(url, size),  # 默认值绑住这一个附件的（循环变量会变）
+                    fetch=partial(self._download, url, size),  # partial 当场绑住这一个附件的（循环变量会变）
                 )
             )
         if not inbound.text and not inbound.files:
@@ -308,13 +309,13 @@ class DiscordChannel(PushChannel):
 
     def _interaction(self, data: dict) -> Event | None:
         interaction_id, token = str(data.get("id", "")), str(data.get("token", ""))
-        user = data.get("user") if isinstance(data.get("user"), dict) else None
-        if user is None and isinstance(data.get("member"), dict):
-            user = data["member"].get("user") if isinstance(data["member"].get("user"), dict) else None
+        user = who if isinstance(who := data.get("user"), dict) else None
+        if user is None and isinstance(member := data.get("member"), dict):
+            user = who if isinstance(who := member.get("user"), dict) else None
         user = user or {}
         chat = str(data.get("channel_id", ""))
         private = "guild_id" not in data
-        payload = data.get("data") if isinstance(data.get("data"), dict) else {}
+        payload = given if isinstance(given := data.get("data"), dict) else {}
         if data.get("type") == 3:  # 按钮
             return Press(
                 platform=self.platform,

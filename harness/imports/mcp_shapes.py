@@ -147,7 +147,7 @@ def _skips_asking(key: str, value: object) -> bool:
     if key == "approval":
         if not isinstance(value, dict):
             return False
-        tools = value.get("tools") if isinstance(value.get("tools"), dict) else {}
+        tools = given if isinstance(given := value.get("tools"), dict) else {}
         return value.get("default") == "auto" or "auto" in tools.values()
     return value not in (None, False, [], {}, "", "prompt", "ask")
 
@@ -194,7 +194,7 @@ def mapping(path: tuple[str, ...], *, url_default: str = "http", prefer_url: boo
 def claude_local(data: object, env: Env, tool: str) -> dict[str, Found]:
     """Claude Code 在 ~/.claude.json 里按项目记的服务器：projects["这个工作目录"].mcpServers。"""
     projects = _dig(data, ("projects",))
-    project = next((projects[key] for key in (str(env.workspace), env.workspace.as_posix()) if isinstance(projects.get(key), dict)), {})
+    project: dict = next((projects[key] for key in (str(env.workspace), env.workspace.as_posix()) if isinstance(projects.get(key), dict)), {})
     return mapping(("mcpServers",))(project, env, tool)
 
 
@@ -217,7 +217,8 @@ def codex(data: object, env: Env, tool: str) -> dict[str, Found]:
 
     def one(name: str, raw: dict) -> Found:
         remote = isinstance(raw.get("url"), str)
-        passed, dropped = [], []
+        passed: list[str] = []  # 照样交给本地程序的环境变量的名字
+        dropped: list[str] = []  # 网址的服务器用不上、丢掉的
         for item in _list(raw.pop("env_vars", None)):
             variable = item if isinstance(item, str) else item.get("name") if isinstance(item, dict) else None
             if isinstance(variable, str) and variable:

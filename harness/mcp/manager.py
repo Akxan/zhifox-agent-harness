@@ -71,7 +71,7 @@ class Server:
         self.error: str = ""  # 失败的原因（用 t() 写的，页面换语言时能跟着换）
         self.last_words = ""  # 失败时服务器自己在 stderr 上写的最后一行，常常就是真正的原因
         self.client: McpClient | None = None
-        self.transport = None
+        self.transport: StdioTransport | HttpTransport | None = None
         self.tools: list[dict] = []
         self.rejected: list[dict] = []
         self.log = ServerLog()
@@ -150,7 +150,7 @@ class McpManager:
 
     def _connect(self, server: Server, generation: int, entry: dict) -> None:
         """在后台线程里：启动传输、握手、取工具列表。"""
-        transport = None
+        transport: StdioTransport | HttpTransport | None = None
         try:
             real = expand(entry)  # ${变量名} 换成环境变量的值
             if transport_of(real) == "stdio":
@@ -396,7 +396,8 @@ class McpManager:
         with self._lock:
             ready = sorted((server for server in self._servers.values() if server.status == "ready"), key=lambda server: server.name)
             plan = [(server.name, list(server.tools), server.print) for server in ready]
-        shot, taken = Snapshot(), set()
+        shot = Snapshot()
+        taken: set[str] = set()
         for name, tools, fingerprint in plan:
             shot.prints[name] = fingerprint
             for tool in tools:

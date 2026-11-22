@@ -25,6 +25,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,17 @@ def _clip(output: str) -> str:
     return f"{output[:half]}\n……（中间省略了 {omitted} 个字符）……\n{output[-half:]}"
 
 
+# 命令行、说明书里写哪一种 shell 看它（测试里换成 True / False，看别的系统上的样子）。真的去调用只有某个系统才有的
+# 东西（killpg、CREATE_NO_WINDOW）的地方另外写成 sys.platform 的判断：两者是一回事，但类型检查（mypy）只认
+# sys.platform，认得出来才知道那几行只在哪个系统上走（见 pyproject.toml 的 [tool.mypy]）
 WINDOWS = os.name == "nt"
+
+# 启动子进程时给 creationflags 的：Windows 上是 CREATE_NO_WINDOW（作为后台服务运行时不闪出黑色的窗口），别的系统上没有这个标志，是 0。
+# MCP 的 stdio 服务器（mcp/stdio.py）也用它
+if sys.platform == "win32":
+    NO_WINDOW = subprocess.CREATE_NO_WINDOW
+else:
+    NO_WINDOW = 0
 # PowerShell 在每条命令前面先做的事：输出一律是 UTF-8（见开头的说明）。$OutputEncoding 管的是 PowerShell 交给别的程序的文字
 _UTF8_PRELUDE = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding\n"
 
@@ -89,7 +100,7 @@ def command_line(command: str) -> list[str]:
 def kill_tree(pid: int) -> None:
     """结束一个进程和它启动的所有子进程。macOS、Linux 上它自成一个进程组（start_new_session），对整组发 SIGKILL；
     Windows 上用 taskkill /T（连同子进程）/F（强制）。已经结束了的话什么都不做。"""
-    if WINDOWS:
+    if sys.platform == "win32":  # 见 WINDOWS 那里：这里真的要分系统调用（killpg、SIGKILL 只有 macOS、Linux 有）
         subprocess.run(
             [system32("taskkill.exe"), "/T", "/F", "/PID", str(pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -142,7 +153,7 @@ class Shell:
             encoding="utf-8" if WINDOWS else None,
             errors="replace",
             start_new_session=not WINDOWS,  # 独立的进程组，超时或中断时可以整组结束
-            creationflags=subprocess.CREATE_NO_WINDOW if WINDOWS else 0,
+            creationflags=NO_WINDOW,
         )
         # Windows 上的"进程组"：这条命令和它开的子孙进程都在这个作业里。不设"关掉就结束"：
         # 命令正常结束以后，它故意留在后台的程序（Start-Process）照样留着，和 macOS、Linux 上一样

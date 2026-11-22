@@ -42,6 +42,7 @@ from .base import (
     Step,
     StreamUI,
     ToolCall,
+    ToolImage,
     ToolResult,
     Unavailable,
     Usage,
@@ -185,7 +186,7 @@ class OpenAICompatBackend:
         self._messages.append({"role": "user", "content": content})
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
-        pictures = []
+        pictures: list[ToolImage] = []
         for result in results:
             # 这套格式里没有"出错"标记，所以把它写在文字里，让模型知道
             text = f"[出错] {result.text}" if result.is_error else result.text

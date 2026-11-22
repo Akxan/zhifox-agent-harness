@@ -77,10 +77,10 @@ def sandbox(settings: Settings, elsewhere: list[str]) -> Check:
     if level == "off" and not elsewhere:
         return Check("sandbox", label, UNUSED, t("设置里关着。{here}", here=here), facts=facts)
     if problem is not None:
-        users = [t("对话（“{level}”）", level=t(SANDBOX_LEVELS[level]))] if level != "off" else []
+        users: list[str] = [t("对话（“{level}”）", level=t(SANDBOX_LEVELS[level]))] if level != "off" else []
         users += elsewhere
         detail = t("{users} 要用沙箱，可是这台电脑上用不了，命令会被拒绝执行：{problem}", users=t("、").join(users), problem=problem)
-        fix = [t("修好它，或者先把沙箱关掉：{run}", run=fixes.harness("sandbox", "level", "off"))]
+        fix: list[str] = [t("修好它，或者先把沙箱关掉：{run}", run=fixes.harness("sandbox", "level", "off"))]
         if machine.system() == machine.WINDOWS:
             fix.insert(0, t(sandbox_windows.NOTE))
         return Check("sandbox", label, PROBLEM, detail, fix, facts)
@@ -118,9 +118,9 @@ def computer(settings: Settings) -> Check:
         checks = {}
     facts.update(available=True, platform=found.platform)
     if found.platform == "macos":
-        missing = [name for name, key in ((t("录屏与系统录音"), "screen"), (t("辅助功能"), "input")) if not checks.get(key)]
+        missing: list[str] = [name for name, key in ((t("录屏与系统录音"), "screen"), (t("辅助功能"), "input")) if not checks.get(key)]
         host = str(checks.get("host") or t("启动智狐的那个程序（终端、iTerm、VS Code……）"))
-        fix = [t("在“系统设置 → 隐私与安全性”的 {places} 里打开“{host}”，然后重新启动智狐。", places=t("、").join(missing), host=host)] if missing else []
+        fix: list[str] = [t("在“系统设置 → 隐私与安全性”的 {places} 里打开“{host}”，然后重新启动智狐。", places=t("、").join(missing), host=host)] if missing else []
         facts["missing"] = [key for key in ("screen", "input") if not checks.get(key)]
     else:
         keys = [key for key in ("xdotool", "capture", "convert") if not checks.get(key)]

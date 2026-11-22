@@ -210,8 +210,8 @@ class SearchIndex:
         needles = [self._needle(term, documents, version) for term in terms]
         found = []
         for document in documents:
-            hits = [_find(needle, document) for needle in needles]
-            if all(hits):  # 每个关键词都得找到
+            hits = [hit for needle in needles if (hit := _find(needle, document)) is not None]
+            if len(hits) == len(needles):  # 每个关键词都得找到
                 # 越严格的排得越靠前：先看是不是每个关键词都原样找到了，再看有没有用到最宽松的"隔字包含"，
                 # 然后才是分数；一样相关时，新的在前。页面上也是把"全部原样"和其余的分成两组显示的。
                 order = (_all_exact(hits), not any(hit.loose for hit in hits), sum(hit.score for hit in hits) / len(hits))
@@ -300,6 +300,7 @@ def _find(needle: Needle, document: Document, body_only: bool = False) -> Hit | 
 def _tightest(needle: Needle, folded: str) -> tuple[int, int] | None:
     """隔字包含：找出最紧凑的那一处。夹进来的字太多（超过 needle.slack）就太牵强了，不算。"""
     best = None
+    assert needle.loose is not None  # 两处调用都先查过：没有"隔字包含"的正则时不会走到这里
     for match in islice(needle.loose.finditer(folded), 2000):
         start, end = match.span(1)
         if end - start - len(needle.term) > needle.slack:

@@ -17,6 +17,7 @@ from __future__ import annotations
 import ctypes
 import os
 import subprocess
+import sys
 
 WINDOWS = os.name == "nt"
 _EXTENDED_LIMIT_INFORMATION = 9  # JobObjectExtendedLimitInformation
@@ -52,7 +53,11 @@ class _Extended(ctypes.Structure):
     ]
 
 
-def _kernel32():
+def _kernel32() -> ctypes.CDLL:
+    if sys.platform != "win32":
+        # 走不到：只有 Windows 上才会调用它（Job 先看了 WINDOWS）。写成 sys.platform 的判断，类型检查（mypy）才知道
+        # 下面的 WinDLL 只在 Windows 上用；万一真走到了，Job 接住这个错误，和以前接住"没有 WinDLL"一样，handle 是 None
+        raise OSError("作业对象只有 Windows 上有")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.restype = ctypes.c_void_p
     kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
@@ -91,7 +96,8 @@ class Job:
         """把 process 放进作业。它这时开的子进程（如果有的话）不在里面：所以要在刚启动之后马上调用。"""
         if self.handle is None:
             return False
-        return bool(self._kernel32.AssignProcessToJobObject(self.handle, int(process._handle)))  # type: ignore[attr-defined]
+        # _handle 是 Popen 在 Windows 上才有的私有属性（进程的句柄），typeshed 里没有写它
+        return bool(self._kernel32.AssignProcessToJobObject(self.handle, int(process._handle)))  # type: ignore[attr-defined]  # 见上一行
 
     def terminate(self) -> None:
         """结束作业里的所有进程（包括父进程已经退出了的那些子孙）。"""
