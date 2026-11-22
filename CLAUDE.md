@@ -93,7 +93,7 @@
      这些模块是：`filelock`（文件锁：fcntl / msvcrt）、`pathnames`（Windows 的路径花招、比较用的 `key`、目录联接）、`winacl`（icacls 设 ACL）、
      `winjob`（作业对象：停下时连孙进程一起结束）、`console`（管道输出用 UTF-8）、`exits`（SIGTERM 之外还有 SIGBREAK）、`machine`（mac / windows / linux）、
      `tools/shell`（`command_line`、`kill_tree`、`system32`）、`browser/chrome`（`_launch_windows`）、`service/windows` 加 `service/supervise`、
-     `webui/server` 的 reveal；页面是 `platform.js`：`forKeys` / `commandHeld` 看浏览器所在的系统（快捷键），`byServer` / `showLabel` 看助手程序所在的电脑
+     `webui/reveal`（在文件管理器里显示）；页面是 `platform.js`：`forKeys` / `commandHeld` 看浏览器所在的系统（快捷键），`byServer` / `showLabel` 看助手程序所在的电脑
      （"访达""文件资源管理器""文件管理器"）。页面里不要再写"`ON_MAC` 就写访达"这种判断。
    - **Windows 上的几条规矩**（2026-11-22 合并 Windows 支持时定下的）：
      - 命令用 PowerShell（优先 pwsh 7），`-EncodedCommand` 传进去，`-NoProfile`，不改执行策略；环境里照样去掉 `SECRET_ENV_VARS`。
@@ -189,7 +189,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
-| `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 是本地服务器；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
+| `harness/webui/server.py`、`webapp.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁（`_turn`）、存盘、这段会话归谁、状态快照。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
+| `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
 
 ## 改代码时必须守住的几条
@@ -229,7 +230,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `/api/mcp/reveal`、`/api/commands/reveal`（什么都不给，只显示 `data/commands.json`）、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
-  **只有 `/api/media/file`、`/api/browser/shot` 和 `/api/computer/shot` 会把文件的字节发给浏览器**。两个 shot 只收 64 位十六进制编号，固定 `image/jpeg`，
+  **只有 `/api/media/file`、`/api/browser/shot` 和 `/api/computer/shot` 会把文件的字节发给浏览器**（都写在 `server.py` 的 `_route` 里，和 `_send` 在一处）。两个 shot 只收 64 位十六进制编号，固定 `image/jpeg`，
   安全头和下面一样。`/api/media/file` 只收附件编号，Content-Type 只按 `media.STORED_TYPES` 的白名单给
   （文本一律 `text/plain`），带 `Content-Disposition: attachment`、`X-Content-Type-Options: nosniff` 和
   `Content-Security-Policy: default-src 'none'; sandbox`。以后再加返回文件内容的接口，照这几条办。

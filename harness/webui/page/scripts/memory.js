@@ -352,7 +352,7 @@ function drawViewerFoot() {
     remove.disabled = gone || !data;  // 已经不在了、或者根本没读出来的，没有可删的
     remove.append(icon('trash'), t('删除'));
     remove.addEventListener('click', () => {
-      // 助手工作时服务器不让删（见 server.py 的 delete_memory）。在这里就说清楚，不用等它退回来
+      // 助手工作时服务器不让删（见 memory_api.py 的 delete_memory）。在这里就说清楚，不用等它退回来
       if (busy) { viewing.message = { key: BUSY_HINT, bad: true }; drawViewer(); return; }
       viewing.confirm = true;
       viewing.message = null;

@@ -464,7 +464,7 @@ class Scheduler:
     # ---- 状态 --------------------------------------------------------------
 
     def snapshot(self) -> tuple[list[dict], list[dict]]:
-        """状态里的 tasks 和 reminders（格式见这个文件开头的说明，以及 server.py 的 publish_state）。"""
+        """状态里的 tasks 和 reminders（格式见这个文件开头的说明，以及 webapp.py 的 publish_state）。"""
         tasks, reminders = self.store.snapshot()
         prices, max_steps = self.web.app.prices(), self.web.app.config.max_steps
         with self._lock:
@@ -477,7 +477,7 @@ class Scheduler:
             task["running"] = live.get(task["id"])
         return tasks, reminders
 
-    # ---- 页面上的操作（server.py 的 /api/task/...）----------------------------
+    # ---- 页面上的操作（tasks_api.py 的 /api/task/...）----------------------------
     # 内容不对抛出 TaskError（回答 400），现在做不了抛出 TaskRefused（回答 409）。
 
     def save(self, task_id: str | None, fields: dict) -> str:

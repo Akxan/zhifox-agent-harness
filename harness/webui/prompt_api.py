@@ -1,3 +1,16 @@
+"""设置里的"提示词"：读出、保存、恢复内置的、预览（模板和占位符见 ../prompt.py）。
+
+  POST /api/prompt           读出现在用的（一行，在 server.py 的 _route 里：prompt_info）
+  POST /api/prompt/save      保存改过的
+  POST /api/prompt/reset     恢复内置的
+  POST /api/prompt/preview   还没保存的模板换上占位符是什么样子（只是算一下）
+
+PromptActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+保存拿对话的锁：当前这段还没开始聊的话要换掉它的适配层，不能和正在进行的一轮撞上。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -12,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class PromptActions:
-    # ---- 提示词 ------------------------------------------------------------
+    """提示词：读出、保存。"""
 
     def prompt_info(self) -> dict:
         config = self.app.config

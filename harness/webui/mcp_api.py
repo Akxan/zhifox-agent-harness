@@ -1,3 +1,13 @@
+"""扩展里的 MCP 服务器：/api/mcp/……（客户端本身见 ../mcp/）。
+
+  POST /api/mcp/refresh、scan、reveal、import、paste、save、detail、delete、restart、enable、approval
+
+McpActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+_mcp_state 是状态里的 mcp 一节；别的方法不拿对话的锁，保存 stdio 服务器要守的几条写在 McpActions 的说明里。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -17,6 +27,15 @@ if TYPE_CHECKING:
 
 
 class McpActions:
+    """MCP 服务器：状态里的那一节、详情、改配置、从别的工具导入、粘贴、显示配置文件。
+
+    这些操作不拿对话的锁：对话进行中也可以添加、停用、重启服务器。正在进行的这段对话用的是开始时拍下的
+    快照（见 mcp/manager.py），不受影响；快照里的服务器被停掉了，调用它的工具会得到一个说清楚原因的错误。
+
+    保存一个 stdio 服务器，就是让这台电脑去运行你填的那个命令。所以守这几条：只有带着口令的这个页面能做；
+    命令用参数列表启动、不经过 shell；模型没有任何工具能添加或修改服务器（mcp.json 文件工具也碰不了）。
+    """
+
     def _mcp_state(self) -> dict:
         """MCP 服务器的概况。密钥只有名字和最后几位（见 mcp/config.py 的 display），工具的详情点开时另外取。"""
         mcp = self.app.mcp
@@ -32,13 +51,6 @@ class McpActions:
             "started": started,
             "dropped": mcp.active.dropped if started else 0,
         }
-
-    # ---- MCP --------------------------------------------------------------
-    # 这些操作不拿对话的锁：对话进行中也可以添加、停用、重启服务器。正在进行的这段对话用的是开始时拍下的
-    # 快照（见 mcp/manager.py），不受影响；快照里的服务器被停掉了，调用它的工具会得到一个说清楚原因的错误。
-    #
-    # 保存一个 stdio 服务器，就是让这台电脑去运行你填的那个命令。所以守这几条：只有带着口令的这个页面能做；
-    # 命令用参数列表启动、不经过 shell；模型没有任何工具能添加或修改服务器（mcp.json 文件工具也碰不了）。
 
     def mcp_detail(self, name: str) -> tuple[str, dict]:
         try:

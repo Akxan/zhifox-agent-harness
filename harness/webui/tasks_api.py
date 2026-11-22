@@ -1,3 +1,15 @@
+"""待办和定时任务的接口。
+
+  POST /api/todo/update、delete   改一条待办（标题、截止日期、完成没有）、删掉一条。待办的文件自己有锁（见 TodoStore），不拿对话的锁
+  POST /api/task/save、preview、dismiss、delete、toggle、run、stop、confirm
+                                  定时任务（route_task）：真正做事的是调度器（见 scheduler.py），任务是什么、什么时候跑见 ../tasks.py
+
+TodoActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+_valid_answer 检查"答复一个确认"的参数，聊天通道（channels_api.py）也用它。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 import re
@@ -14,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class TodoActions:
-    # ---- 数据文件、待办 ------------------------------------------------------
+    """待办：改一条、删一条。"""
 
     def change_todo(self, todo_id: int, changes: dict | None) -> str:
         """改（changes 为 None 时删掉）一条待办。成功返回空字符串，否则返回原因。

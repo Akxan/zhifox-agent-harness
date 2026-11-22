@@ -1,3 +1,19 @@
+"""发消息、答复确认：一轮对话怎么开始、在后台怎么跑、怎么收尾。
+
+  POST /api/message    发一条消息（可以带附件，见 attachments.py）：route_message 查参数，send 开始这一轮
+  POST /api/confirm    对一个确认请求点了"允许"或"拒绝"：交给 WebUI.answer_confirm，先到的算数
+  （"停止"只有一行，在 server.py 的 _route 里：WebApp.stop）
+
+ChatActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+  send            拿对话的锁、认领这段会话（见 claims.py），在后台线程里跑一轮：agent 循环是阻塞的（等模型、等你确认），
+                  放在后台，服务器才能接着回答"允许""停止"这些请求
+  _run_turn       跑一轮，收尾时记下改了哪些文件、存盘、发状态、让出屏幕、放开会话和锁。"这一轮结束了"放在最后才告诉页面，
+                  原因见里面的注释（倒回最后一轮重新生成时也走这里，见 rewind_api.py）
+  _finish_changes 这一轮文件工具改了哪些文件，页面上那一行"改了 N 个文件"（见 undo/）
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 import threading
@@ -21,7 +37,7 @@ MAX_MESSAGE_CHARS = 100_000
 
 
 class ChatActions:
-    # ---- 对话 --------------------------------------------------------------
+    """发消息，一轮对话在后台跑、收尾。"""
 
     def send(self, text: str, attachments: list[Attachment] | None = None) -> str:
         """开始一轮对话。成功返回空字符串，否则返回不能开始的原因。"""

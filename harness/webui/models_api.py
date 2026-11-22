@@ -1,11 +1,22 @@
-"""换模型面板要的目录（POST /api/model/catalog）。
+"""模型：换模型面板要的目录，和设置里的换模型、API 密钥、同步模型列表、价格。
+
+  POST /api/model/catalog  换模型面板的目录（page_state，一行，在 server.py 的 _route 里）
+  POST /api/model          换模型（select_model；能不能接着聊由 App.select_model 和 providers.continues 定）
+  POST /api/key            填写或删除一家的 API 密钥（填了顺便同步一次模型列表）
+  POST /api/models         同步模型列表
+  POST /api/price          填写现在用的这个模型的价格（_valid_price）
 
 目录本身由 harness/model_catalog.py 算（能选哪些模型、能做什么、多少钱、换过去会怎样，规矩只在那里算一份）。
-这里只做一件事：把里面给人看的话换成页面认得的样子（webui/ui.py 的 said：译好的文字，加上原文和填进去的值），
+page_state 只做一件事：把里面给人看的话换成页面认得的样子（webui/ui.py 的 said：译好的文字，加上原文和填进去的值），
 页面换语言时照着原文在原地重译，不用再问一遍服务器。
 
 为什么不放进每次的状态里：OpenAI 的模型列表有上百个，每个模型再带几个标签，每调用一次模型都发一遍不划算。
 面板打开时取一次；开着的时候状态变了（换了模型、填了密钥、同步了列表、这段对话聊起来了），页面再取一次。
+
+ModelActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+_provider_state 是状态里 providers 的一家（密钥只有"有没有"和最后 4 位）。换模型、填密钥拿对话的锁，同步模型、改价格不拿。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
 """
 
 from __future__ import annotations
@@ -59,6 +70,8 @@ def page_state(app: Any) -> dict:
 
 
 class ModelActions:
+    """换模型、密钥、同步模型列表、价格。"""
+
     def _provider_state(self, provider) -> dict:
         """状态里的一家。密钥只有"有没有"和最后 4 位。"""
         settings = self.app.settings
@@ -77,8 +90,8 @@ class ModelActions:
             "custom": provider.custom,  # 自定义接口：设置里的"API 密钥"一节不列它（它有自己的一节）
         }
 
-    # ---- 设置 --------------------------------------------------------------
-    # 下面几个操作都会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。
+    # ---- 换模型、密钥、同步模型列表、价格 ------------------------------------
+    # 换模型、填密钥会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。同步模型列表、改价格不拿锁。
     # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
 
     def select_model(self, provider_id: str, model: str) -> str:

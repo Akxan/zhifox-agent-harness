@@ -1,3 +1,18 @@
+"""倒回最后一轮：编辑最后一条消息、重新生成最后一个回答（规矩见 ../rewind.py 开头）。
+
+  POST /api/turn/edit    编辑最后一条消息（text、keep：留下第几个附件）
+  POST /api/turn/retry   重新生成最后一个回答
+  两个都带 conversation 和 turn（页面看到的那一轮的编号），对不上就回答 409；confirmed、undo_files、undo_force 见 rewind
+
+RewindActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+  _rewind_state    状态里的 rewind：最后一轮能不能倒、为什么不能、倒之前要不要问你（页面的按钮只照着它画）
+  _rewind_problem  为什么倒不回去
+  rewind           真的倒回去：和发消息一样拿对话的锁、认领会话，截断以后马上存盘，新的一轮交给 _run_turn（见 chat_api.py）
+  _undo_with_rewind  倒回去之前先撤回这一轮改的文件（确认卡片上勾了"同时撤回"）
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 import threading
@@ -18,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class RewindActions:
-    # ---- 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）-------------------
+    """倒回最后一轮：能不能倒、真的倒回去。"""
 
     def _rewind_state(self) -> dict | None:
         """状态里的 rewind：最后一轮能不能倒回去，不能的话为什么，倒回去之前要不要先问。一条用户消息都没有时是 None。

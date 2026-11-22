@@ -1,3 +1,18 @@
+"""设置里别的几样：界面语言、"要不要每次都问"、遮住工具结果里的密钥、每月预算，以及花费明细和导出之前的信息。
+
+  POST /api/language     换界面语言（不刷新页面，见 set_language）
+  POST /api/approval     更改"要不要每次都问"（只记在内存里）
+  POST /api/redact       开、关遮密钥（见 ../redact.py）
+  POST /api/budget       填写或清除每月预算（见 ../budget.py）
+  POST /api/ledger、/api/export/info   各是一行，在 server.py 的 _route 里：spend_report、export_info
+  （模型、密钥、价格在 models_api.py；导出本身发一个 zip，在 server.py 的 _send_export）
+
+SettingsActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+这几样都不拿对话的锁：对话进行中也能改，从下一次用到它们时起按新的来。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -14,6 +29,8 @@ if TYPE_CHECKING:
 
 
 class SettingsActions:
+    """语言、问不问、遮密钥、预算、花费明细、导出之前的信息。"""
+
     def set_budget(self, amount: float | None) -> None:
         """记下每月预算（None 表示不设）。只是提醒用，所以不用拿对话的锁，对话进行中也可以改。"""
         self.app.settings.set_budget(amount)

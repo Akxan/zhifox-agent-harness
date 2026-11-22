@@ -1,3 +1,17 @@
+"""在系统的文件管理器里显示一个文件或文件夹：macOS 的访达、Windows 的文件资源管理器、Linux 的 xdg-open。
+
+整个程序里"页面点一下，电脑上就启动一个程序"的地方只有这里（reveal_in_file_manager），按系统分开写的也只在这里
+（CLAUDE.md 第 9 条）。别的文件要显示什么，一律写 reveal.reveal_in_file_manager(...)、reveal.has_file_manager()，
+调用的时候现找：测试把这个模块上的两个名字换掉（免得真的打开访达），所有调用的地方就都换到了。
+所以别处不要 from .reveal import 它们，也不要另写一份（tests/test_webui.py 会查）。
+
+  has_file_manager         这台电脑上能不能打开文件管理器（服务器上通常不能：回答里的 opened 为假，页面改成告诉你文件在哪儿）
+  reveal_in_file_manager   显示。路径只能是程序自己算出来的，命令用参数列表、不经过 shell
+  POST /api/reveal         显示助手的一个数据文件（任务、待办、提示词、聊天通道）：页面只说是哪一个（RevealActions.reveal_data）
+
+route_reveal 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 import os
@@ -26,11 +40,11 @@ def has_file_manager() -> bool:
 
 def reveal_in_file_manager(path: Path) -> None:
     """在系统的文件管理器里显示一个文件或文件夹（macOS 上是访达）。失败时抛出 OSError。
-    没有文件管理器的电脑（服务器）上什么都不做：回答里的 opened 是 false，页面改成告诉你文件在哪儿（见 Handler._send_json）。
+    没有文件管理器的电脑（服务器）上什么都不做：回答里的 opened 是 false（各个 route_* 照 has_file_manager 填），页面改成告诉你文件在哪儿。
 
     这是整个服务器里唯一一处"页面点一下，电脑上就启动一个程序"的地方，所以守两条规矩：
-    路径只能是程序自己算出来的（见 WebApp.reveal_conversation、reveal_memories、show_memory、reveal_media 和
-    skills_api.py、agents_api.py 的 reveal：浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、
+    路径只能是程序自己算出来的（见 conversations_api.py 的 reveal_conversation、memory_api.py 的 reveal_memories 和 show_memory、
+    media_api.py 的 reveal_media、mcp_api.py 的 mcp_reveal、这个文件里的 reveal_data，和别的 *_api.py 的 reveal：浏览器只能给会话编号、记忆文件夹里的一个相对路径（逐层检查过，出不了那个文件夹）、
     附件的编号（查过格式，文件名由内容的 SHA-256 定）、一个 Skill 的名字（只能是 Skill 文件夹里的一个子文件夹），
     或者什么都不给（commands_api.py 的 reveal：只显示 data/commands.json））；命令用参数列表交给系统，不经过 shell，文件名里有什么字符都不会被当成命令的一部分。
     """
@@ -84,6 +98,8 @@ def _reveal_in_explorer(path: Path) -> None:
 
 
 class RevealActions:
+    """显示助手的一个数据文件。"""
+
     def reveal_data(self, what: str) -> tuple[str, str]:
         """在文件管理器里显示一个数据文件。返回（失败原因，显示的路径）。
 

@@ -1,3 +1,19 @@
+"""会话：新对话、打开、改名、删除、在文件管理器里显示一段会话，在所有会话里搜索。
+
+  POST /api/new                    开始新对话（带上 agent 的话，用这个自定义 Agent 当角色，见 agents/）
+  POST /api/conversation/open      打开一段保存过的会话
+  POST /api/conversation/rename    改名
+  POST /api/conversation/delete    删除（它用过、别的会话又不再用的附件原件跟着从多媒体库删掉）
+  POST /api/conversation/reveal    在文件管理器里显示它的文件（编号为空时显示保存会话的文件夹）
+  POST /api/search                 搜索（只读内存里的索引，见 search.py）
+
+ConversationActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+新对话、打开、改名、删除都拿对话的锁（会写会话文件、换掉当前的会话），聊天通道正在用的会话不能动（见 claims.py）；
+离开当前会话之前先看它存上了没有（WebApp._before_leaving）。显示、搜索只是读，不拿锁，对话进行中也能做。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -19,6 +35,8 @@ LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒�
 
 
 class ConversationActions:
+    """新对话、打开、改名、删除、显示一段会话。"""
+
     def new_conversation(self, agent: str | None = None) -> str:
         """清空对话，开始新的一段。成功返回空字符串，否则返回不能这样做的原因。
 
@@ -48,8 +66,6 @@ class ConversationActions:
         finally:
             self._turn.release()
         return ""
-
-    # ---- 会话 --------------------------------------------------------------
 
     def open_conversation(self, conversation_id: str) -> str:
         """打开一段保存过的会话。成功返回空字符串，否则返回原因。"""

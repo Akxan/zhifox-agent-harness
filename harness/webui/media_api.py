@@ -1,3 +1,17 @@
+"""多媒体库：所有会话里发过的附件（规矩见 ../media.py）。
+
+  POST /api/media/list     一页附件（可以按种类筛、按名字找）：route_list 查参数（_media_query），media_list 取
+  POST /api/media/reveal   在文件管理器里显示一个附件的原件：浏览器只给编号，路径由服务器算
+  POST /api/media/file     一个附件的内容。它把文件的字节发给浏览器，所以和两张截图的大图一样留在 server.py 的 _route 里，
+                           安全头和 _send 挨着；这里只有它用的 media_file
+
+MediaActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+条目来自两处：保存过的会话（ConversationStore 维护的索引），和当前这一段（内存里的界面事件，_live_media）。
+_keep_originals 在一轮开始时存原件，_collect_media 删掉没有会话再用的原件，_media_state 是状态里的 media 一节。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 import zlib
@@ -17,9 +31,11 @@ if TYPE_CHECKING:
 
 
 class MediaActions:
-    # ---- 多媒体 ------------------------------------------------------------
-    # 多媒体库的条目来自两处：保存过的会话（ConversationStore 维护的索引），和当前这一段（内存里的界面事件）。
-    # 当前这一段以内存为准：它可能还没存盘，或者刚发的附件还没来得及存进文件。
+    """多媒体库：存原件、列出、读出、显示、清理。
+
+    条目来自两处：保存过的会话（ConversationStore 维护的索引），和当前这一段（内存里的界面事件）。
+    当前这一段以内存为准：它可能还没存盘，或者刚发的附件还没来得及存进文件。
+    """
 
     def _keep_originals(self, attachments: list[Attachment]) -> list[Attachment]:
         """把附件的原件存进多媒体库。存不成也照样发这条消息，只是提醒一句。"""

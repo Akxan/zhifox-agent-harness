@@ -1,3 +1,34 @@
+"""WebApp：把助手接到网页界面上。server.py 的 Handler 收到请求、查完口令和参数，交给这里去做。
+
+WebApp 由几块拼成。这个文件里是几组功能都要用的部分；每一组功能的方法写在它自己的文件里，以基类的形式混进来：
+
+  ChatActions          chat_api.py           发消息：一轮对话在后台跑、收尾
+  RewindActions        rewind_api.py         倒回最后一轮（编辑最后一条消息、重新生成）
+  ConversationActions  conversations_api.py  新对话、打开、改名、删除、显示一段会话
+  MediaActions         media_api.py          多媒体库
+  MemoryActions        memory_api.py         记忆
+  PromptActions        prompt_api.py         提示词
+  RevealActions        reveal.py             在文件管理器里显示助手的数据文件
+  TodoActions          tasks_api.py          待办
+  McpActions           mcp_api.py            MCP 服务器
+  ModelActions         models_api.py         换模型、密钥、同步模型列表、价格
+  SettingsActions      settings_api.py       语言、问不问、遮密钥、预算、花费明细、导出之前的信息
+
+为什么是混进来的基类，而不是 web.memory.delete(...) 这样另建一个对象：方法的名字照旧是 web.open_conversation(...)，
+调用它们的地方（定时任务、聊天通道、别的 *_api.py、测试）一个都不用改；这些方法用到的又都是 WebApp 自己的状态
+（self.app、self.ui、self._turn……），放在别的对象上也得一路 self.web. 回来。混进来的类只有方法：没有 __init__、
+不存状态，状态都在下面的 __init__ 里定义，一眼看得全。新的一组功能照这样办：方法写进它自己的 *_api.py 的 XxxActions，
+加进 WebApp 的基类；要新的状态就在 __init__ 里加上，写明是给谁用的。
+（skills_api.py、browser_api.py 这些较早的接口是另一种写法：WebApp 上的一个对象，见 __init__。两种并存，都能用。）
+
+留在这个文件里的：
+  - 状态快照（publish_state）：页面要显示的一切。每一组功能的那一节由它们自己算（_media_state、_mcp_state、_rewind_state……）
+  - 这段会话归谁（_claim、_held_elsewhere，见 claims.py）：聊天通道正在用的会话，网页上不能写
+  - 存盘和离开当前会话（_save、_before_leaving、_left）
+  - 对话的锁 self._turn：谁拿着它，谁就在进行一轮对话（或者正在改会动到对话的设置）。拿不到时用 _busy 回答；
+    定时任务和聊天通道不拿它（见 scheduler.py、channels/hub.py）
+"""
+
 from __future__ import annotations
 
 import threading
@@ -93,6 +124,8 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         # 这时还没有开始接受请求，不会有哪一轮正在存新的原件
         self._collect_media(None)
 
+    # ---- 状态快照 ------------------------------------------------------------
+
     def publish_state(self) -> None:
         """把页面要显示的状态（当前模型、各家的情况、待办、用量、费用）作为一个事件发给浏览器。
 
@@ -183,6 +216,8 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
             rewind=self._rewind_state(),
         )
 
+    # ---- 这段会话归谁（网页和聊天通道不能同时写，见 claims.py）------------------
+
     def _claim(self) -> str:
         """认领当前这段会话（见 claims.py）。它正在聊天通道里跑一轮的话返回原因，不认领。调用的人拿着 self._turn。"""
         conversation = self.app.conversation
@@ -224,6 +259,8 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         platform = self.channels.holder(conversation_id)
         return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform) if platform else ""
 
+    # ---- 存盘、离开当前会话 ----------------------------------------------------
+
     def _save(self) -> None:
         """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
         problem = self._try_save()
@@ -263,6 +300,8 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         for text in self.app.take_warnings():
             self.ui.hint(text, level="error")
 
+    # ---- 对话的锁 ------------------------------------------------------------
+
     BUSY = k("请先等当前这一轮对话结束，或者点“停止”")
 
     def _busy(self, otherwise: str | None = None) -> str:
@@ -285,6 +324,8 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
             return False
         self._turn.release()
         return True
+
+    # ---- 工具 ----------------------------------------------------------------
 
     def refresh_tools(self) -> bool:
         """浏览器开、关了：还没开始的这段对话马上换上新的工具。返回 True 表示这段对话已经开始了，工具不变。"""

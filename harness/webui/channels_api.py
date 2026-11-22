@@ -1,3 +1,14 @@
+"""聊天通道（Telegram、Discord、Slack……）的接口：/api/channel/……（通道本身见 ../channels/hub.py）。
+
+  POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   设置
+  POST /api/channel/confirm、stop   答复聊天里等你批准的操作、停下聊天里正在进行的一轮
+
+做事的是 ChannelHub（WebApp.channels），这里只查参数（_valid_credentials：连接时填的东西），没有混进 WebApp 的方法。
+都不拿对话的锁：聊天里的对话和网页上的对话各跑各的。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -1,5 +1,35 @@
 """本地 HTTP 服务器：浏览器和 agent 之间的桥。
 
+这个文件只管 HTTP 这一层：谁能用（口令、Host、Origin，见 Handler._allowed）、读请求体（_read_json）、
+把请求交给谁（Handler._route：整张路由表都在那里，从上往下看就知道每个地址归哪个文件）、怎么回答
+（JSON、页面、事件流、清单和图标，见 _send 和几个 _send_xxx）、出了意料之外的错也给一个回答（do_POST 里的 500），以及启动和退出
+（create_server、run_web）。把文件的字节发给浏览器的接口只有三个（/api/media/file、/api/browser/shot、/api/computer/shot），
+加上导出的 zip（_send_export），也都留在这里，和 _send 挨着：它们的安全头一眼看得全。
+
+每个接口查完参数以后怎么做，在各自的文件里：
+
+  webapp.py            WebApp：把助手接到网页上。共用的状态和锁（对话的锁 _turn、存盘、这段会话归谁）、发给页面的状态快照
+  chat_api.py          发消息、答复确认：一轮对话怎么开始、在后台怎么跑、怎么收尾
+  rewind_api.py        编辑最后一条消息、重新生成（倒回最后一轮，见 ../rewind.py）
+  conversations_api.py 新对话、打开、改名、删除、在文件管理器里显示一段会话，搜索
+  media_api.py         多媒体库：列表、显示原件（发原件的字节在这里的 _route）
+  memory_api.py        记忆窗口
+  prompt_api.py        提示词
+  tasks_api.py         待办和定时任务
+  mcp_api.py           MCP 服务器
+  channels_api.py      聊天通道（Telegram……）的设置和确认
+  models_api.py        换模型、密钥、同步模型列表、价格，换模型面板的目录
+  settings_api.py      别的设置：语言、问不问、遮密钥、预算、花费明细、导出之前的信息
+  reveal.py            在系统的文件管理器里显示（访达、文件资源管理器、xdg-open）。整个程序只有这里会启动文件管理器
+  skills_api.py、agents_api.py、endpoints_api.py、browser_api.py、computer_api.py、voice_api.py、commands_api.py、
+  hooks_api.py、sandbox_api.py、changes_api.py、fallback_api.py、capabilities_api.py   各自那一页或那一节（见各文件开头）
+
+交到 *_api.py 的有两种写法。较早的那几个（skills_api.py 这些）是 WebApp 上的一个对象，route(action, body) 交回
+（状态码，回答），这里照着发出去。从这个文件里拆出去的（chat_api.py……settings_api.py、reveal.py）是模块里的函数
+route_xxx(handler, web, …)：handler 是这个请求的 Handler，函数用它的 _send_json、_finish、_answer 直接回答，
+web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不了（不存在、对话进行中、已经处理过了……）回答 409，
+说明写在 error 里；_finish 的"空字符串表示成功"也一样。加一个新接口：在 _route 里加一行，参数检查和做法写进那一组的 *_api.py。
+
 浏览器只会发这几种请求：
 
   GET  /               页面本身（page/ 里的几块拼成的一页，见 page/__init__.py）
@@ -7,58 +37,58 @@
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
   GET  /manifest.webmanifest  网页应用的清单：书签、"创建快捷方式 / 安装成应用"用的名字、图标和打开的地址（见 manifest.py）
   GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
-  POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
-  POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
-  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）。
+  POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py 和 chat_api.py）
+  POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"（见 chat_api.py）
+  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py 和 rewind_api.py）。
                        带上 undo_files 的话，倒回去之前先撤回这一轮改的文件（见 undo/）
   POST /api/changes/diff、undo、redo   "改了 N 个文件"那一行：看一个文件改了什么、撤回、重做（见 changes_api.py）
   POST /api/stop       用户点了"停止"
-  POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
-  POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
+  POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/ 和 conversations_api.py）
+  POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话（见 conversations_api.py）
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
-  POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py）
+  POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py 和 memory_api.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
-  POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词），页面只说是哪一个
-  POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条
   POST /api/memory/refresh                      页面回到前台：记忆文件夹变了的话，发一次新的状态
+  POST /api/reveal     在文件管理器里显示助手的一个数据文件（任务、待办、提示词、聊天通道），页面只说是哪一个（见 reveal.py）
+  POST /api/todo/update、delete                 改一条待办（标题、截止日期、完成没有）、删掉一条（见 tasks_api.py）
   POST /api/skill/…    扩展里的 Skill：查看、新建、修改、删除、启用、从网址 / 上传 / 别的工具安装（见 skills_api.py）
   POST /api/agent/…    扩展里的 Agent：查看、新建、修改、删除、加示例、从别的工具导入（见 agents_api.py）
-  POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子）
+  POST /api/prompt     读出现在用的提示词（模板、内置的版本、占位符和实际发出去的样子，见 prompt_api.py）
   POST /api/prompt/save、reset、preview          保存改过的提示词、恢复内置的、预览还没保存的
   POST /api/mcp/...    MCP 服务器：查看详情、添加或编辑、删除、启用停用、重启、改"问不问你"、
-                       从别的工具导入、粘贴 JSON（见 WebApp 的"MCP"一节）
-  POST /api/search     在所有保存过的会话里搜索（标题和内容）
-  POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py）
-  POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定
+                       从别的工具导入、粘贴 JSON（见 mcp_api.py）
+  POST /api/search     在所有保存过的会话里搜索（标题和内容，见 search.py）
+  POST /api/media/list 多媒体库：所有会话里发过的附件，一页一页地取（可以按种类筛、按名字找，见 media.py 和 media_api.py）
+  POST /api/media/file 多媒体库里一个附件的内容（下载、看大图）。浏览器只给编号，读哪个文件由服务器定（这个文件的 _route）
   POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
   POST /api/commands/add、edit、delete、reveal   你自己加的"不用问的命令"：加、改、删、在访达中显示 commands.json（见 commands_api.py）
   POST /api/hooks/list、save、delete、enable、test、reveal   你的钩子：列出、添加或修改、删除、开关、试运行、在访达中显示 hooks.json（见 hooks_api.py）
   POST /api/sandbox/level、add、edit、delete、reveal  命令的沙箱：对话用哪一档、额外允许的路径（加、改、删、在访达中显示列表里的一条，见 sandbox_api.py）
-  POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
-  POST /api/language   用户换了界面语言（中文 / English / Español）
-  POST /api/model      用户换了模型
-  POST /api/model/catalog  换模型面板要的目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（见 model_catalog.py）
-  POST /api/key        用户填写或删除了一家的 API 密钥
-  POST /api/models     用户点了"同步模型"
-  POST /api/price      用户填写了一个模型的价格
+  POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许，见 settings_api.py）
+  POST /api/language   用户换了界面语言（中文 / English / Español，见 settings_api.py）
+  POST /api/model      用户换了模型（见 models_api.py）
+  POST /api/model/catalog  换模型面板要的目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（见 model_catalog.py 和 models_api.py）
+  POST /api/key        用户填写或删除了一家的 API 密钥（见 models_api.py）
+  POST /api/models     用户点了"同步模型"（见 models_api.py）
+  POST /api/price      用户填写了一个模型的价格（见 models_api.py）
   POST /api/endpoint/save、delete、probe、reveal   自定义模型接口（Ollama、LM Studio、公司的网关……）：保存、删除、
                        测试连接和同步模型（请求从这里发出去，页面从来不直接连那个地址）、在访达中显示 endpoints.json（见 endpoints_api.py）
   POST /api/fallbacks  用户排好了一家的备用模型（模型暂时用不了时改用的同一家的模型，见 fallback_api.py）
-  POST /api/redact     用户开、关"遮住工具结果里的密钥"（见 redact.py）
-  POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
+  POST /api/redact     用户开、关"遮住工具结果里的密钥"（见 redact.py 和 settings_api.py）
+  POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py、scheduler.py 和 tasks_api.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
   POST /api/task/dismiss                        关掉一条（或者全部）已经弹出的提醒
   POST /api/task/preview                        还没保存的时间表接下来会在哪三个时刻运行
-  POST /api/ledger     打开"花费明细"：最近 30 天、每个月、每个模型、每种来源花了多少（见 ledger.py）
-  POST /api/budget     用户填写或清除了每月预算（见 budget.py）
+  POST /api/ledger     打开"花费明细"：最近 30 天、每个月、每个模型、每种来源花了多少（见 ledger.py 和 settings_api.py）
+  POST /api/budget     用户填写或清除了每月预算（见 budget.py 和 settings_api.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
-  POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
-  POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
+  POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py 和这个文件的 _send_export）
+  POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py 和 channels_api.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
-  POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
+  POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py 和这个文件的 _route）
   POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图（或者点击、打字）不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
   POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
   POST /api/voice/settings                       语音转文字：用哪一种、哪个模型、本机服务的地址（见 voice_api.py 和 ../voice/）
@@ -72,6 +102,9 @@
   3. 检查 Host 和 Origin 请求头，拒绝从别的网站发起的请求。
   4. 页面带有内容安全策略（CSP）：只运行我们自己的脚本，不加载任何外部资源。
      为了能装成应用多放行了两样，都是写死的完整地址：清单那一个（manifest-src），和自带的那几张图标（img-src，见 manifest.py）。
+
+这几条都在这个文件里（create_server、_allowed、_send_page）。所有请求都先过 _allowed（POST 再过 _read_json：大小有上限、
+文字洗过一遍），才交给 _route；拆出去的那些文件只在这之后拿到已经查过、洗过的 body。
 """
 
 from __future__ import annotations
@@ -185,6 +218,8 @@ class Handler(BaseHTTPRequestHandler):
                     pass  # 浏览器已经不在了
 
     def _route(self, body: dict) -> None:
+        """路由表：每个地址交给谁（两种写法见这个文件开头）。就地写完的只有几行的小事，和把文件的字节发给浏览器的三个接口：
+        它们的安全头（attachment、nosniff、sandbox）和 _send 在同一个文件里，一眼看得全。以后再加返回文件内容的接口，照它们办。"""
         web = self.server.web
         path = urlsplit(self.path).path
 

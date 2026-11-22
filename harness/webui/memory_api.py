@@ -1,3 +1,18 @@
+"""记忆窗口：查看、修改、删除一条记忆，在文件管理器里显示（文件的读写和路径检查见 ../memories.py）。
+
+  POST /api/memory/read      读一条（只是读，对话进行中也可以看）
+  POST /api/memory/save      改内容和名字（modified 对不上、又没有 force，回答 409 和 conflict）
+  POST /api/memory/delete    删一条
+  POST /api/memory/show      在文件管理器里显示一条记忆的文件
+  POST /api/memory/reveal    打开记忆文件夹（请求里带什么都不看）
+  POST /api/memory/refresh   页面回到前台：文件夹在这期间变了的话，发一次新的状态
+
+MemoryActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
+改和删拿对话的锁：模型可能正读着这条记忆、马上要改其中一段（原因见 delete_memory）。
+
+route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -14,7 +29,7 @@ if TYPE_CHECKING:
 
 
 class MemoryActions:
-    # ---- 记忆 --------------------------------------------------------------
+    """记忆：改、删、显示，文件夹变了没有。"""
 
     def delete_memory(self, relative: str) -> str:
         """删掉一条记忆。成功返回空字符串，否则返回原因。"""
