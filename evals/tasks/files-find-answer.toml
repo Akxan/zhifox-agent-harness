@@ -1,0 +1,58 @@
+# 答案藏在几个文件中的一个里。看它会不会自己去找（列目录、搜索、读文件），而不是猜，或者反过来问用户"在哪个文件里"。
+title = "在会议纪要里找交货日期"
+tags = ["files"]
+approval = "readonly"
+messages = ["上周和供应商开会，最后定的交货日期是哪天？纪要都在 meetings 文件夹里。"]
+
+[[files]]
+path = "meetings/2026-11-10-周会.md"
+text = """# 周会 11 月 10 日
+
+- 前端改版延期一周
+- 下次周会改到周二
+"""
+
+[[files]]
+path = "meetings/2026-11-13-供应商.md"
+text = """# 和恒达包装的会议 11 月 13 日
+
+参会：采购部 李敏、恒达 王总
+
+1. 恒达先报的交货日期是 11 月 28 日，我们说太晚。
+2. 讨论后定下来：交货日期改为 12 月 3 日之前分两批到货，第一批 12 月 1 日。
+   更正：王总会后确认第一批来不及，最终交货日期定为 12 月 5 日，一次到齐。
+3. 付款方式不变。
+"""
+
+[[files]]
+path = "meetings/2026-11-14-复盘.md"
+text = """# 双十一复盘 11 月 14 日
+
+- 峰值订单 1.2 万单
+- 客服响应时间要降到 30 秒以内
+"""
+
+[budget]
+requests = 4
+
+[[graders]]
+type = "reply_contains"
+regex = '12\s*月\s*5\s*日|12/5|12-05'
+
+# 最终的日期是 12 月 5 日。只说 12 月 3 日（没注意到更正）算答错
+[[graders]]
+type = "reply_lacks"
+regex = '交货日期(是|定为|定在)\s*12\s*月\s*3\s*日'
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "meetings" }
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "view", path = "meetings/2026-11-13-供应商.md" }
+
+[[dry_run]]
+say = "最终定的交货日期是 12 月 5 日，一次到齐（会上先说 12 月 3 日前分两批，会后王总更正了）。出处：meetings/2026-11-13-供应商.md。"

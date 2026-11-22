@@ -57,6 +57,11 @@ def _sweep(page) -> dict[str, list[str]]:
     page.click("#log .confirm .button.primary")
     steps.reply(page, "命令执行完了")
     look("对话（答复以后）")
+    # 这一轮的运行记录：合计、瀑布图（悬停一行，上面那一行字写着它的数字）、逐段的详情
+    steps.open_trace(page)
+    page.hover("#trace-body .trace-lane", 1)
+    look("运行记录", ["#trace-dialog"])
+    steps.escape_closes(page, "trace-dialog")
 
     # 编辑、重新生成（这一轮执行过命令，所以都要先确认）：重新生成之前的确认、编辑框、编辑框里的确认
     page.click("#log .turn-retry")
@@ -91,6 +96,14 @@ def _sweep(page) -> dict[str, list[str]]:
 
     steps.open_dialog(page, "#settings-open", "settings")
     look("设置", ["#settings"])
+    # 自定义模型接口：编辑窗口（叠在设置上面），测试连接以后的结果和猜出来的能力
+    page.click("#endpoints-list > li.endpoint-row .endpoint-open")
+    page.wait(steps.is_open("endpoint-dialog"), what="编辑接口的窗口打开")
+    page.click("#endpoint-test")
+    page.wait("document.getElementById('endpoint-result').classList.contains('good')", timeout=15)
+    steps.idle(page)
+    look("自定义模型接口（编辑）", ["#endpoint-dialog"])
+    steps.escape_closes(page, "endpoint-dialog")
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")

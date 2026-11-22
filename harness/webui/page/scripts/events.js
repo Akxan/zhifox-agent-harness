@@ -25,6 +25,7 @@ const handlers = {
     toolCard = null;
     subRuns.clear();
     confirms.clear();
+    forgetTraces();
     busy = stopping = false;
     replaying = unsettled = true;
     refreshStatus();
@@ -66,6 +67,7 @@ const handlers = {
     if (modelsFlyout.isOpen() || !modelsCatalog) refreshModels();
     renderApproval(event.approval);
     renderCommands(event.commands);
+    renderEndpoints(event.endpoints);  // 设置里的"自定义模型接口"（见 endpoints.js）
 
     if (replaying) {  // 重放的旧内容到这里就画完了
       replaying = false;
@@ -212,6 +214,7 @@ const handlers = {
   },
 
   subagent(event) { subagentStep(event); },
+  trace(event) { traceTurn(event); },  // 一轮结束时的运行记录：在这一轮上放一个入口（见 trace.js）
   file_changes(event) { fileChangesLine(event); },  // 这一轮改了哪些文件（见 file-changes.js）
   file_undo(event) { fileUndoLine(event); },        // 撤回、重做了哪几个文件
 

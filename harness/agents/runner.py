@@ -55,7 +55,7 @@ from ..mcp import McpManager
 from ..mcp.bridge import PREFIX as MCP_PREFIX
 from ..mcp.bridge import McpTool
 from ..pricing import estimate, usage_key
-from ..providers import PROVIDERS, ClientFactory, ProviderError, has_key, make_backend
+from ..providers import ClientFactory, ProviderError, find, has_key, make_backend
 from ..providers.base import Usage
 from ..skills import SkillStore
 from ..skills.catalog import notifier as skill_notifier
@@ -64,6 +64,7 @@ from ..tools import shell as shell_tools
 from ..tools.agent import make_agent_tool
 from ..tools.base import Tool, ToolError, ToolOutput
 from ..tools.shell import Shell, make_shell_tool
+from ..trace import Tracer
 from . import tools as agent_tools
 from .catalog import notifier as agent_notifier
 from .prompt import subagent_prompt
@@ -197,13 +198,16 @@ class Delegator:
         # 会被停下的东西各用各的（见文件开头）。工具先挑好，再看有没有联网的（提示词里那一行要看它）
         own_shell, owner = Shell(self.config.workspace), object()
         tools = self._tools(parent, agent, own_shell, owner)
-        provider = PROVIDERS[provider_id]
-        web = self.config.web and provider.web and agent_tools.has_web(tools)
+        provider = find(provider_id)
+        assert provider is not None  # _model 已经查过：找不到的话在那里就交不出去了
+        web =self.config.web and provider.web and agent_tools.has_web(tools)
         prompt = subagent_prompt(self.config, agent, web)
         backend = make_backend(provider, model, sub_config, ToolRegistry([]), prompt, self.client_factory(provider))
         run_id = secrets.token_hex(4)
         ui = SubUI(parent.ui, run_id, agent.name)
         sub = Agent(backend=backend, config=sub_config, tools=ToolRegistry([]), permissions=parent.permissions, ui=ui, clock=parent.clock)
+        # 运行记录：和叫它的那一方读同一个表（timer），它的每一段才画得在同一条时间轴上（做完挂到那一方的这次调用下面，见 finally）
+        sub.trace = Tracer(timer=parent.trace.timer, wall=parent.trace.wall)
         # 它还能不能再往下交：叫它的那一方手里有 agent 工具、它自己的 tools 放开了、层数也没到上限
         nested = self.tool_for(sub, depth + 1) if parent.tools.get(agent_tools.AGENT_TOOL) is not None else None
         if nested is not None:
@@ -236,6 +240,7 @@ class Delegator:
             return self._failed(parent, sub, ui, f"{type(exc).__name__}: {exc}")
         finally:
             forget()
+            parent.trace.adopt(sub.trace, agent.name)  # 它的那一轮（请求、工具调用）挂在主助手这次 agent 调用的下面
         return self._result(parent, sub, ui, agent, model)
 
     def _find(self, name: str) -> CustomAgent:
@@ -253,7 +258,9 @@ class Delegator:
         if not agent.spec.model:
             return parent.backend.provider, parent.backend.model
         provider_id, model = agent.spec.provider, agent.spec.model_id
-        provider = PROVIDERS[provider_id]
+        provider = find(provider_id)
+        if provider is None:  # 文件里写的是一个自定义接口，它后来被删掉了
+            raise ToolError(f"Agent「{agent.name}」用的是 {provider_id}，但这个自定义模型接口已经不在了，所以交不出去。可以自己做，或者请用户在设置里重新添加它、或者改一改这个 Agent 的 model。")
         # 和叫它的那一方是同一家的话，密钥一定是有的（不然那一方也跑不起来）；另一家要看一眼
         if provider_id != parent.backend.provider and not has_key(provider):
             raise ToolError(f"Agent「{agent.name}」用的是 {provider.label} 的 {model}，但用户还没有设置 {provider.label} 的 API 密钥，所以交不出去。可以自己做，或者请用户去设置里填上密钥。")
@@ -276,18 +283,19 @@ class Delegator:
         """MCP 的工具从第几个开始（agent 工具放在它们前面，和主助手的顺序一样）。"""
         return next((index for index, tool in enumerate(tools) if tool.name.startswith(MCP_PREFIX)), len(tools))
 
-    def _recorder(self, parent: Agent) -> Callable[[str, str, Usage, datetime], None]:
-        """每调用一次模型：记一笔账（来源 subagent），再加进叫它的那一方的合计里。"""
+    def _recorder(self, parent: Agent) -> Callable[[str, str, Usage, datetime], float | None]:
+        """每调用一次模型：记一笔账（来源 subagent），再加进叫它的那一方的合计里。交回这一笔的金额（运行记录用）。"""
         record = self.ledger.recorder(self.prices, source="subagent")
 
-        def on_call(provider: str, model: str, usage: Usage, moment: datetime) -> None:
-            record(provider, model, usage, moment)
+        def on_call(provider: str, model: str, usage: Usage, moment: datetime) -> float | None:
+            cost = record(provider, model, usage, moment)
             # 不算"调用了几次模型"（那是叫它的那一方自己的步数，定时任务的进度靠它），也不碰上下文的大小
             spent = dataclasses.replace(usage, requests=0, context_tokens=0)
             parent.usage.add(spent)
-            parent.usage_by_model.setdefault(usage_key(model, moment), Usage()).add(spent)
+            parent.usage_by_model.setdefault(usage_key(model, moment, provider), Usage()).add(spent)
             if parent.on_usage is not None:
                 parent.on_usage()
+            return cost
 
         return on_call
 

@@ -57,6 +57,13 @@
 .models-price b { font-weight: 500; }
 .models-price i { margin: 0 3px; font-style: normal; color: var(--ink-3); }
 .models-price.none { max-width: 7.5em; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+/* 自定义模型接口那几组（见 scripts/models.js 开头的说明）：头上写它在哪儿，旁边一个"编辑接口"；不花钱的模型写一句话 */
+.models-where.local { color: var(--ok); background: var(--ok-soft); }
+.models-where.lan { color: var(--accent); background: var(--accent-soft); }
+.models-edit { margin-left: auto; }
+.models-edit + .models-sync { margin-left: 0; }
+.models-edit:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.models-price.free { max-width: 9em; overflow: hidden; text-overflow: ellipsis; color: var(--ok); }
 .models-empty { margin: 8px 12px 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
 
 /* 底下：角色的说明、换到另一家之前的确认、结果 */

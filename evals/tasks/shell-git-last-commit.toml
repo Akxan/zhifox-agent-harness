@@ -1,0 +1,45 @@
+# 只读的 git 命令：看它会不会用 git log / git show 去看，并把最近一次提交改了什么说清楚。
+# 准备的时候真的建一个有两次提交的仓库（这台电脑上没有 git 的话，这个任务跳过）。
+title = "最近一次提交改了什么"
+tags = ["shell"]
+approval = "readonly"
+messages = ["这个仓库最近一次提交改了什么？"]
+setup = [
+  ["git", "init", "-q"],
+  ["git", "-c", "user.name=eval", "-c", "user.email=eval@example.com", "add", "app.py"],
+  ["git", "-c", "user.name=eval", "-c", "user.email=eval@example.com", "commit", "-q", "-m", "first version"],
+  ["{python}", "-c", "import pathlib; p = pathlib.Path('app.py'); p.write_text(p.read_text().replace('TIMEOUT = 30', 'TIMEOUT = 90'))"],
+  ["git", "-c", "user.name=eval", "-c", "user.email=eval@example.com", "commit", "-q", "-am", "raise request timeout to 90 seconds"],
+]
+
+[[files]]
+path = "app.py"
+text = """TIMEOUT = 30
+
+
+def fetch(url):
+    return url
+"""
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "reply_contains"
+text = "90"
+
+[[graders]]
+type = "reply_contains"
+any = ["TIMEOUT", "timeout", "超时"]
+
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "run_command"
+input = { command = "git log -1 -p" }
+
+[[dry_run]]
+say = "最近一次提交是 “raise request timeout to 90 seconds”：把 app.py 里的 TIMEOUT 从 30 改成了 90（请求超时从 30 秒放宽到 90 秒）。"

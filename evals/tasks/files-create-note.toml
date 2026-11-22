@@ -1,0 +1,30 @@
+# 最普通的一件事：建一个文件，写对内容。看它会不会用文件工具（而不是 echo > 文件），文件夹不存在时会不会顺手建好。
+title = "新建一个周计划文件"
+tags = ["files"]
+approval = "edits"
+messages = ["在工作目录里新建 notes/本周.md，列三件事：周一开组会、周三交方案、周五复盘。"]
+
+[budget]
+requests = 3
+
+[[graders]]
+type = "file_exists"
+path = "notes/本周.md"
+
+[[graders]]
+type = "file_contains"
+path = "notes/本周.md"
+text = ["组会", "方案", "复盘"]
+
+# "改工作目录里的文件不用问"这一档里，用文件工具建文件不用问；用命令建（mkdir、echo）就要问。问得越少越顺手
+[[graders]]
+type = "approvals"
+max = 1
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "str_replace_based_edit_tool"
+input = { command = "create", path = "notes/本周.md", file_text = "# 本周\n\n- 周一：开组会\n- 周三：交方案\n- 周五：复盘\n" }
+
+[[dry_run]]
+say = "建好了：notes/本周.md，里面列了周一开组会、周三交方案、周五复盘。"

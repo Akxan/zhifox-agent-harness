@@ -20,6 +20,8 @@ def _surfaces(page):
     """(名字, 打开它, 要查的范围, 查完要关上的窗口：窗口的 id，或者一个收起它的函数)。"""
     return [
         ("对话", lambda: None, [".stage"], None),
+        # 运行记录：窄屏上从底下升起来，瀑布图变成一列（名字在上，时间轴在下）
+        ("运行记录", lambda: steps.open_trace(page), ["#trace-dialog"], "trace-dialog"),
         ("会话栏", lambda: steps.nav_tab(page, "chats"), ["#nav"], None),
         ("定时任务", lambda: steps.nav_tab(page, "tasks"), ["#nav"], None),
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
@@ -31,6 +33,8 @@ def _surfaces(page):
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
+        # 自定义模型接口的编辑窗口（叠在设置上面）：很长的地址、模型名，每个模型的三个开关和三个数字
+        ("自定义模型接口（编辑）", lambda: _endpoint_editor(page), ["#endpoint-dialog"], lambda: (steps.escape_closes(page, "endpoint-dialog"), steps.escape_closes(page, "settings"))),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
         ("扩展 · MCP", lambda: steps.extensions_tab(page, "mcp"), ["#extensions"], None),
         ("扩展 · 通道", lambda: steps.extensions_tab(page, "channels"), ["#extensions"], None),
@@ -53,6 +57,15 @@ def _commands(page) -> None:
     steps.open_dialog(page, "#approval", "approval-dialog")
     page.click("#approval-commands")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
+
+
+def _endpoint_editor(page) -> None:
+    """设置 → 自定义模型接口 → 编辑演示里那个假的本机 Ollama，再点"测试连接"，模型列表和结果都画出来。"""
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.click("#endpoints-list > li.endpoint-row .endpoint-open")
+    page.wait(steps.is_open("endpoint-dialog"), what="编辑接口的窗口打开")
+    page.click("#endpoint-test")
+    page.wait("document.getElementById('endpoint-result').classList.contains('good')", timeout=15, what="测试连接的结果")
 
 
 def _retry_confirm(page) -> None:

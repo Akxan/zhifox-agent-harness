@@ -153,9 +153,9 @@ def test_a_turn_that_changes_files_ends_with_one_line(rig):
     s = started(rig, *edits(replace(1, "a.txt", "one", "ONE"), create(2, "new/b.txt", "甲\n乙\n")), files={"a.txt": "one\n"})
     state = say(s, "改一下")
 
-    # 一轮只有一行，在回答之后、turn_end 之前
+    # 一轮只有一行，在回答和运行记录（trace，见 harness/trace/）之后、turn_end 之前
     shown = without_states(s.browser)
-    assert shown[-3:] == ["block_end", "file_changes", "turn_end"] and shown.count("file_changes") == 1
+    assert shown[-4:] == ["block_end", "trace", "file_changes", "turn_end"] and shown.count("file_changes") == 1
     line = last_line(s)
     assert store.ID.fullmatch(line["set"])
     assert content(line) == {

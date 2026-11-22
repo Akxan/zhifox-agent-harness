@@ -120,8 +120,10 @@ __STYLES__
   <symbol id="i-browser" viewBox="0 0 24 24"><path d="M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4zM3 8.5h18M6 6.3h.01M8.5 6.3h.01M11.5 11.5l6 2.2-2.6 1-1 2.6z"/></symbol>
   <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M6.5 16.5v-5M11 16.5V6M15.5 16.5v-8M20 16.5v-3"/></symbol>
+  <symbol id="i-trace" viewBox="0 0 24 24"><path d="M4 4v16M7.5 7h6M10.5 12h8M15.5 17h4.5"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 19 10.5H5A1.5 1.5 0 0 1 3.5 9V6A1.5 1.5 0 0 1 5 4.5zM5 13.5h14a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18v-3A1.5 1.5 0 0 1 5 13.5zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 5.5L4.5 12 11 18.5"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
@@ -382,6 +384,14 @@ __STYLES__
       <h3 data-i18n>API 密钥</h3>
       <div id="keys"></div>
       <p class="hint" data-i18n>密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
+    </section>
+    <!-- 自定义模型接口（scripts/endpoints.js、endpoints-editor.js）：Ollama、LM Studio、公司的网关……每一行和别的本地的东西一样，悬停时右边是"在访达中显示 / 编辑 / 删除" -->
+    <section id="endpoints-section">
+      <h3><span data-i18n>自定义模型接口</span> <small id="endpoints-state"></small></h3>
+      <p class="hint endpoint-lead" data-i18n>Ollama、LM Studio、vLLM、llama.cpp，或者公司自己的网关：任何 OpenAI 格式的接口都能接。本机和内网的接口，对话不出你的网络。</p>
+      <p id="endpoints-problem" class="endpoint-problem" role="note" hidden></p>
+      <ul id="endpoints-list" class="endpoint-list" aria-label="自定义模型接口" data-i18n-aria-label></ul>
+      <button id="endpoints-add" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>添加接口</span></button>
     </section>
     <section>
       <h3><span data-i18n>价格</span> <small data-i18n>用来估算费用，单位：美元 / 每百万 token</small></h3>
@@ -661,6 +671,20 @@ __STYLES__
   <div id="spend-body" class="settings-body spend-body"></div>
 </dialog>
 
+<!-- 运行记录：一轮对话里每一次请求、每一次工具调用（脚本在 scripts/trace.js 和 trace-chart.js，样子在 styles/trace.css） -->
+<dialog id="trace-dialog" class="trace-drawer" aria-labelledby="trace-title" aria-describedby="trace-sub">
+  <div class="trace-head">
+    <div class="trace-heading">
+      <h2 id="trace-title" data-i18n>运行记录</h2>
+      <p id="trace-sub" class="trace-sub"></p>
+    </div>
+    <button id="trace-copy" class="icon-button" type="button" title="复制为 JSON" aria-label="复制为 JSON" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+    <button id="close-trace" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <p id="trace-status" class="trace-status" role="status" aria-live="polite"></p>
+  <div id="trace-body" class="trace-body"></div>
+</dialog>
+
 <dialog id="approval-dialog" class="settings approval-dialog" aria-labelledby="approval-title">
   <div class="settings-head">
     <h2 id="approval-title" data-i18n>助手动手之前，要不要先问你</h2>
@@ -706,6 +730,42 @@ __STYLES__
     <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
   </div>
   <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
+</dialog>
+
+<!-- 添加、编辑一个自定义模型接口（scripts/endpoints-editor.js）。叠在设置面板上面打开，关上以后回到设置里的那一行 -->
+<dialog id="endpoint-dialog" class="settings endpoint-dialog" aria-labelledby="endpoint-title" aria-describedby="endpoint-sub">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="endpoint-title"></h2>
+      <p id="endpoint-sub" class="memory-sub" data-i18n>请求都从智狐的程序发出去，页面从来不直接连这个地址。外面的地址要用 https://，明文的 http:// 只许本机和内网。</p>
+    </div>
+    <button id="close-endpoint" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body endpoint-form">
+    <div class="endpoint-presets" role="group" aria-labelledby="endpoint-presets-label">
+      <span id="endpoint-presets-label" class="endpoint-label" data-i18n>常用的几种</span>
+      <div id="endpoint-presets" class="endpoint-preset-row"></div>
+    </div>
+    <label class="endpoint-field"><span class="endpoint-label" data-i18n>名字</span><input id="endpoint-name" class="field" type="text" maxlength="40" autocomplete="off" spellcheck="false" placeholder="比如 Ollama、公司网关" data-i18n-placeholder></label>
+    <p id="endpoint-id" class="hint endpoint-id" hidden></p>
+    <label class="endpoint-field"><span class="endpoint-label" data-i18n>接口地址</span><input id="endpoint-url" class="field endpoint-mono" type="url" maxlength="500" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434/v1"></label>
+    <label class="endpoint-field"><span class="endpoint-label"><span data-i18n>这个接口的 API 密钥</span> <small data-i18n>可以不填：本地的服务器一般不要</small></span><input id="endpoint-key" class="field endpoint-mono" type="password" maxlength="1000" autocomplete="off" spellcheck="false"></label>
+    <label id="endpoint-key-clear-box" class="endpoint-check" hidden><input id="endpoint-key-clear" type="checkbox"><span data-i18n>不再用保存着的密钥</span></label>
+    <div class="endpoint-probe">
+      <button id="endpoint-test" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n>测试连接</span></button>
+      <button id="endpoint-sync" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n>同步模型</span></button>
+      <p id="endpoint-result" class="endpoint-result" role="status" aria-live="polite"></p>
+    </div>
+    <h3 class="endpoint-models-head"><span data-i18n>模型</span> <small id="endpoint-count"></small></h3>
+    <ul id="endpoint-models" class="endpoint-models" aria-label="这个接口上的模型" data-i18n-aria-label></ul>
+    <div class="row endpoint-add">
+      <input id="endpoint-model-new" class="field endpoint-mono" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="模型名，比如 qwen3:8b" aria-label="要添加的模型名" data-i18n-placeholder data-i18n-aria-label>
+      <button id="endpoint-model-add" class="button" type="button" data-i18n>添加</button>
+    </div>
+    <p class="hint" data-i18n>要让智狐读写文件、执行命令、记待办，模型得支持工具调用（function calling）：Qwen 3、Llama 3.1 以上、Mistral、GPT-OSS 这些可以，小的老模型多半不行。用不了工具的模型只能用文字回答；第一次被服务器拒绝时，智狐会自动把它标成“不能用工具”。</p>
+    <p id="endpoint-defaults" class="hint"></p>
+  </div>
+  <div class="memory-foot"><p id="endpoint-message" class="memory-message" role="status"></p><button id="endpoint-cancel" class="button" type="button" data-i18n>取消</button><button id="endpoint-save" class="button primary" type="button" data-i18n>保存</button></div>
 </dialog>
 
 <dialog id="viewer" class="viewer" aria-labelledby="viewer-name" aria-describedby="viewer-meta">

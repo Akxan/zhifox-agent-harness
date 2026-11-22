@@ -60,6 +60,19 @@ COMPACTION_THRESHOLD = 0.7
 COMPACTION_KEEP_TURNS = 2
 
 
+# 自定义模型接口（见 endpoints/）：Ollama、LM Studio、vLLM、llama.cpp、公司自己的网关……任何 OpenAI 格式的地址。
+# 最多接这么多个，每个最多记这么多个模型（vLLM、网关的模型列表可能很长，全记下来换模型的面板就没法看了）
+MAX_ENDPOINTS = 20
+MAX_ENDPOINT_MODELS = 300
+# 一个模型没填上下文上限、服务器也没说的时候按多少算（压缩历史看它，见 providers/compaction.py）。
+# 本地的模型上限各不相同：Ollama 默认只给 4096（要用 OLLAMA_CONTEXT_LENGTH 调大），智狐自己的系统提示词和工具说明书
+# 就要好几千个 token。取 32768：比它小的装不下几轮带工具结果的对话；比它大的，你在设置里填上真实的数就行
+CUSTOM_CONTEXT_WINDOW = 32_768
+# 测试连接、同步模型列表时，一个请求最多等这么久（秒）。本地的服务器一般零点几秒就回答；等太久，页面上的按钮就一直在转
+ENDPOINT_PROBE_SECONDS = 8
+# 同步模型列表时，最多为这么多个模型逐个去问"你能做什么"（Ollama 的 /api/show）。再多的照名字猜，不再一个个问
+ENDPOINT_DETECT_MODELS = 40
+
 # 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）之前，这一轮做过的、可能改动了东西的事要列给你看：
 # 最多列这么多行，再多的合成一句"还有几项"
 MAX_REWIND_EFFECTS = 6
@@ -95,6 +108,12 @@ MAX_PARALLEL_TASKS = 3
 LEDGER_DETAIL_DAYS = 90
 # 网页上"花费明细"的柱状图显示最近这么多天
 LEDGER_CHART_DAYS = 30
+
+# 运行记录（见 trace/）：每一轮记下每一次请求、每一次工具调用的时间和用量，跟着会话存下来。
+# 一轮最多存这么多段（子 Agent 里的也算），再多的只算进合计、不一段段存（一轮 25 步加子 Agent 也远到不了）；
+# 工具调用的一行说明、出错的那一句最多这么多字。记录只放数字和短说明，不放工具的输出
+TRACE_MAX_SPANS = 400
+TRACE_SUMMARY_CHARS = 120
 
 # 聊天通道：在 Telegram 这类聊天软件里和智狐说话（见 channels/）。
 # 配对码：网页或命令行上显示一个 6 位数字，你从自己的账号发给机器人，这个账号就绑定成了"主人"，只有主人能用。
@@ -237,6 +256,38 @@ ALLOWED_COMMANDS_DEFAULT: tuple[str, ...] = ()
 MAX_ALLOWED_COMMANDS = 100
 MAX_ALLOWED_COMMAND_CHARS = 200
 
+# 评测（见 evals/）：让真正的智狐去做一组真实的小事，按做成了没有打分，看改了提示词、换了模型以后是变好了还是变坏了。
+# 任务的文件夹（一个任务一个 .toml 文件）。放在仓库里、和 tests/ 并列，不打进包里：它和测试一样是"量产品"的东西，
+# 随代码一起改、一起提交（理由见 evals/__init__.py）
+EVAL_TASKS_DIR = PROJECT_ROOT / "evals" / "tasks"
+EVAL_RESULTS_DIR = "evals"  # 结果存在数据目录里的这个文件夹（data/evals/）：一次运行一个子文件夹，不提交
+EVAL_MAX_STEPS = 30  # 评测里一轮最多调用模型这么多次（平常是 50）。评测的任务都是小事，用不了那么多，到了上限就停，省钱
+EVAL_TASK_SECONDS = 300  # 一个任务最多跑这么久（秒），不管它是卡在等模型还是在跑命令；到了就停下，记成"超时"（不算模型做错）
+EVAL_REQUEST_SECONDS = 180  # 一次模型请求最多等这么久（秒）。连接挂住不动时靠它脱身
+EVAL_SETUP_SECONDS = 60  # 准备工作目录时运行的一条命令（比如 git commit），最多等这么久
+EVAL_CHECK_SECONDS = 60  # 打分时运行的一条命令（command 那种检查），最多等这么久
+EVAL_PARALLEL = 4  # 同时跑几个任务。真的花钱的运行太多了会撞上各家的频率限制
+EVAL_MAX_REPEAT = 20  # --repeat 最大是多少（每个任务跑几遍）。再多就是在烧钱了
+# 估算花费时，一个任务（跑一遍）假定的用量。任务文件里的 [budget] 可以改它自己的；跑过真的以后，按上一次实际花的估算。
+#   requests  调用几次模型（每调用一次工具就多一次）
+#   context   每次请求带着多少个 token 的上下文：系统提示词和工具的说明书（数过一次，大约五六千个；Claude 自带的文件、
+#             记忆工具另有一段看不见的说明书），加上到目前为止的对话和工具的结果。取得偏高：宁可估多，不要估少
+#   output    每次回复写多少个 token（思考也算在里面）
+EVAL_ASSUMED_REQUESTS = 4
+EVAL_ASSUMED_CONTEXT = 12_000
+EVAL_ASSUMED_OUTPUT = 1_000
+# 估算"大约"时，第一次请求之后的输入假定有这么多命中缓存（命中的部分便宜得多，Claude 约是原价的二十分之一）。
+# "最多"那个数按一点都没命中算
+EVAL_CACHE_HIT = 0.8
+# 估算按上一次实际花的钱算时，"最多"在那次花得最多的一遍上再加这么多（同一个任务每次走的步数不一样）
+EVAL_ESTIMATE_MARGIN = 1.5
+# 让模型当评分员（judge 那种检查，默认关着，要另外花钱）：用哪个模型、估算时假定一次评分读多少写多少 token。
+# 不要用被评的那个模型给自己打分：它往往偏爱和自己写得像的回答
+EVAL_JUDGE_MODEL = "claude-sonnet-5-5"
+EVAL_JUDGE_INPUT = 4_000
+EVAL_JUDGE_OUTPUT = 1_000
+EVAL_JUDGE_TRANSCRIPT_CHARS = 40_000  # 交给评分员的对话记录最多这么多字（一个工具的结果最多 2000 字，见 evals/judge.py）
+
 # 后台服务（见 service/）：`harness service install` 把智狐装成登录时自动启动、出错退出后自己重启的服务
 # （macOS 上是 launchd 的 LaunchAgent，Linux 上是 systemd 的用户服务）。
 # 出错退出以后，最少隔这么多秒再重启（launchd 的 ThrottleInterval、systemd 的 RestartSec）。
@@ -259,9 +310,13 @@ SERVICE_STOP_SECONDS = 30
 SERVICE_COMMAND_SECONDS = 60
 
 
+# Claude 思考的力度能选的几档，从浅到深（见 Config.effort）
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
 @dataclass(frozen=True)
 class Config:
-    effort: str  # Claude 思考的力度：low / medium / high / xhigh / max
+    effort: str  # Claude 思考的力度：EFFORTS 里的一档
     max_tokens: int  # 单次回复的上限（思考也算在里面）
     max_steps: int  # 一轮对话里最多调用模型多少次，防止死循环
     workspace: Path  # 工作目录：助手可以直接读取这里面的文件
@@ -346,6 +401,10 @@ class Config:
     @property
     def channels_file(self) -> Path:
         return self.data_dir / "channels.json"  # 聊天通道的设置：机器人的 token（密钥）、绑定的账号（见 channels/store.py）
+
+    @property
+    def endpoints_file(self) -> Path:
+        return self.data_dir / "endpoints.json"  # 自定义模型接口：地址、可选的密钥、每个模型能做什么（见 endpoints/store.py）
 
     @property
     def commands_file(self) -> Path:

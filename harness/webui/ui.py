@@ -48,6 +48,7 @@ REPLAYABLE = frozenset(
         "confirm",
         "auto_allowed",
         "subagent",
+        "trace",
         "file_changes",  # 这一轮改了哪些文件（见 undo/）
         "file_undo",  # 撤回、重做了哪几个文件
     }
@@ -439,6 +440,16 @@ class WebUI:
     def error(self, text: str) -> None:
         self.end_stream()
         self.publish("notice", level="error", **said(text))
+
+    def trace(self, record: dict) -> None:
+        """这一轮的运行记录（格式见 trace/__init__.py），循环在一轮结束时交过来（Agent.on_trace）。
+
+        存成日志里的一个 trace 事件：和别的事件一样存进会话文件（export_events），刷新页面、重新打开会话时重放出来，
+        页面在这一轮的回答旁边放一个"运行记录"；倒回这一轮时它跟着这一轮的事件一起去掉。它从不进对话历史（messages）。
+        定时任务（RunUI）和聊天通道（ChannelUI）是同一个类，所以它们的每一轮也一样记下来。
+        """
+        self.end_stream()
+        self.publish("trace", **record)
 
 
 def kept_after_rewind(saved: list[dict], last: int, keep_user: bool) -> list[dict]:

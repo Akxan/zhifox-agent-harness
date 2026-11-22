@@ -1,0 +1,30 @@
+# "每天提醒我"：看它会不会用只是提醒的那种定时任务（reminder，不花钱），时间写对，而不是让助手每天跑一轮（agent，每次都花钱）。
+title = "每天定时提醒"
+tags = ["tasks"]
+messages = ["每天早上 8 点半提醒我吃药。"]
+
+[budget]
+requests = 2
+
+[[graders]]
+type = "task_exists"
+kind = "reminder"
+schedule = { type = "daily", time = "08:30" }
+
+[[graders]]
+type = "tool_not_called"
+name = "task_add"
+input = '"kind":\s*"agent"'
+
+# 只是提醒的任务不用问你
+[[graders]]
+type = "approvals"
+max = 0
+
+[[dry_run]]
+[[dry_run.tools]]
+name = "task_add"
+input = { kind = "reminder", title = "吃药", prompt = "该吃药了", schedule = { type = "daily", time = "08:30" } }
+
+[[dry_run]]
+say = "好了，每天早上 8:30 提醒你吃药（只是提醒，不花钱；网页界面开着的时候才会弹出来）。"

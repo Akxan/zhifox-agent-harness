@@ -36,6 +36,8 @@ USER_CONTENT = [
     "#log .turn-confirm-list li:not(.more)", "#log .turn-editor-atts",
     # 联网搜索的回答引用的网页：标题、网站、被引的原文都是网页自己的（"资料来源"这几个字是界面的，要翻译）
     "#log .cite-title", "#log .cite-site", ".cite-card",
+    # 运行记录：工具的参数、出错时工具写的那一句（写给模型的中文原文），悬停时那一行里也带着参数
+    "#trace-body .trace-detail", "#trace-body .trace-note", "#trace-body .trace-readout",
     # "改了 N 个文件"那一行里点开的预览：一行一行的是文件里的字
     "#log .changes-code",
 ]
@@ -45,6 +47,7 @@ NAMES = [
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
+    ".endpoint-name", ".endpoint-model-name", ".models-label",  # 自定义模型接口的名字、模型名（你起的、服务器给的）
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
     ".changes-path", ".changes-warn-path",  # "改了 N 个文件"那一行、撤回之前的提醒里的文件路径（文件名是你的或者模型起的）
 ]

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
@@ -48,6 +49,7 @@ TOOLSET_MODELS = {"browser": BROWSER_TOOLSET_MODELS, "computer": COMPUTER_TOOLSE
 
 class AnthropicBackend:
     provider = "anthropic"
+    tools_supported = True  # Claude 的模型都能用工具（自定义接口上的模型不一定，见 openai_compat.py）
 
     def __init__(self, client: Any, model: str, config: Config, tools: ToolRegistry, system_prompt: str):
         self.client = client
@@ -223,8 +225,11 @@ class AnthropicBackend:
         if betas:
             request["betas"] = betas
 
-        response = self._send(request, ui)
-        step = Step(status="done", usage=_usage(response))
+        response, retries = self._send(request, ui)
+        step = Step(status="done", usage=_usage(response), stop_reason=response.stop_reason or "", retries=retries)
+        # 给运行记录看的（见 trace/）：服务器上用了哪些工具（联网搜索、读网页）、有没有顺便压缩历史
+        step.server_tools = dict(Counter(block.name for block in response.content if block.type == "server_tool_use"))
+        step.compacted = any(block.type == "compaction" for block in response.content)
 
         if response.stop_reason == "refusal":
             # 不把被拒绝的回复放进历史：留着的话，后面多半还会被拒
@@ -246,7 +251,8 @@ class AnthropicBackend:
             step.status = "tools"
         return step
 
-    def _send(self, request: dict, ui: StreamUI) -> Any:
+    def _send(self, request: dict, ui: StreamUI) -> tuple[Any, int]:
+        """发一次请求，返回（完整的回复，重新请求了几次）。"""
         attempts = 3
         for attempt in range(1, attempts + 1):
             try:
@@ -254,7 +260,7 @@ class AnthropicBackend:
                 with self.client.beta.messages.stream(**request) as stream:
                     for event in stream:
                         self._show(event, ui)
-                    return stream.get_final_message()
+                    return stream.get_final_message(), attempt - 1
             except ValueError as exc:
                 # 极少数情况下，模型生成的工具参数不是合法的 JSON，SDK 解析不了。重新请求一次即可。
                 if attempt == attempts:

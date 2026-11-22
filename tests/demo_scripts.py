@@ -20,6 +20,9 @@
                 （[ui:files] abc）：文件都放在工作目录的 ui-files/abc/ 里，几个测试共用一个演示服务器也不会改到同一个文件。
                 第一轮新建"计划.md"和"notes.txt"；之后每一轮把 notes.txt 的"第二行"改一下（后面的几轮改了同一个文件，看"仍然撤回"）。
                 改文件要你批准；想不问，先把"要不要先问你"换成"改文件不用问"
+  [ui:trace]    一轮把运行记录（harness/trace/）用齐的对话：先查待办（不用问）→ 执行一条要你批准的命令 → 交给子 Agent
+                「资料研究员」（它自己读一个文件、联网搜索一次再回答）→ 主助手转告。看"运行记录"的瀑布图、子 Agent 缩进的那几行、
+                等你确认的那一截。子 Agent 的任务里也写着 [ui:tracesub]，它自己的那几次请求按 tracesub 回答
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
                 用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
                 所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
@@ -165,6 +168,38 @@ def pause(body: dict) -> dict:
     return reply(text("它卖的是"), text("印着公司标志的促销品", [b, a]), text("。"))
 
 
+# [ui:trace] 交给子 Agent 的那件事。任务里带着暗号：子 Agent 的对话从这句话开始，它的请求才能按 tracesub 回答
+TRACE_TASK = "[ui:tracesub] 查一下什么是 agent harness，读一读工作目录里的 notes.txt，交回两条要点。"
+
+
+def trace(body: dict) -> dict:
+    step = _steps(body)
+    if step == 0:
+        return reply(thinking("先看看有哪些待办。"), tool_use("toolu_ui_trace_list", "todo_list", {}), stop_reason="tool_use")
+    if step == 1:
+        return reply(
+            text("再看一眼工作目录。"),
+            tool_use("toolu_ui_trace_cmd", "run_command", {"command": "echo zhifox-trace"}),
+            stop_reason="tool_use",
+        )
+    if step == 2:
+        return reply(text("这件事交给资料研究员。"), tool_use("toolu_ui_trace_agent", "agent", {"name": "资料研究员", "task": TRACE_TASK}), stop_reason="tool_use")
+    return reply(text("资料研究员查完了：harness 是包在模型外面、负责循环和工具的那层程序。每一步花了多久，点“运行记录”能看到。"))
+
+
+def tracesub(body: dict) -> dict:
+    if _steps(body) == 0:
+        return reply(
+            thinking("先读笔记。"),
+            tool_use("toolu_ui_tracesub_view", "str_replace_based_edit_tool", {"command": "view", "path": "notes.txt"}),
+            stop_reason="tool_use",
+        )
+    return reply(
+        *web_search("srvtoolu_ui_tracesub", "agent harness", [("https://example.com/a", "A")]),
+        text("1. harness 是包在模型外面的那层程序（出处：notes.txt）\n2. 它负责循环、工具和权限（出处：https://example.com/a）"),
+    )
+
+
 CJK = re.compile(r"[㐀-䶿一-鿿]")
 WEEKDAYS = "一二三四五六日"
 
@@ -270,7 +305,7 @@ def readme(body: dict) -> dict:
 
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
     "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
-    "pause": pause, "files": files,
+    "pause": pause, "trace": trace, "tracesub": tracesub, "files": files,
 }
 
 
