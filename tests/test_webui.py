@@ -117,7 +117,12 @@ class Browser:
                     self.problems.append(f"synced 标记带着编号 {fields['id']}")
             elif "event" not in fields:
                 event = json.loads(fields["data"])
-                if fields.get("id") != str(event["id"]):
+                if "id" not in event:
+                    # 换着看另一段对话时服务器补的那个 reset（见 server.py 的 _send_events）：不进日志、不带编号，
+                    # 也就不能有 id 行（不然浏览器会把它当成"最后收到的那一个"）
+                    if event.get("type") != "reset" or "id" in fields:
+                        self.problems.append(f"不带编号的事件只能是换着看时补的 reset，收到的是 {event!r}（id 行 {fields.get('id')!r}）")
+                elif fields.get("id") != str(event["id"]):
                     self.problems.append(f"事件 {event['id']} 的 id 行是 {fields.get('id')!r}：断线重连时浏览器报不出正确的位置")
                 self.events.append(event)
             self._arrived.notify_all()

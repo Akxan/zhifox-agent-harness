@@ -3634,5 +3634,9 @@
  "这个文件有 {size}，网页上一次最多上传 {max}。更大的备份可以在终端里用 uv run harness restore 恢复。": "This file is {size}; the page can upload at most {max} at a time. Restore bigger backups in a terminal with uv run harness restore.",
  "正在恢复，做完之前不能关。": "Restoring; this can't be closed until it's done.",
  "还没有恢复。再按一次就放弃，上传的备份也会删掉。": "Nothing has been restored yet. Press again to give up; the uploaded backup will be deleted too.",
- "备份里遮掉的密钥": "Keys hidden in the backup"
+ "备份里遮掉的密钥": "Keys hidden in the backup",
+ "已经有 {n} 段对话在同时进行，这是上限。等其中一段结束，或者先在会话栏上停下一段，再发。": "{n} conversations are already running at the same time, which is the limit. Wait for one of them to finish, or stop one in the sidebar, then send.",
+ "这段会话现在没有在进行。": "This conversation isn't running right now.",
+ "「{title}」等 {n} 段对话正在进行。等它们结束，或者在会话栏上停下它们，再试。": "“{title}” and other conversations ({n} in all) are running. Wait for them to finish, or stop them in the sidebar, then try again.",
+ "「{title}」正在进行一轮对话。等它结束，或者先停下它，再试。": "“{title}” is in the middle of a turn. Wait for it to finish, or stop it first, then try again."
 }
