@@ -259,6 +259,35 @@ def test_a_channel_keeps_its_own_sandbox(telegram):
     steps.close_extensions(page)
 
 
+def test_the_unsaved_warning_survives_a_redraw(telegram):
+    # 通道的状态一变（连上了、收到消息……）向导就会重画。"还没保存"的提醒以前只写进了页面元素，一重画就没了，
+    # 再点"返回"也就悄悄放弃了修改（GitHub 的 macOS 机器上真出过：提醒出现前状态先到，测试一直等不到它）
+    page = telegram
+    steps.extensions_tab(page, "channels")
+    page.click("#panel-channels li.chan-row[data-platform='telegram'] .chan-open")
+    page.click("#panel-channels [data-focus='step:4']")
+    page.click("#panel-channels .chan-mode[data-mode='edits']")
+    page.wait("document.querySelector('#panel-channels .chan-mode[data-mode=\"edits\"]').getAttribute('aria-checked') === 'true'")
+    page.click("#panel-channels .chan-back")
+    page.wait("document.querySelector('#panel-channels .chan-help.bad')", what="提醒还没保存")
+    # 让状态变一次：设置里的沙箱换一档（第 4 步的下拉框写着"跟随设置（现在是：……）"，所以向导会重画）
+    page.js("document.querySelector('#panel-channels .chan-foot .chan-help').dataset.before = '1'; 1")
+    status, reply = page.demo.api("/api/sandbox/level", {"level": "workspace"})
+    assert status == 200, reply
+    page.wait("!document.querySelector('#panel-channels .chan-foot .chan-help').dataset.before", what="向导重画了一次")
+    assert "确认方式还没保存" in page.text("#panel-channels .chan-foot .chan-help.bad")
+    # 换一种语言（窗口开着，从别处换的：比如另一个标签页），提醒也跟着就地翻译
+    assert page.demo.api("/api/language", {"language": "en"})[0] == 200
+    page.wait("document.querySelector('#panel-channels .chan-foot .chan-help.bad').textContent.includes('approval mode')", what="提醒换成英文")
+    assert page.demo.api("/api/language", {"language": "zh"})[0] == 200
+    page.wait("document.querySelector('#panel-channels .chan-foot .chan-help.bad').textContent.includes('确认方式')", what="提醒换回中文")
+    # 再点一次才真的放弃：回到列表，存着的还是原来那一档
+    page.click("#panel-channels .chan-back")
+    page.wait("!document.querySelector('#panel-channels .chan-stepper')", what="回到列表")
+    assert _channel_saved(page).get("approval", "ask") == "ask"
+    steps.close_extensions(page)
+
+
 def test_what_it_can_do_points_to_the_sandbox_settings(page):
     steps.open_side(page)
     shell = "#caps .caps-item[data-id=\"shell\"]"

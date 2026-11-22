@@ -76,6 +76,9 @@ function renderSandbox(info) {
   else if (current) retext($('sandbox-state'), k('（{level}）'), { level: sandboxValue(current.label) });
   if (settings.open) drawSandboxSettings();
   if (sandboxDialog.open) drawSandboxPaths();
+  // 通道向导第 4 步的下拉框写着"跟随设置（现在是：……）"。状态里通道先画（见 events.js），那时还是旧的这一档，所以这里再画一次
+  // （没变的话 drawChanWizard 自己会跳过）
+  if (extensionsDialog.open && extensionTab === 'channels' && chanView.kind === 'wizard') drawChannels();
 }
 
 function drawSandboxSettings(force) {
