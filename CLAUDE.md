@@ -162,6 +162,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
 | `harness/evals/`、`evals/tasks/` | 评测：任务格式（spec）、临时目录（seed）、记录员（recorder）、按结果打分（graders）、评分员（judge，花钱）、演习（dryrun，用 tests/ 的假服务器）、跑（runner）、估算（estimate）、结果和对比；起步任务在仓库根目录的 `evals/tasks/` |
 | `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
+| `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -343,6 +344,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （在 `REPLAYABLE` 里、不在 `PARAGRAPH` 里），排在这一轮的内容之后、`turn_end` 之前；从不进 `messages`。记录里只放数字和截短的说明，
   不放工具输出（`TRACE_SUMMARY_CHARS`、`TRACE_MAX_SPANS`）。改了一轮的走法，记录器和 `trace/__init__.py` 的格式说明一起改。
   断言事件序列的测试要写上 `"trace"`。翻译表的键是中文原文，同一句不能有两个意思：任务详情里那一节叫"历次运行"，"运行记录"只指这个功能。
+- **自定义模型接口（`harness/endpoints/`）**：编号是 `custom-<id>`，找一家用 `providers.find` / `every`，`PROVIDERS` 只有内置的四家；
+  能力按模型问 `providers.caps`；"能不能接着聊"只看 `providers.continues`（能不能用工具不一样也算换一家）。用量和价格按"接口/模型"记
+  （`pricing.price_key`），算钱用 `App.prices()`。`data/endpoints.json` 权限 600、在 protected 名单和 `export.MASKED_FILES` 里，密钥不进环境变量，
+  页面只看到最后 4 位。客户端只用 `endpoints/client.make`（或 `make_client(provider, timeout=…)`），不要对它调 SDK 的 `with_options`：
+  会照着环境变量重建。外面的地址只许 https，明文 http 只许本机和内网（只看写法，不查 DNS）；不跟重定向。
+  **有意的破例**：自定义接口拒绝工具、而这段对话还没调用过工具时，从这一次起不发工具（被拒绝的请求服务器没处理，历史一字不改）；
+  已经用过工具的照常报错。不认 `stream_options` 的不再要用量。两样都记进 endpoints.json；内置的几家不退。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
