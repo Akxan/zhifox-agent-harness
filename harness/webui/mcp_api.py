@@ -21,12 +21,13 @@ from ..mcp import importers as mcp_imports
 from ..safe import private_dir
 from . import reveal
 from .ui import said
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
 
 
-class McpActions:
+class McpActions(WebAppPart):
     """MCP 服务器：状态里的那一节、详情、改配置、从别的工具导入、粘贴、显示配置文件。
 
     这些操作不拿对话的锁：对话进行中也可以添加、停用、重启服务器。正在进行的这段对话用的是开始时拍下的

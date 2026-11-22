@@ -29,6 +29,7 @@ from ..i18n import t
 from ..providers import find, has_key
 from ..search import MAX_QUERY_CHARS
 from . import reveal
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
 
-class ConversationActions:
+class ConversationActions(WebAppPart):
     """新对话、打开、改名、删除、显示一段会话。"""
 
     def new_conversation(self, agent: str | None = None) -> str:

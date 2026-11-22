@@ -19,13 +19,14 @@ from .. import i18n
 from ..i18n import t
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class TodoActions:
+class TodoActions(WebAppPart):
     """待办：改一条、删一条。"""
 
     def change_todo(self, todo_id: int, changes: dict | None) -> str:

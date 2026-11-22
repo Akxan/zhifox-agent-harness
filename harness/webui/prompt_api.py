@@ -19,13 +19,14 @@ from typing import TYPE_CHECKING
 from .. import prompt as prompts
 from ..config import MAX_PROMPT_CHARS
 from ..i18n import t
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class PromptActions:
+class PromptActions(WebAppPart):
     """提示词：读出、保存。"""
 
     def prompt_info(self) -> dict:

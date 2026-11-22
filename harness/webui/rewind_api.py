@@ -28,13 +28,14 @@ from ..undo.restore import sets_in as rewind_sets
 from .changes_api import issues
 from .chat_api import MAX_MESSAGE_CHARS
 from .ui import said
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class RewindActions:
+class RewindActions(WebAppPart):
     """倒回最后一轮：能不能倒、真的倒回去。"""
 
     def _rewind_state(self) -> dict | None:

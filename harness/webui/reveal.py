@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from ..i18n import t
 from ..safe import private_dir
 from ..tools.shell import SECRET_ENV_VARS
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -97,7 +98,7 @@ def _reveal_in_explorer(path: Path) -> None:
     )
 
 
-class RevealActions:
+class RevealActions(WebAppPart):
     """显示助手的一个数据文件。"""
 
     def reveal_data(self, what: str) -> tuple[str, str]:

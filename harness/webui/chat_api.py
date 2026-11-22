@@ -29,6 +29,7 @@ from ..i18n import t
 from ..providers import has_key
 from ..tools.shell import TOOL_NAME as SHELL_TOOL
 from ..undo.journal import Journal, recording
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 MAX_MESSAGE_CHARS = 100_000
 
 
-class ChatActions:
+class ChatActions(WebAppPart):
     """发消息，一轮对话在后台跑、收尾。"""
 
     def send(self, text: str, attachments: list[Attachment] | None = None) -> str:

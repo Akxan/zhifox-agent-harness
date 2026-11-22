@@ -28,6 +28,7 @@ from ..i18n import t
 from ..providers import PROVIDERS, ProviderError, caps, continues, find, has_key, hint
 from ..settings import valid_api_key
 from .ui import said
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
@@ -69,7 +70,7 @@ def page_state(app: Any) -> dict:
     }
 
 
-class ModelActions:
+class ModelActions(WebAppPart):
     """换模型、密钥、同步模型列表、价格。"""
 
     def _provider_state(self, provider) -> dict:

@@ -27,13 +27,14 @@ from typing import TYPE_CHECKING
 from ..i18n import t
 from .sessions import DONE, ERROR, Session
 from .ui import WebUI
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class SessionActions:
+class SessionActions(WebAppPart):
     """几段对话：新建、换着看、停下、收尾。"""
 
     # ---- 新建一段、接上该接的 ----------------------------------------------------

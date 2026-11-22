@@ -22,13 +22,14 @@ from ..i18n import t
 from ..memories import MemoryConflict, MemoryFileError
 from ..safe import private_dir
 from . import reveal
+from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
     from .server import Handler
     from .webapp import WebApp
 
 
-class MemoryActions:
+class MemoryActions(WebAppPart):
     """记忆：改、删、显示，文件夹变了没有。"""
 
     def delete_memory(self, relative: str) -> str:
