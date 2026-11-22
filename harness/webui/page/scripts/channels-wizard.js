@@ -31,20 +31,23 @@ function chanDirty() {
   return chanView.step === 4 && (chanModeChanged(item) || chanSandboxChanged(item));
 }
 
-// 想离开向导（返回列表、关掉对话框）。有没保存的东西：先提醒一次，再来一次才放弃
+// 想离开向导（返回列表、关掉对话框）。有没保存的东西：先提醒一次，再来一次才放弃。
+// 提醒过了记在 chanView.armed 上，那句话由 drawChanWizard 每次照着写（chanUnsaved）：通道的状态一变向导就重画，
+// 只写进页面元素的话一重画就没了，再点一次就悄悄放弃了修改
 function leaveChanWizard(why) {
   if (chanDirty() && chanView.armed !== why) {
     chanView.armed = why;
     chanView.error = '';
     drawChanWizard();
-    const item = chanFind(chanView.platform);
-    const key = chanView.step === 2 ? k('填的东西还没保存。再点一次就放弃它。')
-      : chanModeChanged(item) ? k('确认方式还没保存。再点一次就放弃这次的修改。') : k('沙箱的选择还没保存。再点一次就放弃这次的修改。');
-    const help = chanPanel.querySelector('.chan-foot .chan-help');
-    if (help) { retext(help, key); help.className = 'chan-help bad'; }
     return false;
   }
   return true;
+}
+
+// 提醒过以后那句话：是哪一样还没保存
+function chanUnsaved(item) {
+  return chanView.step === 2 ? k('填的东西还没保存。再点一次就放弃它。')
+    : chanModeChanged(item) ? k('确认方式还没保存。再点一次就放弃这次的修改。') : k('沙箱的选择还没保存。再点一次就放弃这次的修改。');
 }
 
 function chanBack() {
@@ -119,6 +122,7 @@ function drawChanWizard(focus) {
   const help = foot.appendChild(el('p', 'chan-help'));
   help.setAttribute('role', 'status');
   [chanStepOne, chanStepTwo, chanStepThree, chanStepFour][view.step - 1](item, pane, foot, help);
+  if (view.armed && chanDirty()) { retext(help, chanUnsaved(item)); help.className = 'chan-help bad'; }
   if (view.error) { help.textContent = view.error; help.className = 'chan-help bad'; }
   chanShow([head, stepper, pane, foot], 'wizard', focus === 'step' ? null : focus);
   const again = caret ? document.getElementById(caret[0]) : null;
