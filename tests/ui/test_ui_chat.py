@@ -124,6 +124,13 @@ def test_browser_steps_show_a_thumbnail(page):
         answered += 1
     assert answered == 2  # 打开一个新网站、在搜索框里输入
     steps.reply(page, "看完了")
+    # 小截图是异步解码的（decoding="async"）：机器忙的时候，回复出来了、最后一张还没解码完。等它们都画好再查
+    page.wait(
+        "(() => { const imgs = [...document.querySelectorAll('#log .browser-step img')];"
+        " return imgs.length >= 3 && imgs.every((img) => img.complete && img.naturalWidth > 0); })()",
+        20,
+        "小截图都解码完",
+    )
     thumbs = page.js("[...document.querySelectorAll('#log .browser-step img')].map((img) => [img.complete, img.naturalWidth, img.src.slice(0, 22)])")
     assert len(thumbs) >= 3
     assert all(done and width > 0 and src == "data:image/jpeg;base64" for done, width, src in thumbs), thumbs
