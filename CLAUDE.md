@@ -163,6 +163,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/evals/`、`evals/tasks/` | 评测：任务格式（spec）、临时目录（seed）、记录员（recorder）、按结果打分（graders）、评分员（judge，花钱）、演习（dryrun，用 tests/ 的假服务器）、跑（runner）、估算（estimate）、结果和对比；起步任务在仓库根目录的 `evals/tasks/` |
 | `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
 | `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
+| `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -351,6 +352,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   会照着环境变量重建。外面的地址只许 https，明文 http 只许本机和内网（只看写法，不查 DNS）；不跟重定向。
   **有意的破例**：自定义接口拒绝工具、而这段对话还没调用过工具时，从这一次起不发工具（被拒绝的请求服务器没处理，历史一字不改）；
   已经用过工具的照常报错。不认 `stream_options` 的不再要用量。两样都记进 endpoints.json；内置的几家不退。
+- **撤回一轮改的文件（`harness/undo/`）**：只记文件工具的改动，记账靠这一轮线程上的 `ContextVar`，`tools/files.py` 里只有 `watching` 一行；
+  定时任务和聊天通道不记。留底在 `data/backups/turns/<编号>/`，清单写好后不再改，撤回、重做的状态只记在 `file_undo` 事件里（由 `restore.fold` 推出来）。
+  `file_changes` 排在 `trace` 之后、`turn_end` 之前；断言事件顺序的测试要写上它。撤回走 `/api/changes/…`：页面只给一轮的编号和清单里的第几个文件，
+  路径由程序照着清单算；拿 `WebApp._turn`、认领这段会话；查和写都拿 `_EDITING`。保存密钥的文件、留底文件夹、换成链接的路径永远不写；
+  工作目录之外、数据目录里、哈希对不上的，先问再写。模型没有撤回的工具。撤回之后在下一条消息前附 `<file_changes>`（`undo/notes.py`），不进系统提示词。
+  **有意的破例**：倒回最后一轮时，这一轮之后才撤回的更早几轮的 `file_undo` 事件不跟着截掉，挪到最后一条用户消息前面（`webui/ui.kept_after_rewind`）。
+  命令改动的文件不假装能撤：界面上明说撤不回来；不替用户的仓库做 git 快照。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。

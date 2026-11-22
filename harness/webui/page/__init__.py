@@ -46,6 +46,7 @@ STYLES = (
     "styles/sheet.css",  # 中间那张"纸"：极光、顶栏、对话区
     "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
     "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
+    "styles/file-changes.css",  # 每一轮末尾的"改了 N 个文件"、改动的预览、撤回和重做
     "styles/markdown.css",  # 回复里的 Markdown
     "styles/citations.css",  # 回答引用的网页：记号、浮出的卡片、来源列表
     "styles/welcome.css",  # 空白页：问候语和建议
@@ -108,6 +109,7 @@ SCRIPTS = (
     "scripts/viewer.js",  # 查看器
     "scripts/send.js",  # 发送消息
     "scripts/rewind.js",  # 编辑最后一条消息、重新生成
+    "scripts/file-changes.js",  # 改了哪些文件：每一轮末尾那一行、撤回、重做（见 harness/undo/）
     "scripts/sidebars.js",  # 两边的栏：展开和收起
     "scripts/appearance.js",  # 外观：颜色和动效
     "scripts/conversations.js",  # 会话列表

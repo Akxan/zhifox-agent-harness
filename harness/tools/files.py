@@ -29,6 +29,7 @@ from pathlib import Path
 
 from .. import pathnames
 from ..attachments import MAX_IMAGE_BYTES, sniff_image
+from ..undo.journal import watching
 from .base import Tool, ToolError, ToolImage, ToolOutput
 
 TOOL_NAME = "str_replace_based_edit_tool"
@@ -113,7 +114,8 @@ class FileEditor:
             return self._view(path, tool_input.get("view_range"))
         if command not in WRITE_COMMANDS:
             raise ToolError(f"不支持的命令 {command!r}。可用的命令：view、create、str_replace、insert。")
-        with _EDITING:
+        # watching：这一轮在记账的话（网页和终端里你的对话，见 undo/journal.py），改之前先留一份底，以后能一键撤回
+        with _EDITING, watching(path, command):
             if command == "create":
                 return self._create(path, _text(tool_input, "file_text"))
             if command == "str_replace":

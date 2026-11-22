@@ -2274,9 +2274,10 @@ def test_edits_mode_in_the_page_still_asks_before_running_commands(serve):
     assert (s.config.workspace / "a.txt").read_text(encoding="utf-8") == "内容"
     assert s.browser.post("/api/confirm", {"id": card["id"], "allow": True})[0] == 200
     s.browser.wait_for("turn_end")
+    # 文件工具建了 a.txt：这一轮末尾多一行"改了 1 个文件"（file_changes，见 undo/）
     assert without_states(s.browser) == [
         "user", "turn_start", "tool_call", "auto_allowed", "tool_result",
-        "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "trace", "turn_end",
+        "tool_call", "confirm", "confirm_done", "tool_result", "text", "block_end", "trace", "file_changes", "turn_end",
     ]
 
 

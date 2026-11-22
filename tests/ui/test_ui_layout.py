@@ -111,3 +111,16 @@ def test_no_text_overflow_at_phone_width(page, code):
         page.demo.api("/api/task/delete", {"id": saved["id"]})
         for todo in page.js("[...document.querySelectorAll('#todos > li.todo')].map((row) => Number(row.dataset.id))"):
             page.demo.api("/api/todo/delete", {"id": todo})
+
+
+def test_composer_footer_fits_at_phone_width_in_spanish(page):
+    page.size(PHONE_WIDTH, 844)
+    steps.calm(page)
+    steps.language(page, "es")
+    status, reply = page.demo.api("/api/approval", {"mode": "edits"})  # 开关上的字最长的一档之一
+    assert status == 200, reply
+    steps.send(page, "[ui:hello] hola")
+    steps.reply(page, "收到第 1 条消息")
+    page.wait("!document.getElementById('foot-cost').hidden", what="花费出现在输入框下面")
+    assert checks.sticking_out(page, [".foot"]) == []
+    assert page.js("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
