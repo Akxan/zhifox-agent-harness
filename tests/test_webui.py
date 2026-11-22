@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import http.client
 import json
@@ -36,7 +37,7 @@ from sample_files import (
     xlsx,
 )
 
-import harness.webui.server as server_module
+import harness.webui.reveal as reveal_module
 from harness import machine, memories, prompt
 from harness.app import build_app
 from harness.attachments import (
@@ -52,8 +53,8 @@ from harness.documents import NOTE as NOTE_OFFICE
 from harness.documents import extract_text
 from harness.media import MAX_PAGE, OFFICE_TYPES
 from harness.search import MAX_QUERY_CHARS
+from harness.webui.conversations_api import LARGE_CONTEXT_TOKENS
 from harness.webui.server import (
-    LARGE_CONTEXT_TOKENS,
     MAX_BODY_BYTES,
     MAX_MESSAGE_BODY_BYTES,
     create_server,
@@ -183,9 +184,9 @@ def serve(make_config, monkeypatch):
     revealed: list = []
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # 默认只有 Claude 的 key 是设置好的
     # 测试里绝不真的去打开访达：把"在文件管理器里显示"换成只记下路径
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", revealed.append)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", revealed.append)
     # 当作这台电脑有文件管理器（CI 的 Linux 机器上没有图形界面）。没有的时候怎么回答，见 test_reveal_without_a_desktop
-    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
+    monkeypatch.setattr(reveal_module, "has_file_manager", lambda: True)
 
     def serve(*replies, others=(), other_models=("deepseek-flash", "deepseek-v4-pro"), **config_overrides):
         api = FakeAPI(list(replies)).start()
@@ -1629,7 +1630,7 @@ def test_reveal_explains_when_there_is_nothing_to_show(serve, monkeypatch):
     def broken(path):
         raise OSError("找不到 open 这个命令")
 
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", broken)
     status, body = s.browser.post("/api/conversation/reveal", {"id": current})
     assert status == 409 and "找不到 open 这个命令" in body["error"] and f"{current}.json" in body["error"]
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
@@ -1661,20 +1662,20 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
         def wait(self, timeout=None):
             return self.returncode
 
-    monkeypatch.setattr(server_module.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(reveal_module.subprocess, "Popen", FakeProcess)
     plain = tmp_path / "20261120-140000-aaaaaa.json"
     tricky = tmp_path / "a b; rm -rf ~ $(whoami) `id`.json"  # 文件名里全是 shell 的特殊字符
     for file in (plain, tricky):
         file.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
-    monkeypatch.setattr(server_module.sys, "platform", "darwin")
-    server_module.reveal_in_file_manager(plain)
-    server_module.reveal_in_file_manager(tricky)
-    server_module.reveal_in_file_manager(tmp_path)
-    monkeypatch.setattr(server_module.sys, "platform", "linux")
-    server_module.reveal_in_file_manager(plain)
-    server_module.reveal_in_file_manager(tmp_path)
+    monkeypatch.setattr(reveal_module, "has_file_manager", lambda: True)
+    monkeypatch.setattr(reveal_module.sys, "platform", "darwin")
+    reveal_module.reveal_in_file_manager(plain)
+    reveal_module.reveal_in_file_manager(tricky)
+    reveal_module.reveal_in_file_manager(tmp_path)
+    monkeypatch.setattr(reveal_module.sys, "platform", "linux")
+    reveal_module.reveal_in_file_manager(plain)
+    reveal_module.reveal_in_file_manager(tmp_path)
 
     assert [command for command, _ in calls] == [
         ["open", "-R", str(plain)],  # macOS：在访达里选中这个文件
@@ -1688,14 +1689,14 @@ def test_the_file_manager_command_never_goes_through_a_shell(monkeypatch, tmp_pa
     # 命令报告失败时要让调用的人知道
     FakeProcess.returncode = 1
     with pytest.raises(OSError, match="退出码 1"):
-        server_module.reveal_in_file_manager(plain)
+        reveal_module.reveal_in_file_manager(plain)
 
     # 有的文件管理器会一直开着不退出：等不到它结束不算失败
     def still_running(self, timeout=None):
         raise subprocess.TimeoutExpired("xdg-open", timeout)
 
     monkeypatch.setattr(FakeProcess, "wait", still_running)
-    server_module.reveal_in_file_manager(plain)
+    reveal_module.reveal_in_file_manager(plain)
 
 
 def test_windows_selects_the_file_in_file_explorer(monkeypatch, tmp_path):
@@ -1710,21 +1711,42 @@ def test_windows_selects_the_file_in_file_explorer(monkeypatch, tmp_path):
         def wait(self, timeout=None):
             raise AssertionError("不等 explorer、不看它的退出码")
 
-    monkeypatch.setattr(server_module.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(reveal_module.subprocess, "Popen", FakeProcess)
     monkeypatch.setenv("SystemRoot", "C:\\Windows")
-    monkeypatch.setattr(server_module.sys, "platform", "win32")
-    assert server_module.has_file_manager()
+    monkeypatch.setattr(reveal_module.sys, "platform", "win32")
+    assert reveal_module.has_file_manager()
     file = tmp_path / "a b & c; $(x).json"
     file.write_text("{}", encoding="utf-8")
-    server_module.reveal_in_file_manager(file)
-    server_module.reveal_in_file_manager(tmp_path)
+    reveal_module.reveal_in_file_manager(file)
+    reveal_module.reveal_in_file_manager(tmp_path)
     explorer = str(Path("C:\\Windows") / "explorer.exe")
     assert [command for command, _ in calls] == [f'"{explorer}" /select,"{file}"', f'"{explorer}" "{tmp_path}"']
     assert all(not options.get("shell") for _, options in calls)
     assert all("ANTHROPIC_API_KEY" not in options["env"] for _, options in calls)
     with pytest.raises(OSError, match="引号"):
-        server_module.reveal_in_file_manager(Path('C:\\x\\"; calc.exe'))  # Windows 的文件名里不可能有引号；有的话就不是我们算出来的
+        reveal_module.reveal_in_file_manager(Path('C:\\x\\"; calc.exe'))  # Windows 的文件名里不可能有引号；有的话就不是我们算出来的
     assert len(calls) == 2
+
+
+def test_the_file_manager_is_reached_only_through_the_reveal_module():
+    """"在文件管理器里显示"只有一份（webui/reveal.py），别处一律写 reveal.reveal_in_file_manager(...)，调用时现找。
+
+    测试都是换掉 reveal 模块上的这两个名字，免得真的去打开访达。要是哪个文件 from .reveal import 了它们，
+    或者自己又定义了一份同名的，那里调用的就不是换过的那个：测试照样通过，却会真的启动文件管理器。"""
+    names = {"reveal_in_file_manager", "has_file_manager"}
+    package = Path(reveal_module.__file__).parents[1]
+    found = []
+    for file in sorted(package.rglob("*.py")):
+        if file == Path(reveal_module.__file__):
+            continue
+        for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Name) and node.id in names:
+                found.append(f"{file.name}:{node.lineno} 直接用了 {node.id}")
+            elif isinstance(node, ast.ImportFrom) and any(alias.name in names for alias in node.names):
+                found.append(f"{file.name}:{node.lineno} 导入了 {[alias.name for alias in node.names]}")
+            elif isinstance(node, ast.FunctionDef) and node.name in names:
+                found.append(f"{file.name}:{node.lineno} 又定义了一个 {node.name}")
+    assert found == []
 
 
 # ---- 记忆 -----------------------------------------------------------------
@@ -2067,14 +2089,14 @@ def test_revealing_the_memory_folder(serve, monkeypatch):
     def broken(path):
         raise OSError("找不到 open 这个命令")
 
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", broken)
     status, body = s.browser.post("/api/memory/reveal", {})
     assert status == 409 and "找不到 open 这个命令" in body["error"] and str(root) in body["error"]
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
     s.browser.wait_for("turn_end")
 
     # 没带口令、或者是别的网站发起的请求：什么都不会打开
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", s.revealed.append)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", s.revealed.append)
     assert request(host, "POST", "/api/memory/reveal", {})[0] == 403
     evil = {"X-Harness-Token": s.browser.token, "Origin": "http://evil.example"}
     assert request(host, "POST", "/api/memory/reveal", {}, evil)[0] == 403
@@ -2984,7 +3006,7 @@ def test_revealing_an_attachment_works_during_a_turn_and_says_where_the_file_is(
     def broken(path):
         raise OSError("找不到 open 这个命令")
 
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", broken)
     status, body = s.browser.post("/api/media/reveal", {"id": f"{current}/0/0"})
     assert status == 409 and "找不到 open 这个命令" in body["error"] and str(png) in body["error"]
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
@@ -3218,7 +3240,7 @@ def test_revealing_a_skill_when_the_file_manager_fails(serve, monkeypatch):
     def broken(path):
         raise OSError("没有文件管理器")
 
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", broken)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", broken)
     status, body = s.browser.post("/api/skill/reveal", {"name": "pdf-tools"})
     assert status == 409 and "没有文件管理器" in body["error"]
 

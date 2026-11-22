@@ -6,7 +6,7 @@
   POST /api/sandbox/delete   删一条（{"path"}）
   POST /api/sandbox/reveal   在文件管理器里显示一条（{"path"}）：只认列表里已有的那几条，路径不是页面随便给的
 
-定时任务的那一档跟着任务一起存（/api/task/save 的 sandbox），聊天通道的那一档是 /api/channel/sandbox（见 server.py）。
+定时任务的那一档跟着任务一起存（/api/task/save 的 sandbox），聊天通道的那一档是 /api/channel/sandbox（见 channels_api.py）。
 
 状态里的这一节（state.sandbox，见 state()）：
   level      设置里的那一档

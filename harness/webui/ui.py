@@ -8,8 +8,8 @@ server.py 再把日志里的事件推送给浏览器，浏览器收到后画出�
 
     agent 循环 ──调用──► WebUI ──事件──► server.py ──推送──► 浏览器
 
-反方向（用户点了"允许"或"停止"）则是浏览器发请求给 server.py，server.py 调用这里的
-answer_confirm / request_stop。
+反方向（用户点了"允许"或"停止"）则是浏览器发请求给 server.py，server.py 交给 chat_api.py、webapp.py，
+它们调用这里的 answer_confirm / request_stop。
 
 循环运行在一个后台线程里，浏览器的请求由别的线程处理，所以这里的状态都用一把锁保护。
 """
@@ -140,7 +140,7 @@ class WebUI:
             self._block_open = False
         self.publish("reset")
 
-    # ---- 保存和恢复（server.py 使用）---------------------------------------
+    # ---- 保存和恢复（webapp.py 和各组的 *_api.py 使用）------------------------
 
     def export_events(self) -> list[dict]:
         """把当前会话显示过的内容整理成适合保存的样子。
@@ -235,7 +235,7 @@ class WebUI:
         """一句只显示、不保存的提示。"""
         self.publish("notice", level=level, transient=True, **said(text))
 
-    # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
+    # ---- 一轮对话的开始和结束（webapp.py 和各组的 *_api.py 使用）--------------
 
     def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = (), mark: int | None = None, voice: float | None = None) -> None:
         """一轮开始：显示用户的消息。mark 是这一轮开始时适配层的位置（Backend.mark），记在 user 事件上、跟着存进会话文件，

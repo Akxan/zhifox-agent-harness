@@ -121,6 +121,7 @@ from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
 
+import harness.webui.reveal as reveal_module
 import harness.webui.server as server_module
 from harness import console, machine
 from harness.agents import examples as agent_examples
@@ -818,9 +819,9 @@ server_module.Handler._send_page = send_fresh_page
 # 当作那是一台有桌面的电脑：显示了文件之后说"已在文件资源管理器中显示……"，不说"这台电脑上没有文件管理器"（没有图形界面的 CI 机器上也一样）
 if options.platform:
     machine.system = lambda: options.platform
-    server_module.has_file_manager = lambda: True
+    reveal_module.has_file_manager = lambda: True
 # 演示里不真的打开文件管理器
-server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里本来会在文件管理器里显示 {path}）", flush=True)
+reveal_module.reveal_in_file_manager = lambda path: print(f"（演示：这里本来会在文件管理器里显示 {path}）", flush=True)
 
 ui = WebUI()
 fresh = not (root / "data" / "tasks.json").exists()

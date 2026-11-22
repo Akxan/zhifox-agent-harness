@@ -7,7 +7,7 @@
   POST /api/browser/shot       一张截图的大图（点开工具卡片上的小图时）。浏览器只给编号，读哪个文件由服务器定
 
 和别的"返回文件内容"的接口（/api/media/file）一样：编号只能是 64 个十六进制字符，拼不出任何路径；
-回答的类型固定是 image/jpeg，带 Content-Disposition: attachment、nosniff 和 sandbox，见 server.py 的 _send_shot。
+回答的类型固定是 image/jpeg，带 Content-Disposition: attachment、nosniff 和 sandbox，见 server.py 的 _route（发文件字节的几个接口都在那里）。
 
 开关、路径这些只是设置，不拿对话的锁：对话进行中也能关浏览器（关了以后，这段对话里再用浏览器的工具，会回答"浏览器关着"）。
 """

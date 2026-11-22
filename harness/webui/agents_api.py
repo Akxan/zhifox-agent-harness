@@ -1,7 +1,7 @@
 """网页上"扩展 → Agent"一页背后的接口：/api/agent/……。
 
 单独放一个文件，是因为它们自成一组（和 skills_api.py 一样）。server.py 只负责把 /api/agent/ 开头的请求交到这里（route），
-以及把 Agent 列表放进状态里（summaries）。用一个 Agent 开始新对话走的是 /api/new（带上 agent），在 server.py 里。
+webapp.py 把 Agent 列表放进状态里（summaries）。用一个 Agent 开始新对话走的是 /api/new（带上 agent），在 conversations_api.py 里。
 
   POST /api/agent/read      打开一个 Agent：全文、表单里的各项、问题
   POST /api/agent/options   编辑时要用的选项：能勾的工具（内置的、此刻连着的 MCP 服务器的）、示例
@@ -55,7 +55,7 @@ class AgentsAPI:
     def __init__(self, web: WebApp, reveal: Callable[[Path], None]):
         self.web = web
         self.store = web.app.agents
-        self._reveal = reveal  # 在文件管理器里显示（server.py 的 reveal_in_file_manager）
+        self._reveal = reveal  # 在文件管理器里显示（reveal.py 的 reveal_in_file_manager）
         self._shown: list[dict] = []  # 上一次放进状态里的列表（见 refresh）
 
     def summaries(self) -> list[dict]:

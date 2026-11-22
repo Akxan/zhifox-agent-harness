@@ -543,7 +543,7 @@ def test_the_screen_belongs_to_one_run_at_a_time(start):
         reply(text("任务没截成")),
     )
     fake = with_computer(s, unattended=True)
-    s.agent.run_turn("截图")  # 对话占着屏幕（网页上要等这一轮结束才让出来，见 server.py）
+    s.agent.run_turn("截图")  # 对话占着屏幕（网页上要等这一轮结束才让出来，见 chat_api.py 的 _run_turn）
     asked = len(s.ui.confirmations)
     run = s.app.unattended_agent(s.ui, "ask")
     run.agent.run_turn("<task>截图</task>")

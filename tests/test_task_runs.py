@@ -21,6 +21,7 @@ import pytest
 from fake_api import FakeAPI, reply, text, thinking, tool_use
 from test_webui import Browser
 
+import harness.webui.reveal as reveal_module
 import harness.webui.server as server_module
 from harness import i18n
 from harness.app import build_app
@@ -71,7 +72,7 @@ def serve(make_config, monkeypatch):
     """启动一个网页服务器，后面连着假的 Claude API，任务用假的钟。同一个测试里调用两次，就相当于重启了一遍程序。"""
     started = []
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", lambda path: None)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", lambda path: None)
 
     def serve(*replies, routes=None, **config_overrides):
         api = FakeAPI(list(replies), routes).start()

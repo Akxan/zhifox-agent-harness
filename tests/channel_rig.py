@@ -19,7 +19,7 @@ from fake_api import FakeAPI
 from test_channels import stop_later, until
 from test_webui import Browser
 
-import harness.webui.server as server_module
+import harness.webui.reveal as reveal_module
 from harness.app import build_app
 from harness.channels.store import ChannelStore
 from harness.webui.server import create_server
@@ -161,8 +161,8 @@ def rig_fixture(make_config, monkeypatch, make_fake: Callable[[], FakePlatform])
             yield from rig_fixture(make_config, monkeypatch, lambda: FakeDiscord().start())
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(server_module, "reveal_in_file_manager", lambda path: None)
-    monkeypatch.setattr(server_module, "has_file_manager", lambda: True)
+    monkeypatch.setattr(reveal_module, "reveal_in_file_manager", lambda path: None)
+    monkeypatch.setattr(reveal_module, "has_file_manager", lambda: True)
     fake = make_fake()
     started: list[ChannelRig] = []
 

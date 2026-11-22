@@ -35,7 +35,7 @@ from harness import rewind
 from harness.attachments import MAX_ATTACHMENTS
 from harness.config import MAX_REWIND_EFFECTS
 from harness.providers import compaction
-from harness.webui.server import MAX_MESSAGE_CHARS
+from harness.webui.chat_api import MAX_MESSAGE_CHARS
 
 # 借用 test_webui 的 fixture：起一个网页服务器，后面连着假的 API，并让"浏览器"连上去
 serve = test_webui.serve
