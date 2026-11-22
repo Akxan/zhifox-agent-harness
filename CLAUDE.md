@@ -166,6 +166,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
 | `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
 | `harness/hooks/`、`harness/webui/hooks_api.py` | 你的钩子：config（`data/hooks.json`）、runner（启动、沙箱、超时）、protocol（退出码和 JSON）、engine（每次运行的 HookRun）、cli（`harness hooks`） |
+| `harness/redact.py` | 遮住工具结果里像密钥的东西：各家密钥的格式（`KEY_SHAPES`，导出和 MCP 设置页也用它）、已知的值、`password=` 后面的长串；页面在 `page/scripts/redact.js` |
+| `harness/fallback.py`、`harness/webui/fallback_api.py` | 备用模型：模型暂时用不了时，这一轮接下来改用同一家的哪个（`candidates`、`usable`、`use`）；页面在 `page/scripts/fallback.js` |
+| `harness/voice/`、`harness/webui/voice_api.py` | 语音转文字：设置（settings）、选哪一种服务和发出去（transcribe）、聊天通道收到语音时（listen）；页面在 `page/scripts/voice.js` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -375,6 +378,20 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   这次运行的沙箱开着就进同一个沙箱，开着却用不了就不运行。`data/hooks.json` 在 protected 名单和 `export.MASKED_FILES` 里，模型没有能改它的工具；
   只有带口令的页面和 `harness hooks` 能改。定时任务、聊天通道默认也跑，子 Agent 只跑工具前后的两个。测试里的钩子一律用 `sys.executable` 跑 Python 脚本。
   命令行里 `--` 后面的内容由 `cli.main` 先切出来再交给 argparse（Python 3.11 的 argparse 不认子命令里的 `--`）。
+- **遮密钥（`harness/redact.py`）**：工具的结果在 `clean_text` 之后、放进结果和交给 `after_tool` 钩子之前遮（`Agent._redact`），钩子、模型、历史、
+  页面、运行记录只见遮好的；浏览器标签页的网址、标题也遮。只遮新产生的这一条结果，历史照样只追加。各家密钥的格式只写在 `redact.KEY_SHAPES`，
+  导出和 MCP 设置页也用它，别处不再另写。已知的值（`SECRET_ENV_VARS`、`.env`、自定义接口的密钥、`log.hidden()`）按值比较，从不写进日志。
+  git 提交号、UUID、base64 不遮，宁漏勿错：这是一张安全网，模型故意改写过的密钥认不出来。阈值是 `config.REDACT_*`，开关是 `Settings.redact_secrets`
+  （默认开，关之前在原地问一次）。改文件的工具不肯写回 `‹已遮住：…›`（会把真的密钥盖掉）。新加存密钥的地方，把值交给 `Redactor` 的 `known` 或 `log.hide`。
+- **备用模型只在同一家之内换，只换这一轮剩下的步骤**（默认没有，每家最多 3 个）。过载、5xx、429（SDK 重试过以后）、流里的 `overloaded_error` 这类
+  抛 `providers.base.Unavailable`；400、401、`insufficient_quota` 不换。能不能换看 `fallback.usable`（`providers.continues` 加上 `Backend.can_switch_to`），
+  换上和换回都用 `fallback.use`（`switch_model`）。只改请求里的 `model`，历史、系统提示词、工具说明书一字不动，不剥思考块（API 自己丢掉新模型读不了的），
+  `conversation.model` 不变；一轮结束换回你选的那个。不跨家换：历史格式、系统提示词、工具都不一样。运行记录用 `request_failed` 和 `fallback` 标出来，
+  钱按实际回答的模型算。新加会建 Agent 的地方，照 `_side_run` 一样接上 `fallbacks` 和 `redact`。
+- **语音转文字（`harness/voice/`）**：OpenAI 的密钥只发给 `Config.transcribe_api`（只能用 `OPENAI_BASE_URL` 改，明文的别的电脑上的地址不发）。
+  自己填地址的服务不发任何密钥，明文的 http 只许连本机；选自定义接口的，只认本机和内网的，带它自己的密钥（外面的网关每分钟多少钱不知道，不给选）。
+  太长（`VOICE_MAX_SECONDS`）、太大（`VOICE_MAX_BYTES`）的在下载之前就拦下。每转一条用 `Ledger.record_audio(source="voice")` 记一笔，
+  价格只在 `pricing.transcribe_cost` 里算（按分钟估，有的模型其实按 token 计费）。现在只有 Telegram 收语音，别的平台回答"暂时只有 Telegram 支持"。
 - **本机的 Python 是 3.11，CI 跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
   拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
@@ -431,7 +448,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。
