@@ -15,6 +15,9 @@
 @media (max-width: 760px) {
   /* width: max-content：从正中间（left: 50%）往右只剩一半的宽度，不写的话它只肯缩在那一半里，字就被截断了 */
   .computer-live { position: absolute; z-index: 7; top: 58px; left: 50%; translate: -50% 0; width: max-content; max-width: calc(100% - 32px); box-shadow: var(--shadow-2); }
+  /* 和浏览器那一条一样：浮在对话上面时只有"停止"接点击，下面的按钮照样点得到 */
+  .computer-live { pointer-events: none; }
+  .computer-live-stop { pointer-events: auto; }
   .computer-live > .icon { display: none; }
   .browser-live:not([hidden]) + .computer-live { top: 98px; }  /* 两条都在的时候，电脑的这一条放在浏览器那一条下面 */
 }
