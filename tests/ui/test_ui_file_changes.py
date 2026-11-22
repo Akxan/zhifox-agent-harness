@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -99,6 +100,11 @@ DIFF_STRUCTURE = r"""
 # 重新生成之后的那一轮：页面整个重画过（reset），新的"改了 N 个文件"出现了、这一轮也结束了。
 # 认"不是刚才那个元素"，不靠赶上 busy 亮起来的那一下（演示的一轮很快，可能还没看到就结束了）
 REGENERATED = IDLE + " && (node => node && node !== window.__changesBefore)(document.querySelector('#log .changes'))"
+
+
+def shown(tag: str, name: str) -> str:
+    """页面上给人看的路径：工作目录里的相对路径，按这台电脑的写法（Windows 上是反斜杠，见 FileEditor.display）。"""
+    return os.path.join("ui-files", tag, name)
 
 
 def _tag(name: str) -> str:
@@ -202,7 +208,7 @@ def test_the_change_line_ends_the_turn_and_shows_each_file(page):
     assert page.js("document.querySelector('#log .changes-toggle').getAttribute('aria-expanded')") == "true"
     assert page.js("document.querySelector('#log .changes').classList.contains('open')")
     files = _shape(page)["sets"][0]["files"]
-    assert [file["path"] for file in files] == [f"ui-files/{tag}/{PLAN}", f"ui-files/{tag}/{NOTES}"]
+    assert [file["path"] for file in files] == [shown(tag, PLAN), shown(tag, NOTES)]
     assert [file["kind"] for file in files] == ["changes-kind created"] * 2
     assert page.js("[...document.querySelectorAll('#log .changes-kind')].map((node) => node.textContent)") == ["新增", "新增"]
     assert [file["lines"] for file in files] == [f"+{len(plan_lines)}−0", f"+{len(notes_lines)}−0"]
@@ -211,7 +217,7 @@ def test_the_change_line_ends_the_turn_and_shows_each_file(page):
         "[...document.querySelectorAll('#log .changes-act')].map((button) => button.getAttribute('aria-labelledby').split(' ')"
         ".map((id) => document.getElementById(id).textContent).join(' '))"
     )
-    assert labels == [f"撤回 ui-files/{tag}/{PLAN}", f"撤回 ui-files/{tag}/{NOTES}"]
+    assert labels == [f"撤回 {shown(tag, PLAN)}", f"撤回 {shown(tag, NOTES)}"]
     assert page.text("#log .changes-note") == "这里只有文件工具做的改动；执行命令改动的文件没法自动撤回。"
 
     # 点文件名：一行一行的预览（新建的文件每一行都是加上的）
@@ -219,7 +225,7 @@ def test_the_change_line_ends_the_turn_and_shows_each_file(page):
     assert page.js("document.querySelectorAll('#log .changes-name')[1].getAttribute('aria-expanded')") == "true"
     assert page.js(DIFF_ROWS.format(index=1)) == [["add", line] for line in notes_lines]
     assert page.js("document.querySelectorAll('#log li.changes-file')[1].querySelectorAll('.changes-line.add').length") == len(notes_lines)
-    assert page.text("#log li.changes-file.open .changes-diff-caption") == f"这一轮的改动：ui-files/{tag}/{NOTES}"
+    assert page.text("#log li.changes-file.open .changes-diff-caption") == f"这一轮的改动：{shown(tag, NOTES)}"
     _diff(page, 0)
     assert page.js(DIFF_ROWS.format(index=0)) == [["add", line] for line in plan_lines]
     assert page.js(DIFF_STRUCTURE) == []
@@ -246,7 +252,7 @@ def test_undo_one_file_redo_it_then_the_whole_turn(page):
     assert not files[1]["undone"] and files[1]["state"] == ""
     assert shape["sets"][0]["title"] == "改了 2 个文件，撤回了 1 个"
     assert shape["sets"][0]["total"] == "+3−0"  # 撤回了的那个不算
-    assert shape["logs"] == [{"action": "undo", "text": f"撤回了 ui-files/{tag}/{PLAN} 的改动", "redo": True}]
+    assert shape["logs"] == [{"action": "undo", "text": f"撤回了 {shown(tag, PLAN)} 的改动", "redo": True}]
     assert shape["order"][-2:] == ["changes", "log"]
     assert _focused_on(page, "#log .changes-act", 0)  # 焦点还在刚点的那个按钮上（字换成了"重做"）
 
@@ -256,7 +262,7 @@ def test_undo_one_file_redo_it_then_the_whole_turn(page):
     assert plan.read_bytes() == saved
     shape = _shape(page)
     assert shape["logs"][0]["redo"] is False
-    assert shape["logs"][1] == {"action": "redo", "text": f"重做了 ui-files/{tag}/{PLAN} 的改动", "redo": None}
+    assert shape["logs"][1] == {"action": "redo", "text": f"重做了 {shown(tag, PLAN)} 的改动", "redo": None}
     assert shape["sets"][0]["title"] == "改了 2 个文件" and not shape["sets"][0]["files"][0]["undone"]
     # 点了的"重做"自己藏起来了：焦点不能留在它上面（Esc 之类的按键就没人接了），交给那一行的开关
     assert _focused_on(page, "#log .changes-toggle")
@@ -269,7 +275,7 @@ def test_undo_one_file_redo_it_then_the_whole_turn(page):
     assert shape["sets"][0]["undone"] and shape["sets"][0]["title"] == "撤回了这一轮改的 2 个文件"
     assert shape["sets"][0]["all"] == ["redo", "重做"] and shape["sets"][0]["total"] == ""
     assert page.text("#log .changes-foot-all") == "重做这一轮的全部改动"
-    assert shape["logs"][2] == {"action": "undo", "text": f"撤回了 ui-files/{tag}/{PLAN} 等 2 个文件的改动", "redo": True}
+    assert shape["logs"][2] == {"action": "undo", "text": f"撤回了 {shown(tag, PLAN)} 等 2 个文件的改动", "redo": True}
 
     # 再点一次就是整轮重做
     page.click("#log .changes-all")
@@ -293,7 +299,7 @@ def test_a_file_changed_after_the_turn_asks_in_place_first(page):
     page.wait(WARNING_FOCUSED, what="原地的提醒出现，焦点在“仍然撤回”上")
     warning = _warning(page)
     assert warning["head"] == "撤回之前先确认一下"
-    assert [item["path"] for item in warning["items"]] == [f"ui-files/{tag}/{NOTES}"] and not warning["items"][0]["blocked"]
+    assert [item["path"] for item in warning["items"]] == [shown(tag, NOTES)] and not warning["items"][0]["blocked"]
     assert any(why.startswith("这一轮之后它又被改过") for why in warning["items"][0]["why"]), warning
     assert warning["buttons"] == [["button primary", "仍然撤回"], ["button", "取消"]]
     assert notes.read_bytes() == MINE and (folder / PLAN).exists()  # 什么都还没做
@@ -328,7 +334,7 @@ def test_a_later_turn_that_changed_the_same_file_is_explained(page):
     notes = folder / NOTES
     # 第 2 轮之前在 notes.txt 里放几行像 HTML 的字：预览只用 textContent 画，它们原样显示成字，不变成元素
     tricky = '<img src=x onerror="window.__pwned = 1">\n第二行\n<b>粗体</b>\n'
-    notes.write_text(tricky, encoding="utf-8")
+    notes.write_text(tricky, encoding="utf-8", newline="")
     steps.send(page, "再改一次")
     steps.reply(page, "第 2 轮的文件改好了")
     page.wait("document.querySelectorAll('#log .changes').length === 2 && " + IDLE, what="第 2 轮那一行出现")
@@ -337,7 +343,7 @@ def test_a_later_turn_that_changed_the_same_file_is_explained(page):
 
     second = _shape(page)["sets"][1]
     assert second["title"] == "改了 1 个文件" and second["total"] == "+1−1"
-    assert [(file["path"], file["kind"]) for file in second["files"]] == [(f"ui-files/{tag}/{NOTES}", "changes-kind modified")]
+    assert [(file["path"], file["kind"]) for file in second["files"]] == [(shown(tag, NOTES), "changes-kind modified")]
     _expand(page, 1)
     assert page.js("document.querySelectorAll('#log .changes')[1].querySelector('.changes-kind').textContent") == "修改"
     _diff(page, 2)
@@ -460,7 +466,7 @@ def test_regenerate_explains_a_file_changed_after_the_turn(page):
         what="卡片上的说明出现",
     )
     assert page.text("#log .turn-confirm .button.primary") == "仍然撤回并重新生成"
-    assert page.text("#log .turn-confirm-issues .changes-warn-path") == f"ui-files/{tag}/{NOTES}"
+    assert page.text("#log .turn-confirm-issues .changes-warn-path") == shown(tag, NOTES)
     assert page.text("#log .turn-confirm-issues .changes-warn-why").startswith("这一轮之后它又被改过")
     assert notes.read_bytes() == MINE and (folder / PLAN).exists()
     assert not page.js("document.body.classList.contains('busy')")

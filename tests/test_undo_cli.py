@@ -41,7 +41,7 @@ def work(tmp_path):
     """终端用的工作目录（和 make_config 里的是同一个），里面先放好 a.txt。"""
     folder = tmp_path / "work"
     folder.mkdir()
-    (folder / "a.txt").write_text("one\n", encoding="utf-8")
+    (folder / "a.txt").write_text("one\n", encoding="utf-8", newline="")
     return folder
 
 
