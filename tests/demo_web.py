@@ -620,6 +620,21 @@ if not (root / "data").exists():
         ],
     }
     (root / "data" / "conversations" / f"{demo_scripts.FRAGMENTED_ID}.json").write_text(json.dumps(shattered, ensure_ascii=False), encoding="utf-8")
+    # Telegram 里的一段语音（语音转文字，见 harness/voice/）：你的那条消息上有一个"语音转文字"的小标记，写着语音有多长
+    heard = "明天早上八点提醒我开周会，顺便把上周的周报找出来"
+    spoken = {
+        "id": demo_scripts.VOICE_ID, "provider": "anthropic", "model": "claude-opus-5-5", "title": "Telegram 里的语音",
+        "created_at": old + 120, "updated_at": old + 120, "context_tokens": 0, "version": 1, "channel": "telegram",
+        "events": [
+            {"type": "user", "text": heard, "voice": 7.0, "mark": 0}, {"type": "turn_start"},
+            {"type": "text", "text": "好的，明天早上八点提醒你开周会。上周的周报我找到了：在“文档/周报”里。"}, {"type": "turn_end"},
+        ],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "<context>当时的时间</context>"}, {"type": "text", "text": "（语音转文字）" + heard}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "好的，明天早上八点提醒你开周会。上周的周报我找到了：在“文档/周报”里。"}]},
+        ],
+    }
+    (root / "data" / "conversations" / f"{demo_scripts.VOICE_ID}.json").write_text(json.dumps(spoken, ensure_ascii=False), encoding="utf-8")
     fake_mcp = str(Path(__file__).parent / "fake_mcp.py")
     servers = {
         "files": {"command": sys.executable, "args": [fake_mcp, "--era", "modern"]},

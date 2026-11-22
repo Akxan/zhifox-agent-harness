@@ -631,7 +631,8 @@ def test_updates_become_messages_and_presses(fake):
     inbound = message(text="你好")
     assert isinstance(inbound, Inbound) and (inbound.chat, inbound.user, inbound.name, inbound.text, inbound.private) == ("111", "111", "Akxan (@akxan)", "你好", True)
     assert message(text="hi", chat={"id": -5, "type": "group"}).private is False
-    assert message(voice={"file_id": "v"}).unsupported == "voice"
+    assert message(voice={"file_id": "v"}).audio is not None  # 语音交给语音转文字（见 test_voice.py）
+    assert message(video_note={"file_id": "n"}).unsupported == "video_note"
     assert message(sticker={"file_id": "s"}).unsupported == "sticker"
     assert message(new_chat_members=[sender]) is None  # 进群这类系统消息
     assert channel._event({"update_id": 2, "message": {"from": {**sender, "is_bot": True}, "chat": {"id": 1}, "text": "x"}}) is None
@@ -1253,7 +1254,6 @@ def test_a_text_file_reaches_the_model_as_text(bot):
 
 def test_things_it_cannot_handle_get_an_explanation(bot):
     s = bot()
-    s.wait_reply(s.say("", extra={"voice": {"file_id": "voice-1", "duration": 3}}), "还处理不了语音")
     s.wait_reply(s.say("", extra={"sticker": {"file_id": "sticker-1"}}), "还处理不了贴纸")
     s.wait_reply(s.say("", document=("data.bin", "application/octet-stream", b"\x00\x01\x02binary")), "这个文件用不了")
     s.idle()

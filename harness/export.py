@@ -36,6 +36,7 @@ from typing import IO, Any
 from . import pathnames
 from .config import APP_NAME
 from .i18n import k, t
+from .redact import mask_shapes
 from .safe import to_json
 
 # 存着密钥的配置文件（相对数据文件夹的路径）：导出时把密钥换成占位符。
@@ -55,14 +56,7 @@ STORED = {".zip", ".gz", ".xz", ".bz2", ".7z", ".png", ".jpg", ".jpeg", ".gif", 
 SECRET_NAME = re.compile(r"key|token|secret|passw|credential|auth|cookie|bearer|session|private", re.IGNORECASE)
 # 这几个字段里的每一个值都当作密钥（名字留着）：环境变量、请求头
 SECRET_GROUPS = {"env", "environment", "headers"}
-# 长得像密钥的字符串，不管它在哪个字段里
-SECRET_SHAPES = [
-    re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}"),  # OpenAI、Anthropic、DeepSeek 这类
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),  # GitHub
-    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),  # Slack
-    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),  # Google
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS
-]
+# 长得像密钥的字符串，不管它在哪个字段里：各家密钥的样子只在 redact.py 写一处（KEY_SHAPES 和配置文件用的 LOOSE_SHAPES）
 _AUTH_HEADER = re.compile(r"\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)  # "Bearer xxx"：留下前面那个词
 _URL_PASSWORD = re.compile(r"(://[^/\s:@]+:)[^/\s@]+@")  # https://用户:密码@host
 _URL_SECRET = re.compile(r"([?&][^=&#\s]*(?:key|token|secret|passw|auth|sig)[^=&#\s]*=)[^&#\s]+", re.IGNORECASE)
@@ -116,9 +110,7 @@ def _mask_text(text: str) -> str:
     text = _URL_PASSWORD.sub(lambda match: match.group(1) + PLACEHOLDER + "@", text)
     text = _URL_SECRET.sub(lambda match: match.group(1) + PLACEHOLDER, text)
     text = _AUTH_HEADER.sub(lambda match: match.group(1) + " " + PLACEHOLDER, text)
-    for shape in SECRET_SHAPES:
-        text = shape.sub(PLACEHOLDER, text)
-    return text
+    return mask_shapes(text, PLACEHOLDER)
 
 
 # ---- 要导出哪些文件 --------------------------------------------------------------

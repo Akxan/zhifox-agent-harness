@@ -40,6 +40,10 @@ ENABLE_COMPACTION = True
 # API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
 ENABLE_THINKING_DROP = True
 
+# 备用模型（见 fallback.py）：一个模型暂时用不了（过载、服务器出错、限流）时，这一轮接下来改用同一家的另一个。
+# 用哪几个、按什么顺序由你在设置里选，默认一个都没有（不换）。每一家最多选这么多个
+FALLBACK_MAX_MODELS = 3
+
 # 下面几项只对 GPT、Gemini、DeepSeek 生效（OpenAI 格式的适配层）。这几家的 API 不会替我们压缩历史，
 # 所以由智狐自己做：上一次请求占用的上下文超过了模型上限的一定比例，就在下一次请求之前，
 # 请同一个模型把较早的对话写成摘要，换掉原文。做法和理由见 providers/compaction.py。
@@ -122,6 +126,16 @@ LEDGER_CHART_DAYS = 30
 # 工具调用的一行说明、出错的那一句最多这么多字。记录只放数字和短说明，不放工具的输出
 TRACE_MAX_SPANS = 400
 TRACE_SUMMARY_CHARS = 120
+
+# 遮住工具结果里像密钥的东西（见 redact.py）。总开关在设置里（默认开着），这里是"多像才算"的几个数。
+# 宁可漏掉一个可疑的，也不要把正常的输出遮坏（git 的提交号、UUID、图片的 base64 都不遮）
+REDACT_MIN_KNOWN = 8  # 按值认的密钥（环境变量、.env、自定义接口的密钥……）至少这么长才算：太短的值会把输出里到处都换掉
+# 紧跟在 password=、token: 这类字后面的值：至少这么长、每个字符的信息量（香农熵，比特）至少这么多，而且字母和数字都有，
+# 才当成密钥。"hunter2"太短不遮；"request.headers.get"没有数字、像代码，不遮
+REDACT_MIN_VALUE_CHARS = 12
+REDACT_MIN_ENTROPY = 3.0
+# 连着这么多个 base64 的字符（中间没有空白）当作一段数据（图片、文件的内容），里面碰巧长得像密钥的也不遮
+REDACT_DATA_RUN = 200
 
 # 你的钩子（见 hooks/）：在固定的时刻（工具调用之前和之后、你发出一条消息时、一轮答完时）运行你配置的命令。
 # 钩子运行的时候这一轮在等它，所以默认的时限比 Claude Code 的（600 秒）短得多；每个钩子可以自己设，最长 HOOK_MAX_TIMEOUT
@@ -345,6 +359,16 @@ SERVICE_POLL_SECONDS = 0.5
 SERVICE_STOP_SLACK_SECONDS = 5
 
 
+# ---- 语音转文字（聊天里发来的语音，见 voice/）----------------------------------------------
+# 按分钟计费（价格见 pricing.TRANSCRIBE_PRICES），所以太长的不转：说一声上限是多少，一分钱都不花
+VOICE_MAX_SECONDS = 600
+# 一条语音最多下载、上传这么大：Telegram 的机器人最多能下载 20 MB（https://core.telegram.org/bots/api#getfile），
+# OpenAI 最多收 25 MB（https://developers.openai.com/api/docs/guides/speech-to-text），取小的那个
+VOICE_MAX_BYTES = 20_000_000
+VOICE_TIMEOUT = 120  # 转一条最多等多久（秒）。一条十分钟的语音上传加识别，慢的网络上要一会儿
+VOICE_TEXT_CHARS = 20_000  # 转出来的文字最多留这么多个字（一个出了毛病的服务器不能把一大堆东西塞进对话）
+
+
 # Claude 思考的力度能选的几档，从浅到深（见 Config.effort）
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -373,6 +397,9 @@ class Config:
     dingtalk_api: str = "https://api.dingtalk.com"
     # 钉钉的老接口（上传图片和文件，发图片、文件消息要先传上去拿到 media_id，见 channels/dingtalk.py）在另一个域名下
     dingtalk_oapi: str = "https://oapi.dingtalk.com"
+    # 语音转文字用的 OpenAI 接口（见 voice/transcribe.py）。和上面的一样只能用环境变量改（OPENAI_BASE_URL，
+    # 和 OpenAI 的 SDK 认的是同一个）：OpenAI 的 API key 会发到这里去。测试把它指向本地的假服务器
+    transcribe_api: str = "https://api.openai.com/v1"
 
     @property
     def todo_file(self) -> Path:
@@ -490,6 +517,11 @@ def load_env_file(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
+def env_file_values(path: Path) -> list[tuple[str, str]]:
+    """.env 文件里的每一项（名字，值）。只给遮密钥用（见 redact.py：按值认出输出里的密钥），值从不写进日志、也不交给页面。"""
+    return _env_entries(path)
+
+
 def env_file_names(path: Path) -> set[str]:
     """.env 文件里设置了哪些变量（只要名字，不碰值）。装后台服务时用来看：哪些只在终端里设置了、服务读不到（见 service/plan.py）。"""
     return {key for key, _ in _env_entries(path)}
@@ -532,5 +564,6 @@ def load_config(workspace: Path | None = None) -> Config:
         default_provider=os.environ.get("HARNESS_PROVIDER", "anthropic"),
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
         telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
+        transcribe_api=(os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},
     )

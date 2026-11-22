@@ -43,6 +43,12 @@ def hide(secret: str | None) -> None:
             _SECRETS.add(secret)
 
 
+def hidden() -> list[str]:
+    """登记过的全部密钥（一份拷贝）。工具的结果里出现它们也要遮住（见 ../redact.py）：日志里藏起来的，模型也不该看到。"""
+    with _LOCK:
+        return list(_SECRETS)
+
+
 def redact(text: str) -> str:
     with _LOCK:
         secrets = sorted(_SECRETS, key=len, reverse=True)  # 长的先换：一个密钥是另一个的一部分时，不会只换掉一半

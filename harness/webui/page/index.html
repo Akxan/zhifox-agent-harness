@@ -116,6 +116,7 @@ __STYLES__
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v10M7.5 9.5L12 14l4.5-4.5M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
   <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 4.5h6v3H9zM9 6H6.5a1.5 1.5 0 0 0-1.5 1.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H15M8.5 12h7M8.5 15.5h4.5"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3.5a2.75 2.75 0 0 1 2.75 2.75v5.5a2.75 2.75 0 0 1-5.5 0v-5.5A2.75 2.75 0 0 1 12 3.5zM6.25 11.25a5.75 5.75 0 0 0 11.5 0M12 17v3.5M9 20.5h6"/></symbol>
   <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M4.5 4.5h15A1.5 1.5 0 0 1 21 6v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5V6a1.5 1.5 0 0 1 1.5-1.5zM8.5 20h7M12 16v4"/></symbol>
   <symbol id="i-browser" viewBox="0 0 24 24"><path d="M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4zM3 8.5h18M6 6.3h.01M8.5 6.3h.01M11.5 11.5l6 2.2-2.6 1-1 2.6z"/></symbol>
   <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
@@ -381,6 +382,16 @@ __STYLES__
       </div>
       <p class="hint" data-i18n>每个模型能做什么、多少钱，都写在换模型的面板里。</p>
     </section>
+    <!-- 备用模型：这个模型暂时用不了时改用的同一家的模型（scripts/fallback.js 画，规矩在 harness/fallback.py） -->
+    <section id="fallback-section">
+      <h3><span data-i18n>备用模型</span> <small id="fallback-state"></small></h3>
+      <p class="hint fallback-hint" data-i18n>现在这个模型暂时用不了（服务器过载、出错、请求太频繁）时，这一轮接下来按顺序改用下面的模型，对话里会说一声，下一轮再换回来。只能选同一家的：换到另一家要开始新的对话。</p>
+      <ol id="fallback-list" class="fallback-list" hidden></ol>
+      <p id="fallback-empty" class="fallback-empty" data-i18n>没有备用模型：出错时就停下，告诉你是什么错。</p>
+      <div class="row">
+        <select id="fallback-add" class="field" aria-label="添加备用模型" data-i18n-aria-label></select>
+      </div>
+    </section>
     <section>
       <h3 data-i18n>API 密钥</h3>
       <div id="keys"></div>
@@ -433,6 +444,25 @@ __STYLES__
         </div>
       </div>
       <p class="hint" data-i18n>定时任务和聊天通道默认跟着这里选的那一档，也可以在它们自己的设置里另选。改了以后，下一条命令就按新的来。</p>
+    </section>
+    <!-- 遮住工具结果里的密钥（scripts/redact.js）：认哪些、怎么遮都在 harness/redact.py，这里只是开关。默认开着，关掉之前在原地问一次 -->
+    <section id="redact-section">
+      <h3><span data-i18n>遮住密钥</span> <small id="redact-state"></small></h3>
+      <div class="browser-option redact-option">
+        <div class="browser-option-words">
+          <b id="redact-title" data-i18n>遮住工具结果里的密钥</b>
+          <span class="browser-note" data-i18n>命令的输出、读到的文件、MCP 和网页交回来的内容里，长得像密钥的（各家的 API 密钥、令牌、私钥、password= 后面的一串），先换成一个“已遮住”的记号，再交给模型。会话里、页面上看到的也是遮住以后的。</span>
+        </div>
+        <button id="redact-enabled" class="browser-switch" type="button" role="switch" aria-checked="true" aria-labelledby="redact-title" aria-controls="redact-confirm"></button>
+      </div>
+      <div id="redact-confirm" class="redact-confirm" role="group" aria-labelledby="redact-confirm-title" hidden>
+        <p id="redact-confirm-title" class="redact-confirm-title"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>关掉以后，结果里的密钥会原样发给模型厂商、写进会话文件。进了对话的内容就删不掉了。</span></p>
+        <div class="redact-confirm-actions">
+          <button id="redact-confirm-no" class="button primary" type="button" data-i18n>保持开着</button>
+          <button id="redact-confirm-yes" class="button" type="button" data-i18n>仍然关掉</button>
+        </div>
+      </div>
+      <p class="hint" data-i18n>这是一层兜底，不是防线：模型存心绕开（比如把密钥换个编码再打印）时认不出来。git 的提交号、UUID、图片数据不会被遮。</p>
     </section>
     <section>
       <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
@@ -526,6 +556,50 @@ __STYLES__
       </div>
       <p id="computer-models" class="hint"></p>
       <p id="computer-cost" class="hint"></p>
+    </section>
+    <!-- 语音转文字（scripts/voice.js）：聊天里发来的语音先转成文字。用哪一种、模型、价格都由助手程序在状态里给（state.voice） -->
+    <section id="voice-section">
+      <h3><span data-i18n>语音转文字</span> <small id="voice-state"></small></h3>
+      <div id="voice-card" class="browser-card voice-card">
+        <div class="browser-top">
+          <span class="browser-glyph" aria-hidden="true"><svg class="icon"><use href="#i-mic"/></svg></span>
+          <div class="browser-words">
+            <b data-i18n>在聊天里发语音</b>
+            <p data-i18n>在 Telegram 里按住说一句话，智狐先把它转成文字、回给你看一眼，再当作你说的话来回答。</p>
+          </div>
+        </div>
+        <div class="voice-fields">
+          <label class="voice-field"><span class="voice-label" data-i18n>用哪一种</span>
+            <select id="voice-provider" class="field">
+              <option value="auto" data-i18n>自动：有 OpenAI 的密钥就用它</option>
+              <option value="openai">OpenAI</option>
+              <option value="local" data-i18n>你自己运行的兼容服务</option>
+              <option value="off" data-i18n>关闭</option>
+            </select>
+          </label>
+          <label id="voice-model-row" class="voice-field"><span class="voice-label" data-i18n>模型</span>
+            <select id="voice-model" class="field"></select>
+          </label>
+          <div id="voice-local" class="voice-local" hidden>
+            <!-- 有本机或内网的自定义模型接口时才出现：选一个就用它的地址（和它自己的密钥），不用再填地址 -->
+            <label id="voice-endpoint-row" class="voice-field" hidden><span class="voice-label" data-i18n>接口</span>
+              <select id="voice-endpoint" class="field"></select>
+            </label>
+            <label id="voice-url-row" class="voice-field"><span class="voice-label" data-i18n>地址</span>
+              <input id="voice-url" class="field" type="url" spellcheck="false" autocomplete="off" maxlength="500" placeholder="http://127.0.0.1:8000/v1" aria-describedby="voice-local-note" data-keep="voice-url">
+            </label>
+            <label class="voice-field"><span class="voice-label" data-i18n>模型名</span>
+              <input id="voice-local-model" class="field" type="text" spellcheck="false" autocomplete="off" maxlength="100" data-keep="voice-local-model">
+            </label>
+            <div class="voice-local-foot">
+              <p id="voice-local-note" class="voice-local-note"></p>
+              <button id="voice-local-save" class="button" type="button" data-i18n>保存</button>
+            </div>
+          </div>
+        </div>
+        <div id="voice-status" class="voice-status" role="status"></div>
+      </div>
+      <p id="voice-cost" class="hint"></p>
     </section>
     <section id="service-section" hidden>
       <h3 data-i18n>后台运行</h3>

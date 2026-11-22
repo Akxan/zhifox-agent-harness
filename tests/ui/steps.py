@@ -227,3 +227,15 @@ def expand_capabilities(page: Page) -> None:
     page.js("document.querySelectorAll('#caps .caps-head[aria-expanded=false]').forEach((head) => head.click())")
     page.js("document.querySelectorAll('#caps details.caps-tech:not([open])').forEach((tech) => { tech.open = true; })")
     idle(page)
+
+
+def pick(page: Page, select: str, value: str) -> None:
+    """在一个下拉框（select.field）里选 value，和用户选了一样发出 change。不点开它：无界面的 Chrome 里原生的下拉列表点不了。"""
+    page.js(f"(() => {{ const box = document.querySelector({json.dumps(select)}); box.value = {json.dumps(value)}; box.dispatchEvent(new Event('change', {{ bubbles: true }})); }})()")
+
+
+def voice_local(page: Page) -> None:
+    """设置 → 语音转文字：选"你自己运行的兼容服务"，等地址、模型名那几格出来（还没保存：关上设置再打开就回到原来的选择）。"""
+    pick(page, "#voice-provider", "local")
+    page.wait("!document.getElementById('voice-local').hidden && document.activeElement.id === 'voice-url'", what="兼容服务的那几格出来")
+    idle(page)

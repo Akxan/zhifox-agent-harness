@@ -44,6 +44,8 @@
   POST /api/price      用户填写了一个模型的价格
   POST /api/endpoint/save、delete、probe、reveal   自定义模型接口（Ollama、LM Studio、公司的网关……）：保存、删除、
                        测试连接和同步模型（请求从这里发出去，页面从来不直接连那个地址）、在访达中显示 endpoints.json（见 endpoints_api.py）
+  POST /api/fallbacks  用户排好了一家的备用模型（模型暂时用不了时改用的同一家的模型，见 fallback_api.py）
+  POST /api/redact     用户开、关"遮住工具结果里的密钥"（见 redact.py）
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
@@ -59,6 +61,7 @@
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
   POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图（或者点击、打字）不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
   POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
+  POST /api/voice/settings                       语音转文字：用哪一种、哪个模型、本机服务的地址（见 voice_api.py 和 ../voice/）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -141,7 +144,7 @@ from ..tools.shell import SECRET_ENV_VARS
 from ..tools.shell import TOOL_NAME as SHELL_TOOL
 from ..undo.journal import Journal, recording
 from ..undo.restore import sets_in as rewind_sets
-from . import lifecycle, models_api
+from . import fallback_api, lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
@@ -156,6 +159,7 @@ from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
+from .voice_api import VoiceAPI
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
@@ -266,6 +270,7 @@ class WebApp:
         self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
+        self.voice = VoiceAPI(self)  # 设置里"语音转文字"一节的接口（聊天里发来的语音，见 ../voice/）
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         self.hooks = HooksAPI(self, lambda path: reveal_in_file_manager(path))  # "扩展 → 钩子"一页的接口
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
@@ -325,6 +330,7 @@ class WebApp:
             endpoints=self.endpoints.state(),
             price=price,
             price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
+            fallbacks=fallback_api.state(self.app),  # 每一家的备用模型（按顺序，见 fallback.py）；没设的不出现
             todos=[
                 {"id": item["id"], "title": item["title"], "due": item["due"]}
                 for item in self.app.todos.items("pending")
@@ -361,6 +367,7 @@ class WebApp:
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
             hooks=self.hooks.summary(),  # 你的钩子：有几个、文件有没有问题（完整的列表打开那一页时再要，见 hooks_api.py）
             sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
+            redact_secrets=settings.redact_secrets,  # 工具的结果先遮一遍密钥再交给模型（见 redact.py），设置里能关
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒
@@ -377,6 +384,8 @@ class WebApp:
             browser=self.browser.state(),
             # 操作整台电脑：开没开、这台电脑上能不能用、权限、谁正在操作、截图留几天（见 computer_api.py）
             computer=self.computer.state(),
+            # 语音转文字：设置、实际会用哪一种、有没有 OpenAI 的密钥（只说有没有）、每个模型每分钟多少钱（见 voice_api.py）
+            voice=self.voice.state(),
             # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
             rewind=self._rewind_state(),
         )
@@ -1267,6 +1276,12 @@ class WebApp:
         self.app.settings.set_budget(amount)
         self.publish_state()  # 状态里带着预算，超了没有也在这时重新算一次（见 App.spending）
 
+    def set_redact(self, enabled: bool) -> None:
+        """开、关"遮住工具结果里的密钥"（见 redact.py）。每次遮之前现看设置，所以不用拿对话的锁：正在跑的这一轮，
+        下一个工具的结果就按新的来。"""
+        self.app.settings.set_redact(enabled)
+        self.publish_state()
+
     def spend_report(self) -> dict:
         """"花费明细"窗口要的全部数字。只读内存里的汇总，对话进行中也可以看。"""
         return self.app.ledger.report(self.app.agent.clock().date(), LEDGER_CHART_DAYS)
@@ -1621,10 +1636,21 @@ class Handler(BaseHTTPRequestHandler):
                 web.set_budget(None if amount is None else float(amount))
                 # 带上存完以后的花费：设的预算比这个月已经花的还少时，页面当场就能说清楚（提示框会被设置面板挡住）
                 self._send_json(200, {"ok": True, "spend": web.app.spending()})
+        elif path == "/api/redact":
+            if not isinstance(body.get("enabled"), bool):
+                self._send_json(400, {"error": t("要说清楚开还是关（enabled 是 true 或 false）")})
+            else:
+                web.set_redact(body["enabled"])
+                self._send_json(200, {"ok": True})
         elif path == "/api/export/info":
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":
             self._send_export()
+        elif path == "/api/fallbacks":
+            status, payload = fallback_api.save(web.app, body)
+            if status == 200:
+                web.publish_state()
+            self._send_json(status, payload)
         elif path == "/api/price":
             model, price = body.get("model"), body.get("price")
             if not isinstance(model, str) or not model or not _valid_price(price):
@@ -1669,6 +1695,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "image/jpeg", content, headers)
         elif path.startswith("/api/computer/"):
             status, payload = web.computer.route(path.removeprefix("/api/computer/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/voice/"):
+            status, payload = web.voice.route(path.removeprefix("/api/voice/"), body)
             self._send_json(status, payload)
         else:
             self._send_json(404, {"error": "not found"})

@@ -28,12 +28,18 @@ def _surfaces(page):
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
         ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], "settings"),
+        ("设置 · 备用模型", lambda: _fallbacks(page), ["#settings"], None),
+        # 语音转文字：选了"你自己运行的兼容服务"以后多出来的地址、模型名和那一行说明（左边一列名字，窄屏上改成上下两行）
+        ("设置 · 语音转文字（你自己运行的服务）", lambda: steps.voice_local(page), ["#settings"], "settings"),
         # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
         ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("沙箱的路径", lambda: _sandbox(page), ["#sandbox-dialog"], "sandbox-dialog"),
+        # 第一下 Esc 只收起问的那一块（焦点在它里面），第二下才关上设置窗口
+        ("设置 · 遮住密钥（关掉之前）", lambda: _redact(page), ["#redact-section"],
+         lambda: (page.key("Escape"), page.wait("document.getElementById('redact-confirm').hidden"), steps.escape_closes(page, "settings"))),
         # 自定义模型接口的编辑窗口（叠在设置上面）：很长的地址、模型名，每个模型的三个开关和三个数字
         ("自定义模型接口（编辑）", lambda: _endpoint_editor(page), ["#endpoint-dialog"], lambda: (steps.escape_closes(page, "endpoint-dialog"), steps.escape_closes(page, "settings"))),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
@@ -56,12 +62,27 @@ def _surfaces(page):
     ]
 
 
+def _fallbacks(page) -> None:
+    """设置里选了两个备用模型：一行一个，序号、模型名、两个按钮，窄屏上模型名省略、不冲出去。"""
+    page.demo.api("/api/fallbacks", {"provider": "anthropic", "models": ["claude-sonnet-5-5", "claude-fable-5-2"]})
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.wait("document.querySelectorAll('#fallback-list .fallback-row').length === 2", what="备用模型的名单画出来")
+
+
 def _commands(page) -> None:
     """"不用问的命令"窗口，里面有一条很长的命令（命令要整条看得到，所以折行，不能冲出去）。"""
     page.demo.api("/api/commands/add", {"command": "./scripts/check-everything-before-release.sh --with-a-very-long-option-name --and-another-one=value"})
     steps.open_dialog(page, "#approval", "approval-dialog")
     page.click("#approval-commands")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
+
+
+def _redact(page) -> None:
+    """设置里"遮住密钥"一节，关掉之前问的那一块展开着（警告的话和两个按钮，窄屏上按钮折到下一行）。"""
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.reach("#redact-enabled")
+    page.click("#redact-enabled")
+    page.wait("!document.getElementById('redact-confirm').hidden", what="关掉之前先问")
 
 
 def _hooks(page) -> None:

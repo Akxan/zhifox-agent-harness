@@ -64,12 +64,14 @@ const handlers = {
     renderHooksState(event.hooks);  // 你的钩子：扩展标签上的个数；那一页开着的话，钩子变了就重新取一次列表
     renderBrowser(event.browser);
     renderComputer(event.computer);
-    if (settings.open) renderSettings();
+    renderVoice(event.voice);
+    if (settings.open) { renderSettings(); renderFallbacks(); }
     // 换模型的面板：开着的话重新取一次目录（换了模型、填了密钥、这一轮聊完了……）；第一次先取好，点开时马上就有
     if (modelsFlyout.isOpen() || !modelsCatalog) refreshModels();
     renderApproval(event.approval);
     renderCommands(event.commands);
     renderSandbox(event.sandbox);  // 命令的沙箱（见 sandbox.js）
+    renderRedact(event.redact_secrets);  // 遮住工具结果里的密钥（见 redact.js）
     renderEndpoints(event.endpoints);  // 设置里的"自定义模型接口"（见 endpoints.js）
 
     if (replaying) {  // 重放的旧内容到这里就画完了
@@ -84,7 +86,14 @@ const handlers = {
     endBlock();  // 上一段回复停在 block_end 上（见 pauseBlock）：到这里一定结束了。平时 turn_end 已经收过尾
     const attachments = Array.isArray(event.attachments) ? event.attachments : [];
     if (attachments.length) add(attachmentRow(attachments, event.at));
-    if (event.text || !attachments.length) add(el('div', 'msg user', event.text));
+    if (!event.text && attachments.length) return;
+    const bubble = el('div', 'msg user', event.text);
+    if (typeof event.voice === 'number') {
+      // 聊天里的一段语音转出来的（见 voice.js）：前面一个小标记。原文另记一份，编辑这条消息时只拿原文（见 rewind.js）
+      bubble.dataset.text = String(event.text || '');
+      bubble.prepend(voiceTag(event.voice));
+    }
+    add(bubble);
   },
   // 重放旧会话时不在每一轮都刷新"正在工作"：一段 150 轮的会话会把 body.busy 来回切换 300 次，
   // 而 Chrome 在用户真的在输入框里打过字之后，每切换一次就同步重算一遍整页的样式（实测卡 1.4 秒）。

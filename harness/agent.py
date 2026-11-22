@@ -12,13 +12,17 @@
 "下一步做什么"每次都由模型决定，循环只负责照办并把结果告诉它。这就是 agent。
 
 循环在几个时刻告诉运行记录一声（self.trace，见 trace/）："记录点"。每个只占一行，名字说明是哪个时刻：
-发出一次请求（request_began）、模型答完这一次（request_ended）、开始一次工具调用（tool_began）、
+发出一次请求（request_began）、模型答完这一次（request_ended）、这次请求失败了、改用备用模型再试（request_failed）、
+开始一次工具调用（tool_began）、
 开始等你答复（approval_asked）、你答复了或者没问就放行了（approval_decided）、这次调用有结果了（tool_ended）、
 一轮开始和结束（turn_began、turn_ended）。
 
 你的钩子（self.hooks，见 hooks/）也挂在这几处，各占一行：你的消息进历史之前（UserPromptSubmit）、确认过了马上要执行一个
 工具的时候（PreToolUse）、工具做完了（PostToolUse）、一轮答完了（Stop）。钩子只能让事情更严（拦下、再问你一次），
 不能放宽确认的规矩；它交给模型的话只附在正在生成的那条消息、那条工具结果里，历史里已有的内容一个字都不动。
+
+工具的结果一产生就先遮一遍密钥（self.redact，见 redact.py）：在它放进结果、交给 PostToolUse 钩子、到 tool_ended 记录点之前。
+模型、历史、页面、运行记录、你的钩子看到的都是遮好的那一份。
 
 这个循环不关心背后是哪家的模型。和具体厂商打交道的细节（请求怎么发、历史怎么存）
 都在 providers/ 目录里，循环只通过 backend 的几个方法使用它们。
@@ -33,13 +37,23 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Protocol
 
+from . import fallback
 from .attachments import Attachment
 from .config import Config
 from .hooks import NO_HOOKS, HookRun
 from .i18n import t
 from .permissions import Permissions
 from .pricing import usage_key
-from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
+from .providers.base import (
+    Backend,
+    Step,
+    StreamUI,
+    ToolCall,
+    ToolResult,
+    Unavailable,
+    Usage,
+)
+from .redact import Redaction, Redactor, note, redact_data
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
 from .tools.base import ToolOutput
@@ -99,6 +113,13 @@ class Agent:
         # （网页界面存进会话，终端界面留给 /trace，见 app.py）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
         self.trace = Tracer()
         self.on_trace: Callable[[dict], None] | None = None
+        # 遮住工具结果里像密钥的东西（见 redact.py）。默认就开着（只认环境变量里的密钥和固定的格式）；
+        # app.py 换成连着 .env、自定义接口的密钥和设置里那个开关的。None 是不遮
+        self.redact: Callable[[str], Redaction] | None = Redactor()
+        # 备用模型（见 fallback.py）：给出（哪一家，你选的模型），交回这个模型暂时用不了时按顺序可以改用的同一家的模型。
+        # 循环不管这份名单从哪儿来（app.py 让它每次现读设置），只在一次请求遇到 Unavailable 时问它一声。None：不换
+        self.fallbacks: Callable[[str, str], list[str]] | None = None
+        self._primary = ""  # 这一轮开始时用的模型（你选的那个）；改用了备用模型的话，一轮结束时换回它
         # 你的钩子（见 hooks/）：在下面几个记录点旁边各调用一次。没接上的（测试里自己组装的助手）什么都不做
         self.hooks: HookRun = NO_HOOKS
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
@@ -169,6 +190,7 @@ class Agent:
     def _finish_turn(self, start: int, submit: Callable[[], bool] | None = None) -> None:
         """跑循环，直到这一轮结束。用户消息已经在 start 这个位置上了；还没放进去的，先由 submit 放（它返回 False 就不跑）。"""
         ended = "error"
+        self._primary = self.backend.model
         try:
             if submit is None or submit():
                 self._loop(start)
@@ -182,6 +204,10 @@ class Agent:
                 self.backend.rollback(start)
             raise
         finally:
+            # 这一轮中途改用了备用模型的话，换回你选的那个：下一轮先试它（它可能已经好了）。
+            # 只改请求里的 model（自定义接口还有这个模型自己的能力），历史、系统提示词、工具一样都没动过（见 fallback.py）
+            if self.backend.model != self._primary:
+                fallback.use(self.backend, self._primary)
             self._end_trace(ended)
 
     def _end_trace(self, ended: str) -> None:
@@ -197,11 +223,9 @@ class Agent:
             logger.exception("运行记录没能交给界面")
 
     def _loop(self, start: int) -> None:
+        tried = {self.backend.model}  # 这一轮里试过、用不了的模型（换备用模型时不再选它们）
         for _ in range(self.config.max_steps):
-            self.trace.request_began(self.backend.provider, self.backend.model)  # 记录点：发出一次请求
-            # 调用一次模型；回复已经由 backend 追加进历史。界面外面包一层 watch：第一段输出到的时候记下"首字时间"；
-            # 钩子那边也包一层，记下这一次写的字（一轮答完时交给 Stop 钩子）
-            step = self.backend.step(self.hooks.watch(self.trace.watch(self.ui)))
+            step = self._request(tried)  # 调用一次模型；回复已经由 backend 追加进历史
             cost = self._record(step.usage)
             self.trace.request_ended(step, cost)  # 记录点：模型答完这一次
 
@@ -231,6 +255,39 @@ class Agent:
 
         self.outcome = "steps"
         self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
+
+    def _request(self, tried: set[str]) -> Step:
+        """发出一次请求。这个模型暂时用不了（Unavailable：过载、服务器出错、限流）而你选了备用模型的话，
+        改用同一家的下一个再试，这一轮接下来都用它（见 fallback.py）。没有能换的，错误照常抛出去。
+
+        失败的那次请求什么都没留在历史里（两家的适配层都是收完整个回复才追加），所以换个模型重发的是一字不差的同一段历史、
+        同一份系统提示词和工具说明书，只有请求里的 model 不一样。已经显示出来的半截文字留在界面上，和 JSON 格式出错时的重试一样。
+        """
+        while True:
+            standing_in = self._primary if self.backend.model != self._primary else ""  # 用的是备用模型的话，它替的是哪个
+            self.trace.request_began(self.backend.provider, self.backend.model, fallback=standing_in)  # 记录点：发出一次请求
+            try:
+                # 界面外面包一层 watch：第一段输出到的时候记下"首字时间"；
+                # 钩子那边也包一层，记下这一次写的字（一轮答完时交给 Stop 钩子）
+                return self.backend.step(self.hooks.watch(self.trace.watch(self.ui)))
+            except Unavailable as exc:
+                replacement = self._backup(tried)
+                if replacement is None:
+                    raise
+                self.trace.request_failed(str(exc))  # 记录点：这次请求失败了，改用备用模型再试
+                failed = self.backend.model
+                fallback.use(self.backend, replacement)
+                tried.add(replacement)
+                self.ui.info(fallback.notice(failed, replacement))
+
+    def _backup(self, tried: set[str]) -> str | None:
+        """下一个可以改用的备用模型：你排的顺序里第一个这一轮还没试过、换过去工具说明书也照样认的。没有就是 None。"""
+        if self.fallbacks is None:
+            return None
+        for model in self.fallbacks(self.backend.provider, self._primary):
+            if model not in tried and fallback.usable(self.backend, model):
+                return model
+        return None
 
     def _record(self, usage: Usage) -> float | None:
         """记下一次调用的用量。返回账本算出来的钱（没有接账本、没有价格时是 None），运行记录照着写。"""
@@ -276,13 +333,16 @@ class Agent:
                     output, took = self._run_one(call)
                     halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
                 text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
-                results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
+                # 遮住像密钥的东西（见 redact.py）：放进结果之前、交给钩子之前、下面的记录点之前。
+                # 钩子、模型、历史、页面、运行记录看到的都是遮好的这一份
+                text, state, redacted = self._redact(text, output.state)
+                results.append(ToolResult(call.id, text, output.is_error, output.images, state, output.state_only))
                 if took is not None:
                     # 钩子：PostToolUse（只在真的执行了的调用上）。它补的话接在这条结果后面，这条结果还没进历史。
                     # 结果先放进去再接：钩子跑到一半被停下，这次调用照样交回它真正的结果，不会被当成"没执行完"
                     tool = self.tools.get(call.name, call.toolset)
                     results[-1].text = text = self.hooks.after_tool(self, call, tool, text, output.is_error, took)
-                self.trace.tool_ended(text, output.is_error, len(output.images), ran)  # 记录点：这次调用有结果了
+                self.trace.tool_ended(text, output.is_error, len(output.images), ran, redacted)  # 记录点：这次调用有结果了
                 # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言；钩子拦下的也另有给人看的一句
                 shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or text
                 self.ui.tool_result(shown, output.is_error, output.preview)
@@ -295,6 +355,19 @@ class Agent:
                 if call.id not in answered:
                     results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
             self.backend.add_tool_results(results)
+
+    def _redact(self, text: str, state: dict | None) -> tuple[str, dict | None, int]:
+        """遮住结果里像密钥的东西（见 redact.py）。返回（文字，浏览器的标签页情况，一共遮了几处）。
+        有遮的，文字末尾附一句给模型看的说明；标签页情况里的网址、标题也一样遮（它也交给模型）。"""
+        if self.redact is None:
+            return text, state, 0
+        done = self.redact(text)
+        count = done.count
+        if state is not None:
+            state, more = redact_data(state, self.redact)
+            count += more
+        text = done.text + note(done) if done.count else text
+        return text, state, count
 
     def _operates_computer(self, call: ToolCall) -> bool:
         """是不是操作电脑的替身工具（computer_*）。"""

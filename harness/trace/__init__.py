@@ -47,14 +47,17 @@
      "output": 20, "cost": 0.00123, "calls": 1, "compaction": true, "retries": 1, "truncated": true,
      "server_tools": {"web_search": 1}}
     status   done / tools（要调用工具）/ paused（服务器上的搜索还没做完，接着请求）/ refused /
-             compacted（这次是写摘要、压缩历史，见 providers/compaction.py）/ stopped / error（没有答完）
+             compacted（这次是写摘要、压缩历史，见 providers/compaction.py）/ stopped / error（没有答完；
+             模型暂时用不了、改用了备用模型的那一次也是 error，下一段就是用备用模型重发的同一个请求）
     first    从发出请求到第一段输出（思考或文字）过了多少毫秒；一个字都没写就调用工具的没有这一项
     cost     这次请求的钱（美元），就是账本里的那一笔；没有价格的模型是 null；没答完的没有这一项
-    后面几项只在有的时候才写：calls 要调用几个工具、compaction、retries、truncated、server_tools（服务器端的工具各用了几次）
+    后面几项只在有的时候才写：calls 要调用几个工具、compaction、retries、truncated、server_tools（服务器端的工具各用了几次）、
+             fallback（这次用的是备用模型：写的是它替的那个模型，就是你选的那个，见 fallback.py）、
+             note（status 是 error、而且循环接着改用了备用模型时：出错的原因，第一行、截短）
 
   一段工具调用：
     {"kind": "tool", "start": 1834, "end": 4750, "name": "run_command", "group": "shell", "icon": "terminal",
-     "label": "执行命令", "detail": "$ ls -la", "result": "ok", "size": 120, "images": 1,
+     "label": "执行命令", "detail": "$ ls -la", "result": "ok", "size": 120, "images": 1, "redacted": 2,
      "approval": "allowed", "why": "readonly", "asked": 1840, "waited": 2900, "note": "…",
      "server": "files", "agent": "资料研究员", "sandbox": "workspace", "children": [段, …]}
     name     真名（工具包的成员写成 browser.left_click）；label 是给人看的名字（原文，页面和终端各自翻译），
@@ -62,6 +65,7 @@
     detail   参数的一行说明（不含工具名），最多 TRACE_SUMMARY_CHARS 个字
     result   ok / error / skipped（没有执行：前面一步失败了，或者参数被截断）/ stopped（被打断，没有结果）
     size     结果有多少个字（只记大小，不存内容）；images 结果里有几张图
+    redacted 结果里遮住了几处像密钥的东西（见 redact.py；size 是遮好以后的大小）；一处都没遮的没有这一项
     approval 问没问你：allowed 你允许了 / refused 你拒绝了 / auto 没问就放行（why 是为什么：readonly、listed、
              trusted、mode，见 permissions.Permissions.allowance）/ stopped 还在等你答复就停了；不用问的没有这一项
     asked、waited  什么时候开始等你答复、等了多少毫秒（只有问了你的才有）

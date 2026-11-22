@@ -178,6 +178,7 @@ def isolated_environment(monkeypatch, tmp_path):
     # 调用 load_config() 的测试（命令行）不能读到项目里真正的 .env：换成临时目录里一个不存在的文件
     monkeypatch.setenv("HARNESS_ENV_FILE", str(tmp_path / "no-such.env"))
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)  # 语音转文字的接口地址（见 Config.transcribe_api）
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     # Windows 上 os.path.expanduser 看的是 USERPROFILE（不是 HOME，也不经过 Path.home）：一起换掉，免得读到这台电脑真正的家目录
     if os.name == "nt":

@@ -29,6 +29,7 @@ from pathlib import Path
 
 from .. import pathnames
 from ..attachments import MAX_IMAGE_BYTES, sniff_image
+from ..redact import MARKED
 from ..undo.journal import watching
 from .base import Tool, ToolError, ToolImage, ToolOutput
 
@@ -117,12 +118,13 @@ class FileEditor:
         # watching：这一轮在记账的话（网页和终端里你的对话，见 undo/journal.py），改之前先留一份底，以后能一键撤回
         with _EDITING, watching(path, command):
             if command == "create":
-                return self._create(path, _text(tool_input, "file_text"))
+                return self._create(path, self._unmarked(path, _text(tool_input, "file_text")))
             if command == "str_replace":
-                return self._str_replace(path, _text(tool_input, "old_str"), _text(tool_input, "new_str"))
+                old = _text(tool_input, "old_str")
+                return self._str_replace(path, self._unmarked(path, old), self._unmarked(path, _text(tool_input, "new_str")))
             # insert。不同版本的工具对"要插入的文字"用过两个名字，这里都接受
             key = "insert_text" if "insert_text" in tool_input else "new_str"
-            return self._insert(path, tool_input.get("insert_line"), _text(tool_input, key))
+            return self._insert(path, tool_input.get("insert_line"), self._unmarked(path, _text(tool_input, key)))
 
     # ---- 四种命令 ---------------------------------------------------------
 
@@ -186,6 +188,24 @@ class FileEditor:
         return f"已在 {path} 的第 {line} 行之后插入内容。"
 
     # ---- 辅助 -------------------------------------------------------------
+
+    def _unmarked(self, path: Path, text: str) -> str:
+        """要写进文件的文字里有没有"‹已遮住：…›"这个记号（见 ../redact.py）：模型读文件时，里面的密钥被换成了它，
+        要是照着写回去，文件里真正的密钥就被换成了记号，丢了。所以不写，告诉模型只改别的部分。
+        文件里本来就有同样的记号（比如 redact.py 自己的源代码）不算。"""
+        marks = set(MARKED.findall(text))
+        if not marks:
+            return text
+        try:
+            current = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+        except OSError:
+            current = ""
+        if any(mark not in current for mark in marks):
+            raise ToolError(
+                "要写进去的内容里有 ‹已遮住：…› 记号。那是智狐遮住的密钥，不是文件里真正的内容：写回去会把真正的密钥换掉。"
+                "请只改不含记号的部分（用 str_replace 换掉别的那几行），或者请用户自己改含密钥的地方。"
+            )
+        return text
 
     def _picture(self, path: Path) -> ToolOutput | None:
         """path 是一张图片的话，把图片本身交回去（见文件开头的说明）；不是图片（或者读不了）返回 None，照文字读。"""

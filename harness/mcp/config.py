@@ -35,6 +35,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..i18n import t
+from ..redact import mask_shapes
 from ..safe import clean, private_dir, to_json, write_file
 from ..tools.shell import SECRET_ENV_VARS
 
@@ -63,7 +64,6 @@ _SECRET_WORD = r"(?:key|token|secret|passw(?:or)?d|pwd|auth|signature|sig|creden
 _QUERY_SECRET = re.compile(rf"([?&][^=&\s#]*{_SECRET_WORD}[^=&\s#]*=)([^&\s#]+)", re.IGNORECASE)
 _FLAG_WITH_VALUE = re.compile(rf"^(--?[\w\-]*{_SECRET_WORD}[\w\-]*=)(.+)$", re.IGNORECASE)
 _SECRET_FLAG = re.compile(rf"^--?[\w\-]*{_SECRET_WORD}[\w\-]*$", re.IGNORECASE)
-_KEY_LIKE = re.compile(r"\b(sk-[A-Za-z0-9_\-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|xox[abprs]-[\w\-]{10,}|AIza[\w\-]{30,})")
 
 
 class ConfigError(Exception):
@@ -239,7 +239,7 @@ def mask_text(text: str) -> str:
     """遮住一段文字里看起来像密钥的部分：网址里的密码、网址参数里的令牌、常见格式的密钥。"""
     text = _URL_PASSWORD.sub(lambda match: match.group(1) + MASK + match.group(3), text)
     text = _QUERY_SECRET.sub(lambda match: match.group(1) + MASK, text)
-    return _KEY_LIKE.sub(MASK, text)
+    return mask_shapes(text, MASK)  # 各家密钥的样子只在 redact.py 写一处
 
 
 def mask_args(args: list[str]) -> list[str]:

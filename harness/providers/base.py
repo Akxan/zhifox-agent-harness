@@ -29,6 +29,12 @@ class ProviderError(Exception):
     """调用模型失败。错误信息是可以直接显示给用户看的说明。"""
 
 
+class Unavailable(ProviderError):
+    """这个模型暂时用不了：服务器过载（529）、服务器出错（5xx）、请求太频繁（429），SDK 自己重试过以后还是不行。
+    等一会儿多半就好，或者换同一家的另一个模型能接着做（备用模型，见 fallback.py）。
+    换个模型也没用的错误（密钥不对、请求写错了）仍然是普通的 ProviderError。"""
+
+
 def brief(message: object) -> str:
     """把厂商返回的出错说明整理成一小段能读的话。
 
@@ -172,3 +178,6 @@ class Backend(Protocol):
     def tool_names(self) -> list[tuple[str, bool]]: ...  # 这家模型能用的工具：（名字，是否在本地执行）
     def sends(self, tool: Any) -> bool: ...  # 这个工具（Tool）发不发给这家模型（见各家的 use_tools）
     def use_tools(self, tools: Any) -> None: ...  # 换一套工具（ToolRegistry）。只在一段对话开始之前调用，见 agent.py 的 on_start
+    # 这段对话能不能换成同一家的 model 接着做（备用模型，见 fallback.py）：系统提示词、工具说明书、历史都不变，
+    # 所以要看换过去以后，开始时定下的这套工具说明书它还认不认
+    def can_switch_to(self, model: str) -> bool: ...

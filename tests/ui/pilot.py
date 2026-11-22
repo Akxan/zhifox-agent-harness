@@ -29,6 +29,9 @@ from harness.browser.cdp import Connection
 
 DEFAULT_SIZE = (1280, 860)  # 普通的笔记本窗口：两边的栏并排展开，信息栏收着（窗口不到 1400 宽时默认收起）
 PHONE_WIDTH = 390  # 窄屏检查用的宽度（常见的手机）
+# 点一个东西之前最多等多久（见 Page.reach）。本机一般几十毫秒就够；GitHub 的 macOS 机器在几个进程一起跑页面测试时慢得多，
+# 刚打开的页面上一个按钮等了 5 秒还算"在动"（2026-11-22）。等的是条件，条件一成立就点，放宽不会让测试变慢
+CLICK_TIMEOUT = 10
 
 
 class PageError(AssertionError):
@@ -203,7 +206,7 @@ class Page:
 
     # ---- 鼠标和键盘 ----------------------------------------------------------
 
-    def reach(self, selector: str, index: int = 0, timeout: float = 5) -> tuple[float, float]:
+    def reach(self, selector: str, index: int = 0, timeout: float = CLICK_TIMEOUT) -> tuple[float, float]:
         """等元素能被鼠标点到，返回它中心的坐标。和真人一样，要等到：
 
           - 它在页面上、看得见（先滚到能看见的地方，只在需要时滚，尽量不动别处的滚动位置）；
@@ -213,17 +216,25 @@ class Page:
         "等动画播完"不只是为了点得准：真人不会在抽屉滑到一半时就点下一个按钮。实测过（Chrome 157，390 宽）：
         几十毫秒之内连着关会话栏、开信息栏、再关上，顶栏右边那几个按钮会一直点不到（没有任何样式说它们不能点，
         改一下它们的样式就又好了，像是 Chrome 记住了 inert 还没撤掉时的样子）。那是人做不到的速度，所以测试也不那样点。
-        到时间还不行就报错，写明是找不到、还在动，还是被谁盖住了。
+        到时间还不行就报错，写明是找不到、还在动（哪一段动画，或者位置从哪儿变到哪儿），还是被谁盖住了。
         """
         result = self.js(
             "new Promise((resolve) => {"
             f"  const deadline = performance.now() + {timeout * 1000:.0f};"
             "  let last = '', scrolled = false, centered = false;"
+            # 正在播的、会播完的动画（无限循环的背景不算）：返回"谁的哪一段、播到哪儿了"，没有就是空的。
+            # 到时间还在动的话，报错里写明是它们（还是位置一直在变），下次不用猜
             "  const moving = (node) => {"
+            "    const found = [];"
             "    for (let at = node; at; at = at.parentElement) {"
-            "      if (at.getAnimations().some((a) => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime))) return true;"
+            "      for (const a of at.getAnimations()) {"
+            "        const end = a.effect.getComputedTiming().endTime;"
+            "        if (a.playState !== 'running' || !Number.isFinite(end)) continue;"
+            "        const who = at.id ? '#' + at.id : at.tagName.toLowerCase() + (at.classList.length ? '.' + [...at.classList].join('.') : '');"
+            "        found.push(who + ' ' + (a.animationName || a.transitionProperty || 'animate()') + ' ' + Math.round(a.currentTime) + '/' + Math.round(end) + 'ms');"
+            "      }"
             "    }"
-            "    return false;"
+            "    return found.join(', ');"
             "  };"
             "  const tick = () => {"
             f"    const node = document.querySelectorAll({json.dumps(selector)})[{index}];"
@@ -232,8 +243,9 @@ class Page:
             "      if (!scrolled) { node.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled = true; }"
             "      const box = node.getBoundingClientRect();"
             "      const at = [box.left, box.top, box.width, box.height].map((n) => Math.round(n * 2)).join(',');"
-            "      why = 'moving';"
-            "      if (box.width && box.height && at === last && !moving(node)) {"
+            "      const playing = moving(node);"
+            "      why = playing ? 'moving: ' + playing : 'moving: box ' + last + ' -> ' + at;"
+            "      if (box.width && box.height && at === last && !playing) {"
             "        const x = box.left + box.width / 2, y = box.top + box.height / 2, top = document.elementFromPoint(x, y);"
             "        if (top && (top === node || node.contains(top))) { resolve({ ok: true, x, y }); return; }"
             "        why = 'covered by ' + (top ? top.outerHTML.slice(0, 160) : 'nothing');"
@@ -261,7 +273,7 @@ class Page:
     def hover(self, selector: str, index: int = 0) -> None:
         self.mouse(*self.reach(selector, index))
 
-    def click(self, selector: str, index: int = 0, timeout: float = 5) -> None:
+    def click(self, selector: str, index: int = 0, timeout: float = CLICK_TIMEOUT) -> None:
         """在元素的中心真的按一下鼠标（先等它能被点到，见 reach）。"""
         self.click_at(*self.reach(selector, index, timeout))
 
