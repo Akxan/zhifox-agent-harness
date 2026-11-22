@@ -169,7 +169,7 @@ class Ledger:
         写不进文件也不抛异常：对话不能因为记账失败而中断。这一笔照样算进内存里的汇总（这次运行里看得到），
         失败的原因放在 self.error 里，页面上会显示出来。
         """
-        key = usage_key(model, moment)
+        key = usage_key(model, moment, provider)  # 自定义接口的模型按"接口/模型"找价格（见 pricing.usage_key）
         cost, unpriced = estimate({key: usage}, prices)
         priced = not unpriced
         tally = Tally(

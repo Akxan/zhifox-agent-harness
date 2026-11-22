@@ -9,7 +9,9 @@
   GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
-  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）
+  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）。
+                       带上 undo_files 的话，倒回去之前先撤回这一轮改的文件（见 undo/）
+  POST /api/changes/diff、undo、redo   "改了 N 个文件"那一行：看一个文件改了什么、撤回、重做（见 changes_api.py）
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
@@ -32,6 +34,7 @@
   POST /api/media/reveal  在系统的文件管理器里显示一个附件的原件
   POST /api/commands/add、edit、delete、reveal   你自己加的"不用问的命令"：加、改、删、在访达中显示 commands.json（见 commands_api.py）
   POST /api/hooks/list、save、delete、enable、test、reveal   你的钩子：列出、添加或修改、删除、开关、试运行、在访达中显示 hooks.json（见 hooks_api.py）
+  POST /api/sandbox/level、add、edit、delete、reveal  命令的沙箱：对话用哪一档、额外允许的路径（加、改、删、在访达中显示列表里的一条，见 sandbox_api.py）
   POST /api/approval   用户更改了"要不要每次都问"（每次都问 / 只读的命令不用问 / 改文件不用问 / 全部自动允许）
   POST /api/language   用户换了界面语言（中文 / English / Español）
   POST /api/model      用户换了模型
@@ -39,6 +42,8 @@
   POST /api/key        用户填写或删除了一家的 API 密钥
   POST /api/models     用户点了"同步模型"
   POST /api/price      用户填写了一个模型的价格
+  POST /api/endpoint/save、delete、probe、reveal   自定义模型接口（Ollama、LM Studio、公司的网关……）：保存、删除、
+                       测试连接和同步模型（请求从这里发出去，页面从来不直接连那个地址）、在访达中显示 endpoints.json（见 endpoints_api.py）
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py 和 scheduler.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
@@ -48,7 +53,7 @@
   POST /api/budget     用户填写或清除了每月预算（见 budget.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
-  POST /api/channel/connect、pair、cancel、approval、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
+  POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
@@ -114,23 +119,39 @@ from ..mcp import importers as mcp_imports
 from ..media import Entry, MediaError
 from ..memories import MemoryConflict, MemoryFileError
 from ..permissions import MODES
-from ..pricing import estimate, price_of
-from ..providers import PROVIDERS, ProviderError, has_key
+from ..pricing import estimate
+from ..providers import (
+    PROVIDERS,
+    ProviderError,
+    caps,
+    continues,
+    every,
+    find,
+    has_key,
+    hint,
+)
 from ..safe import clean, private_dir, to_json
+from ..sandbox import CHOICES as SANDBOX_CHOICES
 from ..search import MAX_QUERY_CHARS
-from ..settings import key_hint, valid_api_key
+from ..settings import valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
+from ..tools.shell import TOOL_NAME as SHELL_TOOL
+from ..undo.journal import Journal, recording
+from ..undo.restore import sets_in as rewind_sets
 from . import lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
 from .capabilities_api import page_state as capabilities_state
+from .changes_api import ChangesAPI, issues
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
+from .endpoints_api import EndpointsAPI
 from .hooks_api import HooksAPI
 from .page import assemble as assemble_page
+from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
@@ -220,6 +241,9 @@ class WebApp:
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         self.hooks = HooksAPI(self, lambda path: reveal_in_file_manager(path))  # "扩展 → 钩子"一页的接口
+        self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
+        self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
+        self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -255,8 +279,9 @@ class WebApp:
     def _publish_state(self) -> None:
         agent, settings, config = self.app.agent, self.app.settings, self.app.config
         usage = agent.usage
-        cost, unpriced = estimate(agent.usage_by_model, settings.prices)
-        price, offpeak = price_of(settings.model, settings.prices), price_of(settings.model, settings.prices, offpeak=True)
+        cost, unpriced = estimate(agent.usage_by_model, self.app.prices())
+        price = self.app.price_of(settings.provider, settings.model)
+        offpeak = self.app.price_of(settings.provider, settings.model, offpeak=True)
         self._memories_shown = memories.list_files(config.memory_dir)
         tasks, reminders = self.tasks.snapshot()
         skills, agents = self.skills.summaries(), self.agents.summaries()
@@ -268,20 +293,9 @@ class WebApp:
             conversation=self.app.conversation.id,
             title=self.app.conversation.title,
             conversations=self.app.conversation_summaries(),
-            providers=[
-                {
-                    "id": provider.id,
-                    "label": provider.label,
-                    "has_key": has_key(provider),
-                    "key_hint": key_hint(provider.key_env),
-                    "key_page": provider.key_page,
-                    "models": self._models(provider.id),
-                    # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收
-                    "vision": provider.vision,
-                    "pdf": provider.pdf,
-                }
-                for provider in PROVIDERS.values()
-            ],
+            providers=[self._provider_state(provider) for provider in every()],
+            # 自定义模型接口（设置里"自定义模型接口"一节，见 endpoints_api.py）：密钥只有最后 4 位
+            endpoints=self.endpoints.state(),
             price=price,
             price_offpeak=offpeak if offpeak != price else None,  # 分时段计价的模型（DeepSeek）的闲时价；不分时段的是空的
             todos=[
@@ -319,6 +333,7 @@ class WebApp:
             approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
             hooks=self.hooks.summary(),  # 你的钩子：有几个、文件有没有问题（完整的列表打开那一页时再要，见 hooks_api.py）
+            sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒
@@ -354,9 +369,23 @@ class WebApp:
             "dropped": mcp.active.dropped if started else 0,
         }
 
-    def _models(self, provider_id: str) -> list[str]:
-        """一家可以选择的模型（规矩在 model_catalog.models_of，换模型的面板用的也是它）。"""
-        return model_catalog.models_of(self.app.settings, provider_id)
+    def _provider_state(self, provider) -> dict:
+        """状态里的一家。密钥只有"有没有"和最后 4 位。"""
+        settings = self.app.settings
+        # 能收哪些附件：页面据此决定附件按钮能选什么、不能选的给出说明。文本文件哪一家都能收。
+        # 自定义接口按模型算：现在用的这一家写现在这个模型的，别的写"有没有哪个模型能"
+        accepts = caps(provider, settings.model) if provider.id == settings.provider else provider
+        return {
+            "id": provider.id,
+            "label": provider.label,
+            "has_key": has_key(provider),
+            "key_hint": hint(provider),
+            "key_page": provider.key_page,
+            "models": model_catalog.models_of(settings, provider.id, provider),  # 规矩在 model_catalog.models_of
+            "vision": accepts.vision,
+            "pdf": accepts.pdf,
+            "custom": provider.custom,  # 自定义接口：设置里的"API 密钥"一节不列它（它有自己的一节）
+        }
 
     # ---- 对话 --------------------------------------------------------------
 
@@ -420,7 +449,11 @@ class WebApp:
     def _run_turn(self, text: str, attachments: list[Attachment], again: int | None = None) -> None:
         """跑一轮。again：重新生成时，这一轮开始的位置（见 rewind）。那条用户消息已经在页面上了，不再显示一遍；
         它还在历史里的话原样留着，只重跑模型的那部分（Agent.retry_turn），不在的话（上一次在模型答出第一步之前就失败了）
-        用同样的文字和附件再发一次。"""
+        用同样的文字和附件再发一次。
+
+        这一轮里文件工具改的文件记在一本账上（见 undo/journal.py），一轮结束时合上，页面上这一轮末尾多一行"改了 N 个文件"。"""
+        journal = self.app.changes.start()
+        start = None  # 用户消息放在历史的哪个位置（这一轮发了新的用户消息才有）：附上的"文件撤回过"的说明有没有留住，看它
         try:
             self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
             self.app.name_conversation(text, attachments)  # 新会话用第一句话当标题（没写字的话用第一个附件的名字）
@@ -432,13 +465,16 @@ class WebApp:
             else:
                 self.ui.begin_again()
             self.publish_state()  # 让新会话马上出现在列表里
-            if again is not None and backend.turn_at(again):
-                retry_turn(self.app.agent, self.ui, again)
-            else:
-                run_turn(self.app.agent, self.ui, text, attachments, again=again is not None)
+            with recording(journal):
+                if again is not None and backend.turn_at(again):
+                    retry_turn(self.app.agent, self.ui, again)
+                else:
+                    start = backend.mark()
+                    run_turn(self.app.agent, self.ui, text, attachments, again=again is not None)
         finally:
             try:
                 self.ui.end_stream()
+                self._finish_changes(journal, start)
                 self._save()  # 每一轮结束都存一次盘，所以最多只会丢失正在进行的这一轮
                 self.publish_state()
             finally:
@@ -453,6 +489,23 @@ class WebApp:
                     self.ui.end_turn()
                     self._turn.release()
 
+    def _finish_changes(self, journal: Journal, start: int | None) -> None:
+        """一轮结束：合上记账的本子，这一轮改了文件的话发一个 file_changes 事件（页面上那一行"改了 N 个文件"，见 undo/）。
+        这一轮的消息前面附过"文件撤回过"的说明、而且那条消息留在了历史里，这段说明就不用再说了（见 undo/notes.py）。"""
+        try:
+            _, events = self.ui.last_turn_events()
+            ran = any(
+                (event.get("type") == "tool_call" or (event.get("type") == "subagent" and event.get("step") == "tool_call")) and event.get("name") == SHELL_TOOL
+                for event in events
+            )
+            summary = self.app.changes.finish(journal, commands=ran)
+            if summary is not None:
+                self.ui.publish("file_changes", **summary)
+            if start is not None:
+                self.app.changes.notes.settle(self.app.conversation.id, sent=self.app.agent.backend.turn_at(start))
+        except Exception as exc:  # noqa: BLE001 —— 这是在一轮收尾时调用的：出了什么错都不能耽误后面的存盘
+            self.ui.error(t("没能记下这一轮改了哪些文件（{error}），这一轮的改动没法一键撤回。", error=str(exc) or type(exc).__name__))
+
     # ---- 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）-------------------
 
     def _rewind_state(self) -> dict | None:
@@ -465,6 +518,7 @@ class WebApp:
           effects  这一轮做过的、可能改动了东西的事（每件一行）。不是空的，倒回去之前在原地问你一次
           more     太多了没列出来的还有几项（"……还有几项"那一句由页面自己写）
           operated 这些事里有没有操作过整台电脑（"computer"）、在浏览器里点过输入过（"browser"）：页面为它们单独写一句"撤不回来"
+          files    这一轮文件工具改的文件里还有几个没撤回（见 undo/）。不是 0 的话，确认卡片上可以勾"同时撤回这一轮改的文件"
         """
         start, events = self.ui.last_turn_events()
         turn = rewind.last_turn(events, start)
@@ -480,6 +534,7 @@ class WebApp:
             "effects": effects,
             "more": more,
             "operated": rewind.operated(turn.events),
+            "files": self.app.changes.applied(self.app.changes.last_set(turn.events), turn.events),
         }
 
     def _rewind_problem(self, turn: rewind.Turn) -> str:
@@ -502,13 +557,19 @@ class WebApp:
             return t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。")
         return t("这一轮在对话历史里找不到了，倒不回去。可以接着发一条新消息。")
 
-    def rewind(self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False) -> tuple[str, dict]:
+    def rewind(
+        self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False, undo_files: bool = False, undo_force: bool = False
+    ) -> tuple[str, dict]:
         """编辑最后一条消息（action 是 edit，text 是改过的文字，keep 是留下第几个附件，None 是全部）、
         重新生成最后一个回答（retry）。返回（不能做的原因，回答里另外带的东西）；做成了返回空字符串，新的一轮在后台开始。
 
         target 是页面看到的那一轮：（会话的编号，它的 user 事件的编号）。和现在的最后一轮对不上（另一个标签页刚倒回过、
         已经换了一段会话、聊天通道刚聊过一轮），就不做。
         这一轮做过可能改动了东西的事、而你还没有确认（confirmed），也不做，回答里带上 effects，页面在原地问你。
+
+        undo_files：倒回去之前先撤回这一轮文件工具改的文件（确认卡片上勾了"同时撤回这一轮改的文件"，见 undo/）。
+        有要你确认的（这一轮之后文件又被改过……）、又没有 undo_force，就先不做，回答里带上 undo（asks、blocked），页面在卡片上问你。
+        一起撤回的不记 file_undo 事件、不告诉模型：这一轮马上就从对话里去掉了，它改文件的记录也跟着去掉。
 
         和发消息一样拿着对话的锁、认领这段会话（见 claims.py），新的一轮跑完才放开。倒回去以后马上存一次盘：
         会话文件里的 messages 和 events 一起截断，搜索和多媒体的索引跟着更新（ConversationStore.save → _remember），
@@ -552,9 +613,15 @@ class WebApp:
                 problem = self.app.attachment_problem(attachments)  # 换过模型的话，现在这个可能看不了图片
                 if problem:
                     return problem, {}
+            if undo_files:
+                problem, extra = self._undo_with_rewind(turn, undo_force)
+                if problem:
+                    return problem, extra
             if action == "edit":
                 self.app.retitle(turn.text, turn.attachments, text, attachments, earlier=self.ui.user_events()[:-1])
             backend.rollback(mark + 1 if kept else mark)
+            # 这一轮从对话里去掉了：撤回过它改的文件、还没来得及告诉模型的那几句也不用说了（模型本来就不知道它改过）
+            self.app.changes.notes.drop(self.app.conversation.id, rewind_sets(turn.events))
             self.ui.rewind(keep_user=action == "retry")
             self._save()
             self.publish_state()  # 重放到这里结束：之后新的一轮照常播放入场动画
@@ -565,6 +632,27 @@ class WebApp:
             if not started:
                 self.claims.release(self.app.conversation.id, "web")
                 self._turn.release()
+
+    def _undo_with_rewind(self, turn: rewind.Turn, force: bool) -> tuple[str, dict]:
+        """倒回最后一轮之前，撤回它改的文件。返回（不能接着倒回去的原因，回答里另外带的东西）。调用的人拿着对话的锁。"""
+        changes = self.app.changes
+        set_id = changes.last_set(turn.events)
+        if not set_id or not changes.applied(set_id, turn.events):
+            return "", {}  # 这一轮没改文件，或者已经都撤回了
+        result = changes.act("undo", set_id, self.ui.export_events(), None, force)
+        details = {"undo": issues(result)}
+        failed = any("failed" in item["reasons"] for item in result.blocked)
+        if result.event is None:
+            if force and not failed:
+                return "", {}  # 你点了"仍然撤回"：做不了的跳过；一个都做不了（不能碰的文件、留底坏了……）也照样倒回去
+            return result.error, details
+        if failed:
+            # 有的写不进去（被别的程序占着、没有权限）：已经撤回的照实记下来，这一轮先不倒回去，免得改动的记录跟着没了
+            self.ui.publish("file_undo", **result.event)
+            self._save()
+            self.publish_state()
+            return t("有的文件没能撤回，这一轮没有倒回去。看一眼那一行的说明再试。"), details
+        return "", {}
 
     def _save(self) -> None:
         """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
@@ -639,7 +727,7 @@ class WebApp:
                     persona = self.app.agents.usable(agent)
                 except AgentError as exc:
                     return str(exc)
-                provider = PROVIDERS[persona.spec.provider] if persona.spec.model else self.app.provider
+                provider = (find(persona.spec.provider) if persona.spec.model else None) or self.app.provider
                 if not has_key(provider):
                     return t("「{agent}」用的是 {provider} 的模型，还没有设置 {provider} 的 API 密钥。", agent=persona.name, provider=provider.label)
             blocked = self._before_leaving("new:" + (agent or ""))
@@ -1072,12 +1160,17 @@ class WebApp:
     BUSY = k("请先等当前这一轮对话结束，或者点“停止”")
 
     def select_model(self, provider_id: str, model: str) -> str:
-        if not has_key(PROVIDERS[provider_id]):
-            return t("还没有设置 {provider} 的 API 密钥", provider=PROVIDERS[provider_id].label)
+        provider = find(provider_id)
+        if provider is None:
+            return t("这个模型接口已经不在了，可能刚被删掉。")
+        if not has_key(provider):
+            return t("还没有设置 {provider} 的 API 密钥", provider=provider.label)
         if not self._turn.acquire(blocking=False):
             return self._busy()
         try:
-            if provider_id != self.app.agent.backend.provider:  # 换到另一家要开始新对话，也就是离开当前会话
+            # 换到另一家要开始新对话，也就是离开当前会话（同一个自定义接口上，能不能用工具不一样的两个模型之间换也是，见 providers.continues）
+            same_provider = provider_id == self.app.agent.backend.provider
+            if not continues(self.app.agent.backend, provider, model):
                 blocked = self._before_leaving(f"model:{provider_id}:{model}")
                 if blocked:
                     return blocked
@@ -1090,9 +1183,11 @@ class WebApp:
             if not continued:
                 self._left()
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
-            label = PROVIDERS[provider_id].label
+            label = provider.label
             if continued:
                 self.ui.info(t("已换成 {provider} · {model}。对话继续。", provider=label, model=model))
+            elif same_provider:
+                self.ui.info(t("已换成 {provider} · {model}。它能不能用工具和刚才的模型不一样，开始新对话。", provider=label, model=model))
             else:
                 self.ui.info(t("已换成 {provider} · {model}。换了一家，开始新对话。", provider=label, model=model))
             self._show_warnings()
@@ -1135,7 +1230,8 @@ class WebApp:
         return ""
 
     def set_price(self, model: str, price: dict | None) -> None:
-        self.app.settings.set_price(model, price)
+        """设置里"价格"一节改的是现在用的这个模型：自定义接口上的记进 endpoints.json，内置的记进 settings.json（见 App.set_price）。"""
+        self.app.set_price(self.app.settings.provider, model, price)
         self.publish_state()
 
     def set_budget(self, amount: float | None) -> None:
@@ -1262,7 +1358,9 @@ class Handler(BaseHTTPRequestHandler):
             action, confirmed = path.removeprefix("/api/turn/"), body.get("confirmed", False)
             conversation_id, turn_id = body.get("conversation"), body.get("turn")
             text, keep = body.get("text", ""), body.get("keep")
+            undo_files, undo_force = body.get("undo_files", False), body.get("undo_force", False)
             bad = not isinstance(conversation_id, str) or not isinstance(turn_id, int) or isinstance(turn_id, bool) or not isinstance(confirmed, bool)
+            bad = bad or not isinstance(undo_files, bool) or not isinstance(undo_force, bool)
             if action == "edit":
                 bad = bad or not isinstance(text, str) or len(text) > MAX_MESSAGE_CHARS
                 indexes = keep if isinstance(keep, list) else []
@@ -1273,7 +1371,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 target = (conversation_id, turn_id)
-                error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed)
+                error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed, undo_files, undo_force)
                 if error:
                     self._send_json(409, {"error": error, **extra})
                 else:
@@ -1459,7 +1557,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
         elif path == "/api/model":
             provider, model = body.get("provider"), body.get("model")
-            if provider not in PROVIDERS or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
+            if find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.select_model(provider, model.strip()))
@@ -1477,10 +1575,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._finish(error, warning=warning)
         elif path == "/api/models":
             provider = body.get("provider")
-            if provider not in PROVIDERS:
+            if find(provider) is None:
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 self._finish(web.sync_models(provider))
+        elif path.startswith("/api/endpoint/"):
+            # 自定义模型接口：保存、删除、测试连接、在访达中显示（见 endpoints_api.py）
+            status, payload = web.endpoints.route(path.removeprefix("/api/endpoint/"), body)
+            self._send_json(status, payload)
         elif path == "/api/ledger":
             self._send_json(200, {"ok": True, "report": web.spend_report()})
         elif path == "/api/budget":
@@ -1522,6 +1624,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/hooks/"):
             status, payload = web.hooks.route(path.removeprefix("/api/hooks/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/sandbox/"):
+            status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/changes/"):
+            status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)
             self._send_json(status, payload)
         elif path == "/api/computer/shot":
             content = web.computer.shot(body.get("id"))
@@ -1650,6 +1758,7 @@ class Handler(BaseHTTPRequestHandler):
             "pair": lambda: True,
             "cancel": lambda: True,
             "approval": lambda: body.get("mode") in MODES,
+            "sandbox": lambda: body.get("level") in SANDBOX_CHOICES,
             "enable": lambda: isinstance(body.get("enabled"), bool),
             "unbind": lambda: True,
             "remove": lambda: True,
@@ -1672,6 +1781,8 @@ class Handler(BaseHTTPRequestHandler):
                 hub.cancel_pairing(platform)
             elif action == "approval":
                 hub.set_approval(platform, body["mode"])
+            elif action == "sandbox":
+                hub.set_sandbox(platform, body["level"])
             elif action == "enable":
                 hub.set_enabled(platform, body["enabled"])
             elif action == "unbind":

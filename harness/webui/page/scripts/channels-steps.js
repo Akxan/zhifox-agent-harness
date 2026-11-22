@@ -277,18 +277,44 @@ function chanStepFour(item, pane, foot, help) {
   if (view.mode === 'all') {
     pane.appendChild(chanNote('bad', t('确认是你和模型之间唯一的一道关卡。全部自动允许以后，聊天里的一句话就能让助手在这台电脑上执行任何命令（允许了聊天通道操作电脑的话，还有点击、打字），不再问你；网页或文件里藏着误导模型的话，它照做的时候也没人拦着。只在你清楚风险的时候用。')));
   }
+  if (sandboxInfo) pane.appendChild(chanSandbox(view));
   if (!item.owner) pane.appendChild(chanNote('warn', t('还没有配对：在配对之前，谁发来的消息都不会处理。')));
   const done = foot.appendChild(chanButton('check', k('完成'), 'primary'));
   done.dataset.focus = 'done';
   done.addEventListener('click', () => chanFinish(item, done));
-  if (!view.armed) retext(help, item.approval === view.mode ? k('现在用的就是这一档。') : k('点“完成”才会改。'));
+  if (!view.armed) retext(help, chanModeChanged(item) || chanSandboxChanged(item) ? k('点“完成”才会改。') : k('现在用的就是这一档。'));
+}
+
+// 第 4 步下面：这个通道里命令的沙箱（几档的名字和说明由助手程序给，下拉框在 sandbox.js 里填）。点"完成"时和确认方式一起保存
+function chanSandbox(view) {
+  const box = el('div', 'chan-sandbox');
+  const label = box.appendChild(el('label', 'chan-sandbox-label', t('命令的沙箱')));
+  const select = box.appendChild(el('select', 'field'));
+  select.id = 'chan-sandbox';
+  label.htmlFor = select.id;
+  select.dataset.focus = 'sandbox';
+  select.setAttribute('aria-describedby', 'chan-sandbox-text');
+  fillSandboxSelect(select, view.sandbox, true);
+  select.addEventListener('change', () => { view.sandbox = select.value; view.armed = ''; drawChanWizard('sandbox'); });
+  const text = box.appendChild(el('p', 'sandbox-choice-text'));
+  text.id = 'chan-sandbox-text';
+  sandboxChoiceText(text, view.sandbox);
+  const problem = box.appendChild(el('p', 'sandbox-problem'));
+  problem.setAttribute('role', 'note');
+  problem.append(icon('alert'), el('span'));
+  sandboxRefusalNote(problem, sandboxResolved(view.sandbox), k('这台电脑上用不了沙箱，这个通道里的命令会被拒绝执行：{problem}'));
+  box.appendChild(el('p', 'hint', t('命令被沙箱挡住、又确实需要时，助手会在聊天里请你放行这一条（每次都问）；选了“全部自动允许”的通道没人回答，不能放行。')));
+  return box;
 }
 
 async function chanFinish(item, button) {
   const view = chanView;
-  if (view.mode !== item.approval) {
+  const changes = [];
+  if (view.mode !== item.approval) changes.push(['/api/channel/approval', { platform: item.id, mode: view.mode }]);
+  if (sandboxInfo && view.sandbox !== (item.sandbox || 'default')) changes.push(['/api/channel/sandbox', { platform: item.id, level: view.sandbox }]);
+  for (const [path, body] of changes) {
     button.disabled = true;
-    const reply = await call('/api/channel/approval', { platform: item.id, mode: view.mode });
+    const reply = await call(path, body);
     if (chanView !== view) return;
     if (!reply.ok) { button.disabled = false; view.error = reply.error; drawChanWizard('done'); return; }
   }

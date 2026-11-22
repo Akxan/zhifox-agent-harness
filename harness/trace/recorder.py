@@ -136,6 +136,9 @@ class Tracer:
         data = {"name": name[:80], "group": label.group, "icon": label.icon, "label": label.label, "detail": short(detail, TRACE_SUMMARY_CHARS)}
         if label.server:
             data["server"] = clean_text(label.server)[:80]
+        sandbox = _sandbox(tool, call.input)
+        if sandbox:
+            data["sandbox"] = sandbox
         span = Span("tool", self.timer(), data=data)
         self.spans.append(span)
         self._tool = span
@@ -168,9 +171,9 @@ class Tracer:
         (self._tool.children if self._tool is not None else self.spans).append(span)
         self._hook = span
 
-    def hook_ended(self, result: str, exit: int | None = None, note: str = "", added: int = 0) -> None:
+    def hook_ended(self, result: str, exit: int | None = None, note: str = "", added: int = 0, sandbox: str = "") -> None:
         """result 见 __init__.py 的格式说明；exit 是退出码（没有自己退出的是 None）；note 是它说的原因或者出错的原因；
-        added 是它交给模型的话有多少个字（附在消息里、接在工具结果后面的）。"""
+        added 是它交给模型的话有多少个字（附在消息里、接在工具结果后面的）；sandbox 是它在沙箱的哪一档里跑的（没有是空的）。"""
         span, self._hook = self._hook, None
         if span is None:
             return
@@ -182,6 +185,8 @@ class Tracer:
             span.data["note"] = short(next((line for line in clean_text(note).splitlines() if line.strip()), ""), TRACE_SUMMARY_CHARS)
         if added:
             span.data["added"] = int(added)
+        if sandbox:
+            span.data["sandbox"] = clean_text(sandbox)[:20]
 
     def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True) -> None:
         span, self._tool = self._tool, None
@@ -363,3 +368,15 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
         "hook_runs": counts["hook_runs"],
         "hooks_blocked": counts["hooks_blocked"],
     }
+
+
+def _sandbox(tool: Any, tool_input: object) -> str:
+    """执行命令时沙箱是哪一档（格式见 __init__.py 的 sandbox）。不是 run_command、没有沙箱这回事、从来没打开过沙箱的，是空的。
+    看的是工具自己的 look（和问你时看到的是同一份，见 tools/base.FactsTool）。"""
+    look = getattr(tool, "look", None)
+    if getattr(tool, "shell", None) is None or look is None or not isinstance(tool_input, dict):
+        return ""
+    facts = look(tool_input)
+    if facts is None or (not facts.on and facts.default == "off"):
+        return ""
+    return "outside" if facts.escapes else facts.level

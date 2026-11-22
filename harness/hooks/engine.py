@@ -48,7 +48,7 @@ from .config import (
     runs_in,
 )
 from .protocol import NO_REASON, Outcome, cap, interpret
-from .runner import Launcher, Ran, argv_of, hook_env
+from .runner import Launcher, Ran, SandboxMissing, argv_of, hook_env, jailed
 
 FINISHED = ("done", "truncated", "refused", "steps")  # Stop 只在这几种结束时跑：你点了停止、出错了、被钩子拦下的不跑
 MAX_LAST_MESSAGE = 20_000  # Stop 的 last_assistant_message 最多这么多字
@@ -88,8 +88,9 @@ class Hooks:
             found.append((name, entry))
         return found
 
-    def execute(self, launcher: Launcher, name: str, entry: dict, fields: dict, test: bool = False) -> tuple[Ran, Outcome]:
-        """跑一个钩子：JSON 从标准输入交给它，照着退出码和输出得出结论，记下"上一次"。"""
+    def execute(self, launcher: Launcher, name: str, entry: dict, fields: dict, test: bool = False, sandbox: Any = None) -> tuple[Ran, Outcome]:
+        """跑一个钩子：JSON 从标准输入交给它，照着退出码和输出得出结论，记下"上一次"。
+        sandbox 是这次运行的命令沙箱（和它的 run_command 同一个，见 runner.jailed）；没有就是 None。"""
         event = entry["event"]
         timeout = entry.get("timeout") or HOOK_TIMEOUT
         secrets = model_key_references([entry["command"], *entry.get("args", [])])
@@ -97,8 +98,13 @@ class Hooks:
             ran = Ran(None, "", "", 0.0, "start", t("引用了 {secret}：那是智狐自己用的密钥，不能交给钩子。", secret=secrets[0]))
         else:
             payload = to_json({"hook_event_name": event, "hook_name": name, **fields}).encode("utf-8")
-            argv = argv_of(entry["command"], entry.get("args", []), self.workspace)
-            ran = launcher.run(argv, payload, self.workspace, hook_env(event, name, self.workspace), timeout)
+            try:
+                argv, env, level = jailed(sandbox, argv_of(entry["command"], entry.get("args", []), self.workspace), hook_env(event, name, self.workspace))
+            except SandboxMissing as exc:
+                ran = Ran(None, "", "", 0.0, "start", exc.args[0])
+            else:
+                ran = launcher.run(argv, payload, self.workspace, env, timeout)
+                ran.sandbox = level
         outcome = interpret(event, ran, entry.get("onFailure", "continue"), timeout)
         self._remember(name, event, ran, outcome, test)
         return ran, outcome
@@ -150,12 +156,13 @@ class Hooks:
             fields.update(last_assistant_message="工作目录里有 3 个文件：README.md、notes.txt 和 data.csv。", ended="done", stop_hook_active=False)
         return fields
 
-    def test(self, name: str, entry: dict, payload: dict | None = None) -> dict:
-        """试运行一个钩子（页面上的"试运行"）：用示例（或者你改过的那一份）跑一次，交回经过和它会让智狐做什么。"""
+    def test(self, name: str, entry: dict, payload: dict | None = None, sandbox: Any = None) -> dict:
+        """试运行一个钩子（页面上的"试运行"）：用示例（或者你改过的那一份）跑一次，交回经过和它会让智狐做什么。
+        sandbox 是你的对话的那个沙箱：试运行和它在对话里跑的时候一样（沙箱开着就关在里面）。"""
         fields = {**self.sample(entry), **(payload or {})}
         fields.pop("hook_event_name", None)
         fields.pop("hook_name", None)
-        ran, outcome = self.execute(Launcher(), name, entry, fields, test=True)
+        ran, outcome = self.execute(Launcher(), name, entry, fields, test=True, sandbox=sandbox)
         return {
             "exit": ran.exit,
             "ms": max(0, round(ran.seconds * 1000)),
@@ -163,6 +170,7 @@ class Hooks:
             "stdout": cap(ran.stdout, HOOK_TEST_OUTPUT_CHARS),
             "stderr": cap(ran.stderr, HOOK_TEST_OUTPUT_CHARS),
             "verdict": verdict(entry["event"], name, outcome),
+            "sandbox": ran.sandbox,
             "message": outcome.message,
             "ignored": [t(text) for text in outcome.ignored],
         }
@@ -257,19 +265,23 @@ class HookRun:
     source：chat 你的对话（网页和终端）/ task 定时任务 / channel 聊天通道。钩子的 runsIn 按它挑，也写进交给钩子的 JSON。
     session：这次运行的会话编号（交给钩子的 session_id），开始时可能还不知道，所以是一个函数。
     agent：子 Agent 的名字（交给钩子的 agent_type）；主助手是空的。
+    sandbox：这次运行的命令沙箱（它的 run_command 用的那一个，见 sandbox/）；钩子和命令关在同一个里。没有就返回 None。
     """
 
-    def __init__(self, hooks: Hooks | None, source: str = "chat", session: Callable[[], str] = lambda: "", agent: str = ""):
+    def __init__(
+        self, hooks: Hooks | None, source: str = "chat", session: Callable[[], str] = lambda: "", agent: str = "", sandbox: Callable[[], Any] = lambda: None
+    ):
         self.hooks = hooks
         self.source = source
         self.session = session
         self.agent = agent
+        self.sandbox = sandbox
         self.launcher = Launcher()
         self._said: list[str] = []
 
     def child(self, agent: str) -> HookRun:
-        """给子 Agent 的一份：同一个来源、同一段会话，自己的 Launcher（停下它只结束它自己的钩子）。"""
-        return HookRun(self.hooks, self.source, self.session, agent)
+        """给子 Agent 的一份：同一个来源、同一段会话、同一个沙箱（子 Agent 只会更少），自己的 Launcher（停下它只结束它自己的钩子）。"""
+        return HookRun(self.hooks, self.source, self.session, agent, self.sandbox)
 
     def stop(self) -> None:
         self.launcher.stop()
@@ -374,12 +386,12 @@ class HookRun:
         assert self.hooks is not None
         agent.trace.hook_began(entry["event"], name)
         try:
-            ran, outcome = self.hooks.execute(self.launcher, name, entry, fields)
+            ran, outcome = self.hooks.execute(self.launcher, name, entry, fields, sandbox=self.sandbox())
         except KeyboardInterrupt:  # 终端里按了 Ctrl-C：钩子已经结束掉了，这一轮照常停下
             agent.trace.hook_ended("stopped")
             raise
         note = outcome.reason or str(outcome.problem) or outcome.message
-        agent.trace.hook_ended(outcome.result, ran.exit, note, len(outcome.context))
+        agent.trace.hook_ended(outcome.result, ran.exit, note, len(outcome.context), ran.sandbox)
         if outcome.result == "stopped":
             raise KeyboardInterrupt  # 网页上点了停止（钩子已经被结束掉）：和别处一样，这一轮停下
         if outcome.message:

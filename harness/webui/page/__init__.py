@@ -46,6 +46,7 @@ STYLES = (
     "styles/sheet.css",  # 中间那张"纸"：极光、顶栏、对话区
     "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
     "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
+    "styles/file-changes.css",  # 每一轮末尾的"改了 N 个文件"、改动的预览、撤回和重做
     "styles/markdown.css",  # 回复里的 Markdown
     "styles/citations.css",  # 回答引用的网页：记号、浮出的卡片、来源列表
     "styles/welcome.css",  # 空白页：问候语和建议
@@ -69,6 +70,8 @@ STYLES = (
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
     "styles/commands.css",  # 不用问的命令
+    "styles/sandbox.css",  # 命令的沙箱
+    "styles/endpoints.css",  # 自定义模型接口：设置里的那一节和编辑的窗口
     "styles/spending.css",  # 花费
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
     "styles/appearance.css",  # 外观面板
@@ -108,6 +111,7 @@ SCRIPTS = (
     "scripts/viewer.js",  # 查看器
     "scripts/send.js",  # 发送消息
     "scripts/rewind.js",  # 编辑最后一条消息、重新生成
+    "scripts/file-changes.js",  # 改了哪些文件：每一轮末尾那一行、撤回、重做（见 harness/undo/）
     "scripts/sidebars.js",  # 两边的栏：展开和收起
     "scripts/appearance.js",  # 外观：颜色和动效
     "scripts/conversations.js",  # 会话列表
@@ -151,7 +155,11 @@ SCRIPTS = (
     "scripts/language.js",  # 语言
     "scripts/approval.js",  # 要不要先问你
     "scripts/commands.js",  # 不用问的命令（你自己加的）
+    "scripts/sandbox.js",  # 命令的沙箱：设置里的一节，任务、通道共用的"选哪一档"
+    "scripts/sandbox-paths.js",  # 命令的沙箱 · 额外允许的路径
     "scripts/settings.js",  # 设置面板
+    "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
+    "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑

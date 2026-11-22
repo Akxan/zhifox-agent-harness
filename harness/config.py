@@ -60,9 +60,33 @@ COMPACTION_THRESHOLD = 0.7
 COMPACTION_KEEP_TURNS = 2
 
 
+# 自定义模型接口（见 endpoints/）：Ollama、LM Studio、vLLM、llama.cpp、公司自己的网关……任何 OpenAI 格式的地址。
+# 最多接这么多个，每个最多记这么多个模型（vLLM、网关的模型列表可能很长，全记下来换模型的面板就没法看了）
+MAX_ENDPOINTS = 20
+MAX_ENDPOINT_MODELS = 300
+# 一个模型没填上下文上限、服务器也没说的时候按多少算（压缩历史看它，见 providers/compaction.py）。
+# 本地的模型上限各不相同：Ollama 默认只给 4096（要用 OLLAMA_CONTEXT_LENGTH 调大），智狐自己的系统提示词和工具说明书
+# 就要好几千个 token。取 32768：比它小的装不下几轮带工具结果的对话；比它大的，你在设置里填上真实的数就行
+CUSTOM_CONTEXT_WINDOW = 32_768
+# 测试连接、同步模型列表时，一个请求最多等这么久（秒）。本地的服务器一般零点几秒就回答；等太久，页面上的按钮就一直在转
+ENDPOINT_PROBE_SECONDS = 8
+# 同步模型列表时，最多为这么多个模型逐个去问"你能做什么"（Ollama 的 /api/show）。再多的照名字猜，不再一个个问
+ENDPOINT_DETECT_MODELS = 40
+
 # 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）之前，这一轮做过的、可能改动了东西的事要列给你看：
 # 最多列这么多行，再多的合成一句"还有几项"
 MAX_REWIND_EFFECTS = 6
+
+# 撤回一轮改的文件（见 undo/）。文件工具每改一个文件，先把改之前的样子留一份底，存在 data/backups/turns/ 里。
+# 留底是要占磁盘的，所以有几道上限；超了的那个文件照样改，只是撤不回来（页面上写明为什么）
+UNDO_FILE_BYTES = 10_000_000  # 一个文件最多留这么大的底（文件工具改的是文本文件，一般只有几 KB）
+UNDO_TURN_BYTES = 50_000_000  # 一轮里所有留底加起来最多这么大
+UNDO_TURN_FILES = 100  # 一轮里最多记这么多个文件，再多的不记（页面上说还有几个没记下）
+UNDO_KEEP_DAYS = 30  # 留底存这么多天，过期的在启动时删掉（会话里那一行还在，只是写着"留底已经清理掉了"）
+UNDO_DIFF_LINES = 400  # 改动的预览（diff）最多显示这么多行，再多的写一句"还有几行没显示"
+UNDO_DIFF_LINE_CHARS = 400  # 预览里一行最多显示这么多个字（压缩过的 JS、很长的一行 JSON 不会把页面撑满）
+UNDO_DIFF_BYTES = 2_000_000  # 改之前、改之后都不超过这么大才算 diff（算 diff 的时间随大小增长）；更大的只说改了
+UNDO_NOTE_LINES = 20  # 撤回、重做以后告诉模型的那段说明（见 undo/notes.py）最多列这么多个文件
 
 # 用户自己写的提示词最长多少个字符。提示词每一轮都要发给模型（命中缓存时便宜，但第一次和缓存过期后按原价），
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
@@ -78,6 +102,14 @@ SOURCE_URL_CHARS = 2048
 # 定时任务最多同时运行几个（你自己的对话不算在里面，它照常进行）。每个运行都在调用模型、花钱，还可能开着命令，
 # 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
 MAX_PARALLEL_TASKS = 3
+
+# 命令的沙箱（见 sandbox/）：设置里"额外允许的路径"最多这么多条，每条最长这么多个字符
+SANDBOX_MAX_PATHS = 50
+SANDBOX_PATH_CHARS = 1000
+# 看一眼这台电脑上的沙箱能不能用（真的建一个什么都不做的沙箱试一下）：最多等这么久；
+# 结果记这么久（秒），之后再问就重新试一次：你可能刚装好 bubblewrap，不用重启智狐
+SANDBOX_PROBE_SECONDS = 10
+SANDBOX_PROBE_TTL = 60
 
 # 花费账本（见 ledger.py）。超过这么多天的明细，合并成"每天、每个模型、每种来源一行"，账本文件不会无限变大；
 # 每天、每月、每个模型花了多少都不变，只是看不到一笔一笔的时间了
@@ -340,6 +372,10 @@ class Config:
         return self.data_dir / "backups"
 
     @property
+    def undo_dir(self) -> Path:
+        return self.backup_dir / "turns"  # 每一轮改文件之前留的底，撤回用（见 undo/store.py）
+
+    @property
     def memory_dir(self) -> Path:
         return self.data_dir / "memories"
 
@@ -387,12 +423,23 @@ class Config:
         return self.data_dir / "channels.json"  # 聊天通道的设置：机器人的 token（密钥）、绑定的账号（见 channels/store.py）
 
     @property
+    def endpoints_file(self) -> Path:
+        return self.data_dir / "endpoints.json"  # 自定义模型接口：地址、可选的密钥、每个模型能做什么（见 endpoints/store.py）
+
+    @property
     def commands_file(self) -> Path:
         return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
 
     @property
     def hooks_file(self) -> Path:
         return self.data_dir / "hooks.json"  # 你的钩子：在固定的时刻运行的命令（见 hooks/config.py）
+
+    @property
+    def protected_files(self) -> list[Path]:
+        """文件工具碰不了、沙箱里也碰不到的几个文件（见 app.py 的 build_app 和 sandbox/policy.py）：
+        .env 和 mcp.json、channels.json、commands.json、endpoints.json、hooks.json——里面是密钥，或者改了它就能让智狐运行别的东西、
+        不再问你、把请求发到别处、在固定的时刻运行任何命令（钩子，见 hooks/）。"""
+        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file, self.hooks_file]
 
     @property
     def web_address_file(self) -> Path:

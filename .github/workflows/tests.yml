@@ -68,3 +68,30 @@ jobs:
         env:
           ZHIFOX_REQUIRE_XVFB: "1"
         run: uv run pytest -q -n 0 -rs tests/test_desktop_x11.py  # 一个一个跑：几个进程同时开 Xvfb 可能挑中同一个屏幕编号
+
+  # 命令的沙箱：真的 bubblewrap（bwrap）在 Linux 上跑一遍（tests/test_sandbox_linux.py，和 macOS 的 test_sandbox_macos.py 是同一组关卡）。
+  # 设了 HARNESS_SANDBOX_REQUIRED：装了 bwrap 却建不了沙箱时算失败，不会悄悄地被跳过。只在 ubuntu 上跑
+  sandbox:
+    name: sandbox · bubblewrap · ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
+          # 和 harness/sandbox/linux.py 的 problem 试的是同样几样。Ubuntu 24.04 起 AppArmor 默认不许普通用户建用户命名空间
+          # （README 的沙箱一节写着）：建得了就照原样测；建不了才放开这一条，并在日志里说一声
+          if ! bwrap --die-with-parent --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev true; then
+            echo "这台 runner 不许普通用户建用户命名空间：放开 kernel.apparmor_restrict_unprivileged_userns"
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Install
+        run: uv sync --locked
+      - name: Real bubblewrap sandbox
+        env:
+          HARNESS_SANDBOX_REQUIRED: "1"
+        run: uv run pytest -q -rs tests/test_sandbox_linux.py tests/test_sandbox.py

@@ -44,7 +44,8 @@ def test_the_model_button_opens_the_switcher_with_everything_on_it(page):
     assert page.js(CURRENT) == "claude-opus-5-5"
     # 按家分组，顺序和程序里的一样；每一家写着有没有密钥
     labels = page.js("[...document.querySelectorAll('#models-menu .models-label')].map((node) => node.textContent)")
-    assert labels == ["Claude (Anthropic)", "GPT (OpenAI)", "Gemini (Google)", "DeepSeek"]
+    # 自定义模型接口排在内置的几家后面（演示里预先加好了一个假的本机 Ollama，见 test_ui_endpoints.py）
+    assert labels == ["Claude (Anthropic)", "GPT (OpenAI)", "Gemini (Google)", "DeepSeek", "Ollama"]
     assert page.js("document.querySelector('#models-g-anthropic').parentElement.querySelector('.models-key.set') !== null")
     # 每个模型：能做什么、价格（程序给的）
     opus = ROW.format(model="claude-opus-5-5")

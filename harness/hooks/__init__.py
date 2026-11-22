@@ -92,6 +92,8 @@
   - 只有你能添加和修改：网页上带口令的页面（扩展 → 钩子）、命令行的 harness hooks，或者你自己改 data/hooks.json。
     模型没有任何能添加、修改钩子的工具；这个文件和 .env、mcp.json 一样在文件工具的 protected 名单里，任何模式下都碰不了；
   - 命令用参数列表启动，从不经过 shell（runner.py）；
+  - 这次运行的命令沙箱（sandbox/）开着的话，钩子和 run_command 关在同一个沙箱里、同一档（runner.jailed）：
+    钩子自己的程序和脚本可以读；沙箱开着却用不了时钩子不运行，绝不悄悄在沙箱之外运行；
   - 环境里去掉各家模型的密钥和聊天机器人的 token；配置里引用它们（$ANTHROPIC_API_KEY、${…}、%…%、$env:…）的，保存时就退回，
     运行前再查一遍（config.model_key_references）；
   - 参数里可能有令牌：文件权限 600、导出时遮住（export.MASKED_FILES）、页面上只显示遮住以后的样子；

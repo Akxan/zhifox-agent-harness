@@ -236,7 +236,14 @@ def test_replay_does_not_animate_but_a_live_change_does(page):
     browser_settings(page, False)
     try:
         wait_status(page, "browser", "off")
-        page.js("window.__capsSeen = false; window.__capsWatch = new MutationObserver(() => { if (document.getAnimations().some((a) => a.effect.target && a.effect.target.matches && a.effect.target.matches('.caps-item[data-id=\"browser\"]'))) window.__capsSeen = true; }); window.__capsWatch.observe(document.getElementById('caps'), { subtree: true, childList: true, attributes: true })")
+        # 记下页面对浏览器那一行调用过 animate（play() 就是用它播的）。以前是页面一变就去看有没有正在播的动画：
+        # 机器慢的时候（GitHub 的 macOS），看的时候那 0.3 秒的淡入已经播完了，就以为没播（真出过）
+        page.js(
+            "window.__capsSeen = false; if (!window.__capsAnimate) { window.__capsAnimate = Element.prototype.animate;"
+            " Element.prototype.animate = function (...args) {"
+            " if (this.matches && this.matches('.caps-item[data-id=\"browser\"]')) window.__capsSeen = true;"
+            " return window.__capsAnimate.apply(this, args); }; }"
+        )
         browser_settings(page, True)
         wait_status(page, "browser", "on")
         page.wait("window.__capsSeen", what="浏览器那一行淡入")

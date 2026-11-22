@@ -5,8 +5,10 @@
 
   untranslated(page)   英文、西班牙语界面上还留着没翻译的中文（不算用户自己的内容和"智狐"这个名字）
   overflow(page, ...)  文字冲出了容器、冲出了窗口，或者被截断了却没有省略号
+  sticking_out(page, cards)  卡片里的元素（图标、按钮、小标签）伸出了卡片或者窗口：文字放得下、装它的小框却伸出去了，overflow 查不出来
   row_trio(page, sel)  一行本地存着的东西右边是不是"在访达中显示 / 编辑 / 删除"三个按钮
   native_selects(page) 用了浏览器自带箭头的下拉框
+  contrast(page, sel)  每个选择器的文字和它背后的底色的对比度（WCAG，正文至少 4.5:1）
 
 这几个检查是"启发式"的：它们按规则去找可疑的地方，找到了不一定都是错，但每一条都值得看一眼。
 真的是用户的内容（会话的标题、记忆的名字……），就把它的选择器加进 USER_CONTENT 或 NAMES。
@@ -38,6 +40,8 @@ USER_CONTENT = [
     "#trace-body .trace-detail", "#trace-body .trace-note", "#trace-body .trace-readout",
     # 你的钩子：命令行、钩子自己写的话（输出、原因、交给它的 JSON），运行记录里它说的那一句
     ".hooks-command", ".hooks-out", ".hooks-payload", ".hooks-user", "#trace-body .trace-hook-note",
+    # "改了 N 个文件"那一行里点开的预览：一行一行的是文件里的字
+    "#log .changes-code",
 ]
 # 用户起的名字：既不检查它们自己，它们的文字也算"认得的"——按钮的说明里带着名字（"编辑任务：每日安排"）不算没翻译
 NAMES = [
@@ -45,8 +49,11 @@ NAMES = [
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
+    ".sandbox-path",  # 你加进沙箱的路径
+    ".endpoint-name", ".endpoint-model-name", ".models-label",  # 自定义模型接口的名字、模型名（你起的、服务器给的）
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
     ".hooks-name", ".hooks-title-name",  # 钩子的名字（你起的）
+    ".changes-path", ".changes-warn-path",  # "改了 N 个文件"那一行、撤回之前的提醒里的文件路径（文件名是你的或者模型起的）
 ]
 # 在任何语言下都照原样写的几个词：标志的名字，以及语言选单里每种语言用它自己的文字写的名字
 ALLOWED_WORDS = ["智狐", "中文", "语言"]
@@ -162,6 +169,43 @@ def overflow(page: Page, roots: list[str]) -> list[str]:
     return page.js(f"({_OVERFLOW})({json.dumps(roots)})")
 
 
+_STICKING_OUT = r"""
+((cards) => {
+  const width = document.documentElement.clientWidth;
+  const describe = (node) => node.tagName.toLowerCase() + (node.id ? '#' + node.id : '') + (node.getAttribute('class') ? '.' + node.getAttribute('class').trim().split(/\s+/).join('.') : '');
+  // 在卡片里面、会裁剪（或者能滚动）的那一层下面的元素：伸出去的部分本来就看不见（或者能滚过去看），只查那一层自己
+  const clipped = (node, card) => {
+    for (let at = node.parentElement; at && at !== card; at = at.parentElement) {
+      if (getComputedStyle(at).overflowX !== 'visible') return true;
+    }
+    return false;
+  };
+  const problems = [];
+  for (const card of cards.flatMap((selector) => [...document.querySelectorAll(selector)])) {
+    if (!card.getClientRects().length) continue;
+    const frame = card.getBoundingClientRect();
+    if (frame.right > width + 0.5 || frame.left < -0.5) problems.push('伸出了窗口：' + describe(card) + ' ' + Math.round(frame.left) + '..' + Math.round(frame.right));
+    for (const node of card.querySelectorAll('*')) {
+      if (!node.getClientRects().length || node.closest('.sr-only') || clipped(node, card)) continue;
+      const box = node.getBoundingClientRect();
+      if (box.right > Math.min(frame.right, width) + 0.5 || box.left < Math.max(frame.left, 0) - 0.5) {
+        problems.push('伸出了 ' + describe(card) + '：' + describe(node) + ' ' + Math.round(box.left) + '..' + Math.round(box.right) + '（卡片是 ' + Math.round(frame.left) + '..' + Math.round(frame.right) + '）');
+      }
+    }
+  }
+  return [...new Set(problems)];
+})
+"""
+
+
+def sticking_out(page: Page, cards: list[str]) -> list[str]:
+    """cards 选中的每一张卡片（一行、一个框）里，看得见的元素有没有伸出卡片的左右两边、伸出窗口。
+
+    overflow() 只看文字和装着它的最近的那个框；一个自己带底色的小标签（比如"自动允许"）里的字放得下，
+    小标签本身却被挤出了卡片，它就查不出来，这里查。在卡片里会裁剪、能滚动的那一层下面的不算（只查那一层自己）。"""
+    return page.js(f"({_STICKING_OUT})({json.dumps(cards)})")
+
+
 _TRIO = r"""
 ((selector) => [...document.querySelectorAll(selector)].map((row) => {
   const buttons = [...row.querySelectorAll('button')].filter((button) => button.querySelector('svg use'));
@@ -201,3 +245,34 @@ _SELECTS = r"""
 def native_selects(page: Page) -> list[str]:
     """页面上（包括还没打开的窗口里）用了浏览器自带箭头的下拉框：应该是 select.field，箭头由页面自己画。"""
     return page.js(_SELECTS)
+
+
+# WCAG 的对比度：文字的颜色和它背后第一层不透明（不透明度超过 0.9）的底色
+CONTRAST = r"""
+((selectors) => {
+  const parse = (color) => (color.match(/[\d.]+/g) || []).map(Number);
+  const luminance = ([r, g, b]) => {
+    const linear = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+  };
+  const backdrop = (node) => {
+    for (let at = node; at; at = at.parentElement) {
+      const [r, g, b, a = 1] = parse(getComputedStyle(at).backgroundColor);
+      if (a > 0.9) return [r, g, b];
+    }
+    return [255, 255, 255];
+  };
+  return selectors.map((selector) => {
+    const node = document.querySelector(selector);
+    if (!node) return [selector, null];
+    const ink = luminance(parse(getComputedStyle(node).color)), paper = luminance(backdrop(node));
+    return [selector, Math.round(((Math.max(ink, paper) + 0.05) / (Math.min(ink, paper) + 0.05)) * 100) / 100];
+  });
+})
+"""
+
+
+def contrast(page: Page, selectors: list[str]) -> list[tuple[str, float | None]]:
+    """每个选择器（选中的第一个元素）的文字和它的底色的对比度，保留两位小数；找不到这个元素的是 None。
+    正文要至少 4.5:1。底色是半透明的（比如 --ok-soft）时往上找第一层不透明的，所以只是个近似。"""
+    return [(selector, ratio) for selector, ratio in page.js(f"({CONTRAST})({json.dumps(selectors)})")]

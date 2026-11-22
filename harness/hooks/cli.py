@@ -105,7 +105,13 @@ def _test(store: HookConfig, config: Config, name: str, out: IO[str]) -> int:
     if entry is None:
         print(store.hooks().get(name, (None, t("没有找到钩子“{name}”，它可能已经被删掉了。", name=name)))[1], file=sys.stderr)
         return 1
-    run = Hooks(store, config.workspace).test(name, entry)
+    # 和它在你的对话里跑的时候一样：设置里的沙箱开着就关在里面（见 runner.jailed）
+    from ..app import sandbox_layout  # 用到时才导入：app 要导入大半个程序
+    from ..sandbox import Sandbox
+    from ..settings import Settings
+
+    settings = Settings(config.settings_file, config.default_provider, config.default_model)
+    run = Hooks(store, config.workspace).test(name, entry, sandbox=Sandbox(sandbox_layout(config, settings), escape=lambda: False))
     print(t("退出码：{code}，用了 {ms} 毫秒", code="—" if run["exit"] is None else run["exit"], ms=run["ms"]), file=out)
     for label, text in ((t("标准输出"), run["stdout"]), (t("标准错误"), run["stderr"])):
         if text:

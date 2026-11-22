@@ -345,8 +345,8 @@ class Scheduler:
             return
 
         ui = RunUI(lambda kind, data, event_id: self._observe(pending, kind, data, event_id))
-        # 这次运行自己的助手、shell 和 MCP 调用。权限按这个任务自己的那一档；之后你再改它，只影响以后的运行
-        unattended = app.unattended_agent(ui, task["approval"])
+        # 这次运行自己的助手、shell 和 MCP 调用。权限、沙箱按这个任务自己的那一档；之后你再改它，只影响以后的运行
+        unattended = app.unattended_agent(ui, task["approval"], task.get("sandbox", "default"))
         agent, shell = unattended.agent, unattended.shell
         # 停止时连它正在运行的命令、正在等的 MCP 调用一起结束。只是它自己的，你的对话和别的任务不受影响
         ui.on_stop(unattended.stop)
@@ -381,7 +381,7 @@ class Scheduler:
                 app.store.save(conversation)
             except Exception as exc:  # noqa: BLE001 —— 存不上也要把这次运行的结果记下来
                 problem = t("这次运行的会话没能保存：{error}", error=str(exc) or type(exc).__name__)
-        total, unpriced = estimate(agent.usage_by_model, app.settings.prices)
+        total, unpriced = estimate(agent.usage_by_model, app.prices())
         if ui.stopped:
             status, error = "stopped", ""
         elif ui.failure is not None:
@@ -466,7 +466,7 @@ class Scheduler:
     def snapshot(self) -> tuple[list[dict], list[dict]]:
         """状态里的 tasks 和 reminders（格式见这个文件开头的说明，以及 server.py 的 publish_state）。"""
         tasks, reminders = self.store.snapshot()
-        prices, max_steps = self.web.app.settings.prices, self.web.app.config.max_steps
+        prices, max_steps = self.web.app.prices(), self.web.app.config.max_steps
         with self._lock:
             live = {pending.task_id: _live_view(pending, prices, max_steps, self.limit) for pending in self._queue}
         for task in tasks:

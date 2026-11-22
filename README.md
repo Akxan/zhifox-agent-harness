@@ -57,6 +57,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   else could attach to. Looking is free; typing, submitting a form and visiting a new site ask first, and password and
   card fields ask in every mode. Claude uses Anthropic's browser use toolset; GPT, Gemini and DeepSeek get hand-written
   browser tools.
+- ↩️ **One-click undo of a turn's file edits.** Each turn that changed files ends with a line listing them, with a
+  line-by-line preview. Undo a file or the whole turn, then redo; if a file changed since, ZhiFox explains and asks
+  first. Files changed by shell commands are named as not undoable instead of pretending
+  ([details](#undoing-a-turns-file-changes)).
 - 🖱️ **Computer use, as an advanced option.** Off by default and switched on only after an explicit risk confirmation:
   the assistant looks at your whole screen and works the mouse and keyboard (macOS through `screencapture` and
   CoreGraphics via `ctypes`, Linux/X11 through `xdotool` and ImageMagick, no new dependencies). By default every action
@@ -110,6 +114,12 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   you can tell the model why. A middle mode lets commands that only look (`ls`, `df -h`, `git status`, `journalctl`…)
   run without asking while anything that could change something still asks; the check behind it is deliberately
   conservative. Looser modes last only until the next restart, and `.env` is always off-limits.
+- 🧱 **An optional sandbox for commands, as a second safeguard.** Turn it on and every command runs inside an
+  operating-system sandbox (macOS `sandbox-exec` with a generated profile, Linux bubblewrap): it can read and write the
+  working folder, can't see the rest of your home folder, ZhiFox's data or `.env`, and, at the strictest level, can't
+  reach the network, `127.0.0.1` included. Even a command you allowed, written by a model misled by a web page, can't
+  get out by itself; running one command outside the sandbox always asks you, in every mode. Per task and per chat
+  channel too, and it refuses to run rather than quietly running unsandboxed where it can't work (Windows, no `bwrap`).
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
   on 127.0.0.1 only, and the page loads no external resources.
 - 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
@@ -153,6 +163,42 @@ that provider's API that its documentation doesn't mention.
 Every provider bills API usage by volume, separately from its chat-app subscription, and usually needs prepaid credit.
 You can enter keys in the web UI's Settings, or copy [.env.example](.env.example) to `.env` and write them there. Both
 end up in the same place.
+
+### Local models and your own gateway (Ollama, LM Studio, vLLM, llama.cpp)
+
+Any server that speaks the OpenAI Chat Completions format can be added under **Settings → Custom model endpoints**: a
+model running on this computer, a GPU box on your network, or your company's own gateway. With an endpoint on this
+computer or your local network, your conversations never leave your network, and the model costs nothing (it is shown
+as "Local, free"). Each endpoint gets its own group in the model switcher.
+
+**Ollama**, in one step: with Ollama running (`ollama serve`, or the desktop app), click **Add endpoint**, pick
+**Ollama** (`http://localhost:11434/v1`), click **Test connection**, then **Save**. ZhiFox lists your pulled models and
+asks Ollama what each one can do (tools, images, context length).
+
+**LM Studio**, in one step: in LM Studio's Developer page, click **Start Server**, then add an endpoint and pick
+**LM Studio** (`http://localhost:1234/v1`), **Test connection**, **Save**.
+
+vLLM (`http://localhost:8000/v1`) and llama.cpp's `llama-server` (`http://localhost:8080/v1`) work the same way.
+The API key is optional; fill it in if your server or gateway needs one.
+
+**Choosing a local model.** Reading and writing files, running commands and keeping to-dos all need a model that
+supports tool calling (function calling). Qwen 3, Llama 3.1 and later, Mistral and GPT-OSS do; small or old models
+(Llama 2, Gemma 2, Phi-3) usually don't. A model without tools can only answer in text: the first time the server
+refuses tools, ZhiFox marks the model **No tools**, tells you in the conversation, and the capability list shows every
+tool as unavailable with the reason. vLLM needs `--enable-auto-tool-choice --tool-call-parser …` and llama.cpp needs
+`--jinja` for tools. ZhiFox's system prompt and tool descriptions alone take several thousand tokens, so give the model
+a large enough context: Ollama defaults to 4096 and silently cuts the start of longer prompts; set
+`OLLAMA_CONTEXT_LENGTH=32768` (or more) before starting it, and enter the same number as the model's context limit in
+the endpoint's settings, which is what ZhiFox uses to decide when to compact the conversation.
+
+Security rules: a remote address must use `https://`; plain `http://` is accepted only for this computer (`localhost`,
+`127.x`, `::1`) and private-network addresses (`10.x`, `172.16–31.x`, `192.168.x`, `100.64.x` as used by Tailscale,
+`*.local`, `*.internal`, single-label names). All requests go out from ZhiFox's own process, never from the web page.
+The key is stored in `data/endpoints.json` (readable by your account only, masked in exports, shown as its last 4
+characters); it never goes into environment variables, so commands and MCP servers can't see it. Keys of the built-in
+providers (`OPENAI_API_KEY`, `OPENAI_ORG_ID`, `OPENAI_CUSTOM_HEADERS`, …) are never sent to a custom endpoint, redirects
+are not followed, and changing an endpoint's host means entering its key again. Agent files and other programs name an
+endpoint's model as `custom-<id>/<model>`, for example `custom-ollama/qwen3:8b`.
 
 ## Architecture
 
@@ -244,6 +290,7 @@ Each part of the harness has its own file or directory:
 | Loop | [harness/agent.py](harness/agent.py) | A model replies once per call. The loop keeps calling it until the task is done |
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
+| Custom model endpoints | [harness/endpoints/](harness/endpoints/), [harness/webui/endpoints_api.py](harness/webui/endpoints_api.py) | The built-in providers all live on someone else's servers. An endpoint is any OpenAI-format URL (Ollama, LM Studio, vLLM, llama.cpp, a company gateway): the URL rules (https, or plain http only on your own network), storage with an optional key, a client that never carries other providers' keys or follows redirects, guessing what each model can do, and testing the connection without spending anything (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
 | History compaction | [harness/providers/compaction.py](harness/providers/compaction.py) | Resending the whole history every turn gets more expensive and finally exceeds the model's limit. When a GPT, Gemini or DeepSeek conversation gets too long, the model is asked to summarize the earlier part (Claude's API compacts on its own) |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
@@ -266,8 +313,10 @@ Each part of the harness has its own file or directory:
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
+| Undo file changes | [harness/undo/](harness/undo/) | Rewinding brings back the conversation, not the files. Each turn records what the file tool changed (a copy of each file from before, kept under `data/backups/turns/`), and the files can be undone one by one or all at once, then redone; a content hash catches files that changed since (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)) |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
+| Command sandbox | [harness/sandbox/](harness/sandbox/), [harness/webui/sandbox_api.py](harness/webui/sandbox_api.py) | Approvals get loosened or tapped through, and a misled model writes the commands. An optional second safeguard: the operating system (macOS `sandbox-exec`, Linux bubblewrap) keeps each command to the working folder, away from your home folder, ZhiFox's data and `.env`, and off the network if you like; letting one command out always asks you (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)) |
 | Capability list | [harness/capabilities.py](harness/capabilities.py), [harness/webui/capabilities_api.py](harness/webui/capabilities_api.py) | Tool names mean nothing to you. One catalog turns the conversation's tools into capabilities: in use or off and why, whether each asks you first (worked out by asking `permissions.py`), where it runs, how to turn it on (see [What ZhiFox can do](#what-zhifox-can-do-the-capability-list)) |
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
@@ -439,6 +488,15 @@ and DeepSeek all support it at different server addresses, so one piece of code 
 To add another provider that supports the OpenAI format, add one entry to `PROVIDERS` in
 [`harness/providers/__init__.py`](harness/providers/__init__.py).
 
+Custom endpoints (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) use the same
+adapter, with three differences. What a model can do (images, tools, PDF, context size) is recorded per model, not per
+provider, since one Ollama may host a model with tools next to one without. Servers that implement the format only
+partly are handled by stepping back once: if a server rejects `stream_options`, ZhiFox stops asking for usage; if it
+rejects tools before any tool was used in the conversation, that conversation goes on without tools (the rejected
+request was never processed, so the history is unchanged). Both are written to `data/endpoints.json`, so the next
+conversation starts the right way. And switching between two models of one endpoint that differ in tool support starts
+a new conversation, because a conversation's tool list never changes.
+
 ### When a conversation gets too long: compaction
 
 Every turn resends the whole history, so the longer a conversation gets, the more each turn costs; once it grows past
@@ -553,6 +611,61 @@ the side panel aren't reduced. The context size updates with the next request.
 opens a conversation. Every open tab redraws in place without reloading. A request names the conversation and the
 turn it means, so a tab that is behind is turned away instead of rewinding something else, and a tab that was in the
 middle of an edit puts the unsent text back into its input box.
+
+### Undoing a turn's file changes
+
+Rewinding brings back the conversation; this brings back the files. Every turn in which the file tool created, edited
+or overwrote files ends with a compact line, **Changed 2 files +7 −1**. Its **Undo** button undoes the whole turn in
+one click. Expanded, it lists each file (added, modified or overwritten, lines added and removed); click a file name for
+a line-by-line preview of what the turn did, and undo files one at a time or **Undo all changes from this turn**.
+**Redo** puts back what an undo replaced. In the terminal, `/undo` lists the latest turn's changes and asks before
+undoing them.
+
+**How it's recorded** ([harness/undo/](harness/undo/)). When a turn starts, the web UI and the terminal open a journal
+for it; the file tool asks before each write whether a journal is open (one line in
+[tools/files.py](harness/tools/files.py)) and, on the first touch of a file in that turn, keeps a copy of how it was
+(or notes that it didn't exist) in `data/backups/turns/<id>/`, then records how the turn left it. The journal lives on
+the turn's thread (a `ContextVar`): your chat, scheduled tasks and chat channels run at the same time and share one file
+tool, and only your chat turns are recorded (work handed to a subagent counts, since it runs on the same thread). At the
+end of the turn a manifest is written once and never changed, and a `file_changes` event goes into the conversation's
+events. The history sent to the model (`messages`) isn't touched. Limits live in `config.py`: 10 MB per file, 50 MB and
+100 files per turn, kept for 30 days. A file over a limit is still edited; it just can't be undone, and the line says why.
+
+**What isn't recorded.** Files changed by `run_command`. What a command changes can't be seen: `sed -i`, `git
+checkout`, `npm install`, a script. Tracking it would mean snapshotting the whole working folder around every command,
+slow in a big project, and a command can change things outside the folder too. So the line says plainly that files
+changed by commands can't be undone automatically, and says it more loudly when the turn ran a command. ZhiFox also
+doesn't make git snapshots of your repository: that would leave entries in your stash or commit history, mix with a
+rebase or your staging area, still miss ignored files, and need git everywhere. If you use git, a commit of your own
+is the most reliable undo point.
+
+**Undo and redo** ([restore.py](harness/undo/restore.py)). Undo restores each file to its exact bytes and permissions
+from before the turn and deletes files the turn created (and folders it created for them, once empty). It first keeps a
+copy of the file as it is now, and **Redo** puts that copy back. Before writing anything, every file is checked:
+
+- **Changed since?** Compared by content hash (not modification time). If the file changed after the turn (a later
+  turn, you, or another program), or a later turn in the same conversation also changed it, the line explains it in
+  place (for later turns: undoing restores the state from before this turn, and the later turns' changes go too) and
+  waits for **Undo anyway**. Files outside the working folder, or in ZhiFox's own data folder, ask the same way.
+- **Never written:** the files that hold keys or permission settings (the file tool's protected list), the backups
+  folder itself, a path that has since become a link (undo writes only the location it recorded), and backups that are
+  missing or don't match their hash.
+
+Checking and writing hold the same lock as the file tool, so another conversation or a task can't slip in between.
+Undo is only for you, from the page or `/undo`: the model has no tool for it. Each undo or redo is itself an event
+(`file_undo`), saved with the conversation and replayed on refresh: the state of every file is worked out from those
+events, and the manifest only records what the turn did. One fact lives in one place.
+
+**Telling the model.** The model remembers the files it changed. After an undo it would either fail to find its text,
+or rewrite the whole file from memory and put the undone change back. So the next message in that conversation carries
+a short `<file_changes>` note listing what was undone or redone and asking it to look again before relying on them. It
+rides on the message like the time and the Skill list, so the system prompt and the history stay as they are; it counts
+as said only once that message stays in the history, and notes about a turn you then rewind are dropped (the model
+never saw that turn).
+
+**With rewinding.** When the last turn changed files, the rewind confirmation offers **Also undo the files this turn
+changed** (unticked by default). Ticked, the files are undone first; if any changed since, the card explains it and the
+button becomes **Undo and regenerate anyway**. Undos of earlier turns made after the last one survive rewinding it.
 
 ### Three interface languages
 
@@ -1552,6 +1665,240 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 `hold_key`), `DESKTOP_COMMAND_TIMEOUT` (15), `DESKTOP_MAX_TYPE_CHARS` (2,000 characters per `type`) and
 `COMPUTER_TOOLSET_MODELS`.
 
+### Sandbox for commands: what a command can reach
+
+`run_command` runs every command as you, so a command can reach whatever you can: your home folder, your SSH keys,
+every other project, the network. The first safeguard is the approval card (see [Permissions](#permissions)): you see
+each command and click Allow. But that safeguard gets loosened (**Allow read-only commands**, **Allow everything**), it
+gets tapped through on a phone in a chat channel, and the model writing the command may have been steered by text
+hidden in a web page or a file it just read (prompt injection). The sandbox is a second, independent safeguard: even
+after a command has been allowed, while it runs it can only reach the places it should. Neither replaces the other:
+loosening the approvals doesn't open the sandbox, and turning the sandbox on doesn't remove a single question. It is
+optional and **off by default**. The code is in [harness/sandbox/](harness/sandbox/), one file per concern:
+
+| File | What it does |
+|---|---|
+| [policy.py](harness/sandbox/policy.py) | The levels, and which paths a command may read, write or never touch. Both systems follow this one list |
+| [session.py](harness/sandbox/session.py) | One run's sandbox: which level is in effect, whether this run may ask you to let a command out, its own HOME and temp folder, the wording on the approval card and in the note to the model |
+| [macos.py](harness/sandbox/macos.py) | macOS: the SBPL profile for `sandbox-exec` |
+| [linux.py](harness/sandbox/linux.py) | Linux: the arguments for bubblewrap (`bwrap`) |
+| [windows.py](harness/sandbox/windows.py) | Windows: why there is no sandbox yet |
+| [backend.py](harness/sandbox/backend.py) | Which of these this computer uses; the only place that looks at the operating system |
+| [webui/sandbox_api.py](harness/webui/sandbox_api.py) | **Settings → Sandbox**: the level and the extra paths |
+
+**What a sandbox is.** The operating system draws a line around one process and everything it starts: files outside
+the line can't be read or written, and the network can't be reached. The kernel enforces that line, not ZhiFox, and that
+is the point. ZhiFox could try to read each command and guess what it will touch, but any such check can be got around:
+write it another way, put it in a script and run the script, `python -c`, base64. A rule enforced by the kernel applies
+to whatever the command turns out to do.
+
+**Three levels.** Choose one in **Settings → Sandbox**; it is the level for your conversations and the default for
+scheduled tasks and chat channels:
+
+| Level | What a command can do |
+|---|---|
+| **Off** (default) | Runs as before; only the approval prompt stands in the way |
+| **Working folder only** (recommended for remote use) | Read and write the working folder; read the system folders programs need; nothing else in your home folder, no other drives, no `/tmp`; no network at all, not even `127.0.0.1` |
+| **Working folder + network** | The same, plus the network: downloads, `git pull`, calling an API |
+
+In detail, at either level:
+
+- **Read and write:** the working folder; this run's own HOME and temp folder (below); the paths you added as
+  read-write.
+- **Read only:** the system folders programs need to run (each system lists its own: `/System`, `/usr`, `/bin`,
+  `/Library`, `/Applications`, `/private/etc`, `/opt/homebrew`… on macOS; `/usr`, `/etc`, `/opt`, `/nix`… on Linux), and
+  the paths you added as read-only.
+- **Never, not even inside the working folder:** ZhiFox's data folder (`data/`: past conversations, settings, memory,
+  bot tokens), `.env` with your API keys, and the other files the file tool protects (`mcp.json`, `channels.json`,
+  `commands.json`). Also the places in your home folder that hold secrets: `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`,
+  `~/.kube`, `~/.docker`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.config/gh`, `~/.config/gcloud`,
+  `~/.password-store`, the keyrings and keychains. Those last ones stay blocked unless you add that exact place (or
+  something inside it) as an extra path. Why list them separately: the working folder may *be* your home folder
+  (`harness serve --workspace ~` on a server), or you may add your whole home folder as an extra path; `~/.ssh` stays
+  blocked anyway.
+- **Read only, even where writing is allowed:** ZhiFox's own program (`harness/`, `.venv`, `pyproject.toml`,
+  `uv.lock`, `.git`, `.python-version`, and the Python environment it runs from), and the files that run when you open a
+  terminal or log in (`~/.bashrc`, `~/.zshrc`, `~/.profile` and friends, `~/.config/fish`, `~/.config/systemd`,
+  `~/.config/autostart`, `~/Library/LaunchAgents`). By default the working folder is the project folder, so without this
+  a sandboxed command could edit `harness/tools/shell.py`, and the next time ZhiFox starts, the edited code would run
+  outside the sandbox. A changed `~/.zshrc` would do the same the next time you open a terminal.
+- **Everything else** can't be reached: the rest of your home folder, other users, other drives, `/tmp`.
+
+**Why HOME is an empty folder.** Commands still run as you, and programs such as git, npm and pip read their settings
+from your home folder when they start (`~/.gitconfig`, `~/.npmrc`) and write caches there (`~/.npm`, `~/.cache`).
+When the home folder can't be read, some of them simply quit: git stops with `fatal: unable to access
+'/Users/you/.gitconfig': Operation not permitted`. So each run (your conversation, one task run, one chat) gets its own
+empty HOME and TMPDIR inside the system's temp folder, shared by that run's commands and deleted when the run is gone.
+git works (without your global name and email), and npm and pip download into caches there. `~` in a command means that
+folder, so write the full path to reach a place you added. Variables that point into your real home folder
+(`XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and the other `XDG_*`, `SSH_AUTH_SOCK`) are removed. One more: `uv run` puts
+ZhiFox's own `.venv/bin` first on `PATH`, and inside the sandbox it is taken off again. That is ZhiFox's program, not
+your tools, and the Python behind it usually lives in your home folder (`~/.local/share/uv`) where the sandbox can't
+start it; without it, `python3` is the system's or Homebrew's.
+
+**Localhost counts as network.** At **Working folder only**, even `127.0.0.1` is out of reach. That's where
+databases, Docker, other local services and ZhiFox's own web page listen, and a command that can talk to them can get
+them to do what the sandbox wouldn't let it do itself. Unix sockets (Docker's socket, the ssh-agent) are blocked at
+every level on macOS; on Linux they simply aren't inside the sandbox.
+
+**Extra paths.** **Settings → Sandbox → Manage paths** adds read-only or read-write paths: a full path starting with
+`/` or `~`, up to 50 of them (`SANDBOX_MAX_PATHS`), each up to 1,000 characters (`SANDBOX_PATH_CHARS`). Programs
+installed in your home folder (nvm, pyenv, cargo's or uv's tools) can't be read in the sandbox by default: add their
+folder as read-only, for example `~/.nvm`. Like every list of things stored on your computer, each row has **Show in
+Finder**, **Edit** and **Delete** (confirmed in place). `data/` and `.env` can't be added: they'd have no effect.
+
+**Scheduled tasks and chat channels.** Each agent task (in the task editor) and each chat channel (in the last step of
+its wizard) has its own level, **Follow settings** by default, or **Off**, **Working folder only**, **Working folder +
+network**. Tasks the assistant creates for you are always Follow settings; its tool has no way to change that, so
+whether a task runs without the sandbox is your decision only. Your conversation follows Settings, and a change applies
+from the next command. A channel's level is read again before every command; a task run keeps its own level from the
+start of the run (Follow settings looks at Settings before every command). Subagents use exactly the sandbox of
+whoever called them: they only ever get less.
+
+**macOS: `sandbox-exec`.** macOS has a sandbox of its own (Seatbelt): App Store apps, Safari and many of the system's
+services run inside it, and the profiles of those services are in `/System/Library/Sandbox/Profiles`. `sandbox-exec`
+runs one command, and everything it starts, inside a profile written in SBPL (Sandbox Profile Language). ZhiFox writes
+a profile for each command:
+
+```
+(version 1)
+(deny default)                 ; nothing is allowed, then things are allowed one by one
+(import "system.sb")           ; what any program needs: system libraries, /dev/null, the time zone…
+(allow process-fork) (allow process-exec)
+(allow signal (target same-sandbox))            ; can only signal processes in this sandbox
+(allow file-read-metadata)                      ; whether a file exists and how big, never its content
+(allow file-read* file-map-executable (subpath (param "SYSTEM_0")) …)              ; system folders
+(allow file-read* file-write* file-map-executable (subpath (param "WRITE_0")) …)   ; working folder, HOME, temp
+(deny file-write* (subpath (param "READONLY_0")) …)                                ; ZhiFox's program…
+(deny file-read* file-write* (subpath (param "DENY_0")) …)                         ; data/, .env, ~/.ssh…
+```
+
+The deny rules come last because, when several rules match the same operation, the last one wins. Whatever isn't
+listed stays denied: launching other apps (`open -a`), Apple Events that control other apps (`osascript -e 'tell
+application …'`), the keychain, Unix sockets. At **Working folder + network** a few more lines allow IP connections
+(127.0.0.1 included) and name lookups. Paths never appear in the profile's text: each is passed as a parameter
+(`-D WRITE_0=/the/path`) and the profile says `(param "WRITE_0")`, so a quote, parenthesis, backslash or newline in a
+file name can't change a rule, and there's no escaping to get wrong. Apple marks `sandbox-exec` as deprecated in its
+man page, but it still works on current macOS, and the same machinery protects Apple's own services. If a future macOS
+removes it, ZhiFox says the sandbox can't be used and refuses the commands (below). Inside the sandbox, a blocked
+operation fails with `Operation not permitted`, and without the network you see `Could not resolve host` or
+`Couldn't connect to server`. Programs with special privileges (setuid), such as `sudo` and `ps`, can't run there.
+`/tmp` isn't writable either, because it's shared with every other program (the ssh-agent's socket lives there): use
+`$TMPDIR`. To know whether `sandbox-exec` works at all, ZhiFox starts an empty sandbox and remembers the answer for a
+minute (`SANDBOX_PROBE_TTL`); this fails, for example, when ZhiFox itself is already running inside another sandbox.
+
+**Linux: bubblewrap (`bwrap`).** The Linux kernel has *namespaces*: a process can have its own view of the
+filesystem, its own process numbers and its own network. Containers (Docker, Flatpak) are built on them, and bubblewrap
+is the small tool Flatpak uses; it doesn't need root. It starts from an empty filesystem and mounts only what it's told
+(`--ro-bind` read-only, `--bind` read and write), so everything else doesn't exist inside. The arguments:
+`--unshare-pid` (its own process numbers: it can't see or kill anything outside, ZhiFox included), `--unshare-net` at
+**Working folder only** (its own network with nothing but an empty localhost of its own, so both the internet and the
+services listening on this computer's 127.0.0.1 are out of reach, while a server started inside the sandbox can be
+reached from inside it), `--die-with-parent`, its own `/proc`, a minimal `/dev`, an empty `/tmp`; the system folders
+read-only (`/bin`, `/lib` and friends recreated as links where they point into `/usr`); at **Working folder +
+network**, the real `/etc/resolv.conf` (often a link into `/run` for systemd-resolved) so names resolve. Denied
+folders are covered with an empty read-only `tmpfs` and denied files with `/dev/null`, mounted last so they cover what
+came before. A missing `.env` in a writable place is covered too: otherwise a command could create one that ZhiFox
+would read at its next start (bwrap leaves an empty file behind as the mount point, and an empty `.env` means the same
+as none). Inside, a hidden place looks like `No such file or directory`, a read-only one like `Read-only file
+system`, and a covered folder such as `data/` like an empty, read-only folder. Connecting to a service on this
+computer gets `Connection refused`: the sandbox's own localhost has nothing listening. bwrap isn't installed by default, and ZhiFox never installs anything: without it the sandbox can't be used,
+and ZhiFox gives the command for your distribution:
+
+```bash
+sudo apt install bubblewrap       # Ubuntu, Debian
+sudo dnf install bubblewrap       # Fedora
+sudo pacman -S bubblewrap         # Arch
+```
+
+No restart is needed afterwards. If bwrap is installed but can't create a sandbox, ZhiFox shows bwrap's own error. The
+usual cause is that the system doesn't let normal users create user namespaces: on Ubuntu 24.04 and later AppArmor
+restricts them (`kernel.apparmor_restrict_unprivileged_userns`), on Debian see `kernel.unprivileged_userns_clone`.
+
+**Windows: not available yet**, by design rather than by accident. The options that need no new dependency were
+weighed ([windows.py](harness/sandbox/windows.py) has the details): a job object (ZhiFox already uses one to end a
+command with all its children) limits processes, memory and CPU time, not files or the network; a restricted token or
+a low integrity level can't write most of your files but can still read them, `~/.ssh` included, and still reach the
+network; an AppContainer comes closest (no access to your files, no network), but letting it read and write the working
+folder means changing that folder's permissions (ACLs) on your disk, PowerShell can do little inside one, and
+Python's `subprocess` can't start a process in one; Windows Sandbox is a virtual machine, only on Pro and Enterprise,
+seconds to start, with no view of the working folder. So on Windows the sandbox says it can't be used, and to get one
+you can run ZhiFox inside WSL (Linux on Windows) and install bubblewrap there. Other systems (FreeBSD…) have no sandbox
+either.
+
+**No silent fallback.** If the level in effect isn't Off and this computer can't sandbox (bwrap missing, Windows,
+`sandbox-exec` failing), every command is refused before any approval card appears. The model gets the reason (in
+Chinese, like every tool result) and is told to explain the fix to you, or to ask you to set the level to Off; Settings
+shows the warning in red, and the task editor and the channel wizard warn too. A command is never run quietly outside
+the sandbox: believing it's inside when it isn't is worse than having no sandbox at all.
+
+**What you see.** With the sandbox on, the approval card adds a line with the level the command will run in and what
+that means (read and write the working folder; network or not). A task or channel set to Off while the default is on
+says so on its cards. If you never turned the sandbox on, the cards look exactly as before. In the capability list (and
+the terminal's `/tools`), the **Run commands** row says which level the commands run in, or that the sandbox can't be
+used here and commands will be refused; its rules include what happens to a command run outside the sandbox (asks
+every time, or not allowed at all), and it has a **Sandbox** button that opens Settings at the right place.
+
+**Letting one command out.** When the sandbox blocks a command that's really needed, the model can run it again with
+`unsandboxed: true`. That one command:
+
+- **asks you every time, in every approval mode, Allow everything included.** It gets a card of its own, with a
+  warning that the command can read and write everything you can (home folder, keys, other drives) and use the
+  network, and with the level the run normally uses. The card has neither the **Don't want to be asked every time?**
+  link nor any "don't ask again": each one is looked at by itself;
+- **can ask in your conversation** (web page and terminal), where you're watching;
+- **can ask in a scheduled task or a chat channel only if that run's own approval mode isn't Allow everything.** With
+  Allow everything you said "don't ask me", and most likely nobody is there to answer: a question would leave the run
+  waiting, or teach you to tap Allow without reading. So it's refused, and the model is told to find a way inside the
+  sandbox, or to ask you to change that task's or channel's sandbox level. In the other modes the run asks you anyway,
+  so it asks about this one too;
+- does nothing when the sandbox is off: the command is asked about like any other.
+
+Why this way: what matters most about a second safeguard is that a model misled by a sentence in a web page can't get
+itself out. The only way out is a person clicking on a card that shows that exact command, and in a run where you said
+"don't ask", there is no door at all. The `unsandboxed` parameter is always in `run_command`'s description, sandbox on
+or off, because a conversation's tool descriptions must not change (see [The loop](#the-loop)); switching the sandbox
+on or off mid-conversation changes only how commands run.
+
+**When a command is blocked.** If a sandboxed command fails and its output carries one of the usual signs
+(`Operation not permitted`, `Read-only file system`, `No such file or directory` on Linux, `Could not resolve host`…), a
+note is added to the result for the model, in Chinese like every tool result: the command ran in the sandbox, at which
+level, what that level allows, and what to do next (use files in the working folder, or, where it's allowed, retry with
+`unsandboxed: true`).
+
+**What it can't protect against.**
+
+- **The working folder itself.** Inside it a command can delete or overwrite anything; the approvals and the file
+  tool's backups are what cover that.
+- **What gets left behind.** Scripts, git hooks and settings (`.git/hooks`, `.git/config`), `package.json` scripts,
+  Makefiles written into the working folder run as you, outside the sandbox, whenever you run them later yourself.
+- **The network level.** At **Working folder + network**, what's in the working folder can be sent anywhere.
+- **What you let out.** A command you allowed to run outside the sandbox, and tasks or channels set to Off.
+- **Bugs in the operating system.** The kernel enforces the line; a kernel bug can break it.
+- **Names and sizes on macOS.** A command can still learn that a file exists and how big it is (`file-read-metadata`
+  is allowed everywhere so that programs can resolve paths), never what's inside.
+- **Resources.** The sandbox doesn't limit CPU, memory or disk space; a runaway command can still use them all (the
+  command timeout and **Stop** still work).
+
+**From the command line** (handy on a server with no web page):
+
+```bash
+uv run harness sandbox                     # the status: level, this computer's sandbox, extra paths
+uv run harness sandbox level workspace     # off | workspace | network
+uv run harness sandbox allow ~/.nvm        # an extra read-only path; add --write for read and write
+uv run harness sandbox forget ~/.nvm
+uv run harness sandbox check               # runs a few harmless probes inside the sandbox and reports what got through
+uv run harness channels sandbox telegram workspace   # default | off | workspace | network for one channel
+```
+
+The commands are the same in PowerShell. Where things are stored: the level and extra paths in `data/settings.json`
+(`"sandbox": {"level", "paths"}`), a task's level with the task in `data/tasks.json`, a channel's in
+`data/channels.json`. The web endpoints ([harness/webui/sandbox_api.py](harness/webui/sandbox_api.py)), all behind the
+page's token: `POST /api/sandbox/level`, `/api/sandbox/add`, `/api/sandbox/edit`, `/api/sandbox/delete` and
+`/api/sandbox/reveal` (it shows only a path that is already on the list), `/api/channel/sandbox`, and the `sandbox`
+field of `/api/task/save`. The tunables in [harness/config.py](harness/config.py): `SANDBOX_MAX_PATHS` (50),
+`SANDBOX_PATH_CHARS` (1,000), `SANDBOX_PROBE_SECONDS` (10) and `SANDBOX_PROBE_TTL` (60).
+
 ### Permissions
 
 | Action | Handling |
@@ -1565,7 +1912,9 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 | Reading files outside the working directory | Asks you first. In **Allow read-only commands** mode it runs directly, unless the path is `data/`, a key file or looks like it holds secrets |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
 | Creating or changing any file | Asks you first, and shows what will be written |
-| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
+| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)). With the sandbox on, the card also says which level the command runs in (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)) |
+| Running one command outside the sandbox (`unsandboxed: true`, only while the sandbox is on) | Asks every time, in every mode, Allow everything included, with a warning on the card and no way to stop asking. A scheduled task or chat channel set to Allow everything can't ask at all, so there it is refused |
+| Any command while the sandbox is on but can't work on this computer | Refused without asking; the model is told why and how to fix it or switch the sandbox off |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
 | Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
 | Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
@@ -1647,9 +1996,10 @@ answer, whichever option you chose: loosening the prompts means "I'm here, go ah
 Two hard limits apply regardless of any prompt: the assistant can't read or write `.env` (which holds your API keys),
 and the commands it runs can't see those keys either.
 
-A risk to understand: the approval prompt is the only checkpoint between you and the model. Before approving a command,
-check what it does, especially right after the assistant has read a web page or an unfamiliar file, because that
-content may contain text designed to mislead the model.
+A risk to understand: unless you turn on the [sandbox](#sandbox-for-commands-what-a-command-can-reach), the approval
+prompt is the only checkpoint between you and the model. Before approving a command, check what it does, especially
+right after the assistant has read a web page or an unfamiliar file, because that content may contain text designed to
+mislead the model. The sandbox doesn't change what is asked; it limits what an allowed command can reach.
 
 #### Read-only commands, and why the check is conservative
 
@@ -1771,7 +2121,13 @@ environment, and a hook that references one (`$ANTHROPIC_API_KEY`, `${…}`, `%�
 again before it runs; the model has no tool that adds or changes hooks, and `data/hooks.json` is on the file tools'
 protected list like `.env` and `mcp.json`; the file is mode 600, masked in exports, and the page shows arguments with
 anything that looks like a token hidden. Each run's hook is its own: Stop in the chat ends only the chat's hook, and
-stopping a task ends only that task's.
+stopping a task ends only that task's. When the [command sandbox](#sandbox-for-commands-what-a-command-can-reach) is on, a hook runs in the same
+sandbox as that run's commands, at the same level: your script is yours, but the JSON it reads carries the model's tool
+input and tool output, and a careless script (one that pastes an argument into a command) would otherwise lend its
+hands to a model a web page has talked round. The hook's own program and script files (absolute paths) are readable
+inside; anything else outside the working folder (a log file, the network for a notification) needs a path added in
+the sandbox settings or the "Working folder + network" level. If the sandbox is on but unavailable on this computer,
+the hook doesn't run at all (it counts as a failure, so `onFailure` applies), never quietly outside the sandbox.
 
 ```json
 {
@@ -1839,10 +2195,15 @@ This starts a small server on your computer and opens the chat page in your brow
   **Regenerate** sits below it on its own. If that turn did something that may have changed your computer (ran a
   command, edited a file, called an MCP tool, operated the whole computer, clicked or typed in the browser), ZhiFox
   first lists those steps and asks once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
-  (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)).
+  (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)). When that turn changed
+  files, the same card offers to undo them too.
 - **Run trace.** The row of buttons under the last reply shows how long the turn took and what it cost; click it for a
   waterfall chart of the turn: how many model calls, which tools, when each step started and ended, how long it waited
   for your approval, tokens and cost (see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)).
+- **Changed files.** A turn in which the file tool changed files ends with **Changed N files**. **Undo** on that line
+  undoes the whole turn; expand it to see each file, click a name for a line-by-line preview, and undo or redo single
+  files. If a file changed since, the line explains why in place and waits for **Undo anyway**. Files changed by shell
+  commands can't be undone automatically (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)).
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
   **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
   shown below the input.
@@ -2084,7 +2445,10 @@ chat. Each row says:
   and the labels change with it. Computer use, for example, has three lines (clicking, typing and keys; screenshots;
   dangerous key combinations): its label is *Asks first* in Ask every time, and *Asks some* under Allow everything or
   once you've stopped being asked in the conversation, because dangerous key combinations still ask.
-- **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server.
+- **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server. With the
+  [sandbox](#sandbox-for-commands-what-a-command-can-reach) on, **Run commands** also says which level its commands run
+  in, or, in red, that the sandbox can't be used on this computer and commands will be refused, with a **Sandbox**
+  button that opens Settings there.
 - **Technical details**, folded: the tool names the model actually receives (for Claude, a toolset counts as one,
   such as `browser_toolset_20260801`).
 
@@ -2133,6 +2497,12 @@ How agent tasks behave:
   Steps that ran without asking are marked **Allowed automatically** in the run's progress and in its saved
   conversation. The chat's own setting doesn't apply to tasks, and tasks the assistant creates are always Ask every
   time (only you can change that).
+- **Each task has its own sandbox level.** Below the approval options, **Command sandbox** chooses **Follow settings**
+  (the default), **Off**, **Working folder only** or **Working folder + network** for that task's commands (see
+  [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)). If the level it ends up with can't work on
+  this computer, the editor says the task's commands will be refused. A task set to Allow everything can't ask you to let
+  a blocked command out of the sandbox, because nobody is there to answer. Tasks the assistant creates always follow
+  Settings.
 - **You can watch and stop them.** While a task runs you can see what it is doing (thinking, writing, which tool), how
   many model calls it has made, its cost so far and the tool calls so far. **Stop** works like the Stop button in a
   conversation and ends that run's command; a run still waiting in line is simply dropped. When several tasks are
@@ -2169,7 +2539,12 @@ Open **Extensions → Channels** and pick a platform. A four-step wizard walks y
    this channel only. Allow read-only commands suits looking after a server from your phone: `df -h` or
    `systemctl status nginx` runs at once, a restart still asks (see
    [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)). Allow everything comes with a warning:
-   with it, one message in the chat can make the assistant run any command.
+   with it, one message in the chat can make the assistant run any command. The same step has the channel's **Command
+   sandbox**: Follow settings (the default), Off, Working folder only or Working folder + network. For a server you look
+   after from your phone, Working folder only is the recommended one (see
+   [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)). When the sandbox blocks a command that's
+   really needed, the assistant asks you in the chat to let that one command out, every time; a channel set to Allow
+   everything can't, because nobody would answer.
 
 Setting up each platform (the wizard and `harness channels setup <platform>` print the same steps):
 
@@ -2298,6 +2673,23 @@ Custom agents get it with `tools: Computer`. The terminal UI follows the same se
 terminal; it has no buttons for the per-conversation choices, so there only `/auto all` stops the questions (dangerous
 combinations still ask).
 
+### Sandbox
+
+The sandbox for commands is off by default; what it does and why is in
+[Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach). To turn it on, open **Settings → Sandbox** and
+pick a level for your conversations: **Working folder only** (no network; the one to use when you drive ZhiFox from your
+phone) or **Working folder + network**. The section says which sandbox this computer uses (macOS `sandbox-exec`, Linux
+bubblewrap) and, if it can't be used here, why and how to fix it; pick a level anyway and the warning turns red: every
+command will be refused until it's fixed or the level is back to Off. **Manage paths** opens the list of extra paths a command may read,
+or read and write, such as `~/.nvm` for the `node` that nvm installed. The level applies from the next command.
+Scheduled tasks and chat channels follow it unless you pick another level in the task editor or the channel wizard.
+
+While it's on, the approval card for each command has a line saying which level it runs in. When a command fails
+because the sandbox blocked it, the assistant is told so; if it really needs to run that one command outside the
+sandbox, you get a separate card with a warning, every time. On a server, the same settings are on the command line:
+`harness sandbox`, `harness sandbox level workspace`, `harness sandbox allow <path> [--write]`, `harness sandbox forget
+<path>`, `harness sandbox check` and `harness channels sandbox <platform> <level>`.
+
 ### Terminal UI
 
 ```bash
@@ -2334,6 +2726,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto readonly`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
 | `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
+| `/undo` | Undo the files the latest turn changed with the file tool: lists them (and anything that changed since) and asks before writing. Redo and undoing single files are in the web UI |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
@@ -2521,6 +2914,9 @@ uv run harness channels setup telegram     # paste the bot token (not echoed), o
 uv run harness channels pair telegram      # prints a 6-digit code; send it to your bot, wait for "Paired"
 uv run harness channels approval telegram readonly    # ask | readonly | edits | all (ask is the default)
 uv run harness commands add "npm test"     # optional: your own commands that don't ask in readonly mode
+sudo apt install bubblewrap                # recommended: the sandbox for commands (dnf / pacman on other distributions)
+uv run harness sandbox level workspace     # commands stay in the working folder, with no network
+uv run harness sandbox check               # see what the sandbox lets through on this server
 uv run harness channels status
 ```
 
@@ -2591,7 +2987,10 @@ The security model for remote ops: only the paired account is served (strangers 
 pairing code expires after 10 minutes or 5 wrong guesses); the default approval mode is **Ask every time**, and each
 approval shows the full command and the working folder before you tap Allow; **Allow read-only commands** loosens only
 commands that just look; **Allow everything** comes with a
-warning and is a deliberate choice per channel; one turn at a time per chat, and `/stop` ends it, command included;
+warning and is a deliberate choice per channel; with the [sandbox](#sandbox-for-commands-what-a-command-can-reach) set
+to Working folder only, even an allowed command can touch only the working folder, can't read ZhiFox's data, `.env` or
+`~/.ssh`, and can't reach the network, and running one outside it asks you in the chat every time (never on a channel
+set to Allow everything); one turn at a time per chat, and `/stop` ends it, command included;
 the bot tokens and app secrets live only in `channels.json` (mode 600), are never sent to the browser or the model,
 are masked in exports and hidden in logs and error messages, and the assistant's file tool can't open that file in any
 mode; and shell commands don't see `TELEGRAM_BOT_TOKEN`, the other platforms' secret variables or the API keys in their
@@ -2611,15 +3010,17 @@ unprivileged user for the service.
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, and the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`). No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), and the command sandbox (`"sandbox": {"level", "paths"}`). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/hooks.json` | Your [hooks](#hooks-your-own-scripts-at-fixed-moments): name → event, matcher, program and arguments, time limit, `onFailure`, `runsIn`, `enabled`. Arguments may hold tokens, so it is readable by your account only, the assistant's file tool can't open it, and exports mask it |
-| `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
+| `data/endpoints.json` | Custom model endpoints: name, URL, the optional key, and each model's abilities, context limit and price. Readable by your account only; the assistant's file tool can't open it; the key is masked in exports and the web page only ever sees its last 4 characters |
+| `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, the sandbox level, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
 | `data/desktop/shots/` | Full-size screenshots of computer use steps (your whole screen), named by the SHA-256 of their content. Deleted after 7 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
+| `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 | `data/logs/` | The background service's log on macOS, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
@@ -2868,6 +3269,13 @@ the limit, Stop reaching only its own run, and the four approval modes; the fake
 its instruction, so parallel runs stay deterministic).
 MCP is tested against [tests/fake_mcp.py](tests/fake_mcp.py), a fake MCP server that speaks either protocol generation
 over stdio or HTTP, in [tests/test_mcp.py](tests/test_mcp.py) and [tests/test_mcp_web.py](tests/test_mcp_web.py).
+Custom model endpoints run against `fake_openai.py` set up to imitate Ollama, LM Studio, or a server with no model
+list, no tools or no `stream_options`: [tests/test_endpoints.py](tests/test_endpoints.py) (the URL rules, the form
+checks, storage, guessing abilities, probing, redirects not followed, the key masked in exports),
+[tests/test_endpoints_chat.py](tests/test_endpoints_chat.py) (a full turn and tool calls, stepping back without tools
+or `stream_options`, no other provider's key or header reaching the endpoint, per-model context and prices, switching
+rules, the catalog and the capability list) and [tests/test_endpoints_web.py](tests/test_endpoints_web.py) (the web
+endpoints, a kept key never following the address elsewhere, the key absent from everything sent to the browser).
 The media library is covered in
 [tests/test_media.py](tests/test_media.py) (storing and deduplicating originals, recovering attachments from older
 histories in both Claude's and OpenAI's formats, filtering and paging, ids that can't name a path, cleaning up originals
@@ -2877,6 +3285,12 @@ starts byte for byte like the original, no orphan tool results, earlier thinking
 restart, compaction, which steps count as changes), [tests/test_rewind_web.py](tests/test_rewind_web.py) (the
 endpoints and their refusals, the confirmation, the event stream after a rewind in two tabs, the saved file, search and
 the media library) and [tests/test_rewind_cli.py](tests/test_rewind_cli.py) (`/retry` and `/edit`).
+Undoing file changes is covered in [tests/test_undo.py](tests/test_undo.py) and
+[tests/test_undo_diff.py](tests/test_undo_diff.py) (temporary working folders: copies, every kind of edit, undo and
+redo, hash conflicts, protected paths and links, size limits, reopening after a save, threads that aren't recorded),
+[tests/test_undo_web.py](tests/test_undo_web.py) (the endpoints, events and saved file, the note to the model, rewinding
+with undo), [tests/test_undo_cli.py](tests/test_undo_cli.py) (`/undo`) and
+[tests/ui/test_ui_file_changes.py](tests/ui/test_ui_file_changes.py) (the page in three languages, narrow and dark).
 Chat channels are tested against a local fake of each platform, while the test code plays your phone:
 [tests/fake_telegram.py](tests/fake_telegram.py) (a Bot API that checks the HTML and the length of every message the
 way Telegram does), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a
@@ -2951,6 +3365,17 @@ run's own session and the one-screen claim, the tasks-and-channels switch, the e
 the request start stays byte-identical across turns. [tests/test_desktop_x11.py](tests/test_desktop_x11.py) runs the
 real X11 backend against a virtual display (Xvfb) it starts itself, and is skipped wherever Xvfb, `xdotool` or ImageMagick is missing, which includes
 every Mac.
+The command sandbox is tested in two layers. Everywhere, `tests/conftest.py` swaps the real backend for
+[tests/fake_sandbox.py](tests/fake_sandbox.py), which records what would have been sandboxed (and can pretend the
+sandbox isn't available), so the rules can be checked without one: the paths in a policy, the SBPL profile and the bwrap
+arguments (odd file names passed through untouched, `data/` and `.env` always denied, the network on or off, no rule
+ever written without a path), the approval card, the escape asking in every mode and refused in a task or channel set
+to Allow everything, refusing rather than running unsandboxed, per-task and per-channel levels, and the settings
+endpoints. Then the real thing: on a Mac, `sandbox-exec` runs commands in a temporary working folder and checks that
+writing inside works, writing outside fails, reading a stand-in for `~/.ssh` fails, and `curl` reaches a local
+`http.server` on 127.0.0.1 only at Working folder + network; on Linux the same checks run against bubblewrap, and are
+skipped where `bwrap` isn't installed or can't create a sandbox. The page parts (the Settings section, the paths
+dialog, the task and channel selectors) are in the page tests below.
 
 The Markdown renderer has its own tests in [tests/markdown.test.mjs](tests/markdown.test.mjs), run by Node's built-in
 test runner (`node --test tests/markdown.test.mjs`, nothing to install); `uv run pytest` runs them too when Node is
@@ -2977,7 +3402,7 @@ reload without entry animations; approval cards (allow, deny with a reason, Esc 
 from the Appearance panel; switching between Chinese, English and Spanish in place (the conversation, scroll position,
 half-written message and open panel all stay) and a sweep of every panel and dialog for untranslated Chinese; text
 overflow at 390 px wide in all three languages; the Show in Finder / Edit / Delete buttons on every kind of stored item
-(conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels) on hover and keyboard focus, and
+(conversations, to-dos, tasks, memories, skills, MCP servers, agents, channels, the sandbox's extra paths) on hover and keyboard focus, and
 in-place delete confirmations; the unsaved-changes guards (Esc, ×, Cancel, clicking outside, Esc with the focus outside
 the dialog); dropdown arrows drawn by the page; the Extensions tabs and empty states; the media library and viewer;
 the model switcher (what it lists, switching within a provider at once, asking in place before leaving a conversation
@@ -2986,7 +3411,9 @@ just appearing with reduced motion) and saving a key in Settings, then switching
 (each language in its own words, the keyboard, rising from the bottom on a phone); the gear and ⌘, / Ctrl+, opening
 Settings while the model button doesn't; the browser tool's thumbnails; the web app manifest as Chrome itself reads it
 (`Page.getAppManifest` with no errors, `Page.getInstallabilityErrors` empty, every icon fetched at its stated size, the
-security policy still blocking every other image) and the title bar color following the chosen appearance; and editing and regenerating the last turn
+security policy still blocking every other image) and the title bar color following the chosen appearance; the
+sandbox section in Settings (the level, the warning when this computer can't sandbox, the extra paths dialog) and the
+sandbox choice in the task editor and the channel wizard; and editing and regenerating the last turn
 (where the buttons sit, ↑ in the empty input box, Esc warning before throwing away an edit, the confirmation when the
 turn ran a command, a turn that failed getting its own Regenerate, a second tab following along and keeping its
 unsent edit). The demo answers these tests from scripts
@@ -3023,7 +3450,8 @@ greets you, and `[ui:flaky]` fails the first attempt at every message (so you ca
 Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes
 with GitHub's runners. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer use
-integration test runs there against a virtual display. The result is the Tests badge at the top of this page.
+integration test runs there against a virtual display, and bubblewrap, so the sandbox's real Linux backend is tested
+there too. The result is the Tests badge at the top of this page.
 
 ## Evals: is the assistant actually any good?
 
@@ -3066,7 +3494,10 @@ uv run harness eval compare <run-A> <run-B>     # any two runs (a unique prefix 
 ```
 
 The commands are the same in PowerShell on Windows. `--model` takes `provider/model` (or just a model name such as
-`deepseek-flash`); without it, the model you have selected is used. `--tasks` takes comma-separated IDs (with `*`
+`deepseek-flash`); without it, the model you have selected is used. A model on a custom endpoint is
+`custom-<id>/<model>`, for example `--model custom-ollama/qwen3:8b` (see
+[Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)): the endpoint settings are copied
+into each run's data folder, and a local model costs nothing. `--tasks` takes comma-separated IDs (with `*`
 wildcards) or tags. Other options: `--repeat N` (models don't answer the same way twice, so a single run of a task is a
 coin toss; repeat it before drawing conclusions), `--prompt PATH` or `--prompt builtin` (by default your current prompt
 is used, so editing it in Settings and running the eval again tells you whether the edit helped), `--effort`,
@@ -3181,6 +3612,10 @@ more often a bug in a task or a check than a fact about the model.
   yet, so the starter tasks' scores and the cost estimate haven't been checked against a real model. The served model
   isn't checked against the one asked for (a server-side fallback after a refusal shows up only as a note in the trace).
 - With GPT, Gemini and DeepSeek there is no web search.
+- Custom model endpoints have been tested only against local fake servers that imitate Ollama, LM Studio and partial
+  OpenAI-format servers, not a real Ollama, LM Studio, vLLM, llama.cpp or gateway. A server that doesn't report usage
+  while streaming shows no token counts and its conversations aren't compacted. PDFs reach a custom endpoint only in
+  OpenAI's own format, which local servers generally don't read.
 - Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
   inevitably loses detail. The cut can only fall between turns, so a single turn that by itself exceeds the model's
   limit (say, one that reads many large files) can't be compacted. Models not listed in `config.py` are all assumed
@@ -3236,6 +3671,13 @@ more often a bug in a task or a check than a fact about the model.
   the frontmost app (on macOS also the window under a click), so a blocked app partly visible behind another window can
   still appear in a screenshot. Typing on a non-US keyboard layout types the right text, but shortcuts are sent by key
   position (US layout). Long sessions accumulate screenshots in the history; start a new conversation for a new job.
+- The command sandbox: the macOS backend (`sandbox-exec`) is tested for real on a Mac (writing inside and outside the
+  working folder, reading a stand-in for `~/.ssh`, a local web server with and without the network); the Linux backend
+  (bubblewrap) is tested only in CI on Ubuntu, not on other distributions or a desktop; Windows has no sandbox (see
+  [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach) for why). Inside the sandbox, programs
+  installed in your home folder need their folder added as an extra path, `~` is the run's own empty home folder,
+  `sudo` and `ps` don't run on macOS, and localhost counts as network. It doesn't limit CPU, memory or disk, and it
+  can't protect the working folder itself or what you later run from it.
 - **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
   still thinking and has produced nothing, it won't stop immediately.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
@@ -3250,6 +3692,7 @@ more often a bug in a task or a check than a fact about the model.
 - Add a locally run search tool for models that don't support web search.
 - MCP resources and prompts, and OAuth sign-in for remote MCP servers.
 - Computer use on more than the main display, and with a real Claude key on a test machine.
+- A sandbox for commands on Windows (an AppContainer, if its folder permissions and PowerShell can be made to work).
 - Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
@@ -3270,7 +3713,8 @@ of a file the assistant reads) go to the API of the provider you chose; with Cla
 servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
 use on, the sites the assistant opens see an ordinary visit from ZhiFox's own Chrome, and what it reads there goes to
 the provider. With computer use on (off by default), the screenshots of your screen that you approve go to the
-provider as well. Saved
+provider as well. With a custom endpoint on this computer or your local network (Ollama, LM Studio…), all of this stays
+on your network. Saved
 conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
 The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
@@ -3282,7 +3726,10 @@ DeepSeek through the OpenAI-compatible Chat Completions API, using the model lis
 switcher. Only Claude has
 been tested in real chats so far. Web search is Claude-only; long conversations are compacted with every provider (by
 Anthropic's API for Claude, by ZhiFox itself for the others). Any other provider that speaks the OpenAI format can be
-added with one entry in `PROVIDERS`.
+added with one entry in `PROVIDERS`, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp, your own
+gateway) can be added from Settings without touching code (see
+[Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)). Custom endpoints have been tested
+against local fake servers only, not a real Ollama or LM Studio yet.
 
 ### Can it run commands without asking me?
 
@@ -3294,7 +3741,9 @@ conversation you're watching, or with Allow everything; dangerous shortcuts (⌘
 elsewhere) ask every time regardless. Scheduled tasks have their own
 setting, chosen per task in the task editor (Ask every time by default; tasks the assistant creates always ask). In
 every mode the assistant can't touch `.env`, and the commands it runs can't see your API keys. See
-[Permissions](#permissions).
+[Permissions](#permissions). For a second safeguard, turn on the
+[sandbox for commands](#sandbox-for-commands-what-a-command-can-reach): even a command that ran without asking can then
+reach only the working folder (and, if you choose, no network), and running one outside the sandbox asks every time.
 
 ### Can it do things on a schedule?
 
@@ -3314,7 +3763,8 @@ demo cost nothing. See [Cost](#cost).
 ### Can I use it from my phone?
 
 Yes, through your own bot on Telegram, Discord, Slack, Feishu, DingTalk or QQ (see [Chat channels](#chat-channels)). Only the account you pair can use it,
-and anything that would change your computer still asks you first, in the chat. To keep the bot answering when no
+and anything that would change your computer still asks you first, in the chat; set the channel's sandbox to Working
+folder only and even an allowed command stays inside the working folder, off the network. To keep the bot answering when no
 terminal is open, run `uv run harness service install` (see [Run it in the background](#run-it-in-the-background)). On a
 server, run `harness serve` (see [Deploying to a server](#deploying-to-a-server)).
 

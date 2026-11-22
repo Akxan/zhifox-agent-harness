@@ -35,6 +35,8 @@ ROWS = [
     Rows("聊天通道", "#panel-channels li.chan-row", ".chan-actions", ".chan-open", hover=".chan-main"),
     Rows("不用问的命令", "#commands-list > li.cmd-row", ".cmd-actions", ""),
     Rows("钩子", "#panel-hooks li.hooks-row", ".hooks-actions", ".hooks-open"),
+    Rows("沙箱的路径", "#sandbox-list > li.sandbox-row", ".sandbox-actions", ""),
+    Rows("自定义模型接口", "#endpoints-list > li.endpoint-row", ".endpoint-actions", ".endpoint-open"),  # 演示里预先加好了一个
 ]
 
 
@@ -51,6 +53,13 @@ def _show(page, rows: Rows) -> None:
         steps.open_dialog(page, "#settings-open", "settings")
         page.click("#commands-open")
         page.wait(steps.is_open("commands-dialog"), what="不用问的命令窗口打开")
+    elif rows.name == "沙箱的路径":
+        steps.open_dialog(page, "#settings-open", "settings")
+        page.click("#sandbox-paths-open")
+        page.wait(steps.is_open("sandbox-dialog"), what="沙箱的路径窗口打开")
+    elif rows.name == "自定义模型接口":
+        steps.open_dialog(page, "#settings-open", "settings")
+        page.js("document.getElementById('endpoints-section').scrollIntoView({ block: 'center' })")
     else:
         tab = {"Skill": "skills", "MCP 服务器": "mcp", "Agent": "agents", "聊天通道": "channels", "钩子": "hooks"}[rows.name]
         steps.extensions_tab(page, tab)
@@ -59,7 +68,7 @@ def _show(page, rows: Rows) -> None:
 
 
 def _hide(page) -> None:
-    for dialog in ("memory-dialog", "extensions", "commands-dialog"):
+    for dialog in ("memory-dialog", "extensions", "commands-dialog", "sandbox-dialog", "settings"):
         if page.js(steps.is_open(dialog)):
             steps.escape_closes(page, dialog)
     steps.close_side(page)
@@ -82,9 +91,11 @@ def stocked(page):
     assert status == 200
     assert page.demo.api("/api/commands/add", {"command": "npm test"})[0] == 200
     steps.save_hook(page, "fmt", "import sys\nsys.stdin.read()\n", event="PostToolUse", matcher="files")
+    assert page.demo.api("/api/sandbox/add", {"path": "/srv/app", "write": False})[0] == 200
     yield page
     page.demo.api("/api/channel/remove", {"platform": "telegram"})
     page.demo.api("/api/commands/delete", {"command": "npm test"})
+    page.demo.api("/api/sandbox/delete", {"path": "/srv/app"})
     for todo in page.js("[...document.querySelectorAll('#todos > li.todo')].map((row) => Number(row.dataset.id))"):
         page.demo.api("/api/todo/delete", {"id": todo})
 
@@ -125,7 +136,7 @@ def test_every_local_item_has_reveal_edit_delete_on_hover_and_focus(stocked):
     assert len(set(sizes.values())) == 1, f"每一种的三个按钮应该一样大：{sizes}"
 
 
-@pytest.mark.parametrize("which", ["会话", "待办", "记忆", "不用问的命令"])
+@pytest.mark.parametrize("which", ["会话", "待办", "记忆", "不用问的命令", "沙箱的路径", "自定义模型接口"])
 def test_delete_asks_in_place_and_escape_cancels(stocked, which):
     page = stocked
     rows = next(item for item in ROWS if item.name == which)
@@ -154,6 +165,8 @@ EDITORS = {
     "提示词": {"open": ["#settings-open", "#prompt-open"], "dialog": "prompt-dialog", "field": "#prompt-text", "close": "#close-prompt", "cancel": "#prompt-cancel", "message": "#prompt-message"},
     # 添加框里写了一半，就算有没保存的修改；"完成"在这里就是"取消"那个位置的按钮
     "不用问的命令": {"open": ["#settings-open", "#commands-open"], "dialog": "commands-dialog", "field": "#commands-new", "close": "#close-commands", "cancel": "#commands-done", "message": "#commands-message"},
+    # 沙箱里额外允许的路径：和上面一样，添加框里写了一半就算有没保存的修改
+    "沙箱的路径": {"open": ["#settings-open", "#sandbox-paths-open"], "dialog": "sandbox-dialog", "field": "#sandbox-new", "close": "#close-sandbox-dialog", "cancel": "#sandbox-done", "message": "#sandbox-message"},
 }
 WARNING = "还有没保存的修改，再按一次就放弃。"
 

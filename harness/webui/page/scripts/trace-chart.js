@@ -17,6 +17,8 @@ const TRACE_SPLIT = [
 // 钩子的时刻和结论怎么说，和"扩展 · 钩子"那一页一样：都在 hook-words.js
 const TRACE_RESULT = { error: k('出错'), skipped: k('没有执行'), stopped: k('没有执行完') };
 const TRACE_SKIPPED_WHY = k('前面的一步失败了，或者参数在生成中途被截断，这一步没有执行。');
+// 执行命令时沙箱是哪一档（格式见 harness/trace/__init__.py 的 sandbox；终端 /trace 的说法在 harness/trace/text.py）
+const TRACE_SANDBOX = { workspace: k('在沙箱里：只在工作目录里'), network: k('在沙箱里：工作目录 + 联网'), off: k('没有用沙箱'), outside: k('在沙箱之外运行（你放行的）') };
 const TRACE_STATUS = { stopped: k('被打断'), error: k('出错了'), compacted: k('压缩历史'), paused: k('搜索还没做完'), refused: k('模型拒绝了') };
 const traceCount = (n) => new Intl.NumberFormat(LOCALES[language]).format(traceNumber(n));
 const tracePercent = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
@@ -80,6 +82,7 @@ function traceSays(lane) {
     if (span.note) parts.push(span.note);
   } else {
     parts.push(((span.name || '') + ' ' + (span.detail || '')).trim(), traceTime(span.end - span.start), traceApproval(span));
+    if (TRACE_SANDBOX[span.sandbox]) parts.push(t(TRACE_SANDBOX[span.sandbox]));
     parts.push(span.result === 'ok' ? t('结果 {n} 个字', { n: traceCount(span.size) }) : t(TRACE_RESULT[span.result] || k('没有执行完')));
   }
   return parts.filter(Boolean).join(' · ');
@@ -276,6 +279,7 @@ function traceStep(lane, number) {
       main.appendChild(el('p', 'trace-step-meta', t('结果 {n} 个字', { n: traceCount(span.size) }) + (span.images ? ' · ' + t('{n} 张图', { n: span.images }) : '')));
     }
     if (span.approval) tags.appendChild(traceTag(traceApproval(span), span.approval === 'auto' ? 'auto' : span.approval === 'allowed' ? 'ok' : 'warn'));
+    if (TRACE_SANDBOX[span.sandbox]) tags.appendChild(traceTag(t(TRACE_SANDBOX[span.sandbox]), span.sandbox === 'outside' ? 'warn' : 'note'));
     if (span.result && span.result !== 'ok') tags.appendChild(traceTag(t(TRACE_RESULT[span.result] || k('没有执行完')), span.result === 'error' ? 'bad' : 'warn'));
     if (span.result === 'skipped') main.appendChild(tel('p', 'trace-step-meta', TRACE_SKIPPED_WHY));
     if (span.note) main.appendChild(el('p', 'trace-note', span.note));

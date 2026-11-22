@@ -124,6 +124,7 @@ __STYLES__
   <symbol id="i-hook" viewBox="0 0 24 24"><path d="M15 4.5v9.5a5 5 0 0 1-10 0v-2l2.6 2.6M12.5 4.5h5M15 4.5V2.8"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 14.5v4A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 19 10.5H5A1.5 1.5 0 0 1 3.5 9V6A1.5 1.5 0 0 1 5 4.5zM5 13.5h14a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18v-3A1.5 1.5 0 0 1 5 13.5zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 5.5L4.5 12 11 18.5"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
@@ -132,6 +133,9 @@ __STYLES__
   <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3M8 11h6"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7.5L7 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5zM8 10.5h8M8 13.5h5"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5 5 5M15.5 9.5h.01"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 13.5L4.5 9 9 4.5M4.5 9h10a5 5 0 0 1 0 10H11"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 13.5L19.5 9 15 4.5M19.5 9h-10a5 5 0 0 0 0 10H13"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9.5 11.5h5M12 9v5M9.5 17h5"/></symbol>
 </svg>
 
 <div id="banner" class="banner" role="alert" hidden></div>
@@ -382,6 +386,14 @@ __STYLES__
       <div id="keys"></div>
       <p class="hint" data-i18n>密钥保存在你自己电脑上的 .env 文件里。保存后这里只显示最后 4 位，不会再显示完整内容。</p>
     </section>
+    <!-- 自定义模型接口（scripts/endpoints.js、endpoints-editor.js）：Ollama、LM Studio、公司的网关……每一行和别的本地的东西一样，悬停时右边是"在访达中显示 / 编辑 / 删除" -->
+    <section id="endpoints-section">
+      <h3><span data-i18n>自定义模型接口</span> <small id="endpoints-state"></small></h3>
+      <p class="hint endpoint-lead" data-i18n>Ollama、LM Studio、vLLM、llama.cpp，或者公司自己的网关：任何 OpenAI 格式的接口都能接。本机和内网的接口，对话不出你的网络。</p>
+      <p id="endpoints-problem" class="endpoint-problem" role="note" hidden></p>
+      <ul id="endpoints-list" class="endpoint-list" aria-label="自定义模型接口" data-i18n-aria-label></ul>
+      <button id="endpoints-add" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>添加接口</span></button>
+    </section>
     <section>
       <h3><span data-i18n>价格</span> <small data-i18n>用来估算费用，单位：美元 / 每百万 token</small></h3>
       <div id="price" class="row"></div>
@@ -396,6 +408,31 @@ __STYLES__
       <h3><span data-i18n>不用问的命令</span> <small id="commands-state"></small></h3>
       <p class="hint" data-i18n>选了“自动允许只读命令”时，只是看的命令（ls、git status、df……）不用问。你天天用、信得过的别的命令（比如 npm test），也可以加进来。</p>
       <button id="commands-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n>管理不用问的命令</span></button>
+    </section>
+    <!-- 命令的沙箱（scripts/sandbox.js）：几档的名字和说明、这台电脑上能不能用，都由助手程序给（state.sandbox） -->
+    <section id="sandbox-section" hidden>
+      <h3><span data-i18n>沙箱</span> <small id="sandbox-state"></small></h3>
+      <div id="sandbox-card" class="sandbox-card">
+        <div class="sandbox-top">
+          <span class="sandbox-glyph" aria-hidden="true"><svg class="icon"><use href="#i-lock"/></svg></span>
+          <div class="sandbox-words">
+            <b data-i18n>命令关在沙箱里运行</b>
+            <span class="sandbox-lead" data-i18n>“要不要先问你”之外的第二道关卡：一条命令被放行以后，运行时也只碰得到该碰的地方。被网页里的一句话带偏的模型，自己出不了沙箱。</span>
+          </div>
+        </div>
+        <div class="sandbox-level">
+          <label class="sandbox-level-label" for="sandbox-level" data-i18n>对话里用哪一档</label>
+          <select id="sandbox-level" class="field" aria-describedby="sandbox-level-text"></select>
+        </div>
+        <p id="sandbox-level-text" class="sandbox-level-text"></p>
+        <p id="sandbox-problem" class="sandbox-problem" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span id="sandbox-problem-text"></span></p>
+        <p id="sandbox-backend" class="sandbox-backend"></p>
+        <div class="sandbox-paths-row">
+          <div class="sandbox-paths-words"><b data-i18n>额外允许的路径</b><span id="sandbox-paths-count" class="sandbox-note"></span></div>
+          <button id="sandbox-paths-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span data-i18n>管理路径</span></button>
+        </div>
+      </div>
+      <p class="hint" data-i18n>定时任务和聊天通道默认跟着这里选的那一档，也可以在它们自己的设置里另选。改了以后，下一条命令就按新的来。</p>
     </section>
     <section>
       <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
@@ -568,6 +605,12 @@ __STYLES__
       <p id="task-approval-warning" class="task-approval-warning" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>任务运行时多半没人看着：选这一项，执行命令、改文件（允许了任务操作电脑的话，还有点击、打字）都不会再等你批准。只给你完全信任的指令用。</span></p>
       <p class="hint task-approval-hint" data-i18n>任务按这里选的来，和对话里选的那一档互不影响。要确认的操作会停下来，等你在任务列表里批准。</p>
     </div>
+    <div id="task-sandbox-field" class="task-field"><label class="task-label" for="task-sandbox" data-i18n>命令的沙箱</label>
+      <select id="task-sandbox" class="field" aria-describedby="task-sandbox-text"></select>
+      <p id="task-sandbox-text" class="sandbox-choice-text"></p>
+      <p id="task-sandbox-problem" class="sandbox-problem" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span></span></p>
+      <p class="hint task-approval-hint" data-i18n>命令被沙箱挡住、又确实需要时，助手会请你放行这一条（每次都问）；选了“全部自动允许”的任务没人回答，不能放行。</p>
+    </div>
     <label class="task-check"><input id="task-enabled" type="checkbox"><span data-i18n>启用（关掉以后先不运行，设置都留着）</span></label>
     <p id="task-cost-note" class="hint" data-i18n>每次运行都会调用模型，会产生费用（不设上限，每次花了多少都会记下来）。只有智狐开着的时候任务才会运行；错过的，下次打开时补跑一次。</p>
   </div>
@@ -721,6 +764,70 @@ __STYLES__
     <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
   </div>
   <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
+</dialog>
+
+<dialog id="sandbox-dialog" class="settings sandbox-dialog" aria-labelledby="sandbox-dialog-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="sandbox-dialog-title" data-i18n>沙箱里额外允许的路径</h2>
+      <p class="memory-sub" data-i18n>沙箱开着时，命令只能读写工作目录。这里加的路径，命令也能读（或者读写）。</p>
+    </div>
+    <button id="close-sandbox-dialog" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body sandbox-body">
+    <div class="sandbox-always">
+      <span class="sandbox-always-glyph" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
+      <div class="sandbox-always-words">
+        <b data-i18n>这些地方加进来也碰不到</b>
+        <p data-i18n>智狐自己的数据目录（data/：以前的会话、设置、聊天机器人的 token）和 .env（各家的 API key），在沙箱里永远读不到、写不了。家目录里放密钥的地方（~/.ssh、~/.aws、~/.gnupg……）也一样，除非你把它本身单独加进来。</p>
+      </div>
+    </div>
+    <h3 class="sandbox-heading"><span data-i18n>你加的路径</span> <small id="sandbox-count"></small></h3>
+    <ul id="sandbox-list" class="sandbox-list" aria-label="你加的路径" data-i18n-aria-label></ul>
+    <div class="row sandbox-add">
+      <input id="sandbox-new" class="field" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="1000" placeholder="比如 ~/.nvm 或者 /srv/app" aria-label="要加的路径" data-i18n-placeholder data-i18n-aria-label>
+      <select id="sandbox-new-mode" class="field" aria-label="沙箱里的命令能做什么" data-i18n-aria-label><option value="read" data-i18n>只读</option><option value="write" data-i18n>可读写</option></select>
+      <button id="sandbox-add" class="button" type="button" data-i18n>添加</button>
+    </div>
+    <p class="hint" data-i18n>写完整的路径（从 / 或者 ~ 开始）。装在家目录里的程序（nvm、pyenv、cargo 的工具）在沙箱里默认读不到，要用就把它的文件夹加成只读。可读写的路径，沙箱里的命令能改里面的任何东西，只加你放心的。</p>
+  </div>
+  <div class="memory-foot"><p id="sandbox-message" class="memory-message" role="status"></p><button id="sandbox-done" class="button primary" type="button" data-i18n>完成</button></div>
+</dialog>
+
+<!-- 添加、编辑一个自定义模型接口（scripts/endpoints-editor.js）。叠在设置面板上面打开，关上以后回到设置里的那一行 -->
+<dialog id="endpoint-dialog" class="settings endpoint-dialog" aria-labelledby="endpoint-title" aria-describedby="endpoint-sub">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="endpoint-title"></h2>
+      <p id="endpoint-sub" class="memory-sub" data-i18n>请求都从智狐的程序发出去，页面从来不直接连这个地址。外面的地址要用 https://，明文的 http:// 只许本机和内网。</p>
+    </div>
+    <button id="close-endpoint" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="settings-body endpoint-form">
+    <div class="endpoint-presets" role="group" aria-labelledby="endpoint-presets-label">
+      <span id="endpoint-presets-label" class="endpoint-label" data-i18n>常用的几种</span>
+      <div id="endpoint-presets" class="endpoint-preset-row"></div>
+    </div>
+    <label class="endpoint-field"><span class="endpoint-label" data-i18n>名字</span><input id="endpoint-name" class="field" type="text" maxlength="40" autocomplete="off" spellcheck="false" placeholder="比如 Ollama、公司网关" data-i18n-placeholder></label>
+    <p id="endpoint-id" class="hint endpoint-id" hidden></p>
+    <label class="endpoint-field"><span class="endpoint-label" data-i18n>接口地址</span><input id="endpoint-url" class="field endpoint-mono" type="url" maxlength="500" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434/v1"></label>
+    <label class="endpoint-field"><span class="endpoint-label"><span data-i18n>这个接口的 API 密钥</span> <small data-i18n>可以不填：本地的服务器一般不要</small></span><input id="endpoint-key" class="field endpoint-mono" type="password" maxlength="1000" autocomplete="off" spellcheck="false"></label>
+    <label id="endpoint-key-clear-box" class="endpoint-check" hidden><input id="endpoint-key-clear" type="checkbox"><span data-i18n>不再用保存着的密钥</span></label>
+    <div class="endpoint-probe">
+      <button id="endpoint-test" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n>测试连接</span></button>
+      <button id="endpoint-sync" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n>同步模型</span></button>
+      <p id="endpoint-result" class="endpoint-result" role="status" aria-live="polite"></p>
+    </div>
+    <h3 class="endpoint-models-head"><span data-i18n>模型</span> <small id="endpoint-count"></small></h3>
+    <ul id="endpoint-models" class="endpoint-models" aria-label="这个接口上的模型" data-i18n-aria-label></ul>
+    <div class="row endpoint-add">
+      <input id="endpoint-model-new" class="field endpoint-mono" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="模型名，比如 qwen3:8b" aria-label="要添加的模型名" data-i18n-placeholder data-i18n-aria-label>
+      <button id="endpoint-model-add" class="button" type="button" data-i18n>添加</button>
+    </div>
+    <p class="hint" data-i18n>要让智狐读写文件、执行命令、记待办，模型得支持工具调用（function calling）：Qwen 3、Llama 3.1 以上、Mistral、GPT-OSS 这些可以，小的老模型多半不行。用不了工具的模型只能用文字回答；第一次被服务器拒绝时，智狐会自动把它标成“不能用工具”。</p>
+    <p id="endpoint-defaults" class="hint"></p>
+  </div>
+  <div class="memory-foot"><p id="endpoint-message" class="memory-message" role="status"></p><button id="endpoint-cancel" class="button" type="button" data-i18n>取消</button><button id="endpoint-save" class="button primary" type="button" data-i18n>保存</button></div>
 </dialog>
 
 <dialog id="viewer" class="viewer" aria-labelledby="viewer-name" aria-describedby="viewer-meta">

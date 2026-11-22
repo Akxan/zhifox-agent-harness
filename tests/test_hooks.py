@@ -607,3 +607,49 @@ def test_export_masks_tokens_in_hook_arguments(start, tmp_path):
     with zipfile.ZipFile(out) as archive:
         saved = archive.read("hooks.json").decode()
     assert "hook-secret-value-123" not in saved and "sk-hookkey" not in saved and "notify.py" in saved
+
+
+# ---- 命令的沙箱 -----------------------------------------------------------------------
+
+
+def test_hooks_run_in_the_same_sandbox_as_the_commands(start, monkeypatch):
+    import fake_sandbox
+
+    fake = fake_sandbox.install(monkeypatch)
+    h = start(LIST_TODOS, reply(text("好")))
+    argv, log = script(h.config.workspace.parent / "hooks", "boxed")
+    add(h, "boxed", "PreToolUse", argv)
+    h.app.settings.set_sandbox({"level": "workspace"})
+    h.agent.run_turn("看看")
+    assert len(calls_of(log)) == 1  # 假沙箱照原样运行：钩子照常跑了
+    ((policy, boxed),) = fake.calls
+    assert boxed == argv and policy.level == "workspace"
+    # 钩子自己的脚本在沙箱里可以读（不然它根本启动不了），只能读、不能写；数据目录照样碰不到
+    script_path = Path(argv[1]).resolve()
+    assert script_path in policy.read and script_path not in policy.write
+    assert any(h.config.data_dir.resolve() == path or h.config.data_dir.resolve() in path.parents for path in policy.deny)
+    assert h.agent.trace.last["spans"][1]["children"][0]["sandbox"] == "workspace"
+    # 关掉沙箱：照常在外面跑，记录里也没有这一项
+    h.app.settings.set_sandbox({"level": "off"})
+    h2 = start(LIST_TODOS, reply(text("好")))  # 同一个数据目录：同一个钩子
+    h2.agent.run_turn("看看")
+    assert len(fake.calls) == 1 and "sandbox" not in h2.agent.trace.last["spans"][1]["children"][0]
+
+
+def test_a_hook_never_runs_outside_a_sandbox_that_is_on_but_missing(start, monkeypatch):
+    import fake_sandbox
+
+    fake_sandbox.install(monkeypatch, problem="没有装 bwrap")
+    h = start(ADD_TODO, reply(text("好")))
+    folder = h.config.workspace.parent / "hooks"
+    soft, soft_log = script(folder, "soft")
+    guard, guard_log = script(folder, "guard")
+    add(h, "soft", "PreToolUse", soft)
+    add(h, "guard", "PreToolUse", guard, onFailure="block")
+    h.app.settings.set_sandbox({"level": "workspace"})
+    h.agent.run_turn("加一条")  # 待办工具不经过沙箱；它前面的两个钩子要进沙箱
+    assert calls_of(soft_log) == [] and calls_of(guard_log) == []  # 一个都没运行
+    assert any("钩子“soft”出错了" in info and "没有装 bwrap" in info for info in h.ui.infos)
+    block = tool_result_block(h.api.requests[1], "t1")
+    assert block["is_error"] and "按设置当成拦下" in result_text(block)  # 管安全的那一个：用不了就当成拦下
+    assert h.todos.items() == []

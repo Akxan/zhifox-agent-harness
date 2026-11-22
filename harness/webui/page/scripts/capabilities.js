@@ -248,7 +248,7 @@ function runCapAction(item, action) {
 // 打开设置，翻到要的那一节，焦点放在它的开关上（浏览器、操作整台电脑）
 function openSettingsAt(target) {
   openSettings();
-  const place = { browser: ['browser-section', 'browser-enabled'], computer: ['computer-section', 'computer-enabled'] }[target];
+  const place = { browser: ['browser-section', 'browser-enabled'], computer: ['computer-section', 'computer-enabled'], sandbox: ['sandbox-section', 'sandbox-level'] }[target];
   if (!place) return;
   const [section, control] = place;
   $(section).scrollIntoView({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });

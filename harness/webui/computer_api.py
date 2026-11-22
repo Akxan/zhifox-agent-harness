@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ..browser.shots import SHOT_ID
 from ..desktop.session import TRUSTS
 from ..i18n import t
-from ..providers import PROVIDERS
+from ..providers import every
 from ..settings import MAX_APP_NAME_CHARS, MAX_BLOCKED_APPS
 from ..tools.shell import SECRET_ENV_VARS
 
@@ -52,7 +52,7 @@ class ComputerAPI:
         status["trusted_actions"] = desktop.trust_actions
         # 每一家怎么用：toolset 是 Anthropic 专门训练过的电脑工具包；standin 是智狐自己写的替身工具；none 是用不了（看不了图片）
         status["providers"] = {
-            provider.id: "toolset" if provider.kind == "anthropic" else "standin" if provider.vision else "none" for provider in PROVIDERS.values()
+            provider.id: "toolset" if provider.kind == "anthropic" else "standin" if provider.vision else "none" for provider in every()
         }
         status["can_open_settings"] = sys.platform == "darwin"
         return status

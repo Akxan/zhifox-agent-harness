@@ -5,6 +5,7 @@
                                                   比如 TELEGRAM_BOT_TOKEN、SLACK_BOT_TOKEN，见 platforms.py 的 fields）
     harness channels pair <平台>                  显示配对码，等你从自己的账号发给机器人
     harness channels approval <平台> ask          这个通道里要不要先问你：ask / readonly / edits / all
+    harness channels sandbox <平台> workspace     这个通道里命令的沙箱：default 跟随设置 / off / workspace / network（见 ../sandbox/）
     harness channels enable|disable <平台>        打开、关掉
     harness channels remove <平台>                删掉这个平台的全部设置
 
@@ -33,6 +34,9 @@ from .. import instance
 from ..config import APP_NAME, Config
 from ..i18n import fill, k, t
 from ..permissions import MODES
+from ..sandbox import CHOICES as SANDBOX_CHOICES
+from ..sandbox import DEFAULT as SANDBOX_DEFAULT
+from ..sandbox import LEVELS as SANDBOX_LEVELS
 from .base import ChannelError, Event, Inbound
 from .guides import GUIDES
 from .hub import FACTORIES, connect
@@ -64,6 +68,11 @@ def add_parser(commands: argparse._SubParsersAction) -> None:
     )
     approval.add_argument("platform", choices=ORDER)
     approval.add_argument("mode", choices=list(MODES))
+    sandbox = actions.add_parser(
+        "sandbox", help=t("这个通道里命令的沙箱：default 跟随设置，off 关，workspace 只在工作目录里，network 工作目录 + 联网")
+    )
+    sandbox.add_argument("platform", choices=ORDER)
+    sandbox.add_argument("level", choices=list(SANDBOX_CHOICES))
 
 
 def run(args: argparse.Namespace, config: Config, out: IO[str] | None = None) -> int:
@@ -87,6 +96,12 @@ def run(args: argparse.Namespace, config: Config, out: IO[str] | None = None) ->
             print(t("{platform} 的确认方式改成了：{mode}", platform=label(platform), mode=t(MODES[args.mode])), file=out)
             if args.mode == "all":
                 print(t(ALL_WARNING), file=out)
+            return 0
+        if action == "sandbox":
+            _require(store, platform)
+            store.set_sandbox(platform, args.level)
+            shown = t("跟随设置") if args.level == SANDBOX_DEFAULT else t(SANDBOX_LEVELS[args.level])
+            print(t("{platform} 的沙箱改成了：{level}", platform=label(platform), level=shown), file=out)
             return 0
         if action in ("enable", "disable"):
             _require(store, platform)
@@ -147,6 +162,8 @@ def _status(store: ChannelStore, config: Config, out: IO[str]) -> int:
         if info["pairing"]:
             print("  " + t("正在配对：配对码 {code}，{when} 过期", code=info["pairing"]["code"], when=_when(info["pairing"]["expires"])), file=out)
         print("  " + t("确认方式：{mode}", mode=t(MODES[info["approval"]])), file=out)
+        level = info.get("sandbox", SANDBOX_DEFAULT)
+        print("  " + t("沙箱：{level}", level=t("跟随设置") if level == SANDBOX_DEFAULT else t(SANDBOX_LEVELS[level])), file=out)
         print("  " + t("最后一次说话：{when}", when=_when(info["last_active"])), file=out)
         if info["ignored"]:
             print("  " + t("忽略了 {n} 条陌生人的消息", n=info["ignored"]), file=out)

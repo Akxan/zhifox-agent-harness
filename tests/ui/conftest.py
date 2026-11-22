@@ -63,7 +63,7 @@ def pytest_runtest_makereport(item, call):
 class Demo:
     """作为子进程运行的演示服务器。"""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, extra: tuple[str, ...] = ()):
         self.root = root
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS and "proxy" not in key.lower()}
         env.update(NO_PROXY="*", no_proxy="*", PYTHONUNBUFFERED="1")
@@ -71,6 +71,7 @@ class Demo:
             sys.executable, str(DEMO), "--port", "0", "--data", str(root),
             "--delay", "0.004",  # 逐字输出还是一小段一小段的（测试要看到它），只是快一些
             "--think", "0.05",
+            *extra,  # 比如 --no-sandbox：当作这台电脑上用不了沙箱（test_ui_sandbox.py 另开一个这样的演示）
         ]
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -114,12 +115,21 @@ class Demo:
     def reset(self) -> None:
         """把测试会改动的服务器设置恢复原样，换到一段新对话。"""
         self.api("/api/stop")
+        # 刚点了停止，上一个测试的那一轮可能还在收尾：换模型这类会改动对话的操作这时会被拒绝（409，"请先等当前这一轮对话结束"），
+        # 和下面的"新对话"一样等它结束。别的错误照样算失败
         for path, data in (
             ("/api/language", {"language": "zh"}),
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
         ):
-            status, reply = self.api(path, data)
+            answers: list = []
+
+            def done(path=path, data=data, answers=answers) -> bool:
+                answers.append(self.api(path, data))
+                return answers[-1][0] != 409
+
+            until(done, timeout=15, what=f"{path}（等上一轮收尾）")
+            status, reply = answers[-1]
             assert status == 200, f"{path} 失败：{reply}"
         # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
         # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）
@@ -129,6 +139,14 @@ class Demo:
         (self.root / "data" / "todos.json").unlink(missing_ok=True)
         # 你的钩子也一样：测试存过的钩子会在后面的测试里跑起来（比如把 [ui:approve] 的命令拦下）。程序每次要跑之前看一眼文件，删掉就一个都没有
         (self.root / "data" / "hooks.json").unlink(missing_ok=True)
+        # 命令的沙箱：测试改了档位、加了路径忘了收（或者失败在半路），后面的测试里命令就会被关进沙箱、卡片上多一行。
+        # 档位改回"关"，加过的路径一条条删掉（路径记在设置文件里，见 harness/settings.py）
+        status, reply = self.api("/api/sandbox/level", {"level": "off"})
+        assert status == 200, f"/api/sandbox/level 失败：{reply}"
+        saved = self.root / "data" / "settings.json"
+        paths = json.loads(saved.read_text(encoding="utf-8")).get("sandbox", {}).get("paths", []) if saved.exists() else []
+        for item in paths:
+            self.api("/api/sandbox/delete", {"path": item["path"]})
         # 刚点了停止，这一轮可能还在收尾，"新对话"要等它结束才行
         until(lambda: self.api("/api/new")[0] == 200, timeout=15, what="开始新对话")
 
@@ -168,6 +186,16 @@ def demo(tmp_path_factory, browser, artifacts):
     yield server
     server.stop()
     (artifacts / "demo-server.log").write_text("".join(server.output), encoding="utf-8")
+
+
+@pytest.fixture(scope="session")
+def no_sandbox_demo(tmp_path_factory, browser, artifacts):
+    """另一个演示服务器，当作这台电脑上用不了沙箱（--no-sandbox，像没装 bubblewrap 的 Linux）。
+    只有 test_ui_sandbox.py 用它：页面上"用不了"的样子，不能等到哪台电脑真的用不了才看得到。"""
+    server = Demo(tmp_path_factory.mktemp("ui-demo-no-sandbox"), extra=("--no-sandbox",))
+    yield server
+    server.stop()
+    (artifacts / "demo-server-no-sandbox.log").write_text("".join(server.output), encoding="utf-8")
 
 
 def _safe(name: str) -> str:

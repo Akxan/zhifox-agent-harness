@@ -162,6 +162,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
 | `harness/evals/`、`evals/tasks/` | 评测：任务格式（spec）、临时目录（seed）、记录员（recorder）、按结果打分（graders）、评分员（judge，花钱）、演习（dryrun，用 tests/ 的假服务器）、跑（runner）、估算（estimate）、结果和对比；起步任务在仓库根目录的 `evals/tasks/` |
 | `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
+| `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
+| `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
+| `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
@@ -343,6 +346,28 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （在 `REPLAYABLE` 里、不在 `PARAGRAPH` 里），排在这一轮的内容之后、`turn_end` 之前；从不进 `messages`。记录里只放数字和截短的说明，
   不放工具输出（`TRACE_SUMMARY_CHARS`、`TRACE_MAX_SPANS`）。改了一轮的走法，记录器和 `trace/__init__.py` 的格式说明一起改。
   断言事件序列的测试要写上 `"trace"`。翻译表的键是中文原文，同一句不能有两个意思：任务详情里那一节叫"历次运行"，"运行记录"只指这个功能。
+- **自定义模型接口（`harness/endpoints/`）**：编号是 `custom-<id>`，找一家用 `providers.find` / `every`，`PROVIDERS` 只有内置的四家；
+  能力按模型问 `providers.caps`；"能不能接着聊"只看 `providers.continues`（能不能用工具不一样也算换一家）。用量和价格按"接口/模型"记
+  （`pricing.price_key`），算钱用 `App.prices()`。`data/endpoints.json` 权限 600、在 protected 名单和 `export.MASKED_FILES` 里，密钥不进环境变量，
+  页面只看到最后 4 位。客户端只用 `endpoints/client.make`（或 `make_client(provider, timeout=…)`），不要对它调 SDK 的 `with_options`：
+  会照着环境变量重建。外面的地址只许 https，明文 http 只许本机和内网（只看写法，不查 DNS）；不跟重定向。
+  **有意的破例**：自定义接口拒绝工具、而这段对话还没调用过工具时，从这一次起不发工具（被拒绝的请求服务器没处理，历史一字不改）；
+  已经用过工具的照常报错。不认 `stream_options` 的不再要用量。两样都记进 endpoints.json；内置的几家不退。
+- **撤回一轮改的文件（`harness/undo/`）**：只记文件工具的改动，记账靠这一轮线程上的 `ContextVar`，`tools/files.py` 里只有 `watching` 一行；
+  定时任务和聊天通道不记。留底在 `data/backups/turns/<编号>/`，清单写好后不再改，撤回、重做的状态只记在 `file_undo` 事件里（由 `restore.fold` 推出来）。
+  `file_changes` 排在 `trace` 之后、`turn_end` 之前；断言事件顺序的测试要写上它。撤回走 `/api/changes/…`：页面只给一轮的编号和清单里的第几个文件，
+  路径由程序照着清单算；拿 `WebApp._turn`、认领这段会话；查和写都拿 `_EDITING`。保存密钥的文件、留底文件夹、换成链接的路径永远不写；
+  工作目录之外、数据目录里、哈希对不上的，先问再写。模型没有撤回的工具。撤回之后在下一条消息前附 `<file_changes>`（`undo/notes.py`），不进系统提示词。
+  **有意的破例**：倒回最后一轮时，这一轮之后才撤回的更早几轮的 `file_undo` 事件不跟着截掉，挪到最后一条用户消息前面（`webui/ui.kept_after_rewind`）。
+  命令改动的文件不假装能撤：界面上明说撤不回来；不替用户的仓库做 git 快照。
+- **命令的沙箱是第二道关卡，不替代"问不问"。** 每次运行（对话、每次任务、每个聊天）一个 `Sandbox`，子 Agent 用叫它的那一方的同一个。
+  路径只在 `policy.build` 里算；SBPL 里的路径一律用 `-D` 参数，配置的文字里不出现路径；一组路径是空的就不写那条规则（空的 allow 等于全放开）。
+  `data/`、`.env`、`config.protected_files` 永远碰不到；智狐自己的程序在沙箱里只读。选了一档、这台电脑上却用不了：`tool.check` 直接拒绝，
+  绝不悄悄在沙箱之外运行。`unsandboxed: true` 在任何模式下都问；没人看着的运行（任务、通道）模式是 all 时直接拒绝。说明书里一直带着
+  `unsandboxed`，不随设置变。测试默认用 `tests/fake_sandbox.py`；真的沙箱只在 `test_sandbox_macos.py`、`test_sandbox_linux.py`。
+  `/api/sandbox/reveal` 只认设置里"额外允许的路径"列表里已有的一条。
+- **写测试别赌时机**：GitHub 的 macOS、Windows 机器比本机慢得多。等条件成立（`until`、`page.wait`）不写固定的 sleep；不要"赶在 0.3 秒的动画里
+  去看它在不在播"，而是记下调用过没有；换外观以后等过渡播完再量颜色；量耗时的测试连着几次超了才算。推送以后一定看 CI 的结果，红了马上修。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
@@ -397,7 +422,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

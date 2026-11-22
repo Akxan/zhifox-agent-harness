@@ -37,6 +37,9 @@
     （或者 ID 和密钥），在向导里粘贴就能连上。它们共用另一个"手机"页面（tests/demo_phone.py，上面选平台）。
     飞书、钉钉收消息本来要装官方的 SDK；演示里换成了假的长连接，当作已经装好了。加 --no-sdk 看没装时页面怎么说。
 
+  - 命令的沙箱（设置 → 沙箱）用的是这台电脑上真的那一个（macOS 的 sandbox-exec、Linux 的 bwrap），默认关着。
+    加 --no-sandbox 当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看设置、任务和通道里怎么说。
+
   - 浏览器（设置 → 浏览器）是开着的：发一句含有"演示商店"的话（比如"用浏览器看看演示商店里有什么"）开始一段新对话，
     助手会用真的 Chrome 打开这个脚本在本机起的一个"演示商店"网页：先问你能不能去这个网站，然后读页面、点搜索框、
     输入（又问你一次）、截图。对话里每一步下面有一张小截图，点开看大图；顶栏上会出现"浏览器正在被智狐控制"。
@@ -48,6 +51,10 @@
     开始一段新对话：助手先截图（确认卡片上有"这段对话里截图不再问"），再点输入框、打字，按 ⌘S 保存，最后按 ⌘Q
     （卡片上带着危险按键的警告，可以拒绝看看一串操作怎么停下）。顶栏上会出现"智狐正在控制这台电脑"和"停止"。
     这一段的回复也不占下面那一串（见 computer_reply）。
+
+  - 自定义模型接口（设置 → 自定义模型接口）预先加好了一个假的"本机 Ollama"（也是 tests/fake_openai.py，只在这台电脑上）：
+    qwen3:8b 能用工具，llava:13b 看得懂图片，gemma2:2b 什么工具都用不了。在换模型的面板里能换过去聊（回复是它自己那一串）；
+    编辑它、点"测试连接""同步模型"，看得到智狐认出它是 Ollama、猜出每个模型能做什么（nomic-embed-text 是向量模型，会被去掉）。
 
 预设的回复按顺序是：打招呼（带思考过程和一个链接）、添加待办（一次工具调用）、建文件（要你确认的命令）、
 联网搜索、一次出错的工具调用、一段用齐了各种 Markdown 写法的长回复（标题、列表、表格、代码块……）、
@@ -62,6 +69,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -85,6 +93,7 @@ parser.add_argument("--phone-port", type=int, default=0, help="别的几家共�
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
 parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--no-sandbox", action="store_true", help="当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看页面上怎么说")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -115,7 +124,12 @@ from harness.app import build_app
 from harness.channels import platforms
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.endpoints import EndpointStore
+from harness.i18n import t
 from harness.imports import places as import_places
+from harness.providers import make_client
+from harness.sandbox import backend as sandbox_backend
+from harness.sandbox import linux as sandbox_linux
 from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
@@ -454,6 +468,19 @@ compat = FakeOpenAI(
     models=["deepseek-flash", "deepseek-v4-pro"],
 ).start()
 
+# 一个假的"本机 Ollama"（自定义模型接口，见 harness/endpoints/）：也是 OpenAI 格式，另外像 Ollama 那样回答 /api/version、/api/show，
+# "测试连接""同步模型"认得出它、猜得出每个模型能做什么。设置里预先加好了它（见下面的 endpoints.json），换模型的面板里能换过去。
+# 它只在这台电脑上，不花钱；gemma2 那个模型用不了工具（服务器会拒绝带工具的请求，看智狐怎么退一步）
+ollama = FakeOpenAI(
+    [chat("你好！我是这台电脑上的模型，对话不出你的电脑。") for _ in range(40)],  # 每次都一样：页面测试不管先后，看到的都是这一句
+    models=["qwen3:8b", "llava:13b", "gemma2:2b", "nomic-embed-text"],
+    ollama={
+        "qwen3:8b": {"capabilities": ["completion", "tools", "thinking"], "model_info": {"qwen3.context_length": 40960}},
+        "llava:13b": {"capabilities": ["completion", "vision"], "model_info": {"llama.context_length": 4096}},
+        "gemma2:2b": {"capabilities": ["completion"], "model_info": {"gemma2.context_length": 8192}},
+    },
+).start()
+
 root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 # "从其他工具导入"会去读 HOME 下面别的工具（Claude Desktop、Claude Code、Cursor……）的配置。演示里换成临时目录里编造的那几份，
 # 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
@@ -733,7 +760,10 @@ config = Config(
 
 
 def client_factory(provider):
-    """所有厂商的连接都指向上面两个假服务器。"""
+    """所有厂商的连接都指向上面两个假服务器。自定义接口用正式程序的那一个（make_client：别家的密钥不带过去、不跟重定向），
+    它的地址就是上面那个假的 Ollama。"""
+    if provider.custom:
+        return make_client(provider)
     key = os.environ.get(provider.key_env) or "missing"
     if provider.kind == "anthropic":
         return anthropic.Anthropic(api_key=key, base_url=claude.base_url, max_retries=0)
@@ -759,6 +789,27 @@ fresh = not (root / "data" / "tasks.json").exists()
 # 演示里"这台电脑上用哪个后端"永远回答这台假的电脑：真的那个（截你的屏幕、动你的鼠标）连找都不会去找
 desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop)
 desktop_backend.detect = lambda: (desktop, "")
+if options.no_sandbox:
+    # 当作没装 bubblewrap 的 Linux：设置里选了一档的话，命令一律会被拒绝执行（和真的用不了时一样）
+    missing = dataclasses.replace(sandbox_backend.LINUX, problem=lambda: t("这台电脑上没有装 bubblewrap（bwrap）。{install}", install=t(sandbox_linux.INSTALL)))
+    sandbox_backend.detect = lambda: missing
+if not config.endpoints_file.exists():
+    # 预先加好的自定义接口：假的本机 Ollama（地址每次启动都不一样，所以已有的数据目录里也换成这一次的）
+    EndpointStore(config.endpoints_file).save({
+        "name": "Ollama",
+        "base_url": ollama.base_url + "/v1",
+        "api_key": "",
+        "models": [
+            {"id": "qwen3:8b", "vision": False, "tools": True, "pdf": False, "context": 40960},
+            {"id": "llava:13b", "vision": True, "tools": False, "pdf": False, "context": 4096},
+            {"id": "gemma2:2b", "vision": False, "tools": False, "pdf": False, "context": 8192},
+        ],
+    })
+else:
+    seeded = EndpointStore(config.endpoints_file)
+    for endpoint in seeded.list():
+        if endpoint.id == "ollama":
+            seeded.save({**endpoint.saved(), "base_url": ollama.base_url + "/v1", "api_key": {"keep": True} if endpoint.api_key else ""}, endpoint.provider_id)
 app = build_app(config, ui, client_factory=client_factory)
 # 浏览器的设置是开着的（正式程序里默认关着，要你自己打开）。浏览器的配置文件夹也在临时的数据目录里
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
@@ -800,4 +851,5 @@ finally:
     for fake in others.values():
         fake.stop()
     docs_server.stop()
+    ollama.stop()
     shop.server.shutdown()

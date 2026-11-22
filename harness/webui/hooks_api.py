@@ -75,6 +75,8 @@ class HooksAPI:
             "max_timeout": HOOK_MAX_TIMEOUT,
             "note_chars": HOOK_NOTE_CHARS,
             "limit": HOOK_MAX,
+            # 你的对话此刻的命令沙箱是哪一档（off / workspace / network）：开着的话钩子也关在里面，页面上说一声（见 hooks/runner.py）
+            "sandbox": sandbox.level() if (sandbox := self.web.app.shell.sandbox) is not None else "off",
         }
 
     def route(self, action: str, body: dict) -> tuple[int, dict]:
@@ -125,7 +127,7 @@ class HooksAPI:
             return 409, {"error": problem or t("没有找到钩子“{name}”，它可能已经被删掉了。", name=name)}
         if payload is not None and (not isinstance(payload, dict) or len(payload) > MAX_PAYLOAD_KEYS):
             return 400, {"error": t("示例应该是一个 JSON 对象。")}
-        run = self.hooks.test(name, entry, payload)
+        run = self.hooks.test(name, entry, payload, sandbox=self.web.app.shell.sandbox)  # 和它在你的对话里跑的时候一样
         run["ignored"] = [said(text) for text in run["ignored"]]
         run["verdict"] = said(run["verdict"])
         return 200, {"ok": True, "run": run, "last": self.hooks.last().get(name)}

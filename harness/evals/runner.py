@@ -42,7 +42,7 @@ from ..i18n import t
 from ..ledger import Ledger
 from ..pricing import estimate
 from ..prompt import build_system_prompt, save_template
-from ..providers import PROVIDERS, ProviderError, make_client
+from ..providers import PROVIDERS, ProviderError, caps, find, make_client
 from ..providers.base import Usage
 from ..safe import to_json, write_file
 from . import graders, seed
@@ -80,6 +80,9 @@ class Options:
     timeout: float = EVAL_TASK_SECONDS
     keep: bool = False  # 跑完留着临时文件夹
     ledger: Ledger | None = None  # 真的运行：花的钱记进这本账（你的 data/ledger.jsonl）
+    # 你的 data/endpoints.json 原样的内容（自定义模型接口，见 harness/endpoints/）：--model custom-ollama/qwen3:8b 这样评一个
+    # 本地模型时，每一遍的数据目录里都要有它，build_app 才认得这个接口。空的表示你没加过
+    endpoints: bytes = b""
 
 
 @dataclass
@@ -96,8 +99,9 @@ class RealDriver:
 
     def connect(self, task: Task, provider: str) -> Connection:
         def factory(chosen: Any) -> Any:
-            # 一次请求最多等 EVAL_REQUEST_SECONDS：连接挂住不动时，靠它让这个任务脱身
-            return make_client(chosen).with_options(timeout=EVAL_REQUEST_SECONDS, max_retries=2)
+            # 一次请求最多等 EVAL_REQUEST_SECONDS：连接挂住不动时，靠它让这个任务脱身。
+            # 交给 make_client 去设（不在外面 with_options）：自定义接口的客户端那样一改，会照着环境变量重建，带上别家的设置
+            return make_client(chosen, timeout=EVAL_REQUEST_SECONDS)
 
         judge = factory(PROVIDERS["anthropic"]) if task.judged else None
         return Connection(client_factory=factory, judge_client=judge)
@@ -122,13 +126,16 @@ class _Spend:
         return record
 
 
-def unmet(task: Task, provider_id: str) -> str:
-    """这个模型做不了这个任务的话，说明为什么；做得了返回空的。"""
-    provider = PROVIDERS[provider_id]
+def unmet(task: Task, provider_id: str, model: str = "") -> str:
+    """这个模型做不了这个任务的话，说明为什么；做得了返回空的。自定义接口按这个模型自己的能力算（见 providers.caps）。"""
+    provider = find(provider_id)
+    if provider is None:
+        return t("不认识这个模型提供方：{provider}", provider=provider_id)
+    accepts = caps(provider, model)
     for need in task.requires:
-        if need == "vision" and not provider.vision:
+        if need == "vision" and not accepts.vision:
             return t("{provider} 看不了图片", provider=provider.label)
-        if need == "pdf" and not provider.pdf:
+        if need == "pdf" and not accepts.pdf:
             return t("{provider} 读不了 PDF", provider=provider.label)
         if need == "web" and not provider.web:
             return t("{provider} 没有联网搜索", provider=provider.label)
@@ -152,6 +159,10 @@ def _write_settings(config: Config, target: Target, options: Options) -> None:
     data = {key: value for key, value in options.settings.items() if key not in NOT_COPIED}
     data.update(provider=target.provider, model=target.model, language=i18n.current)
     write_file(config.settings_file, to_json(data, readable=True, indent=2))
+    # 自定义模型接口（地址、可选的密钥、每个模型能做什么）也原样抄过去（write_file：权限 600，这一遍结束和临时文件夹一起删掉）。
+    # 它和 .env 一样在文件工具的 protected 名单里，被评的模型读不到里面的密钥
+    if options.endpoints:
+        write_file(config.endpoints_file, options.endpoints)
 
 
 def run_case(
@@ -168,7 +179,7 @@ def run_case(
         "status": "ok",
         "error": "",
     }
-    problem = unmet(task, target.provider)
+    problem = unmet(task, target.provider, target.model)
     if problem:
         return CaseResult({**row, "status": "skipped", "error": problem})
     root = Path(tempfile.mkdtemp(prefix="zhifox-eval-"))
@@ -205,7 +216,7 @@ def run_case(
             return _ended(row, "skipped", problem)
         app.agent.permissions.mode = task.approval
         spend = _Spend(options.ledger)
-        app.agent.on_call = spend.recorder(lambda: app.settings.prices)
+        app.agent.on_call = spend.recorder(app.prices)  # 价格表里也有自定义接口的（见 App.prices）
         app.delegator.ledger = spend  # 子 Agent 的调用也经过它（见 _Spend）
         recorder.on_stop(app.shell.kill_running)  # 喊停的时候，正在运行的命令一起结束
         recorder.on_stop(app.mcp.cancel_running)
@@ -224,10 +235,10 @@ def run_case(
         )
         judge = None
         if row["status"] == "ok" and options.judge_model and connection.judge_client is not None:
-            judge = Judge(connection.judge_client, options.judge_model, app.settings.prices)
+            judge = Judge(connection.judge_client, options.judge_model, app.prices())
         grades = graders.grade(task.checks, outcome, judge) if row["status"] == "ok" else []
         row.update(_score(grades))
-        cost, unpriced = estimate(app.agent.usage_by_model, app.settings.prices)
+        cost, unpriced = estimate(app.agent.usage_by_model, app.prices())
         row["usage"] = _usage_row(app.agent.usage, spend.calls)
         row["cost"] = None if unpriced else round(cost, 6)
         row["unpriced"] = unpriced
@@ -239,8 +250,8 @@ def run_case(
             judge_cost, priced = judge.cost()
             row["judge"] = {"model": judge.model, "usage": _usage_row(judge.usage, judge.usage.requests), "cost": round(judge_cost, 6) if priced else None}
             if options.ledger is not None:
-                options.ledger.record("anthropic", judge.model, judge.usage, datetime.now(), app.settings.prices, source=SOURCE)
-        system = build_system_prompt(config, web=config.web and PROVIDERS[target.provider].web)
+                options.ledger.record("anthropic", judge.model, judge.usage, datetime.now(), app.prices(), source=SOURCE)
+        system = build_system_prompt(config, web=config.web and app.provider.web)
         return CaseResult(row, [{"role": "system", "content": system}, *recorder.events], app.agent.backend.export())
     except Exception as exc:  # noqa: BLE001 —— 评测框架自己的毛病也只算这一遍出错，别的任务照常跑
         return _ended(row, "error", f"{type(exc).__name__}: {exc}", recorder.events)

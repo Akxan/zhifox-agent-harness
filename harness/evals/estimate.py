@@ -25,7 +25,7 @@ from ..config import (
     EVAL_JUDGE_INPUT,
     EVAL_JUDGE_OUTPUT,
 )
-from ..pricing import price_of
+from ..pricing import price_key, price_of
 from .results import Run
 from .runner import Target
 from .spec import Task
@@ -89,7 +89,7 @@ def estimate_run(
     tasks: list[Task], repeat: int, target: Target, prices: dict[str, dict], history: list[Run], judge_model: str | None = None
 ) -> Estimate:
     result = Estimate(target, repeat, judge_model=judge_model)
-    price = price_of(target.model, prices)
+    price = price_of(price_key(target.model, target.provider), prices)  # 自定义接口上的模型按"接口/模型"找（见 pricing.price_key）
     for task in tasks:
         rows = _measured(task, target, history)
         if rows:

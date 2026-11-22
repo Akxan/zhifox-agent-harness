@@ -18,6 +18,7 @@ const handlers = {
   reset() {
     const focused = log.contains(document.activeElement);  // 焦点在要被清掉的内容里：清完交给输入框，不然按键没人接
     dropTurnTools();
+    dropFileChanges();
     log.replaceChildren();
     if (focused) input.focus({ preventScroll: true });
     block = null;
@@ -67,6 +68,8 @@ const handlers = {
     if (modelsFlyout.isOpen() || !modelsCatalog) refreshModels();
     renderApproval(event.approval);
     renderCommands(event.commands);
+    renderSandbox(event.sandbox);  // 命令的沙箱（见 sandbox.js）
+    renderEndpoints(event.endpoints);  // 设置里的"自定义模型接口"（见 endpoints.js）
 
     if (replaying) {  // 重放的旧内容到这里就画完了
       replaying = false;
@@ -214,6 +217,8 @@ const handlers = {
 
   subagent(event) { subagentStep(event); },
   trace(event) { traceTurn(event); },  // 一轮结束时的运行记录：在这一轮上放一个入口（见 trace.js）
+  file_changes(event) { fileChangesLine(event); },  // 这一轮改了哪些文件（见 file-changes.js）
+  file_undo(event) { fileUndoLine(event); },        // 撤回、重做了哪几个文件
 
   confirm_done(event) {
     const pending = confirms.get(event.confirm);

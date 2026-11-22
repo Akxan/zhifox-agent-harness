@@ -11,10 +11,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import fake_sandbox
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
-from harness import i18n
+from harness import i18n, providers
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
@@ -140,9 +141,15 @@ def isolated_environment(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
     # 界面语言是整个程序共用的一个值（见 harness/i18n.py）。每个测试都从中文开始，测试里换了语言也会被换回来
     monkeypatch.setattr(i18n, "current", i18n.DEFAULT)
+    # 自定义模型接口的登记也是整个程序共用的（build_app 交给 providers.use_custom）：每个测试都从"一个都没有"开始，
+    # 上一个测试的接口不会留到下一个测试里
+    monkeypatch.setattr(providers, "_custom", None)
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
     # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
     monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
+    # 命令的沙箱：测试里默认用假的（能用，只记下"本该在沙箱里"，命令照原样运行），不建真的沙箱。
+    # 真的 sandbox-exec、bwrap 只在 test_sandbox_macos.py、test_sandbox_linux.py 里测
+    fake_sandbox.install(monkeypatch)
     # 后台服务：测试永远不在这台电脑上真的装上、开起一个服务（会改动系统，还可能对着真正的数据再开一个智狐）。
     # launchctl、systemctl、journalctl 一律不许运行，浏览器也不许打开；要测的给一个假的系统（tests/test_service.py 的 FakeSystem）
     def forbidden(*args, **kwargs):

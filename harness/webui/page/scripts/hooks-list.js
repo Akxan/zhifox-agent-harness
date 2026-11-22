@@ -34,6 +34,11 @@ function hooksToolbar() {
   reveal.addEventListener('click', revealHooksFile);
   const box = el('div', 'hooks-intro');
   box.append(bar, hooksNote('warn', k('钩子会以你的账号的权限在这台电脑上运行命令：能读、改、删你能碰到的任何文件。只添加你信得过、看得懂的命令。各家模型的密钥不会交给钩子；模型也没有任何能添加或修改钩子的工具。'), null, 'shield'));
+  // 命令的沙箱（设置里）开着的时候，钩子和 run_command 关在同一个沙箱里（见 harness/hooks/runner.py 的 jailed）。
+  // 开没开由助手程序说（列表里的 sandbox：你的对话此刻用的那一档）
+  if (hooksData && hooksData.sandbox && hooksData.sandbox !== 'off') {
+    box.appendChild(hooksNote('calm', k('命令的沙箱开着：钩子也和命令关在同一个沙箱里，只碰得到工作目录和你额外允许的路径（钩子自己的脚本可以读）。要写别处的日志、要联网发通知的，在设置的沙箱一节里加上路径，或者选“工作目录 + 联网”。'), null, 'lock'));
+  }
   return box;
 }
 

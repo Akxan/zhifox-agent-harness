@@ -6,11 +6,17 @@
   - 环境里去掉各家模型的密钥和聊天机器人的 token（tools/shell.py 的 SECRET_ENV_VARS），另外加上几个告诉它
     "这是哪个钩子、什么事件"的变量（HARNESS_HOOK_EVENT、HARNESS_HOOK_NAME、HARNESS_PROJECT_DIR）；
   - 放在单独的进程组里：超时、你点了"停止"时整组一起结束，它启动的子进程不会留在后台；
+  - 这次运行的命令沙箱（见 sandbox/）开着的话，钩子和 run_command 一样关在里面（jailed）：同一个沙箱、同一档，
+    只多一样——钩子自己的程序和脚本（写成绝对路径、确实存在的文件）在沙箱里可以读，不然它根本启动不了。
+    这一档在这台电脑上用不了的话，钩子不运行（算出错，onFailure 照常起作用），绝不悄悄在沙箱之外运行。
+    为什么要关进去：钩子是你写的，可它收到的 JSON 里有模型给的参数（tool_input）、工具的输出；脚本写得不小心
+    （拿参数去拼一条命令），被网页里的一句话带偏的模型就能借它的手做事。沙箱是第二道关卡，钩子也不例外；
+    需要写工作目录之外的地方（日志）、需要联网（发通知）的，在设置里给沙箱加上那个路径，或者选"工作目录 + 联网"；
   - 标准输入、输出、错误各用一个线程读写：一个不读标准输入、或者一口气打印很多的钩子，不会把我们卡住。
     输出各最多收 config.HOOK_OUTPUT_BYTES，再多的读出来扔掉。
 
 和系统有关的只有两处（怎么放进单独的进程组、怎么整组结束），写在 _group 和 _kill_tree 里。
-命令真正启动的地方只有 spawn 一个函数：以后 run_command 的沙箱合进来，钩子的命令也从这里交给它。
+命令真正启动的地方只有 spawn 一个函数，进沙箱只在 jailed 一个函数。
 """
 
 from __future__ import annotations
@@ -20,8 +26,9 @@ import signal
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from ..config import HOOK_OUTPUT_BYTES
 from ..i18n import t
@@ -41,6 +48,7 @@ class Ran:
     seconds: float
     failure: str = ""  # "" 正常退出了 / start 启动不了 / timeout 超时 / stopped 你点了停止
     problem: str = ""  # 启动不了的原因（t() 译好的，给人看）
+    sandbox: str = ""  # 在沙箱的哪一档里运行的（workspace / network）；没有用沙箱是空的
 
 
 def hook_env(event: str, name: str, workspace: Path) -> dict[str, str]:
@@ -56,6 +64,32 @@ def argv_of(command: str, args: list[str], workspace: Path) -> list[str]:
     if not os.path.isabs(program) and ("/" in program or os.sep in program):
         program = str(workspace / program)
     return [program, *args]
+
+
+def jailed(sandbox: Any, argv: list[str], env: dict[str, str]) -> tuple[list[str], dict[str, str], str]:
+    """沙箱开着的话，把钩子的命令包进去：返回（包好的命令行、环境变量、那一档）。沙箱关着（或者没有沙箱这回事）原样返回，那一档是空的。
+    开着却用不了：抛出 SandboxMissing，原因是给人看的那句话，什么都不运行。"""
+    if sandbox is None or sandbox.level() == "off":
+        return argv, env, ""
+    # 在这里才导入：sandbox 要导入 tools（tools/shell.py 用它），hooks 又被 agent.py 一开头就导入
+    from ..sandbox import Sandbox
+    from ..tools.base import ToolError
+
+    own = [{"path": str(Path(item).resolve()), "write": False} for item in argv if os.path.isabs(item) and Path(item).is_file()]
+    layout = replace(sandbox.layout, extra=lambda: [*sandbox.layout.extra(), *own])
+    jail_of = Sandbox(layout, own=sandbox.own, escape=lambda: False, scope=sandbox.scope)
+    try:
+        jail = jail_of.enter(argv, env)
+    except ToolError:
+        problem = jail_of.facts().problem
+        raise SandboxMissing(t("这次运行的沙箱开着，可是这台电脑上用不了它（{problem}），钩子没有运行：不会悄悄在沙箱之外运行。", problem=problem or "")) from None
+    if jail is None:
+        return argv, env, ""
+    return jail.argv, jail.env, jail.level
+
+
+class SandboxMissing(Exception):
+    """沙箱开着、这台电脑上却用不了：钩子不运行。args[0] 是给人看的原因。"""
 
 
 def _group() -> dict:
