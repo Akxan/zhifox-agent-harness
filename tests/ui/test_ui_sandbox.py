@@ -315,6 +315,8 @@ def test_nothing_spills_out_at_phone_width(page, code):
     steps.escape_closes(page, "sandbox-dialog")
     steps.nav_tab(page, "tasks")
     steps.open_dialog(page, "#task-new", "task-editor")
+    # 先滚到中间：只滚到"刚好露出来"的话，它会停在编辑框底下那条固定的按钮栏后面（CI 的 macOS 上真出过"被盖住"）
+    page.js("document.getElementById('task-sandbox').scrollIntoView({ block: 'center' })")
     page.reach("#task-sandbox")
     assert checks.overflow(page, ["#task-sandbox-field"]) == []
     steps.escape_closes(page, "task-editor")
