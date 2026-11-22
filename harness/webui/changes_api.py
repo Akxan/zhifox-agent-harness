@@ -8,7 +8,7 @@
 页面只给它在事件里看到的一轮的编号、清单里的第几个文件；写哪个文件、读哪份留底由 undo/changes.py 照着清单算，
 和"在访达中显示"那几个接口是同一个规矩（页面最多只能给编号）。模型没有能调用这些的工具。
 
-撤回、重做会改动对话的状态（多一个事件、存一次盘），所以和发消息、倒回最后一轮一样拿这一段的锁（WebApp._holding），
+撤回、重做会改动对话的状态（多一个事件、存一次盘），所以和换模型一样拿 _switch 和这一段的锁（WebApp._viewed_idle），
 认领这段会话（聊天通道正在用的不能撤，见 claims.py）。只撤你正看着的那一段的（页面上的那一行只在它里面）；
 后台在跑的那几段各有各的账（撤回的记账挂在每一轮自己的线程上，见 undo/journal.py），互不相干。做成了就发一个 file_undo 事件（开着的每个页面都照着它更新那一行），
 记下下一条消息要告诉模型的话（见 undo/notes.py），存盘，再发一次状态（最后一轮的"同时撤回这一轮改的文件"跟着变）。
@@ -56,8 +56,8 @@ class ChangesAPI:
         if bad:
             return 400, {"error": t("参数不正确")}
         web = self.web
-        session = web.sessions.viewed
-        with web._holding(session) as free:
+        with web._viewed_idle() as free:
+            session = web.sessions.viewed
             if not free:
                 return 409, {"error": web._busy()}
             if conversation != session.id:
