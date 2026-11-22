@@ -15,9 +15,6 @@ import os
 import threading
 from pathlib import Path
 
-from anthropic.tools import BetaLocalFilesystemMemoryTool
-from anthropic.tools import ToolError as SdkToolError
-
 from .. import pathnames
 from .base import Tool, ToolError
 
@@ -106,7 +103,14 @@ def _binary_writes() -> None:
 
 
 def make_memory_tool(data_dir: Path) -> Tool:
+    # SDK 用到时才导入：anthropic 要半秒多才导入完，而 tools 这个包会被 harness service、hooks、sandbox 这些
+    # 用不到模型的小命令一路带进来（它们只要 tools/shell.py 里的一张名单）。真正组装工具时才付这半秒。
+    # Windows 上换 os 的那一步（_binary_writes）自己会导入那两个 SDK 模块再换；它排在建 SDK 的工具之前，
+    # 所以 SDK 第一次写记忆文件之前一定已经换好了（tests/test_pathnames.py 的 test_the_sdk_os_is_swapped_before_the_memory_tool_writes）
     _binary_writes()
+    from anthropic.tools import BetaLocalFilesystemMemoryTool
+    from anthropic.tools import ToolError as SdkToolError
+
     backend = BetaLocalFilesystemMemoryTool(base_path=str(data_dir))  # 实际位置：data_dir/memories/
 
     def run(tool_input: dict) -> str:

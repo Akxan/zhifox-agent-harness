@@ -20,6 +20,7 @@ import dataclasses
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import capabilities, console, i18n, model_catalog, rewind
 from .app import App, build_app, retry_turn, run_turn
@@ -37,8 +38,12 @@ from .service import cli as service_cli
 from .settings import Settings
 from .tools.todo import format_todos
 from .trace import text as trace_text
-from .ui import TerminalUI
 from .undo.terminal import TerminalChanges
+
+# 终端界面（prompt_toolkit，连带 asyncio，导入要几十毫秒）只有 run_terminal 用，在那里用到时才导入：
+# harness service status、harness hooks list 这些小命令和网页界面都用不到它。这里只给类型标注用
+if TYPE_CHECKING:
+    from .ui import TerminalUI
 
 SETUP_HELP = k("""\
 还没有设置 {label} 的 API 密钥，助手需要它才能调用模型。有两种办法：
@@ -255,6 +260,8 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
 
 def run_terminal(config: Config) -> int:
     """终端界面的主循环：读一句、答一句。"""
+    from .ui import TerminalUI  # 用到时才导入（见文件开头）
+
     ui = TerminalUI(history_file=config.data_dir / "input_history")
     app = build_app(config, ui)
     provider = app.provider
