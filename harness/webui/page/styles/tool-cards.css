@@ -12,7 +12,7 @@
 .status.stopped { color: var(--ink-3); background: var(--hover); }
 .status .icon { width: 12px; height: 12px; stroke-width: 2.6; }
 .status.pop { animation: pop .4s var(--spring); }
-.tool-name { flex: none; max-width: 62%; font: 600 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-name { flex: 0 1 auto; min-width: 0; max-width: 62%; font: 600 12.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-args { flex: 1 1 0; min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-outcome { flex: 0 1 auto; min-width: 0; max-width: 44%; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .call.failed .tool-outcome { color: var(--err); }

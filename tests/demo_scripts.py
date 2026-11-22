@@ -16,6 +16,10 @@
                 同一个网页引了几次、一个不安全的网址（不该出现在页面上）。看记号、浮出的卡片、末尾的来源列表、复制
   [ui:pause]    一段带引用的回答写到一半停下（pause_turn，服务器上的搜索跑得太久时会这样），接着的一次请求把它写完。
                 页面实时收到的是"文字、block_end、（状态）、文字"：要和重放时一样，拼成同一段，来源接着编号
+  [ui:files]    改文件（看"改了 N 个文件"那一行、改动的预览、撤回和重做，见 harness/undo/）。暗号后面写一个名字
+                （[ui:files] abc）：文件都放在工作目录的 ui-files/abc/ 里，几个测试共用一个演示服务器也不会改到同一个文件。
+                第一轮新建"计划.md"和"notes.txt"；之后每一轮把 notes.txt 的"第二行"改一下（后面的几轮改了同一个文件，看"仍然撤回"）。
+                改文件要你批准；想不问，先把"要不要先问你"换成"改文件不用问"
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
                 用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
                 所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
@@ -203,6 +207,37 @@ def _day(due: str | None, zh: bool) -> str:
     return f"{day.month} 月 {day.day} 日（周{WEEKDAYS[day.weekday()]}）" if zh else f"{day:%a, %b} {day.day}"
 
 
+def _first_said(body: dict) -> str:
+    """这段对话第一条用户消息里用户自己写的那句话。"""
+    for message in body.get("messages") or []:
+        content = message.get("content") or []
+        if message.get("role") == "user" and not any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content):
+            texts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+            return texts[-1] if texts else ""
+    return ""
+
+
+def files(body: dict) -> dict:
+    found = re.search(r"\[ui:files\]\s*([A-Za-z0-9-]{1,40})", _first_said(body))
+    folder = f"ui-files/{found.group(1) if found else 'demo'}"
+    n = _asked(body)
+    if _results(body):
+        return reply(text(f"第 {n} 轮的文件改好了。"))
+    edit = "str_replace_based_edit_tool"
+    if n == 1:
+        return reply(
+            text("我来建两个文件。"),
+            tool_use("toolu_ui_files_plan", edit, {"command": "create", "path": f"{folder}/计划.md", "file_text": "# 计划\n\n1. 先列出要做的事\n2. 再排好先后\n"}),
+            tool_use("toolu_ui_files_notes", edit, {"command": "create", "path": f"{folder}/notes.txt", "file_text": "第一行\n第二行\n第三行\n"}),
+            stop_reason="tool_use",
+        )
+    return reply(
+        text(f"再改一下 notes.txt（第 {n} 轮）。"),
+        tool_use(f"toolu_ui_files_{n}", edit, {"command": "str_replace", "path": f"{folder}/notes.txt", "old_str": "第二行", "new_str": f"第二行（第 {n} 轮改过）"}),
+        stop_reason="tool_use",
+    )
+
+
 def readme(body: dict) -> dict:
     zh = bool(CJK.search(_last_said(body)))
     month = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")  # 上个月
@@ -235,7 +270,7 @@ def readme(body: dict) -> dict:
 
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
     "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
-    "pause": pause,
+    "pause": pause, "files": files,
 }
 
 

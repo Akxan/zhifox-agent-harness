@@ -20,10 +20,12 @@
 #foot-cost { flex: none; margin-left: auto; padding: 0; white-space: nowrap; font-variant-numeric: tabular-nums; color: inherit; background: none; border: 0; border-radius: 4px; }
 #foot-cost:hover { color: var(--ink); }
 /* "要不要先问你"的开关。放开得越多，颜色越醒目，一眼能看出现在是哪一档 */
-.approval { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; transition: transform .15s var(--ease); }
+.approval { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; transition: transform .15s var(--ease); }
 .approval:hover { border-color: var(--ink-3); }
 .approval:active { transform: scale(.96); }
 .approval .icon { width: 13px; height: 13px; }
+/* 窄屏、西班牙语（"Editar archivos sin preguntar"）时挤不下：说明缩成省略号，不把右边的费用挤出那一行（完整的话在 title 里） */
+#approval-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .approval.edits { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
 .approval.all { color: #fff; background: var(--danger); border-color: transparent; }
 .auto-tag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; }

@@ -57,6 +57,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   else could attach to. Looking is free; typing, submitting a form and visiting a new site ask first, and password and
   card fields ask in every mode. Claude uses Anthropic's browser use toolset; GPT, Gemini and DeepSeek get hand-written
   browser tools.
+- ↩️ **One-click undo of a turn's file edits.** Each turn that changed files ends with a line listing them, with a
+  line-by-line preview. Undo a file or the whole turn, then redo; if a file changed since, ZhiFox explains and asks
+  first. Files changed by shell commands are named as not undoable instead of pretending
+  ([details](#undoing-a-turns-file-changes)).
 - 🖱️ **Computer use, as an advanced option.** Off by default and switched on only after an explicit risk confirmation:
   the assistant looks at your whole screen and works the mouse and keyboard (macOS through `screencapture` and
   CoreGraphics via `ctypes`, Linux/X11 through `xdotool` and ImageMagick, no new dependencies). By default every action
@@ -263,6 +267,7 @@ Each part of the harness has its own file or directory:
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
+| Undo file changes | [harness/undo/](harness/undo/) | Rewinding brings back the conversation, not the files. Each turn records what the file tool changed (a copy of each file from before, kept under `data/backups/turns/`), and the files can be undone one by one or all at once, then redone; a content hash catches files that changed since (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)) |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
 | Capability list | [harness/capabilities.py](harness/capabilities.py), [harness/webui/capabilities_api.py](harness/webui/capabilities_api.py) | Tool names mean nothing to you. One catalog turns the conversation's tools into capabilities: in use or off and why, whether each asks you first (worked out by asking `permissions.py`), where it runs, how to turn it on (see [What ZhiFox can do](#what-zhifox-can-do-the-capability-list)) |
@@ -473,6 +478,61 @@ the side panel aren't reduced. The context size updates with the next request.
 opens a conversation. Every open tab redraws in place without reloading. A request names the conversation and the
 turn it means, so a tab that is behind is turned away instead of rewinding something else, and a tab that was in the
 middle of an edit puts the unsent text back into its input box.
+
+### Undoing a turn's file changes
+
+Rewinding brings back the conversation; this brings back the files. Every turn in which the file tool created, edited
+or overwrote files ends with a compact line, **Changed 2 files +7 −1**. Its **Undo** button undoes the whole turn in
+one click. Expanded, it lists each file (added, modified or overwritten, lines added and removed); click a file name for
+a line-by-line preview of what the turn did, and undo files one at a time or **Undo all changes from this turn**.
+**Redo** puts back what an undo replaced. In the terminal, `/undo` lists the latest turn's changes and asks before
+undoing them.
+
+**How it's recorded** ([harness/undo/](harness/undo/)). When a turn starts, the web UI and the terminal open a journal
+for it; the file tool asks before each write whether a journal is open (one line in
+[tools/files.py](harness/tools/files.py)) and, on the first touch of a file in that turn, keeps a copy of how it was
+(or notes that it didn't exist) in `data/backups/turns/<id>/`, then records how the turn left it. The journal lives on
+the turn's thread (a `ContextVar`): your chat, scheduled tasks and chat channels run at the same time and share one file
+tool, and only your chat turns are recorded (work handed to a subagent counts, since it runs on the same thread). At the
+end of the turn a manifest is written once and never changed, and a `file_changes` event goes into the conversation's
+events. The history sent to the model (`messages`) isn't touched. Limits live in `config.py`: 10 MB per file, 50 MB and
+100 files per turn, kept for 30 days. A file over a limit is still edited; it just can't be undone, and the line says why.
+
+**What isn't recorded.** Files changed by `run_command`. What a command changes can't be seen: `sed -i`, `git
+checkout`, `npm install`, a script. Tracking it would mean snapshotting the whole working folder around every command,
+slow in a big project, and a command can change things outside the folder too. So the line says plainly that files
+changed by commands can't be undone automatically, and says it more loudly when the turn ran a command. ZhiFox also
+doesn't make git snapshots of your repository: that would leave entries in your stash or commit history, mix with a
+rebase or your staging area, still miss ignored files, and need git everywhere. If you use git, a commit of your own
+is the most reliable undo point.
+
+**Undo and redo** ([restore.py](harness/undo/restore.py)). Undo restores each file to its exact bytes and permissions
+from before the turn and deletes files the turn created (and folders it created for them, once empty). It first keeps a
+copy of the file as it is now, and **Redo** puts that copy back. Before writing anything, every file is checked:
+
+- **Changed since?** Compared by content hash (not modification time). If the file changed after the turn (a later
+  turn, you, or another program), or a later turn in the same conversation also changed it, the line explains it in
+  place (for later turns: undoing restores the state from before this turn, and the later turns' changes go too) and
+  waits for **Undo anyway**. Files outside the working folder, or in ZhiFox's own data folder, ask the same way.
+- **Never written:** the files that hold keys or permission settings (the file tool's protected list), the backups
+  folder itself, a path that has since become a link (undo writes only the location it recorded), and backups that are
+  missing or don't match their hash.
+
+Checking and writing hold the same lock as the file tool, so another conversation or a task can't slip in between.
+Undo is only for you, from the page or `/undo`: the model has no tool for it. Each undo or redo is itself an event
+(`file_undo`), saved with the conversation and replayed on refresh: the state of every file is worked out from those
+events, and the manifest only records what the turn did. One fact lives in one place.
+
+**Telling the model.** The model remembers the files it changed. After an undo it would either fail to find its text,
+or rewrite the whole file from memory and put the undone change back. So the next message in that conversation carries
+a short `<file_changes>` note listing what was undone or redone and asking it to look again before relying on them. It
+rides on the message like the time and the Skill list, so the system prompt and the history stay as they are; it counts
+as said only once that message stays in the history, and notes about a turn you then rewind are dropped (the model
+never saw that turn).
+
+**With rewinding.** When the last turn changed files, the rewind confirmation offers **Also undo the files this turn
+changed** (unticked by default). Ticked, the files are undone first; if any changed since, the card explains it and the
+button becomes **Undo and regenerate anyway**. Undos of earlier turns made after the last one survive rewinding it.
 
 ### Three interface languages
 
@@ -1674,7 +1734,12 @@ This starts a small server on your computer and opens the chat page in your brow
   **Regenerate** sits below it on its own. If that turn did something that may have changed your computer (ran a
   command, edited a file, called an MCP tool, operated the whole computer, clicked or typed in the browser), ZhiFox
   first lists those steps and asks once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
-  (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)).
+  (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)). When that turn changed
+  files, the same card offers to undo them too.
+- **Changed files.** A turn in which the file tool changed files ends with **Changed N files**. **Undo** on that line
+  undoes the whole turn; expand it to see each file, click a name for a line-by-line preview, and undo or redo single
+  files. If a file changed since, the line explains why in place and waits for **Undo anyway**. Files changed by shell
+  commands can't be undone automatically (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)).
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
   **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
   shown below the input.
@@ -2156,6 +2221,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/auto` | Show or change when the assistant asks first: `/auto ask`, `/auto readonly`, `/auto edits` or `/auto all` (see [Permissions](#permissions)) |
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
 | `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
+| `/undo` | Undo the files the latest turn changed with the file tool: lists them (and anything that changed since) and asks before writing. Redo and undoing single files are in the web UI |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
@@ -2441,6 +2507,7 @@ unprivileged user for the service.
 | `data/browser/shots/` | Full-size screenshots of browser steps, named by the SHA-256 of their content. Deleted after 30 days; the small previews stay in the conversation |
 | `data/desktop/shots/` | Full-size screenshots of computer use steps (your whole screen), named by the SHA-256 of their content. Deleted after 7 days; the small previews stay in the conversation |
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
+| `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
 | `data/logs/` | The background service's log on macOS, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
@@ -2684,6 +2751,12 @@ starts byte for byte like the original, no orphan tool results, earlier thinking
 restart, compaction, which steps count as changes), [tests/test_rewind_web.py](tests/test_rewind_web.py) (the
 endpoints and their refusals, the confirmation, the event stream after a rewind in two tabs, the saved file, search and
 the media library) and [tests/test_rewind_cli.py](tests/test_rewind_cli.py) (`/retry` and `/edit`).
+Undoing file changes is covered in [tests/test_undo.py](tests/test_undo.py) and
+[tests/test_undo_diff.py](tests/test_undo_diff.py) (temporary working folders: copies, every kind of edit, undo and
+redo, hash conflicts, protected paths and links, size limits, reopening after a save, threads that aren't recorded),
+[tests/test_undo_web.py](tests/test_undo_web.py) (the endpoints, events and saved file, the note to the model, rewinding
+with undo), [tests/test_undo_cli.py](tests/test_undo_cli.py) (`/undo`) and
+[tests/ui/test_ui_file_changes.py](tests/ui/test_ui_file_changes.py) (the page in three languages, narrow and dark).
 Chat channels are tested against a local fake of each platform, while the test code plays your phone:
 [tests/fake_telegram.py](tests/fake_telegram.py) (a Bot API that checks the HTML and the length of every message the
 way Telegram does), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a

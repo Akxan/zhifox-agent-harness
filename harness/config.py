@@ -64,6 +64,17 @@ COMPACTION_KEEP_TURNS = 2
 # 最多列这么多行，再多的合成一句"还有几项"
 MAX_REWIND_EFFECTS = 6
 
+# 撤回一轮改的文件（见 undo/）。文件工具每改一个文件，先把改之前的样子留一份底，存在 data/backups/turns/ 里。
+# 留底是要占磁盘的，所以有几道上限；超了的那个文件照样改，只是撤不回来（页面上写明为什么）
+UNDO_FILE_BYTES = 10_000_000  # 一个文件最多留这么大的底（文件工具改的是文本文件，一般只有几 KB）
+UNDO_TURN_BYTES = 50_000_000  # 一轮里所有留底加起来最多这么大
+UNDO_TURN_FILES = 100  # 一轮里最多记这么多个文件，再多的不记（页面上说还有几个没记下）
+UNDO_KEEP_DAYS = 30  # 留底存这么多天，过期的在启动时删掉（会话里那一行还在，只是写着"留底已经清理掉了"）
+UNDO_DIFF_LINES = 400  # 改动的预览（diff）最多显示这么多行，再多的写一句"还有几行没显示"
+UNDO_DIFF_LINE_CHARS = 400  # 预览里一行最多显示这么多个字（压缩过的 JS、很长的一行 JSON 不会把页面撑满）
+UNDO_DIFF_BYTES = 2_000_000  # 改之前、改之后都不超过这么大才算 diff（算 diff 的时间随大小增长）；更大的只说改了
+UNDO_NOTE_LINES = 20  # 撤回、重做以后告诉模型的那段说明（见 undo/notes.py）最多列这么多个文件
+
 # 用户自己写的提示词最长多少个字符。提示词每一轮都要发给模型（命中缓存时便宜，但第一次和缓存过期后按原价），
 # 两万字大约是一万到两万个 token，再长就太贵了，也会挤占对话能用的上下文
 MAX_PROMPT_CHARS = 20_000
@@ -284,6 +295,10 @@ class Config:
     @property
     def backup_dir(self) -> Path:
         return self.data_dir / "backups"
+
+    @property
+    def undo_dir(self) -> Path:
+        return self.backup_dir / "turns"  # 每一轮改文件之前留的底，撤回用（见 undo/store.py）
 
     @property
     def memory_dir(self) -> Path:

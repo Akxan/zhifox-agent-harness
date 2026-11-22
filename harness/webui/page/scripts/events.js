@@ -18,6 +18,7 @@ const handlers = {
   reset() {
     const focused = log.contains(document.activeElement);  // 焦点在要被清掉的内容里：清完交给输入框，不然按键没人接
     dropTurnTools();
+    dropFileChanges();
     log.replaceChildren();
     if (focused) input.focus({ preventScroll: true });
     block = null;
@@ -211,6 +212,8 @@ const handlers = {
   },
 
   subagent(event) { subagentStep(event); },
+  file_changes(event) { fileChangesLine(event); },  // 这一轮改了哪些文件（见 file-changes.js）
+  file_undo(event) { fileUndoLine(event); },        // 撤回、重做了哪几个文件
 
   confirm_done(event) {
     const pending = confirms.get(event.confirm);

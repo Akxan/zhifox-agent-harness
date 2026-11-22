@@ -48,6 +48,8 @@ REPLAYABLE = frozenset(
         "confirm",
         "auto_allowed",
         "subagent",
+        "file_changes",  # 这一轮改了哪些文件（见 undo/）
+        "file_undo",  # 撤回、重做了哪几个文件
     }
 )
 
@@ -218,7 +220,7 @@ class WebUI:
         saved = self.export_events()
         last = max((index for index, entry in enumerate(saved) if entry.get("type") == "user"), default=None)
         if last is not None:
-            saved = saved[: last + 1 if keep_user else last]
+            saved = kept_after_rewind(saved, last, keep_user)
         self.load_events(saved)
         return saved
 
@@ -437,6 +439,19 @@ class WebUI:
     def error(self, text: str) -> None:
         self.end_stream()
         self.publish("notice", level="error", **said(text))
+
+
+def kept_after_rewind(saved: list[dict], last: int, keep_user: bool) -> list[dict]:
+    """倒回最后一轮以后留下的事件：saved[last] 是最后一条用户消息，从它（编辑）或者它后面（重新生成）截断。
+
+    有一样例外：这一轮结束以后，你撤回、重做过更早那几轮改的文件（file_undo 事件），它们记在日志的末尾，也就落在了要截掉的这一段里。
+    文件已经撤回了，记录却跟着这一轮一起没了的话，页面上那几轮就又显示成"没撤回"，和磁盘上对不上（见 undo/restore.fold）。
+    所以这些事件留下，挪到最后一条用户消息前面（顺序不变）；说的是这一轮自己的改动的，跟着这一轮一起去掉。
+    """
+    dropped = saved[last:]
+    own = {entry.get("set") for entry in dropped if entry.get("type") == "file_changes"}
+    moved = [entry for entry in dropped if entry.get("type") == "file_undo" and entry.get("set") not in own]
+    return saved[:last] + moved + (saved[last : last + 1] if keep_user else [])
 
 
 # 确认卡片上可以多给的选择（操作整台电脑，见 permissions.py）：screenshots 是"允许，这段对话里截图不再问"，

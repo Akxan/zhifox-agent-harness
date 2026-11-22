@@ -102,13 +102,13 @@ def seen(s) -> dict:
     return target(latest_state(s.browser))
 
 
-def assert_ready(s, state: dict, mark: int, effects: tuple[str, ...] = (), more: int = 0, operated: tuple[str, ...] = ()) -> None:
+def assert_ready(s, state: dict, mark: int, effects: tuple[str, ...] = (), more: int = 0, operated: tuple[str, ...] = (), files: int = 0) -> None:
     """状态里的 rewind：最后一轮能倒回去，在历史里的位置是 mark，做过的事是 effects（另有 more 项没列出来）；
-    turn 是它的 user 事件的编号；operated 是其中操作过整台电脑、浏览器的那几类。"""
+    turn 是它的 user 事件的编号；operated 是其中操作过整台电脑、浏览器的那几类；files 是这一轮改的文件里还有几个没撤回（见 undo/）。"""
     shown = state["rewind"]
-    assert list(shown) == ["turn", "mark", "ok", "reason", "effects", "more", "operated"] and shown["turn"] == last_user_id(s)
+    assert list(shown) == ["turn", "mark", "ok", "reason", "effects", "more", "operated", "files"] and shown["turn"] == last_user_id(s)
     assert {key: value for key, value in shown.items() if key != "turn"} == {
-        "mark": mark, "ok": True, "reason": None, "effects": list(effects), "more": more, "operated": list(operated),
+        "mark": mark, "ok": True, "reason": None, "effects": list(effects), "more": more, "operated": list(operated), "files": files,
     }  # fmt: skip
 
 
