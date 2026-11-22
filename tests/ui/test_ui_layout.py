@@ -34,6 +34,9 @@ def _surfaces(page):
         ("要不要先问你", lambda: steps.open_dialog(page, "#approval", "approval-dialog"), ["#approval-dialog"], "approval-dialog"),
         ("不用问的命令", lambda: _commands(page), ["#commands-dialog"], "commands-dialog"),
         ("沙箱的路径", lambda: _sandbox(page), ["#sandbox-dialog"], "sandbox-dialog"),
+        # 第一下 Esc 只收起问的那一块（焦点在它里面），第二下才关上设置窗口
+        ("设置 · 遮住密钥（关掉之前）", lambda: _redact(page), ["#redact-section"],
+         lambda: (page.key("Escape"), page.wait("document.getElementById('redact-confirm').hidden"), steps.escape_closes(page, "settings"))),
         # 自定义模型接口的编辑窗口（叠在设置上面）：很长的地址、模型名，每个模型的三个开关和三个数字
         ("自定义模型接口（编辑）", lambda: _endpoint_editor(page), ["#endpoint-dialog"], lambda: (steps.escape_closes(page, "endpoint-dialog"), steps.escape_closes(page, "settings"))),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
@@ -58,6 +61,14 @@ def _commands(page) -> None:
     steps.open_dialog(page, "#approval", "approval-dialog")
     page.click("#approval-commands")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")
+
+
+def _redact(page) -> None:
+    """设置里"遮住密钥"一节，关掉之前问的那一块展开着（警告的话和两个按钮，窄屏上按钮折到下一行）。"""
+    steps.open_dialog(page, "#settings-open", "settings")
+    page.reach("#redact-enabled")
+    page.click("#redact-enabled")
+    page.wait("!document.getElementById('redact-confirm').hidden", what="关掉之前先问")
 
 
 def _sandbox(page) -> None:

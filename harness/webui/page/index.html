@@ -433,6 +433,25 @@ __STYLES__
       </div>
       <p class="hint" data-i18n>定时任务和聊天通道默认跟着这里选的那一档，也可以在它们自己的设置里另选。改了以后，下一条命令就按新的来。</p>
     </section>
+    <!-- 遮住工具结果里的密钥（scripts/redact.js）：认哪些、怎么遮都在 harness/redact.py，这里只是开关。默认开着，关掉之前在原地问一次 -->
+    <section id="redact-section">
+      <h3><span data-i18n>遮住密钥</span> <small id="redact-state"></small></h3>
+      <div class="browser-option redact-option">
+        <div class="browser-option-words">
+          <b id="redact-title" data-i18n>遮住工具结果里的密钥</b>
+          <span class="browser-note" data-i18n>命令的输出、读到的文件、MCP 和网页交回来的内容里，长得像密钥的（各家的 API 密钥、令牌、私钥、password= 后面的一串），先换成一个“已遮住”的记号，再交给模型。会话里、页面上看到的也是遮住以后的。</span>
+        </div>
+        <button id="redact-enabled" class="browser-switch" type="button" role="switch" aria-checked="true" aria-labelledby="redact-title" aria-controls="redact-confirm"></button>
+      </div>
+      <div id="redact-confirm" class="redact-confirm" role="group" aria-labelledby="redact-confirm-title" hidden>
+        <p id="redact-confirm-title" class="redact-confirm-title"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n>关掉以后，结果里的密钥会原样发给模型厂商、写进会话文件。进了对话的内容就删不掉了。</span></p>
+        <div class="redact-confirm-actions">
+          <button id="redact-confirm-no" class="button primary" type="button" data-i18n>保持开着</button>
+          <button id="redact-confirm-yes" class="button" type="button" data-i18n>仍然关掉</button>
+        </div>
+      </div>
+      <p class="hint" data-i18n>这是一层兜底，不是防线：模型存心绕开（比如把密钥换个编码再打印）时认不出来。git 的提交号、UUID、图片数据不会被遮。</p>
+    </section>
     <section>
       <h3><span data-i18n>每月预算</span> <small data-i18n>美元，可以不填</small></h3>
       <div class="row">

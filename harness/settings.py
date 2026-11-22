@@ -54,6 +54,8 @@ class Settings:
         self.computer: dict = computer_settings(saved.get("computer"))
         # 命令的沙箱（见 sandbox/）：对话用哪一档（也是定时任务、聊天通道"跟随设置"时的那一档）、额外允许的路径。默认关着
         self.sandbox: dict = sandbox_settings(saved.get("sandbox"))
+        # 遮住工具结果里像密钥的东西（见 redact.py）。默认开着：只有明明白白写了 false 才算关掉
+        self.redact_secrets: bool = saved.get("redact_secrets") is not False
 
     def save(self) -> None:
         with self._lock:
@@ -119,6 +121,12 @@ class Settings:
             self.sandbox = sandbox_settings({**self.sandbox, **changes})
             self._write()
 
+    def set_redact(self, enabled: bool) -> None:
+        """开、关"遮住工具结果里的密钥"（见 redact.py）。"""
+        with self._lock:
+            self.redact_secrets = bool(enabled)
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -140,6 +148,8 @@ class Settings:
             data["computer"] = self.computer
         if self.sandbox != SANDBOX_DEFAULTS:
             data["sandbox"] = self.sandbox
+        if not self.redact_secrets:  # 默认开着：只有关掉了才写
+            data["redact_secrets"] = False
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

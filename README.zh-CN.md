@@ -627,6 +627,7 @@ uv run --project "/这个项目的完整路径" harness
 | 模型目录 | [harness/model_catalog.py](harness/model_catalog.py)、[harness/webui/models_api.py](harness/webui/models_api.py) | 光看模型的名字，不知道它能做什么、多少钱。一份由程序算好的目录：每一家有没有密钥（只露最后 4 位）、能选哪些模型、每个模型能做什么、价格（来自 `pricing.py`）、换过去会怎样；网页上换模型的面板（`POST /api/model/catalog`）和终端的 `/model` 都只是照着它画 |
 | 花费账本和预算 | [harness/ledger.py](harness/ledger.py)、[harness/budget.py](harness/budget.py) | 内存里的估算一重启就没了。每调用一次模型就按那一刻的价格记一笔，看得到一天、一个月花了多少；定了每月预算的话，超过时提醒一次 |
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
+| 遮住密钥 | [harness/redact.py](harness/redact.py) | 命令的输出、文件里可能一不小心带着一把密钥，进了只追加的历史就会发给厂商、永远存着。结果一产生就遮，在 `tool_ended` 记录点之前：认各家密钥的格式、环境变量和 `.env` 里已知的值、`password=` `token:` 后面随机的一串（见[遮住工具结果里的密钥](#遮住工具结果里的密钥)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
@@ -1969,6 +1970,37 @@ uv run harness channels sandbox telegram workspace   # 一个通道的：default
 `/api/channel/sandbox`，以及 `/api/task/save` 里的 `sandbox`。能调的数在 [harness/config.py](harness/config.py)：
 `SANDBOX_MAX_PATHS`（50）、`SANDBOX_PATH_CHARS`（1000）、`SANDBOX_PROBE_SECONDS`（10）、`SANDBOX_PROBE_TTL`（60）。
 
+### 遮住工具结果里的密钥
+
+命令的输出、助手读到的文件、MCP 服务器和网页交回来的东西里，常常一不小心就夹着一把密钥：`cat config.yaml`、`env`、
+`git remote -v` 的地址里带着令牌、日志里有一行 `Authorization: Bearer …`。它一旦进了对话，就会发给模型厂商、写进会话文件、
+显示在页面和聊天里、跟着导出，而且历史只在末尾追加，进去了就收不回来。所以智狐在结果产生的那一刻就把它换掉：
+在 [harness/agent.py](harness/agent.py) 的 `tool_ended` 记录点之前。模型、历史、存下来的会话、页面、聊天通道、
+运行记录（以及以后的钩子）看到的都是遮好的那一份；历史里前面的内容一个字都不动。做这件事的只有一个文件
+[harness/redact.py](harness/redact.py)，认三类：
+
+1. **各家密钥的固定格式**：Anthropic、OpenAI、DeepSeek、Gemini/Google、GitHub、Slack、Telegram 和 Discord 的机器人令牌、
+   AWS 的访问密钥、Stripe 的正式密钥、JWT、PEM 私钥。导出（[harness/export.py](harness/export.py)）和 MCP 的设置页认密钥
+   用的是同一张表：密钥长什么样只写在一处。
+2. **已经知道的密钥的值**（按值比较，值从不写进日志）：`tools/shell.SECRET_ENV_VARS` 里的变量，环境变量和 `.env` 里
+   名字像密钥的（`…_TOKEN`、`…_SECRET`、`…_PASSWORD`、`…_API_KEY`），自定义模型接口的密钥，日志里藏起来的机器人令牌。
+   记号上写的是哪个变量（`‹已遮住：OPENAI_API_KEY 的值›`），不写值。
+3. **跟在提示词后面、看起来随机的一串**：`password=`、`token:`、`"api_key": "…"`、`--token …`、`Authorization: Bearer …`，
+   以及 `scheme://用户:密码@主机` 里的密码。要够长、字母和数字都有、信息量（熵）够高才算
+   （[harness/config.py](harness/config.py) 里的 `REDACT_MIN_VALUE_CHARS`、`REDACT_MIN_ENTROPY`）。
+
+密钥换成 `‹已遮住：疑似 OpenAI 密钥›`，结果末尾再附一句话，告诉模型遮了几处、不要把记号写回去。记号是写给模型看的，
+和别的工具结果一样保持中文。运行记录在每次工具调用上记着遮了几处（`redacted`，时间线和终端 `/trace` 里写"遮住了 2 处密钥"）。
+
+宁可漏，不要错，因为遮错了会把正常的活儿弄坏。git 的提交号、UUID 不遮，一大段 base64（`REDACT_DATA_RUN`，200 个字符）
+和 `data:` 地址（比如图片的内容）不遮，像代码的（`request.headers.get`、`process.env.API_KEY`）、占位符
+（`${API_KEY}`、`<your-key>`、`****`）、翻页用的令牌（`next_page_token`）也不遮。改文件的工具不肯把记号写回文件里
+（`create`、`str_replace`、`insert` 要写的内容里有文件里本来没有的记号）：那会把真正的密钥换成记号。它会请模型只改别的那几行。
+
+这是一层兜底，不是防线：模型要是存心绕开（把密钥换个编码再打印），认不出来。真正挡住密钥的仍然是 `.env` 和 `data/`
+碰不到、命令看不到各家的密钥。默认开着；**设置 → 遮住密钥**可以关掉（关之前问一次），存在 `data/settings.json` 里是
+`"redact_secrets": false`（`POST /api/redact {"enabled": …}`）。终端、定时任务、聊天通道、子 Agent 用的都是这同一个开关。
+
 ### 权限规则
 
 | 操作 | 处理 |
@@ -2338,7 +2370,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/agents/` | 你定制的 Agent，一个一个 Markdown 文件（Claude Code 的 subagent 格式）。可以在"扩展 → Agent"里管理，也可以手动改 |
 | `data/todos.json` | 待办事项 |
 | `data/tasks.json` | 定时任务，每个任务最近 20 次运行的记录，以及还没关掉的提醒。读不出来时原文件改名为 `tasks.broken.json` 留着，从空的任务列表开始 |
-| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），以及命令的沙箱（`"sandbox": {"level", "paths"}`）。不含密钥 |
+| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
 | `data/endpoints.json` | 自定义模型接口：名字、地址、可选的密钥，以及每个模型能做什么、上下文上限和价格。只有你的账号能读；助手的文件工具打不开它；导出时密钥遮住，页面上只看得到最后 4 位 |

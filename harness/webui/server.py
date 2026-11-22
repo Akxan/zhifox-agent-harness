@@ -329,6 +329,7 @@ class WebApp:
             approval=agent.permissions.mode,  # 要不要每次都问：ask / readonly / edits / all
             commands=self.commands.state(),  # 你自己加的"不用问的命令"（见 commands_api.py）
             sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
+            redact_secrets=settings.redact_secrets,  # 工具的结果先遮一遍密钥再交给模型（见 redact.py），设置里能关
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒
@@ -1234,6 +1235,12 @@ class WebApp:
         self.app.settings.set_budget(amount)
         self.publish_state()  # 状态里带着预算，超了没有也在这时重新算一次（见 App.spending）
 
+    def set_redact(self, enabled: bool) -> None:
+        """开、关"遮住工具结果里的密钥"（见 redact.py）。每次遮之前现看设置，所以不用拿对话的锁：正在跑的这一轮，
+        下一个工具的结果就按新的来。"""
+        self.app.settings.set_redact(enabled)
+        self.publish_state()
+
     def spend_report(self) -> dict:
         """"花费明细"窗口要的全部数字。只读内存里的汇总，对话进行中也可以看。"""
         return self.app.ledger.report(self.app.agent.clock().date(), LEDGER_CHART_DAYS)
@@ -1588,6 +1595,12 @@ class Handler(BaseHTTPRequestHandler):
                 web.set_budget(None if amount is None else float(amount))
                 # 带上存完以后的花费：设的预算比这个月已经花的还少时，页面当场就能说清楚（提示框会被设置面板挡住）
                 self._send_json(200, {"ok": True, "spend": web.app.spending()})
+        elif path == "/api/redact":
+            if not isinstance(body.get("enabled"), bool):
+                self._send_json(400, {"error": t("要说清楚开还是关（enabled 是 true 或 false）")})
+            else:
+                web.set_redact(body["enabled"])
+                self._send_json(200, {"ok": True})
         elif path == "/api/export/info":
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":

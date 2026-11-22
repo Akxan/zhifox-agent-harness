@@ -64,6 +64,9 @@ function traceTokens(span) {
   return input + ' · ' + t('输出 {n} token', { n: traceCount(span.output) });
 }
 
+// 结果里遮住了几处像密钥的东西（见 harness/redact.py；终端 /trace 的说法在 harness/trace/text.py）
+const traceRedacted = (span) => (span.redacted === 1 ? t('遮住了 1 处密钥') : t('遮住了 {n} 处密钥', { n: span.redacted }));
+
 // 悬停、选中一行时上面那一行字：这一段的全部数字
 function traceSays(lane) {
   const span = lane.span, parts = [traceTitle(lane)];
@@ -75,6 +78,7 @@ function traceSays(lane) {
   } else {
     parts.push(((span.name || '') + ' ' + (span.detail || '')).trim(), traceTime(span.end - span.start), traceApproval(span));
     if (TRACE_SANDBOX[span.sandbox]) parts.push(t(TRACE_SANDBOX[span.sandbox]));
+    if (span.redacted) parts.push(traceRedacted(span));
     parts.push(span.result === 'ok' ? t('结果 {n} 个字', { n: traceCount(span.size) }) : t(TRACE_RESULT[span.result] || k('没有执行完')));
   }
   return parts.filter(Boolean).join(' · ');
@@ -258,6 +262,7 @@ function traceStep(lane, number) {
     }
     if (span.approval) tags.appendChild(traceTag(traceApproval(span), span.approval === 'auto' ? 'auto' : span.approval === 'allowed' ? 'ok' : 'warn'));
     if (TRACE_SANDBOX[span.sandbox]) tags.appendChild(traceTag(t(TRACE_SANDBOX[span.sandbox]), span.sandbox === 'outside' ? 'warn' : 'note'));
+    if (span.redacted) tags.appendChild(traceTag(traceRedacted(span), 'note'));
     if (span.result && span.result !== 'ok') tags.appendChild(traceTag(t(TRACE_RESULT[span.result] || k('没有执行完')), span.result === 'error' ? 'bad' : 'warn'));
     if (span.result === 'skipped') main.appendChild(tel('p', 'trace-step-meta', TRACE_SKIPPED_WHY));
     if (span.note) main.appendChild(el('p', 'trace-note', span.note));

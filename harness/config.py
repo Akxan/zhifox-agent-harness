@@ -123,6 +123,16 @@ LEDGER_CHART_DAYS = 30
 TRACE_MAX_SPANS = 400
 TRACE_SUMMARY_CHARS = 120
 
+# 遮住工具结果里像密钥的东西（见 redact.py）。总开关在设置里（默认开着），这里是"多像才算"的几个数。
+# 宁可漏掉一个可疑的，也不要把正常的输出遮坏（git 的提交号、UUID、图片的 base64 都不遮）
+REDACT_MIN_KNOWN = 8  # 按值认的密钥（环境变量、.env、自定义接口的密钥……）至少这么长才算：太短的值会把输出里到处都换掉
+# 紧跟在 password=、token: 这类字后面的值：至少这么长、每个字符的信息量（香农熵，比特）至少这么多，而且字母和数字都有，
+# 才当成密钥。"hunter2"太短不遮；"request.headers.get"没有数字、像代码，不遮
+REDACT_MIN_VALUE_CHARS = 12
+REDACT_MIN_ENTROPY = 3.0
+# 连着这么多个 base64 的字符（中间没有空白）当作一段数据（图片、文件的内容），里面碰巧长得像密钥的也不遮
+REDACT_DATA_RUN = 200
+
 # 聊天通道：在 Telegram 这类聊天软件里和智狐说话（见 channels/）。
 # 配对码：网页或命令行上显示一个 6 位数字，你从自己的账号发给机器人，这个账号就绑定成了"主人"，只有主人能用。
 PAIRING_SECONDS = 600  # 配对码多久过期
@@ -457,6 +467,11 @@ def load_env_file(path: Path) -> None:
     """把 .env 文件里的 KEY=VALUE 读进环境变量。已经存在的环境变量不会被覆盖。"""
     for key, value in _env_entries(path):
         os.environ.setdefault(key, value)
+
+
+def env_file_values(path: Path) -> list[tuple[str, str]]:
+    """.env 文件里的每一项（名字，值）。只给遮密钥用（见 redact.py：按值认出输出里的密钥），值从不写进日志、也不交给页面。"""
+    return _env_entries(path)
 
 
 def env_file_names(path: Path) -> set[str]:

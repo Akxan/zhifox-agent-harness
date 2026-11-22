@@ -52,7 +52,7 @@
 
   一段工具调用：
     {"kind": "tool", "start": 1834, "end": 4750, "name": "run_command", "group": "shell", "icon": "terminal",
-     "label": "执行命令", "detail": "$ ls -la", "result": "ok", "size": 120, "images": 1,
+     "label": "执行命令", "detail": "$ ls -la", "result": "ok", "size": 120, "images": 1, "redacted": 2,
      "approval": "allowed", "why": "readonly", "asked": 1840, "waited": 2900, "note": "…",
      "server": "files", "agent": "资料研究员", "sandbox": "workspace", "children": [段, …]}
     name     真名（工具包的成员写成 browser.left_click）；label 是给人看的名字（原文，页面和终端各自翻译），
@@ -60,6 +60,7 @@
     detail   参数的一行说明（不含工具名），最多 TRACE_SUMMARY_CHARS 个字
     result   ok / error / skipped（没有执行：前面一步失败了，或者参数被截断）/ stopped（被打断，没有结果）
     size     结果有多少个字（只记大小，不存内容）；images 结果里有几张图
+    redacted 结果里遮住了几处像密钥的东西（见 redact.py；size 是遮好以后的大小）；一处都没遮的没有这一项
     approval 问没问你：allowed 你允许了 / refused 你拒绝了 / auto 没问就放行（why 是为什么：readonly、listed、
              trusted、mode，见 permissions.Permissions.allowance）/ stopped 还在等你答复就停了；不用问的没有这一项
     asked、waited  什么时候开始等你答复、等了多少毫秒（只有问了你的才有）

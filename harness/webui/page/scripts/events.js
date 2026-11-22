@@ -68,6 +68,7 @@ const handlers = {
     renderApproval(event.approval);
     renderCommands(event.commands);
     renderSandbox(event.sandbox);  // 命令的沙箱（见 sandbox.js）
+    renderRedact(event.redact_secrets);  // 遮住工具结果里的密钥（见 redact.js）
     renderEndpoints(event.endpoints);  // 设置里的"自定义模型接口"（见 endpoints.js）
 
     if (replaying) {  // 重放的旧内容到这里就画完了

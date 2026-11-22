@@ -10,7 +10,7 @@ agent 循环在几个时刻告诉它一声（"记录点"，agent.py 里每个只
         approval_asked()                 要问你：开始等你答复
         approval_decided(decision, why)  你答复了，或者没问你就放行了
         adopt(child, agent)              这次调用交给了子 Agent：把它的那一轮挂在这次调用下面（见 agents/runner.py）
-      tool_ended(text, is_error, images, ran)  这次调用有结果了
+      tool_ended(text, is_error, images, ran, redacted)  这次调用有结果了（redacted：遮住了几处密钥，见 ../redact.py）
     turn_ended(ended) → 记录              一轮结束
 
 中途被打断（停止、出错）时，还没结束的那一段在 turn_ended 里按"此刻"收尾，标成 stopped 或 error，
@@ -161,7 +161,7 @@ class Tracer:
         if span is not None and agent:
             span.data["agent"] = clean_text(agent)[:60]
 
-    def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True) -> None:
+    def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True, redacted: int = 0) -> None:
         span, self._tool = self._tool, None
         if span is None:
             return
@@ -171,6 +171,8 @@ class Tracer:
         data["size"] = len(text)
         if images:
             data["images"] = int(images)
+        if redacted:
+            data["redacted"] = int(redacted)  # 结果里遮住了几处像密钥的东西（见 ../redact.py）
         if is_error and ran and data.get("approval") != "refused":  # 你拒绝的那次不用再写原因：approval 已经说了
             data["note"] = short(next((line for line in text.splitlines() if line.strip()), ""), TRACE_SUMMARY_CHARS)
 

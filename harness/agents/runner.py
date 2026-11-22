@@ -215,6 +215,7 @@ class Delegator:
             tools = agent_tools.allowed(agent.spec.tools, [*tools[: self._mcp_start(tools)], nested, *tools[self._mcp_start(tools) :]])
         sub.use_tools(ToolRegistry(tools))
         sub.on_call = self._recorder(parent)
+        sub.redact = parent.redact  # 它的工具结果也遮密钥，和叫它的那一方同一个（见 ../redact.py）
         if sub.tools.get("skill") is not None:
             sub.notes.append(skill_notifier(self.skills))  # 它也能用 Skill：第一条消息带上 Skill 的目录
         if sub.tools.get(agent_tools.AGENT_TOOL) is not None:

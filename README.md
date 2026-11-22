@@ -324,6 +324,7 @@ Each part of the harness has its own file or directory:
 | Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
+| Masking secrets | [harness/redact.py](harness/redact.py) | A command's output or a file can carry a key by accident, and once it is in the append-only history it's sent to the provider and saved for good. Results are masked the moment they're created, before the `tool_ended` recording point; known key formats, known values from the environment and `.env`, and random-looking values after `password=` / `token:` (see [Masking secrets in tool results](#masking-secrets-in-tool-results)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
@@ -1894,6 +1895,45 @@ page's token: `POST /api/sandbox/level`, `/api/sandbox/add`, `/api/sandbox/edit`
 field of `/api/task/save`. The tunables in [harness/config.py](harness/config.py): `SANDBOX_MAX_PATHS` (50),
 `SANDBOX_PATH_CHARS` (1,000), `SANDBOX_PROBE_SECONDS` (10) and `SANDBOX_PROBE_TTL` (60).
 
+### Masking secrets in tool results
+
+A command's output, a file the assistant views, an MCP server's answer or a web page can carry a secret by accident:
+`cat config.yaml`, `env`, `git remote -v` with a token in the URL, a log line with `Authorization: Bearer …`. Once it is in
+the conversation it is sent to the model provider, written to the conversation file, shown on the page and in chats, and
+exported, and the history is append-only, so it can't be taken back. So ZhiFox masks it the moment the result is created,
+before the `tool_ended` recording point in [harness/agent.py](harness/agent.py): the model, the history, the saved
+conversation, the page, the chat channels, the run trace (and future hooks) all see the masked copy. Nothing earlier in
+the history is touched. The masking lives in one module, [harness/redact.py](harness/redact.py), and catches three kinds of thing:
+
+1. **Known key formats**: Anthropic, OpenAI, DeepSeek, Gemini/Google, GitHub, Slack, Telegram and Discord bot tokens, AWS
+   access keys, Stripe live keys, JWTs and PEM private keys. The export ([harness/export.py](harness/export.py)) and the MCP
+   settings page use the same table, so a key format is written down in one place.
+2. **Known values**, compared by value and never logged: the variables in `tools/shell.SECRET_ENV_VARS`, anything in the
+   environment or in `.env` whose name looks like a secret (`…_TOKEN`, `…_SECRET`, `…_PASSWORD`, `…_API_KEY`), the keys of
+   your custom model endpoints, and the bot tokens hidden from the log. The mark says which variable it was
+   (`‹已遮住：OPENAI_API_KEY 的值›`), never the value.
+3. **Random-looking values after a hint**: `password=`, `token:`, `"api_key": "…"`, `--token …`, `Authorization: Bearer …`,
+   and the password in `scheme://user:password@host`. A value counts only if it is long enough, has letters and digits and
+   enough entropy (`REDACT_MIN_VALUE_CHARS`, `REDACT_MIN_ENTROPY` in [harness/config.py](harness/config.py)).
+
+A secret becomes `‹已遮住：疑似 OpenAI 密钥›` ("masked: looks like an OpenAI key"), and the result ends with a note telling
+the model how many were masked and not to write the marks back. Those marks are model-facing, so they stay in Chinese like
+every other tool result. The run trace records how many were masked on each tool call (`redacted`, shown as
+"masked 2 secrets" in the timeline and in `/trace`).
+
+It is deliberately conservative: false positives break real work. Git commit hashes and UUIDs are never masked, and
+neither are long base64 runs (`REDACT_DATA_RUN`, 200 characters) or `data:` URLs, such as an image's bytes. Code
+(`request.headers.get`, `process.env.API_KEY`), placeholders (`${API_KEY}`, `<your-key>`, `****`) and paging tokens
+(`next_page_token`) are left alone too. The file tool refuses to write a mark back into a file (`create`,
+`str_replace` or `insert` whose text contains a mark that isn't already in the file), because that would replace the
+real key with the mark. It asks the model to change only the other lines.
+
+It is a safety net, not a wall: a model that deliberately works around it (re-encoding a key before printing it) won't be
+caught. The real protections are still that `.env` and `data/` are off limits and that commands never see the providers'
+keys. It is on by default; **Settings → Mask secrets** turns it off (asking once first), and the setting is
+`"redact_secrets": false` in `data/settings.json` (`POST /api/redact {"enabled": …}`). The terminal, scheduled tasks, chat
+channels and subagents all use the same switch.
+
 ### Permissions
 
 | Action | Handling |
@@ -2905,7 +2945,7 @@ unprivileged user for the service.
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), and the command sandbox (`"sandbox": {"level", "paths"}`). No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), the command sandbox (`"sandbox": {"level", "paths"}`), and `"redact_secrets": false` if you turned off masking secrets in tool results. No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/endpoints.json` | Custom model endpoints: name, URL, the optional key, and each model's abilities, context limit and price. Readable by your account only; the assistant's file tool can't open it; the key is masked in exports and the web page only ever sees its last 4 characters |

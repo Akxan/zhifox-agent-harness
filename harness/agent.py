@@ -16,6 +16,9 @@
 开始等你答复（approval_asked）、你答复了或者没问就放行了（approval_decided）、这次调用有结果了（tool_ended）、
 一轮开始和结束（turn_began、turn_ended）。以后要在这些时刻做别的事（比如钩子），也挂在这几处。
 
+工具的结果在 tool_ended 之前先遮一遍密钥（self.redact，见 redact.py）：结果一产生就换掉，模型、历史、页面、运行记录，
+以及挂在 tool_ended 上的钩子，看到的都是遮好的那一份。
+
 这个循环不关心背后是哪家的模型。和具体厂商打交道的细节（请求怎么发、历史怎么存）
 都在 providers/ 目录里，循环只通过 backend 的几个方法使用它们。
 """
@@ -34,6 +37,7 @@ from .i18n import t
 from .permissions import Permissions
 from .pricing import usage_key
 from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
+from .redact import Redaction, Redactor, note, redact_data
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
 from .tools.base import ToolOutput
@@ -93,6 +97,9 @@ class Agent:
         # （网页界面存进会话，终端界面留给 /trace，见 app.py）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
         self.trace = Tracer()
         self.on_trace: Callable[[dict], None] | None = None
+        # 遮住工具结果里像密钥的东西（见 redact.py）。默认就开着（只认环境变量里的密钥和固定的格式）；
+        # app.py 换成连着 .env、自定义接口的密钥和设置里那个开关的。None 是不遮
+        self.redact: Callable[[str], Redaction] | None = Redactor()
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
@@ -256,8 +263,9 @@ class Agent:
                     output = self._run_one(call)
                     halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
                 text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
-                results.append(ToolResult(call.id, text, output.is_error, output.images, output.state, output.state_only))
-                self.trace.tool_ended(text, output.is_error, len(output.images), ran)  # 记录点：这次调用有结果了
+                text, state, redacted = self._redact(text, output.state)  # 遮住像密钥的东西：必须在下面的记录点之前
+                results.append(ToolResult(call.id, text, output.is_error, output.images, state, output.state_only))
+                self.trace.tool_ended(text, output.is_error, len(output.images), ran, redacted)  # 记录点：这次调用有结果了
                 # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言
                 shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else text
                 self.ui.tool_result(shown, output.is_error, output.preview)
@@ -270,6 +278,19 @@ class Agent:
                 if call.id not in answered:
                     results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
             self.backend.add_tool_results(results)
+
+    def _redact(self, text: str, state: dict | None) -> tuple[str, dict | None, int]:
+        """遮住结果里像密钥的东西（见 redact.py）。返回（文字，浏览器的标签页情况，一共遮了几处）。
+        有遮的，文字末尾附一句给模型看的说明；标签页情况里的网址、标题也一样遮（它也交给模型）。"""
+        if self.redact is None:
+            return text, state, 0
+        done = self.redact(text)
+        count = done.count
+        if state is not None:
+            state, more = redact_data(state, self.redact)
+            count += more
+        text = done.text + note(done) if done.count else text
+        return text, state, count
 
     def _operates_computer(self, call: ToolCall) -> bool:
         """是不是操作电脑的替身工具（computer_*）。"""

@@ -137,6 +137,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t("{answer}（等了 {time}）", answer=t(APPROVAL[approval]), time=seconds(span.get("waited", 0))))
         if span.get("sandbox") in SANDBOX:
             parts.append(t(SANDBOX[span["sandbox"]]))
+        if span.get("redacted"):  # 结果里遮住了几处密钥（见 ../redact.py）。页面上的说法在 page/scripts/trace-chart.js 的 traceRedacted
+            parts.append(t("遮住了 1 处密钥") if span["redacted"] == 1 else t("遮住了 {n} 处密钥", n=span["redacted"]))
         if span.get("result") in RESULT:
             result = t(RESULT[span["result"]])
             parts.append(t("{result}：{note}", result=result, note=span["note"]) if span.get("note") else result)
