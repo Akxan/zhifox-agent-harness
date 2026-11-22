@@ -9,8 +9,8 @@
   - 输出到终端时带颜色和时间；输出不是终端时（交给 systemd、重定向到文件），不带颜色的控制字符，免得日志里
     满是 \\x1b[33m 这样的乱码。在 journald 下（systemd 会设置 JOURNAL_STREAM）每行前面加 <4> 这样的级别标记，
     journalctl -p warning 就能只看警告和错误；时间由 journald 自己记，不再重复写。
-  - macOS 的后台服务（launchd）没有 journald，日志写进一个文件（setup 的 file）。launchd 只管把输出接到文件上，
-    不管它长多大，所以这里自己管：写满 SERVICE_LOG_BYTES 就换一个新文件，旧的留 SERVICE_LOG_BACKUPS 份。
+  - macOS 的后台服务（launchd）和 Windows 的（任务计划程序）没有 journald，日志写进一个文件（setup 的 file）。
+    launchd 只管把输出接到文件上，不管它长多大（任务计划程序连接都不接，见 service/supervise.py），所以这里自己管：写满 SERVICE_LOG_BYTES 就换一个新文件，旧的留 SERVICE_LOG_BACKUPS 份。
     文件里每行带上日期（服务一开就是好几天，只有时间的话分不清是哪天的）。
 """
 
@@ -79,36 +79,91 @@ class _Formatter(logging.Formatter):
 
 
 class ServiceLog(logging.handlers.RotatingFileHandler):
-    """后台服务（launchd）的日志文件：写满了改名成 .1（原来的 .1 变成 .2……），再开一个新的。
+    """后台服务（launchd、Windows 的任务计划程序）的日志文件：写满了改名成 .1（原来的 .1 变成 .2……），再开一个新的。
 
     own_stdio：把这个进程的标准输出、标准错误也指向这个文件。launchd 已经把它们接到了同一个文件上（plist 里的
-    StandardOutPath、StandardErrorPath），可换新文件的时候，它们还指着改了名的旧文件：没接住的异常、子进程直接写的
-    东西就进了 service.log.1。所以开文件、换新文件之后，都用 dup2 把 1 号和 2 号文件描述符换成新的这一个。
-    测试里不要打开它（会把测试自己的输出也换走）。
+    StandardOutPath、StandardErrorPath；Windows 上是 supervise.py 接的），可换新文件的时候，它们还指着改了名的旧文件：
+    没接住的异常、子进程直接写的东西就进了 service.log.1。所以开文件、换新文件之后，都用 dup2 把 1 号和 2 号
+    文件描述符换成新的这一个。测试里不要打开它（会把测试自己的输出也换走）。
+
+    Windows 上还有两件事：
+      - 一个文件只要还有人开着，就改不了名（macOS、Linux 上可以）。1 号、2 号也开着这个文件，所以换新文件之前，
+        先把它们临时指向"空设备"（os.devnull），改完名再指向新文件；不这样的话，日志永远换不成、一直长下去。
+      - 用 pythonw.exe 运行时根本没有标准输出（sys.stdout 是 None，1 号、2 号文件描述符也不存在）。
+        这时 dup2 照样能把 1、2 号建出来，再给 sys.stdout、sys.stderr 配上对应的文字流，没接住的异常才写得进日志。
     """
 
     def __init__(self, path: Path, own_stdio: bool = False):
         self.own_stdio = own_stdio
+        if own_stdio:
+            _fill_std_fds()
         super().__init__(path, maxBytes=SERVICE_LOG_BYTES, backupCount=SERVICE_LOG_BACKUPS, encoding="utf-8")
         self._adopt()
 
     def doRollover(self) -> None:
-        super().doRollover()
-        self._adopt()
+        self._release()
+        try:
+            super().doRollover()
+        finally:
+            # 改名失败了（Windows 上别的程序正好在读这个文件）：父类已经关掉了文件、没有再开，这里重新开上，下一行再试着换
+            if self.stream is None:
+                self.stream = self._open()
+            self._adopt()
+
+    def _release(self) -> None:
+        """换新文件之前，让 1 号、2 号先放开这个文件（见上面）。"""
+        if not self.own_stdio:
+            return
+        _flush_stdio()
+        null = os.open(os.devnull, os.O_WRONLY)
+        try:
+            for fd in (1, 2):
+                os.dup2(null, fd)
+        finally:
+            os.close(null)
 
     def _adopt(self) -> None:
         if self.stream is None:
             return
         os.chmod(self.baseFilename, 0o600)  # 日志里没有密钥（写之前都换掉了），但有路径和出错的经过，只给自己看
         if self.own_stdio:
-            for stream in (sys.stdout, sys.stderr):
+            _flush_stdio()
+            for fd in (1, 2):
+                os.dup2(self.stream.fileno(), fd)
+            # pythonw.exe：本来没有标准输出、标准错误，现在 1、2 号有了，配上文字流（closefd=False：关它不会关掉 1、2 号）
+            if sys.stdout is None:
+                sys.stdout = open(1, "w", encoding="utf-8", errors="backslashreplace", buffering=1, closefd=False)  # noqa: SIM115
+            if sys.stderr is None:
+                sys.stderr = open(2, "w", encoding="utf-8", errors="backslashreplace", buffering=1, closefd=False)  # noqa: SIM115
+
+
+def _fill_std_fds() -> None:
+    """0、1、2 号文件描述符有不存在的（pythonw.exe），先让它们指向"空设备"。
+
+    为什么：打开文件时系统给的是最小的那个空着的编号。1 号空着的话，日志文件自己就会拿到 1 号，
+    之后"把 1 号换成空设备、再换成新文件"（见 _release、_adopt）就会把日志文件本身换掉。"""
+    for fd in (0, 1, 2):
+        try:
+            os.fstat(fd)
+        except OSError:
+            null = os.open(os.devnull, os.O_RDWR)
+            if null != fd:
+                os.dup2(null, fd)
+                os.close(null)
+
+
+def _flush_stdio() -> None:
+    """dup2 换掉 1、2 号之前，先把还在缓冲里的写出去（不然会写到换过去的那个文件里，或者丢掉）。没有的（pythonw）跳过。"""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            try:
                 stream.flush()
-            os.dup2(self.stream.fileno(), 1)
-            os.dup2(self.stream.fileno(), 2)
+            except (OSError, ValueError):
+                pass
 
 
 def setup(stream: IO[str] | None = None, level: int = logging.INFO, file: Path | None = None, own_stdio: bool = False) -> None:
-    """把 harness 的日志接到 stream（默认标准错误），或者 file 这个文件（launchd 下的后台服务，见 ServiceLog）。
+    """把 harness 的日志接到 stream（默认标准错误），或者 file 这个文件（launchd、任务计划程序下的后台服务，见 ServiceLog）。
     可以调用多次，后一次换掉前一次的设置。"""
     if file is not None:
         file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

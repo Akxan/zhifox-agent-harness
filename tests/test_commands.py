@@ -21,7 +21,9 @@ import unicodedata
 from pathlib import Path
 
 import pytest
+from conftest import NO_SYMLINKS, symlinks_work
 
+from harness import commands as commands_module
 from harness.commands import Places, Unclear, classify
 from harness.commands import paths as paths_module
 from harness.commands.options import allow, deny, names, parse
@@ -30,44 +32,50 @@ from harness.config import READONLY_MAX_CHARS
 
 # ---- 工作目录 -----------------------------------------------------------------
 
+# _build 里符号链接的名字（mixed 是里面藏着一个链接的文件夹）。建不了链接的电脑上（见 conftest 的 symlinks_work），
+# 表里提到它们的行跳过：没有链接，这些行要测的东西就不存在了
+LINKS = ("envlink", "datalink", "innocent.txt", "mixed", "sshlink")
+
 
 def _build(root: Path) -> Places:
     """搭一个像样的工作目录和主目录，返回对应的 Places。"""
     ws, home = root / "ws", root / "home"
     for folder in ("src", "docs", "data/conversations", ".git", "mixed", "linked"):
         (ws / folder).mkdir(parents=True)
-    (ws / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n")
+    (ws / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n", encoding="utf-8")
     for name in ("mcp.json", "channels.json", "commands.json"):
-        (ws / "data" / name).write_text("{}\n")
-    (ws / "data" / "notes.md").write_text("私人笔记\n")
-    (ws / "data" / "conversations" / "c1.json").write_text("{}\n")
-    (ws / "src" / "main.py").write_text("print('hi')\n")
-    (ws / "src" / "a.txt").write_text("a\nb\n")
-    (ws / "src" / "b.txt").write_text("b\nc\n")
-    (ws / "src" / "config.json").write_text('{"name": "x"}\n')
-    (ws / "docs" / "readme.md").write_text("# 说明\n")
-    (ws / ".git" / "config").write_text('[remote "origin"]\n\turl = https://user:token@example.invalid/x.git\n')
-    (ws / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
-    (ws / "mixed" / "ok.txt").write_text("ok\n")
-    # 符号链接：名字看起来无害，指向的地方不能不问就读
-    (ws / "envlink").symlink_to(ws / ".env")
-    (ws / "datalink").symlink_to(ws / "data")
-    (ws / "innocent.txt").symlink_to(ws / "data" / "notes.md")
-    (ws / "mixed" / "inner").symlink_to(Path("..") / "data")  # 文件夹里藏着一个指向 data/ 的链接
-    # 硬链接：另一个名字，同一个文件
+        (ws / "data" / name).write_text("{}\n", encoding="utf-8")
+    (ws / "data" / "notes.md").write_text("私人笔记\n", encoding="utf-8")
+    (ws / "data" / "conversations" / "c1.json").write_text("{}\n", encoding="utf-8")
+    (ws / "src" / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    (ws / "src" / "a.txt").write_text("a\nb\n", encoding="utf-8")
+    (ws / "src" / "b.txt").write_text("b\nc\n", encoding="utf-8")
+    (ws / "src" / "config.json").write_text('{"name": "x"}\n', encoding="utf-8")
+    (ws / "docs" / "readme.md").write_text("# 说明\n", encoding="utf-8")
+    (ws / ".git" / "config").write_text('[remote "origin"]\n\turl = https://user:token@example.invalid/x.git\n', encoding="utf-8")
+    (ws / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (ws / "mixed" / "ok.txt").write_text("ok\n", encoding="utf-8")
+    # 符号链接：名字看起来无害，指向的地方不能不问就读。建不了链接的电脑上不建，用到它们的行跳过（见 LINKS）
+    if symlinks_work():
+        (ws / "envlink").symlink_to(ws / ".env")
+        (ws / "datalink").symlink_to(ws / "data")
+        (ws / "innocent.txt").symlink_to(ws / "data" / "notes.md")
+        (ws / "mixed" / "inner").symlink_to(Path("..") / "data")  # 文件夹里藏着一个指向 data/ 的链接
+    # 硬链接：另一个名字，同一个文件（Windows 上也建得了）
     os.link(ws / ".env", ws / "linked" / "notes.txt")
     (home / ".ssh").mkdir(parents=True)
-    (home / ".ssh" / "id_rsa").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")
+    (home / ".ssh" / "id_rsa").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n", encoding="utf-8")
     (home / ".aws").mkdir()
-    (home / ".aws" / "credentials").write_text("[default]\n")
-    (home / ".bashrc").write_text("alias ll='ls -l'\n")
-    (home / "notes.txt").write_text("主目录里的普通文件\n")
-    (ws / "sshlink").symlink_to(home / ".ssh")
+    (home / ".aws" / "credentials").write_text("[default]\n", encoding="utf-8")
+    (home / ".bashrc").write_text("alias ll='ls -l'\n", encoding="utf-8")
+    (home / "notes.txt").write_text("主目录里的普通文件\n", encoding="utf-8")
+    if symlinks_work():
+        (ws / "sshlink").symlink_to(home / ".ssh")
     # 工作目录旁边：同一个项目的另一份副本（也有 .env），以及一份只有 data/ 的"双胞胎"（没有像密钥的名字）
     (root / "copy").mkdir()
-    (root / "copy" / ".env").write_text("ANTHROPIC_API_KEY=sk-old\n")
+    (root / "copy" / ".env").write_text("ANTHROPIC_API_KEY=sk-old\n", encoding="utf-8")
     (root / "twin" / "data").mkdir(parents=True)
-    (root / "twin" / "data" / "notes.md").write_text("另一份\n")
+    (root / "twin" / "data" / "notes.md").write_text("另一份\n", encoding="utf-8")
     (root / "empty").mkdir()
     protected = [ws / ".env", ws / "data" / "mcp.json", ws / "data" / "channels.json", ws / "data" / "commands.json"]
     return Places(ws, protected=protected, private=[ws / "data"], home=home)
@@ -91,6 +99,16 @@ def ok(command: str, why: str):
 
 def no(command: str, why: str):
     return pytest.param(command, False, id=why)
+
+
+# 只在 macOS、Linux 上成立的几行（Places 在 Windows 上按 Windows 的规矩看路径，见 harness/pathnames.py）
+POSIX_DEVICES = "Windows 上没有 /dev、/proc：这些路径在那里只是当前盘上的普通文件夹，读它们不碰设备"
+AUX_DEVICE = "Windows 上 aux 是设备名（AUX）：当作路径时看不清是什么，要问"
+
+
+def posix(param, reason: str):
+    """这一行只在 macOS、Linux 上成立：Windows 上跳过，写明为什么。"""
+    return pytest.param(*param.values, id=param.id, marks=pytest.mark.skipif(os.name == "nt", reason=reason))
 
 
 def strict(command: str, why: str):
@@ -196,7 +214,7 @@ INVISIBLE = [
     no("ls\x0b", "垂直制表符"),
     no("ls\x00", "NUL"),
     no("ls\x1b[2J", "终端的转义序列"),
-    ok("echo " + "a" * (READONLY_MAX_CHARS - 5), "正好是长度上限"),
+    posix(ok("echo " + "a" * (READONLY_MAX_CHARS - 5), "正好是长度上限"), "Windows 上一段超过 255 个字符的词当作看不清的路径（pathnames.word_trick）；那里的命令本来也一律要问"),
     no("echo " + "a" * (READONLY_MAX_CHARS - 4), "超过长度上限"),
 ]
 
@@ -242,9 +260,9 @@ PIPELINES = [
     ok("cat src/a.txt | grep a | wc -l", "三段都只读"),
     ok("ls | sort | uniq -c", "ls 排序计数"),
     ok("git log --oneline | head -5", "git 接 head"),
-    ok("ps aux | grep python", "ps 接 grep"),
+    posix(ok("ps aux | grep python", "ps 接 grep"), AUX_DEVICE),
     ok("journalctl -u nginx | tail -n 20", "journalctl 接 tail"),
-    ok("ps aux | awk '{print $2}'", "接 awk"),
+    posix(ok("ps aux | awk '{print $2}'", "接 awk"), AUX_DEVICE),
     ok("cat src/config.json | jq .", "接 jq"),
     ok("cat src/a.txt | sed -n 2p", "接 sed"),
     no("cat src/a.txt | sh", "接 sh"),
@@ -291,7 +309,7 @@ SYSTEM = [
     ok("vmstat", "vmstat"),
     ok("vm_stat", "vm_stat"),
     ok("iostat", "iostat"),
-    ok("ps aux", "ps aux"),
+    posix(ok("ps aux", "ps aux"), AUX_DEVICE),
     ok("ps -ef", "ps -ef"),
     ok("pgrep -l python", "pgrep"),
     ok("pidof nginx", "pidof"),
@@ -497,11 +515,11 @@ PATHS = [
     no("cat /etc/shadow", "/etc/shadow"),
     no("cat /proc/self/environ", "自己的环境变量"),
     no("cat /proc/1/environ", "别的进程的环境变量"),
-    no("cat /proc/self/mem", "进程的内存"),
-    no("cat /dev/sda", "设备文件"),
-    no("cat /dev/stdin", "/dev/stdin"),
-    no("head -c 10 /dev/urandom", "/dev/urandom"),
-    no("cat /dev/tcp/example.com/80", "/dev/tcp"),
+    posix(no("cat /proc/self/mem", "进程的内存"), POSIX_DEVICES),
+    posix(no("cat /dev/sda", "设备文件"), POSIX_DEVICES),
+    posix(no("cat /dev/stdin", "/dev/stdin"), POSIX_DEVICES),
+    posix(no("head -c 10 /dev/urandom", "/dev/urandom"), POSIX_DEVICES),
+    posix(no("cat /dev/tcp/example.com/80", "/dev/tcp"), POSIX_DEVICES),
     no("cat envlink", "指向 .env 的符号链接"),
     no("cat innocent.txt", "名字无害、指向数据目录的符号链接"),
     no("cat datalink/notes.md", "指向数据目录的文件夹链接"),
@@ -1040,6 +1058,8 @@ TABLE = [*QUOTING, *OPERATORS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILE
 
 @pytest.mark.parametrize("command, readonly", TABLE)
 def test_classify(spot, command, readonly):
+    if not symlinks_work() and any(name in command for name in LINKS):
+        pytest.skip(NO_SYMLINKS)
     places, fill = spot
     verdict = classify(fill(command), places)
     assert verdict.readonly is readonly, verdict.reason or "被当成了只读"
@@ -1094,6 +1114,15 @@ def test_listed_commands(spot, command, readonly):
         assert verdict.source == "listed"
 
 
+def test_on_windows_nothing_is_readonly(spot, monkeypatch):
+    """Windows 上的命令是 PowerShell：拆词和名单都看不准它，一条都不算只读，你加的也不算（见 harness/commands/__init__.py）。"""
+    places, _ = spot
+    monkeypatch.setattr(commands_module, "WINDOWS", True)
+    for command in ("ls", "ls -la", "git status", "npm test", "Get-ChildItem", "cat src/a.txt", "dir"):
+        verdict = classify(command, places, listed=LISTED)
+        assert not verdict.readonly and "PowerShell" in verdict.reason, command
+
+
 def test_listed_entries_never_widen_builtin_paths(spot):
     """清单是空的、或者有一条空的，都不会让别的命令变成只读。"""
     places, _ = spot
@@ -1110,7 +1139,7 @@ def test_decomposed_unicode_reaches_the_same_folder_on_macos(tmp_path):
     工作目录的路径里有带音调的字母时（西班牙语的用户很常见），用另一种写法的绝对路径就能读到数据目录。"""
     workspace = tmp_path / unicodedata.normalize("NFC", "año")
     (workspace / "data").mkdir(parents=True)
-    (workspace / "data" / "notes.md").write_text("私人笔记\n")
+    (workspace / "data" / "notes.md").write_text("私人笔记\n", encoding="utf-8")
     places = Places(workspace, private=[workspace / "data"], home=tmp_path / "home")
     decomposed = unicodedata.normalize("NFD", str(workspace))
     assert decomposed != str(workspace)
@@ -1124,9 +1153,9 @@ def test_scanning_a_huge_folder_gives_up(tmp_path, monkeypatch):
     (workspace / "small").mkdir(parents=True)
     (workspace / "big").mkdir()
     for index in range(2):
-        (workspace / "small" / f"{index}.txt").write_text("x")
+        (workspace / "small" / f"{index}.txt").write_text("x", encoding="utf-8")
     for index in range(4):
-        (workspace / "big" / f"{index}.txt").write_text("x")
+        (workspace / "big" / f"{index}.txt").write_text("x", encoding="utf-8")
     places = Places(workspace, home=tmp_path / "home")
     assert classify("grep -r x small", places).readonly
     verdict = classify("grep -r x big", places)
@@ -1142,7 +1171,7 @@ def test_missing_protected_files_are_fine(tmp_path):
     assert not classify("cat data/channels.json", places).readonly
 
 
-def test_symlink_loops_do_not_crash(tmp_path):
+def test_symlink_loops_do_not_crash(symlinks, tmp_path):
     workspace = tmp_path / "ws"
     workspace.mkdir()
     (workspace / "loop").symlink_to(workspace / "loop")

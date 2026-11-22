@@ -264,7 +264,7 @@ function chanStepFour(item, pane, foot, help) {
     const on = view.mode === option.mode;
     button.setAttribute('aria-checked', on ? 'true' : 'false');
     button.tabIndex = on ? 0 : -1;  // 单选组只有选中的那个在 Tab 键的顺序里，其余的用方向键去
-    button.append(el('b', null, t(APPROVAL[option.mode])), el('span', null, t(option.text)), icon('check'));
+    button.append(el('b', null, t(APPROVAL[option.mode])), el('span', null, t(approvalText(option.mode))), icon('check'));
     button.addEventListener('click', () => choose(option.mode, true));
   }
   group.addEventListener('keydown', (key) => {

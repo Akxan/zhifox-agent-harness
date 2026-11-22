@@ -8,6 +8,8 @@
 浏览器送来的是列表里给它的相对路径（比如 "projects/zhifox.md"）。这个路径是从网页上来的，不能全信：
 它可能被改成 "../../.env"、一个绝对路径，或者文件夹里的某一层其实是指向别处的符号链接。所以每一次都从
 记忆文件夹出发，一层一层地走到目标，确认它还在文件夹里、是一个普通文件，才去读或删（见 _locate）。
+Windows 上还有几种花招：a.md. 和 a.md::$DATA 都是 a.md、CON 是设备、目录联接（junction）和符号链接一样能指到别处，
+这些写法一律不认，联接和链接一样不走（见 pathnames.py）。
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import os
 import stat
 from pathlib import Path, PurePosixPath
 
+from . import pathnames
 from .i18n import t
 from .safe import clean_text, write_file
 
@@ -53,7 +56,7 @@ def list_files(root: Path) -> list[dict]:
         for entry in entries:
             if len(found) >= MAX_LISTED:
                 return
-            if entry.name.startswith(".") or entry.is_symlink():
+            if entry.name.startswith(".") or pathnames.entry_linked(entry):
                 continue
             relative = prefix + entry.name
             try:
@@ -78,8 +81,8 @@ def read(root: Path, relative: object) -> dict:
     """
     target = _locate(root, relative)
     try:
-        # O_NOFOLLOW：_locate 检查过之后、打开之前，万一这个文件被换成了链接，打开会失败，而不是跟着链接读到别处去
-        descriptor = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+        # 不跟着链接走：_locate 检查过之后、打开之前，万一这个文件被换成了链接，打开会失败，而不是跟着链接读到别处去
+        descriptor = pathnames.open_nofollow(target, os.O_RDONLY)
         with os.fdopen(descriptor, "rb") as handle:
             data = handle.read(MAX_READ_BYTES + 1)
             info = os.fstat(handle.fileno())
@@ -152,6 +155,9 @@ def _valid_name(name: object) -> str:
         raise MemoryFileError(t("文件名太长了，最多 {n} 个字符。", n=MAX_NAME_CHARS))
     if "/" in name or "\\" in name or name.startswith(".") or any(ord(char) < 32 for char in name):
         raise MemoryFileError(t("文件名里不能有 / 或 \\，也不能以 . 开头。"))
+    if pathnames.trick(name):
+        # Windows 上不能用的名字：a.md. 存下去就成了 a.md，CON 是设备，PROGRA~1 可能是别的文件的另一个名字（见 pathnames.py）
+        raise MemoryFileError(t("这个名字在 Windows 上不能用作文件名：不能有 : * ? \" < > |，不能以点或空格结尾，也不能是 CON、NUL、COM1 这类设备名或 PROGRA~1 这样的短名字。"))
     return name
 
 
@@ -193,6 +199,9 @@ def _locate(root: Path, relative: object) -> Path:
     # （"." 规整之后一段都不剩，所以还要单独查一下是不是空的）
     if path.is_absolute() or str(path) != relative or not path.parts or any(part.startswith(".") for part in path.parts):
         raise gone
+    # Windows 上同一个文件的别的写法（a.md.、a.md:x、短名字）、设备名（CON）：列表里不会给出这种写法，不认
+    if pathnames.trick(relative):
+        raise gone
     # 从记忆文件夹真正的位置出发（它本身可以是你自己建的链接，比如挪到了同步盘里），一层一层往下走
     base = root.resolve()
     target = base
@@ -202,8 +211,8 @@ def _locate(root: Path, relative: object) -> Path:
             info = os.lstat(target)  # lstat：看的是这个名字本身，不跟着链接走
         except OSError:
             raise gone from None
-        # 每一层都不许是符号链接：链接可以指到文件夹外面的任何地方，跟着它走就出去了
-        if stat.S_ISLNK(info.st_mode):
+        # 每一层都不许是链接（符号链接、Windows 的目录联接）：链接可以指到文件夹外面的任何地方，跟着它走就出去了
+        if pathnames.linked(info):
             raise MemoryFileError(t("这一项是指向别处的链接，为了安全，不在这里打开或删除。"))
     if not stat.S_ISREG(info.st_mode):
         raise MemoryFileError(t("这不是一个文件。文件夹请在文件管理器里处理。"))

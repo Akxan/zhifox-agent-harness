@@ -623,7 +623,7 @@ def test_last_seen_moves_when_a_pong_arrives(server):
     client.ping(b"alive?")
     assert peer.recv_frame(2) == (True, OP_PING, b"alive?")
     sent = time.monotonic()
-    assert client.last_seen < sent
+    assert client.last_seen <= sent  # 不是 <：Windows 上 Python 3.12 以前的时钟一格是 15.6 毫秒，两次读到的可能是同一格
     peer.send_frame(OP_PONG, b"alive?")
     until(lambda: client.recv(0.01) is None and client.last_seen >= sent, what="last_seen 跟着 pong 更新")
 
@@ -721,6 +721,25 @@ def test_a_long_close_reason_is_cut_on_a_character_boundary(server):
     assert code == 1000
     assert len(raw) <= 123
     assert raw.decode("utf-8") == reason[:41]  # 1 + 40 × 3 = 121 个字节；再多一个字就超了
+
+
+def test_on_windows_a_blocked_reader_waits_in_short_slices(server, monkeypatch):
+    """Windows 上 shutdown 叫不醒卡在 select 里的线程（见 _fill）：那里一小段一小段地等，每段之间看一眼关了没有。
+    在每个系统上都能测：假装是 Windows，读的线程照样很快醒过来；一小段到了不算超时，有数据照样读得到。"""
+    monkeypatch.setattr(websocket, "WINDOWS", True)
+    monkeypatch.setattr(websocket, "_WINDOWS_SLICE", 0.05)
+    client, peer = server.open()
+    assert client.recv(0.2) is None  # 好几段加起来才到时候：返回"没有消息"，不是出错
+    later = Background(client.recv, 2)
+    time.sleep(0.15)  # 读的线程已经等过了好几段
+    peer.send_text("隔了几段才到")
+    assert later.result() == "隔了几段才到"
+    reader = Background(client.recv)
+    until(lambda: client._read_lock.locked(), what="读的线程开始等")
+    start = time.monotonic()
+    client.abort()
+    assert closed(reader.result).code == 1006
+    assert time.monotonic() - start < 0.5
 
 
 def test_abort_wakes_a_blocked_reader_at_once(server):

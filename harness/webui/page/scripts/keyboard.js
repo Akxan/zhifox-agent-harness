@@ -9,7 +9,7 @@ document.addEventListener('keydown', (key) => {
     shown.close(true);
     return;
   }
-  const command = ON_MAC ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;  // Mac 上的 Ctrl+K 是"删到行尾"，不能占用
+  const command = commandHeld(key);  // Mac 上是 ⌘，别的电脑上是 Ctrl（见 platform.js）
   const letter = key.key.toLowerCase();
   if (command && !key.altKey && key.key === '.') {
     // ⌘. / Ctrl+.：打开（再按一次收起）换模型的面板。不用 ⌘⇧M / Ctrl+Shift+M：Chrome 用它切换用户，Firefox 用它开响应式设计模式。

@@ -155,7 +155,7 @@ function todoRow(item, fresh) {
     node.appendChild(icon(iconName));
     return node;
   };
-  button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示待办的文件') : k('在文件夹中显示待办的文件'), 'reveal').addEventListener('click', () => revealData('todos'));
+  button('folder', showLabel(), byServer(k('在访达中显示待办的文件'), k('在文件资源管理器中显示待办的文件'), k('在文件管理器中显示待办的文件')), 'reveal').addEventListener('click', () => revealData('todos'));
   button('edit', k('编辑'), k('编辑待办：{name}'), 'edit').addEventListener('click', () => {
     todoRemoving = null;
     todoEditing = { id: item.id, title: item.title, due: item.due || '' };

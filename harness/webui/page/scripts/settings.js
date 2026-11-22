@@ -160,7 +160,7 @@ $('settings-open').addEventListener('click', openSettings);
 retitleSettingsButton();
 
 function retitleSettingsButton() {
-  $('settings-open').title = t('设置（{key}）', { key: ON_MAC ? '⌘,' : 'Ctrl+,' });
+  $('settings-open').title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
 }
 
 // 打开设置，翻到"API 密钥"，焦点放在这一家的密钥输入框里（换模型的面板里"填写 API 密钥 →"用的）

@@ -192,7 +192,7 @@ for (const id of ['task-title', 'task-prompt', 'task-date', 'task-time', 'task-d
 taskEditor.addEventListener('keydown', (key) => {
   if (key.isComposing || key.keyCode === 229) return;  // 输入法正在组字
   if (key.key === 'Escape') { key.preventDefault(); key.stopPropagation(); requestCloseEditor(); }
-  else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) { key.preventDefault(); saveTask(); }
+  else if (key.key === 'Enter' && commandHeld(key)) { key.preventDefault(); saveTask(); }
 });
 // 保险：换"什么时候"时，正拿着焦点的那个输入框可能被藏起来，焦点掉到窗口外面，Esc 就直接变成 cancel
 taskEditor.addEventListener('cancel', (event) => {

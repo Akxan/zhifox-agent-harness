@@ -81,9 +81,11 @@ def test_connecting_a_bot_from_the_page(bot):
     assert TOKEN not in everything and TOKEN.split(":", 1)[1] not in everything
 
     # 还不能用的平台
-    calls = len(s.tg.calls)
+    # 不算 getUpdates：已经连上的 Telegram 在后台一直收消息，慢一些的机器上这期间正好又收了一轮
+    asked = lambda: [call for call in s.tg.calls if call != "getUpdates"]
+    calls = len(asked())
     status, body = post(s, "connect", platform="whatsapp", token=TOKEN)
-    assert status == 409 and "还不能用" in body["error"] and len(s.tg.calls) == calls
+    assert status == 409 and "还不能用" in body["error"] and len(asked()) == calls
 
 
 def test_pairing_from_the_page_and_cancelling(bot):

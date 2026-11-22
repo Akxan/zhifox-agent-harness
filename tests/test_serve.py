@@ -14,9 +14,7 @@ import json
 import logging
 import os
 import re
-import signal
 import socket
-import stat
 import subprocess
 import sys
 import threading
@@ -27,6 +25,8 @@ import anthropic
 import pytest
 from fake_api import FakeAPI, reply, text
 from fake_telegram import TOKEN, FakeTelegram
+from modes import has_mode
+from processes import ask_to_exit, own_group
 from test_channels import BOT, OWNER, OWNER_NAME, paired_store, stop_later, until
 from test_webui import Browser
 
@@ -164,7 +164,7 @@ def test_serve_with_the_web_page_listens_only_on_this_machine(make_config, fake,
         # 写在数据目录里一个只有自己能读的文件里
         url = until(lambda: address.is_file() and address.read_text(encoding="utf-8").strip(), what="网页的地址")
         assert url.startswith("http://127.0.0.1:")  # 只监听本机，从别的机器上要用 SSH 隧道
-        assert stat.S_IMODE(address.stat().st_mode) == 0o600
+        assert has_mode(address, 0o600)
         assert any("ssh -L" in record.getMessage() for record in caplog.records)
         assert not any("?token=" in record.getMessage() for record in caplog.records)
         Browser(url).wait_synced()
@@ -237,7 +237,7 @@ def start_service(tmp_path, fake, **extra_env) -> subprocess.Popen:
         env.pop("JOURNAL_STREAM", None)
     return subprocess.Popen(
         [sys.executable, "-m", "harness", "serve"], cwd=workspace, env=env, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", **own_group(),
     )
 
 
@@ -245,7 +245,7 @@ def stop_service(process: subprocess.Popen, fake) -> tuple[str, str]:
     try:
         until(lambda: "getUpdates" in fake.calls or process.poll() is not None, timeout=30, what="服务开始收消息")
         assert process.poll() is None, process.communicate()
-        process.send_signal(signal.SIGTERM)  # systemctl stop
+        ask_to_exit(process)  # systemctl stop（Windows 上是 Ctrl+Break，见 tests/processes.py）
         out, err = process.communicate(timeout=15)
     finally:
         if process.poll() is None:
@@ -292,7 +292,7 @@ def test_sigterm_stops_the_web_ui_cleanly_too(tmp_path):
     }
     process = subprocess.Popen(
         [sys.executable, "-m", "harness", "--web", "--no-browser", "--port", "0"], cwd=workspace, env=env,
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", **own_group(),
     )
     try:
         seen = []
@@ -302,7 +302,7 @@ def test_sigterm_stops_the_web_ui_cleanly_too(tmp_path):
             if "?token=" in line or time.monotonic() > deadline:
                 break
         assert process.poll() is None, "".join(seen)
-        process.send_signal(signal.SIGTERM)
+        ask_to_exit(process)
         out, _ = process.communicate(timeout=15)
     finally:
         if process.poll() is None:

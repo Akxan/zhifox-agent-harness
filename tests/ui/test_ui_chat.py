@@ -99,7 +99,9 @@ def test_approval_mode_needs_a_second_step_and_escape_keeps_asking(page):
     page.click("#approval-confirm")
     page.wait("!document.getElementById('approval-dialog').open && document.getElementById('approval').className === 'approval all'")
     page.click("#new")
-    page.wait("!document.querySelector('#log .msg')", what="新对话是空的")
+    # 等到空白页的样子（#main.fresh）：清空的 reset 先到，状态后到，状态到了输入框才滑到页面中间。
+    # 只等"对话是空的"的话，机器慢时（GitHub 的 Windows）点输入框的那一下正好赶上它滑走，点在空白处，字就没地方打了
+    page.wait("!document.querySelector('#log .msg') && document.getElementById('main').classList.contains('fresh')", what="新对话是空的")
     steps.send(page, "[ui:approve] 不用问了")
     steps.reply(page, "命令执行完了")
     assert page.js("document.querySelectorAll('#log .confirm').length") == 0

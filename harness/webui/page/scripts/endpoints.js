@@ -107,7 +107,7 @@ function endpointRow(item) {
   words.appendChild(el('span', 'endpoint-url', item.base_url));
   words.appendChild(endpointChips(item));
   const actions = row.appendChild(el('div', 'endpoint-actions'));
-  const reveal = actions.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示 endpoints.json') : k('在文件夹中显示 endpoints.json')));
+  const reveal = actions.appendChild(iconButton('folder', byServer(k('在访达中显示 endpoints.json'), k('在文件资源管理器中显示 endpoints.json'), k('在文件管理器中显示 endpoints.json'))));
   const edit = actions.appendChild(iconButton('edit', k('编辑')));
   const trash = actions.appendChild(iconButton('trash', k('删除')));
   trash.classList.add('danger-hover');

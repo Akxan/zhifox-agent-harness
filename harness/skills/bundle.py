@@ -8,6 +8,7 @@
   压缩炸弹               几 KB 的压缩包解开有几个 GB，把磁盘塞满
   文件太多               几十万个小文件，光是建出来就要很久
   大小写撞名             A.txt 和 a.txt 在 macOS 默认的磁盘上是同一个文件，后一个会悄悄盖掉前一个
+  Windows 的怪名字        a.md:x、SKILL.md.、CON、PROGRA~1……在 Windows 上解开就成了别的东西（见 clean_path）
 
 整理好之后是一个普通的字典：{"相对路径": (内容, 是不是可执行文件)}。内容都已经读进内存（总共有上限），
 之后真正写进磁盘的是 store.py 的 install，它只写新文件、不跟着链接走。
@@ -27,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from ..i18n import Message, t
+from ..pathnames import name_trick
 from .frontmatter import FrontmatterError, parse
 from .spec import KNOWN, MAX_NAME, NAME, Meta, check, with_name
 from .store import MAX_DEPTH, SKILL_FILE, BadRequest, SkillError, SkillStore, described
@@ -54,6 +56,11 @@ def clean_path(name: object) -> str:
     if any(part in ("", ".", "..") for part in parts) or len(parts) > MAX_DEPTH + 1:
         raise bad
     if any(len(part.encode("utf-8", "surrogatepass")) > 255 for part in parts):
+        raise bad
+    # 在 Windows 上解开会变成别的东西的名字：a.md:x（数据流）、SKILL.md.（尾巴上的点会被去掉，和 SKILL.md 撞名）、
+    # CON、nul.txt（设备）、PROGRA~1（短名字，可能是另一个文件的别名）、* ? < > " |。不管现在是什么系统都不收：
+    # 同一个压缩包、同一个 Skill 文件夹，换到 Windows 上也得是安全的（见 pathnames.name_trick）
+    if any(name_trick(part) for part in parts):
         raise bad
     return name
 

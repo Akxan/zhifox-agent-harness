@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 
 import pytest
+from modes import has_mode
 
 from harness.safe import (
     clean,
@@ -95,7 +95,7 @@ def test_write_file_replaces_the_file_in_one_step(tmp_path, monkeypatch):
     target = tmp_path / "settings.json"
     write_file(target, "第一版")
     assert target.read_text(encoding="utf-8") == "第一版"
-    assert stat.S_IMODE(target.stat().st_mode) == 0o600  # 只有自己的账号能读
+    assert has_mode(target, 0o600)  # 只有自己的账号能读
     write_file(target, "第二版")
     assert target.read_text(encoding="utf-8") == "第二版"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["settings.json"]  # 没有留下临时文件
@@ -144,18 +144,18 @@ def test_private_dir_is_only_for_the_owner(tmp_path):
     try:
         target = tmp_path / "data" / "conversations"
         private_dir(target)
-        assert stat.S_IMODE(target.stat().st_mode) == 0o700
-        assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700  # 沿途新建的上级目录也一样
+        assert has_mode(target, 0o700)
+        assert has_mode(target.parent, 0o700)  # 沿途新建的上级目录也一样
         # 早就存在、而且别人进得来的目录：把权限收回来
         loose = tmp_path / "old"
         loose.mkdir(mode=0o755)
         private_dir(loose)
-        assert stat.S_IMODE(loose.stat().st_mode) == 0o700
+        assert has_mode(loose, 0o700)
         private_dir(loose)  # 再调一次也没事
         # 本来就在的上级目录不归我们管，不动它
         shared = tmp_path / "shared"
         shared.mkdir(mode=0o755)
         private_dir(shared / "mine")
-        assert stat.S_IMODE(shared.stat().st_mode) == 0o755 and stat.S_IMODE((shared / "mine").stat().st_mode) == 0o700
+        assert has_mode(shared, 0o755) and has_mode((shared / "mine"), 0o700)
     finally:
         os.umask(old_mask)

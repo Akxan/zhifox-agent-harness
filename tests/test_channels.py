@@ -15,7 +15,6 @@ import contextlib
 import json
 import os
 import random
-import stat
 import threading
 import time
 
@@ -23,6 +22,8 @@ import anthropic
 import pytest
 from fake_api import FakeAPI, reply, text, tool_use
 from fake_telegram import TOKEN, FakeTelegram, utf16, visible
+from modes import has_mode
+from oscmd import mark_then_sleep, mark_then_wait_for
 from sample_files import JPEG_BYTES
 from test_webui import Browser
 
@@ -89,8 +90,8 @@ def test_the_settings_file_is_private_and_written_atomically(tmp_path, monkeypat
     store.connect("telegram", {"token": TOKEN}, BOT)
 
     # token 是机器人的钥匙：文件只有自己的账号能读，所在的文件夹也只有自己能进
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert has_mode(path, 0o600)
+    assert has_mode(path.parent, 0o700)
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["platforms"]["telegram"]["credentials"] == {"token": TOKEN} and saved["version"] == 1
     # 改设置时用来"别的程序先别动"的锁文件就在旁边；写到一半的临时文件一个都不留
@@ -941,7 +942,7 @@ def test_stop_while_waiting_for_a_confirmation(bot):
 
 
 def test_stop_kills_a_running_command(bot):
-    s = bot(run("toolu_1", "touch started && sleep 30"), approval="all")
+    s = bot(run("toolu_1", mark_then_sleep("started", 30)), approval="all")
     start = s.say("跑一个很久的命令")
     s.wait_reply(start, "已自动允许")  # 全部自动允许：没问就执行了，聊天里照样看得到它做了什么
     until(lambda: (s.config.workspace / "started").exists(), what="命令开始运行")
@@ -1185,7 +1186,7 @@ def test_each_channel_has_its_own_approval_mode(bot):
 
 
 def test_messages_queue_up_behind_the_running_turn(bot):
-    wait_for_go = "touch started; while [ ! -f go ]; do sleep 0.05; done"
+    wait_for_go = mark_then_wait_for("started", "go")
     s = bot(run("toolu_1", wait_for_go), *[reply(text(f"第{n}条完成")) for n in range(1, 2 + CHANNEL_QUEUE)], approval="all")
     start = s.say("第1条")
     until(lambda: (s.config.workspace / "started").exists(), what="第一轮开始运行")

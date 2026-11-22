@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import stat
-
 import pytest
 from fake_api import reply, text
 from fake_openai import chat
+from modes import has_mode
 
 from harness.config import MAX_PROMPT_CHARS
 from harness.prompt import (
@@ -25,6 +24,18 @@ def system_text(request: dict) -> str:
     return request["system"][0]["text"]
 
 
+def test_on_windows_the_system_line_says_commands_are_powershell(make_config, monkeypatch):
+    """Windows 上"操作系统"那一行写明命令用的是 PowerShell：模型最容易默认写 bash。别的系统上只是系统的名字和版本。"""
+    from harness import prompt
+    from harness.tools import shell
+
+    monkeypatch.setattr(shell, "WINDOWS", True)
+    monkeypatch.setattr(shell.shutil, "which", lambda name: None)
+    assert "Windows PowerShell 5.1" in prompt.placeholder_values(make_config())["system"]
+    monkeypatch.setattr(shell, "WINDOWS", False)
+    assert "PowerShell" not in prompt.placeholder_values(make_config())["system"]
+
+
 def test_placeholders_are_filled_and_other_braces_kept(make_config):
     config = make_config()
     filled = render('我叫{name}（{latin}），在 {workspace} 里工作。示例：{"a": 1} 和 {不认识的}', config)
@@ -40,7 +51,7 @@ def test_the_built_in_prompt_is_used_until_the_user_saves_one(make_config):
     assert load_template(config) == DEFAULT_TEMPLATE and not config.prompt_file.exists()
     save_template(config, "你是{name}。只说英语。\r\n")
     assert load_template(config) == "你是{name}。只说英语。\n"  # Windows 的换行统一成 \n
-    assert stat.S_IMODE(config.prompt_file.stat().st_mode) == 0o600  # 和别的数据文件一样只有自己能读
+    assert has_mode(config.prompt_file, 0o600)  # 和别的数据文件一样只有自己能读
     assert build_system_prompt(config) == "你是智狐。只说英语。\n"
     # 文件是空的、读不了：用内置的
     config.prompt_file.write_text("  \n", encoding="utf-8")

@@ -28,7 +28,7 @@ from harness.channels.store import ChannelStore
 from harness.settings import Settings
 from harness.tools import tasks as task_tools
 from harness.tools.shell import TOOL_NAME as SHELL
-from harness.tools.shell import Shell, make_shell_tool
+from harness.tools.shell import Shell, command_line, make_shell_tool
 from harness.webui import sandbox_api
 
 DAILY = {"type": "daily", "time": "09:00"}
@@ -307,7 +307,7 @@ def test_the_card_shows_the_sandbox_and_the_command_runs_inside(start, monkeypat
     assert "$ echo hi" in question and "沙箱：只在工作目录里（读写工作目录，不能联网）" in question
     assert h.ui.results[0] == ("hi", False)
     ((policy, argv),) = fake.calls
-    assert argv == ["/bin/bash", "-c", "echo hi"] and policy.level == "workspace" and not policy.network
+    assert argv == command_line("echo hi") and policy.level == "workspace" and not policy.network  # bash，Windows 上是 PowerShell
     real = lambda path: Path(os.path.realpath(path))
     assert real(h.config.data_dir) in policy.deny and real(h.config.env_file) in policy.deny
     assert real(h.config.workspace) == policy.workspace and real(h.config.workspace) in policy.write
@@ -474,7 +474,7 @@ def test_a_subagent_uses_the_callers_sandbox(start, monkeypatch):
     (own,) = shells
     assert own is not h.app.shell and own.sandbox is h.app.shell.sandbox  # 自己的 shell，同一个沙箱
     assert "沙箱：只在工作目录里" in h.ui.confirmations[0] and h.ui.askers == ["代码审查员"]
-    assert [argv for _, argv in fake.calls] == [["/bin/bash", "-c", "echo sub"]]
+    assert [argv for _, argv in fake.calls] == [command_line("echo sub")]
 
 
 def test_a_subagent_of_a_caller_without_commands_has_no_sandbox(start):

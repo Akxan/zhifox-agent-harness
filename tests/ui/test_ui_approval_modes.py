@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from fake_telegram import TOKEN
 
@@ -52,7 +53,11 @@ def test_the_three_selectors_list_the_same_modes_in_the_same_order(page):
 
         assert [mode for mode, _, _ in chat] == MODES, chat
         assert chat == task == channel, "三处列的几档要一模一样"
-        assert chat[1][1] == "自动允许只读命令" and "ls" in chat[1][2] and "仍然每次问" in chat[1][2]
+        assert chat[1][1] == "自动允许只读命令"
+        if os.name == "nt":  # 演示服务器真的在 Windows 上：这一档照实说命令每条都问（见 approval-modes.js）
+            assert "PowerShell" in chat[1][2] and "每条命令仍然都问" in chat[1][2]
+        else:
+            assert "ls" in chat[1][2] and "仍然每次问" in chat[1][2]
 
         # 在向导里选它、点"完成"：通道那一行写着这一档
         page.click("#panel-channels .chan-mode[data-mode='readonly']")
@@ -69,6 +74,14 @@ def test_read_only_commands_run_without_a_card_and_say_why(page):
     page.wait("!document.getElementById('approval-dialog').open && document.getElementById('approval').className === 'approval readonly'", what="换成只读这一档")
     assert page.text("#approval-label") == "自动允许只读命令"
     steps.send(page, "[ui:approve] 跑一条只读的命令")  # 剧本里的命令是 echo，只是打印
+    if os.name == "nt":
+        # 演示服务器真的在 Windows 上：命令是 PowerShell，一条都不算只读（harness/commands/__init__.py），照样弹卡片；
+        # 这一档的说明也照实写着为什么
+        steps.pending_confirm(page)
+        assert "PowerShell" in page.js("document.querySelector(\"#approval-options .option[data-mode='readonly'] span\").textContent")
+        page.click("#log .confirm .button.primary")
+        steps.reply(page, "命令执行完了")
+        return
     steps.reply(page, "命令执行完了")
     assert page.js("document.querySelector('#log .confirm')") is None, "只读的命令不该弹确认卡片"
     assert page.text("#log .call .auto-tag") == "自动允许（只读）"

@@ -24,7 +24,6 @@ import contextlib
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -33,6 +32,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from processes import ask_to_exit, end_tree, own_group
 
 from harness.browser import chrome
 from harness.tools.shell import SECRET_ENV_VARS
@@ -64,6 +64,7 @@ class Demo:
     """作为子进程运行的演示服务器。"""
 
     def __init__(self, root: Path, extra: tuple[str, ...] = ()):
+        """extra 是另外给 demo_web.py 的参数，比如 ("--platform", "windows")（见 test_ui_platform.py）。"""
         self.root = root
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS and "proxy" not in key.lower()}
         env.update(NO_PROXY="*", no_proxy="*", PYTHONUNBUFFERED="1")
@@ -75,7 +76,7 @@ class Demo:
         ]
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", start_new_session=True,
+            text=True, encoding="utf-8", errors="replace", **own_group(),
         )
         self.output: list[str] = []
         self._found = threading.Event()
@@ -157,11 +158,11 @@ class Demo:
 
     def stop(self) -> None:
         if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)  # 和按 Ctrl-C 一样：演示自己收尾（关掉假服务器、它开的 Chrome）
+            ask_to_exit(self.process)  # 演示自己收尾（关掉假服务器、它开的 Chrome）；Windows 上是 Ctrl+Break（见 tests/processes.py）
             try:
                 self.process.wait(15)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                end_tree(self.process)
                 self.process.wait(5)
 
 
@@ -170,6 +171,13 @@ def artifacts(tmp_path_factory) -> Path:
     folder = Path(os.environ.get("HARNESS_UI_ARTIFACTS") or tmp_path_factory.getbasetemp() / "ui-artifacts")
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def server_log(name: str) -> str:
+    """演示服务器的输出存成哪个文件。测试分在几个进程里跑，每个进程有自己的演示服务器：文件名带上是哪个进程（gw0、gw1……），
+    不然后结束的那个会盖掉先结束的，失败的测试用的那个服务器说了什么就看不到了"""
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    return f"{name}-{worker}.log" if worker else f"{name}.log"
 
 
 @pytest.fixture(scope="session")
@@ -190,7 +198,7 @@ def demo(tmp_path_factory, browser, artifacts):
     server = Demo(tmp_path_factory.mktemp("ui-demo"))
     yield server
     server.stop()
-    (artifacts / "demo-server.log").write_text("".join(server.output), encoding="utf-8")
+    (artifacts / server_log("demo-server")).write_text("".join(server.output), encoding="utf-8")
 
 
 @pytest.fixture(scope="session")
@@ -200,7 +208,7 @@ def no_sandbox_demo(tmp_path_factory, browser, artifacts):
     server = Demo(tmp_path_factory.mktemp("ui-demo-no-sandbox"), extra=("--no-sandbox",))
     yield server
     server.stop()
-    (artifacts / "demo-server-no-sandbox.log").write_text("".join(server.output), encoding="utf-8")
+    (artifacts / server_log("demo-server-no-sandbox")).write_text("".join(server.output), encoding="utf-8")
 
 
 def _safe(name: str) -> str:
@@ -215,20 +223,30 @@ def page(request, demo, browser, artifacts) -> Page:
     opened.demo = demo  # 测试里要直接调接口时用：page.demo.api(...)
     try:
         opened.emulate()  # 不跟着这台机器的"减少动态效果"（见 Page.emulate），每个测试从同一个样子开始
-        opened.goto(demo.url)
-        opened.wait("document.body.classList.contains('ready')", what="页面亮相")
+        show_demo(opened)
         yield opened
     finally:
-        report = getattr(request.node, "report_call", None)
-        failed = report is None or report.failed
-        errors = opened.unexpected_errors()
-        if failed or errors:
-            stem = artifacts / _safe(request.node.name)
-            with contextlib.suppress(Exception):  # 页面都坏了的时候，能存多少存多少
-                opened.screenshot(stem.with_suffix(".png"))
-                stem.with_suffix(".html").write_text(opened.html(), encoding="utf-8")
-            stem.with_suffix(".console.txt").write_text("\n".join(opened.console), encoding="utf-8")
-            print(f"\n页面测试的截图和日志：{stem}.*")
-        opened.close()
+        finish_page(request, opened, artifacts)
+
+
+def show_demo(opened: Page) -> None:
+    """在这个标签页里打开它的演示页面（opened.demo），等页面亮相。"""
+    opened.goto(opened.demo.url)
+    opened.wait("document.body.classList.contains('ready')", what="页面亮相")
+
+
+def finish_page(request, opened: Page, artifacts: Path) -> None:
+    """关掉标签页。测试失败了、或者页面里出了错，先存下截图、页面和控制台；页面里有错就让测试失败。"""
+    report = getattr(request.node, "report_call", None)
+    failed = report is None or report.failed
+    errors = opened.unexpected_errors()
+    if failed or errors:
+        stem = artifacts / _safe(request.node.name)
+        with contextlib.suppress(Exception):  # 页面都坏了的时候，能存多少存多少
+            opened.screenshot(stem.with_suffix(".png"))
+            stem.with_suffix(".html").write_text(opened.html(), encoding="utf-8")
+        stem.with_suffix(".console.txt").write_text("\n".join(opened.console), encoding="utf-8")
+        print(f"\n页面测试的截图和日志：{stem}.*")
+    opened.close()
     if errors:
         pytest.fail("页面里出了错（脚本异常、console.error 或者被安全策略拦下的东西）：\n" + "\n".join(errors))

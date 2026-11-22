@@ -137,7 +137,7 @@ function drawBrowserProfile(status) {
   const where = words.appendChild(el('span', 'browser-profile-path', status.profile));
   where.title = status.profile;
   const actions = el('div', 'browser-profile-actions');
-  const reveal = actions.appendChild(iconButton('folder', revealLabel()));
+  const reveal = actions.appendChild(iconButton('folder', showLabel()));
   reveal.dataset.focus = 'reveal';
   reveal.addEventListener('click', async () => {
     const reply = await call('/api/browser/reveal', {});

@@ -9,7 +9,7 @@
 
 页面送来的名字不能全信：可能被改成 "../../.env" 或者一个绝对路径，文件夹里也可能藏着指向别处的链接。
 所以名字只能是一段（不带斜杠、不以点开头），文件必须真的是这个文件夹里的一个普通文件，不是链接
-（和 skills/store.py、memories.py 是同一套检查）。
+（和 skills/store.py、memories.py 是同一套检查；Windows 的目录联接也算链接，见 pathnames.py）。
 
 几个网页请求可能同时来（一边保存、一边删除），子 Agent 也会同时来读。写文件都是"先写临时文件再换上去"
 （见 safe.write_file），读的那一边永远看到完整的文件；"先看有没有同名的、再写"这种两步的操作拿着 self._lock 做完。
@@ -23,6 +23,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import pathnames
 from ..config import MAX_AGENT_BYTES, MAX_AGENTS
 from ..i18n import Message, t
 from ..safe import clean_text, private_dir, write_file
@@ -106,7 +107,7 @@ class AgentStore:
             if entry.name.startswith(".") or not entry.name.endswith(SUFFIX) or len(entry.name) == len(SUFFIX):
                 continue
             agent = CustomAgent(name=normal(clean_text(entry.name[: -len(SUFFIX)])), path=Path(entry.path))
-            if entry.is_symlink():
+            if pathnames.entry_linked(entry):
                 agent.problems.append(t("这是一个指向别处的链接。为了安全，智狐不读链接；请用“导入”把它复制进来。"))
             elif entry.is_file(follow_symlinks=False):
                 self._fill(agent)
@@ -239,7 +240,7 @@ class AgentStore:
             if self._exists(spec.name) and not replace:
                 raise AgentError(t("已经有一个叫 {name} 的 Agent 了。", name=spec.name))
             target = self._path(spec.name)
-            if os.path.islink(target):
+            if pathnames.is_link(target):
                 target.unlink()  # 替换一个链接：只换掉链接本身，不顺着它去改别处的文件
             self._write(target, text)
         return spec.name
@@ -265,7 +266,7 @@ class AgentStore:
             info = os.lstat(path)
         except OSError:
             raise gone from None
-        if stat.S_ISLNK(info.st_mode):
+        if pathnames.linked(info):
             raise AgentError(t("这是一个指向别处的链接。为了安全，智狐不读链接；请用“导入”把它复制进来。"))
         if not stat.S_ISREG(info.st_mode):
             raise gone

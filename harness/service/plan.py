@@ -1,7 +1,7 @@
 """后台服务要怎么运行：用哪个 Python、在哪个工作目录、数据和密钥在哪儿、开不开网页。
 
-macOS 的 plist 和 Linux 的 unit 都照着同一份 Plan 写（launchd.py、systemd.py），读回来也还原成 Plan，
-所以"装的是什么样的服务"只在这里定义一次。
+macOS 的 plist、Linux 的 unit、Windows 的任务（XML）都照着同一份 Plan 写（launchd.py、systemd.py、windows.py），
+读回来也还原成 Plan，所以"装的是什么样的服务"只在这里定义一次。
 
 为什么是"虚拟环境里的 python -P -m harness"，而不是 `uv run harness`：
   - 服务每次启动都直接用这个项目的虚拟环境（.venv），不再经过 uv：不会在开机时联网同步依赖，uv 升级了也不影响。
@@ -14,11 +14,17 @@ macOS 的 plist 和 Linux 的 unit 都照着同一份 Plan 写（launchd.py、sy
 所以这里明明白白地写进去几项（数据目录、.env 的位置、PATH、语言），别的设置——API key、代理（HTTPS_PROXY）、
 HARNESS_MODEL……——放在 .env 里，智狐启动时自己读（见 config.load_env_file）。装的时候，只在终端里设置了、
 .env 里没有的，提醒你一句（只说名字，不打印值）。
+
+Windows 不一样：任务计划程序开它的时候，给的是你这个账号自己的那一套环境变量（"系统属性 → 环境变量"里的，
+新开的终端看到的也是这一套），PATH 本来就是全的，也没有 LANG 这回事。所以 Windows 上不抄 PATH 和 LANG
+（Windows 的 PATH 动不动上千个字，抄进命令行里又长、又会过时），只写数据目录、.env 的位置和 PYTHONUTF8。
 """
 
 from __future__ import annotations
 
+import ntpath
 import os
+import posixpath
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -35,8 +41,10 @@ from ..config import (
 from ..i18n import t
 
 _PROXIES = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY")
-# 服务的设置里明明白白写进去的环境变量（见 Plan.environment），这几样不用提醒
-_WRITTEN = {"HARNESS_DATA_DIR", "HARNESS_ENV_FILE", "PATH", "LANG", "PYTHONUTF8"}
+# 服务的设置里明明白白写进去的环境变量（见 Plan.environment），这几样不用提醒。
+# Windows 上的 supervise.py 也只肯替智狐设置这几样
+WRITTEN = frozenset({"HARNESS_DATA_DIR", "HARNESS_ENV_FILE", "PATH", "LANG", "PYTHONUTF8"})
+TASK_SCHEDULER = "taskscheduler"  # Windows 的任务计划程序（见 windows.py）：--service 后面写的就是这个词
 # macOS 的"文稿""桌面""下载"和 iCloud 云盘：后台程序要读这些文件夹，系统可能会拦下来，或者先弹窗问你（隐私与安全性）
 MAC_PROTECTED = ("Desktop", "Documents", "Downloads", "Library/Mobile Documents")
 
@@ -63,7 +71,8 @@ class Plan:
         return self.data_dir / WEB_ADDRESS
 
     def arguments(self, manager: str) -> list[str]:
-        """服务要运行的命令（一个参数一项，不经过 shell）。manager 是 launchd 或 systemd，告诉智狐它是作为哪种服务开着的。"""
+        """服务要运行的命令（一个参数一项，不经过 shell）。manager 是 launchd、systemd 或 taskscheduler，
+        告诉智狐它是作为哪种服务开着的。"""
         command = [self.python, "-P", "-m", "harness", "--workspace", str(self.workspace), "serve"]
         if self.web:
             command.append("--web")
@@ -81,9 +90,17 @@ class Plan:
         return values
 
 
-def make_plan(config: Config, web: bool = True, port: int | None = None, python: str | None = None, environ: Mapping[str, str] | None = None) -> Plan:
-    """照着现在的设置（工作目录、数据目录、.env 的位置）和命令行上的选项，定下服务怎么运行。"""
+def make_plan(
+    config: Config, web: bool = True, port: int | None = None, python: str | None = None,
+    environ: Mapping[str, str] | None = None, manager: str = "",
+) -> Plan:
+    """照着现在的设置（工作目录、数据目录、.env 的位置）和命令行上的选项，定下服务怎么运行。
+    manager 是 taskscheduler 时不抄 PATH 和 LANG（见开头的说明）。
+
+    python 是智狐自己用的那个 Python。Windows 上是 .venv\\Scripts\\python.exe（有控制台的那一个），
+    任务计划程序直接开的是它旁边的 pythonw.exe（不弹窗口，见 windowless 和 windows.py）。"""
     environ = os.environ if environ is None else environ
+    inherits = manager == TASK_SCHEDULER
     return Plan(
         python=os.path.abspath(python or sys.executable),
         workspace=config.workspace,
@@ -91,24 +108,55 @@ def make_plan(config: Config, web: bool = True, port: int | None = None, python:
         env_file=config.env_file,
         web=web,
         port=port,
-        path=environ.get("PATH", ""),
-        lang=environ.get("LANG", ""),
+        path="" if inherits else environ.get("PATH", ""),
+        lang="" if inherits else environ.get("LANG", ""),
     )
 
 
-def problem(plan: Plan) -> str | None:
-    """装不了的原因（没有就是 None）。"""
+def windowless(python: str) -> str:
+    """python.exe 旁边那个不开窗口的 pythonw.exe（Windows 的虚拟环境里两个都有）。
+
+    python.exe 是"控制台程序"：任务计划程序直接开它的话，登录时会弹出一个黑色的命令行窗口，关掉窗口智狐也跟着退出。
+    pythonw.exe 是同一个 Python，只是不要控制台，所以不弹窗口。
+    路径是 Windows 的写法（有反斜杠）时按 Windows 的规矩拆；在 macOS、Linux 上测试时路径是 / 写的，照样拆得开。"""
+    module = ntpath if "\\" in python else posixpath
+    return module.join(module.dirname(python), "pythonw.exe")
+
+
+def problem(plan: Plan, manager: str = "") -> str | None:
+    """装不了的原因（没有就是 None）。manager 是 taskscheduler 时按 Windows 的规矩查（见 _path_problem）。"""
     if not os.access(plan.python, os.X_OK):
         return t("找不到 Python：{path}。先在项目文件夹里运行 uv sync。", path=plan.python)
+    if manager == TASK_SCHEDULER and not os.path.isfile(windowless(plan.python)):
+        return t("找不到 {path}（Windows 上的后台服务用它运行，不弹窗口）。先在项目文件夹里运行 uv sync。", path=windowless(plan.python))
     if not plan.workspace.is_dir():
         return t("工作目录不存在：{path}", path=plan.workspace)
     if plan.port is not None and not 1 <= plan.port <= 65535:
         return t("端口要在 1 到 65535 之间，收到的是 {port}。", port=plan.port)
     for path in (plan.python, plan.workspace, plan.data_dir, plan.env_file):
-        text = str(path)
-        if any(ord(char) < 32 or char == "\x7f" for char in text) or "\\" in text:
-            # 换行会把服务的设置文件拆成两行；systemd 还会把反斜杠当成转义。这种路径很少见，换一个文件夹最省事
+        reason = _path_problem(str(path), manager)
+        if reason:
+            return reason
+    return None
+
+
+def _path_problem(text: str, manager: str) -> str | None:
+    """一个路径能不能原样写进服务的设置。各家的设置文件怕的字符不一样：
+
+    换行（和别的控制字符）谁都写不进去：会把设置文件拆成两行。
+    launchd、systemd：反斜杠不行（systemd 把它当成转义）。macOS、Linux 的路径里本来就很少有反斜杠，换一个文件夹最省事。
+    任务计划程序：反斜杠正是 Windows 路径的分隔符，当然可以。不行的是 %：任务计划程序会把命令行里的 %NAME%
+    当成环境变量展开，而且没有办法转义（C:\\50%off%\\ 里的 %off% 要是正好是一个环境变量，路径就变了）。
+    双引号本来就不能出现在 Windows 的路径里，出现了就是哪里不对。"""
+    control = any(ord(char) < 32 or char == "\x7f" for char in text)
+    if manager != TASK_SCHEDULER:
+        if control or "\\" in text:
             return t("这个路径里有换行、反斜杠这类字符，写不进服务的设置：{path}。换一个文件夹再装。", path=text)
+        return None
+    if control:
+        return t("这个路径里有换行这类字符，写不进服务的设置：{path}。换一个文件夹再装。", path=text)
+    if "%" in text or '"' in text:
+        return t("这个路径里有 % 或者双引号，任务计划程序会把 % 当成环境变量展开：{path}。换一个文件夹再装。", path=text)
     return None
 
 
@@ -122,7 +170,7 @@ def shell_only(plan: Plan, environ: Mapping[str, str] | None = None) -> list[str
     watched |= {"TELEGRAM_API_BASE", *(env for _, env, _ in API_BASES)}
     watched |= {name for name in environ if name.startswith("HARNESS_")}
     in_file = env_file_names(plan.env_file)
-    return sorted(name for name in watched - _WRITTEN - in_file if environ.get(name))
+    return sorted(name for name in watched - WRITTEN - in_file if environ.get(name))
 
 
 def protected_folders(plan: Plan, home: Path) -> list[Path]:

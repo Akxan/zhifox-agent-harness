@@ -1,4 +1,7 @@
-"""看后台服务的日志文件（macOS 上 launchd 的那一份；Linux 上的在 journald 里，用 journalctl 看，见 systemd.py）。
+"""看后台服务的日志文件（macOS 上 launchd 的那一份、Windows 上任务计划程序的那一份；Linux 上的在 journald 里，
+用 journalctl 看，见 systemd.py）。
+
+全部用 Python 自己读文件，不借用 tail：Windows 上没有 tail，logs -f 也是这里一小段一小段地接着读（见 follow）。
 
 日志一行一条，格式是 log.py 定的："2026-11-21 14:03:00 warning 还没有设置任何聊天通道……"。
 另外还可能有 Python 自己写到标准错误里的东西：启动时就出了错（找不到模块、没有权限读某个文件夹），
@@ -9,12 +12,15 @@ status 要的"最近的错误"就是这两种行。
 from __future__ import annotations
 
 import codecs
+import io
 import os
 import re
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO
+
+from ..i18n import t
 
 TAIL_BYTES = 256_000  # 看最后几行时，只读文件最后这么多字节（足够几千行）
 # 后台服务每次开起来，在日志里先写一行"从这里开始"（见 log.setup）。不翻译：程序要靠它认出"这一次运行"从哪儿开始
@@ -37,6 +43,26 @@ def tail(path: Path, lines: int) -> list[str]:
     if size > TAIL_BYTES:
         rows = rows[1:]  # 从中间开始读的，第一行多半只有后半截
     return rows[-lines:] if lines > 0 else []
+
+
+def show(path: Path, lines: int, follow_on: bool, out: IO[str], sleep: Callable[[float], None] = time.sleep) -> int:
+    """`harness service logs [-f]`：打印最后 lines 行；follow_on 时接着往下看，按 Ctrl-C 结束。"""
+    if not path.is_file():
+        print(t("还没有日志：{path}", path=path), file=out)
+        return 0
+    for line in tail(path, lines):
+        print(line, file=out)
+    if follow_on:
+        try:
+            follow(path, out, sleep=sleep)
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
+def recent_problems(path: Path, count: int) -> list[str]:
+    """日志文件里，最后一次开起来以后的最后 count 条警告和错误（status 用）。"""
+    return problems(tail(path, 2000), count)
 
 
 def problems(lines: list[str], count: int) -> list[str]:
@@ -62,8 +88,12 @@ def follow(path: Path, out: IO[str], keep_going: Callable[[], bool] = lambda: Tr
 
     日志写满了会换一个新文件（旧的改名成 .1），服务重装时文件也可能换掉：发现换了（文件编号变了，或者比读到的位置还短），
     就从新文件的开头接着读。按字节读、增量地解码，一个汉字被拆在两次读之间也不会变成乱码。
+
+    行尾一律换成 \\n：Windows 上日志是以文字方式写的（logging、supervise.py、Python 自己的 Traceback），行尾是 \\r\\n；
+    原样交给 out 的话，out 在 Windows 上还会把 \\n 再换成 \\r\\n，变成 \\r\\r\\n。\\r 和 \\n 正好被拆在两次读之间也没关系
+    （IncrementalNewlineDecoder 会先留着那个 \\r，看下一个字是什么）。
     """
-    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    decoder = io.IncrementalNewlineDecoder(codecs.getincrementaldecoder("utf-8")("replace"), translate=True)
     identity, position = None, 0
     try:
         found = os.stat(path)

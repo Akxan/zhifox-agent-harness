@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import fcntl
 import io
 import json
 import logging
@@ -25,16 +24,16 @@ import os
 import plistlib
 import re
 import shutil
-import signal
-import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from modes import has_mode
+from processes import alive, ask_to_exit, own_group
 from test_channels import until
 
-from harness import cli, instance, log
+from harness import cli, filelock, instance, log
 from harness import config as config_module
 from harness.channels import cli as channels_cli
 from harness.config import SERVICE_LOG_BACKUPS, SERVICE_RESTART_SECONDS
@@ -44,6 +43,7 @@ from harness.service.base import Result
 from harness.service.launchd import LABEL, Launchd
 from harness.service.plan import Plan, make_plan, problem, protected_folders, shell_only
 from harness.service.systemd import UNIT, Systemd
+from harness.service.windows import TaskScheduler
 from harness.webui import server
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,8 +60,8 @@ def hold(data_dir: Path, pid: int | None = None, kind: str = "service", note: bo
     """像另一个智狐那样占住数据目录：锁住 .lock，写上 {pid, kind}。pid 不给就是这个测试进程自己。
     note=False 是旧版本的智狐：只锁住，不写是谁。返回打开着的文件，关掉就放开了。"""
     data_dir.mkdir(parents=True, exist_ok=True)
-    handle = open(data_dir / instance.LOCK_NAME, "a+")  # noqa: SIM115 —— 测试结束时关
-    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    handle = open(data_dir / instance.LOCK_NAME, "a+", encoding="utf-8")  # noqa: SIM115 —— 测试结束时关
+    filelock.lock(handle, wait=False)
     handle.truncate(0)
     if note:
         handle.write(json.dumps({"pid": os.getpid() if pid is None else pid, "kind": kind}) + "\n")
@@ -246,9 +246,28 @@ def args_for(*argv: str) -> argparse.Namespace:
     return parser.parse_args(["service", *argv])
 
 
+WINDOWS = os.name == "nt"
+# Windows 上没有 launchd 和 systemd，测试用的临时路径也都是 C:\… 这样带反斜杠的：plist 和 unit 根本写不进去
+# （plan.problem 照规矩拒绝），"装上以后怎样"在那里没有意义。同样的流程（装、停、开、重启、状态、卸载）
+# 在 test_service_windows.py 里对着假的 schtasks 测，三种系统上都跑。
+POSIX_ONLY = pytest.mark.skipif(WINDOWS, reason="launchd 只在 macOS 上有、systemd 只在 Linux 上有；Windows 上的同一套流程见 test_service_windows.py")
+
+
+def _no_install_on_windows(*_args, **_kwargs):
+    pytest.skip("Windows 上装不了 launchd、systemd 的服务（见 POSIX_ONLY）；同样的流程见 test_service_windows.py")
+
+
+def posix_install_only(monkeypatch) -> None:
+    """Windows 上，用到假的 Mac、假的 Linux 的测试一走到 install 就跳过（理由见 POSIX_ONLY）。
+    不装服务的那些（打开网页、看日志、还没装时的状态、卸载没装过的……）和平台无关，照常在 Windows 上跑。"""
+    if WINDOWS:
+        monkeypatch.setattr(service_cli, "install", _no_install_on_windows)
+
+
 @pytest.fixture
-def mac(tmp_path, make_config):
+def mac(tmp_path, make_config, monkeypatch):
     """一台假的 Mac：临时的家目录、假的 launchctl（装上就"开起来"）、智狐的设置。"""
+    posix_install_only(monkeypatch)
     config = make_config()
     home = tmp_path / "home"
     home.mkdir()
@@ -262,6 +281,7 @@ def mac(tmp_path, make_config):
 @pytest.fixture
 def linux(tmp_path, make_config, monkeypatch):
     """一台假的 Linux：临时的家目录、假的 systemctl 和 journalctl、一个空的 linger 文件夹。"""
+    posix_install_only(monkeypatch)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     config = make_config()
     home = tmp_path / "home"
@@ -340,7 +360,7 @@ def test_the_plist_holds_no_secrets_and_is_644(mac):
     content = mac.manager.file.read_bytes()
     for secret in (b"SECRETSECRET", b"SECRETBOT", b"proxy-password", b"token"):
         assert secret not in content.lower() if secret == b"token" else secret not in content
-    assert stat.S_IMODE(mac.manager.file.stat().st_mode) == 0o644
+    assert has_mode(mac.manager.file, 0o644)
     out, err = said(mac.system)
     assert "proxy-password" not in out + err and "SECRET" not in out + err
     assert "HTTPS_PROXY" in err  # 只说名字：它只在终端里设置了，服务读不到
@@ -352,7 +372,7 @@ def test_plutil_accepts_the_plist(tmp_path, make_config):
     workspace.mkdir()
     path = tmp_path / "zhifox.plist"
     path.write_bytes(launchd.render(make_plan(make_config(workspace=workspace), environ={"PATH": PATH})))
-    checked = subprocess.run(["plutil", "-lint", str(path)], capture_output=True, text=True, check=False)
+    checked = subprocess.run(["plutil", "-lint", str(path)], capture_output=True, text=True, check=False, encoding="utf-8")
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
@@ -371,6 +391,7 @@ def test_the_plist_reads_back_to_the_same_plan(tmp_path, make_config):
 # ---- unit（Linux）----------------------------------------------------------------
 
 
+@POSIX_ONLY
 def test_the_unit_file_is_exactly_this():
     assert systemd.render(simple_plan()) == (
         "[Unit]\n"
@@ -397,6 +418,7 @@ def test_the_unit_file_is_exactly_this():
     )
 
 
+@POSIX_ONLY
 def test_the_unit_quotes_spaces_percent_dollar_and_quotes():
     """% 是 systemd 的占位符（%h……），ExecStart 里的 $ 是变量（$HOME），" 会结束引号：都要转义，读回来要一字不差。"""
     plan = simple_plan(workspace=Path('/home/me/50% off $HOME "my" dir'), path="/a%b:$c", port=9000, web=False)
@@ -411,6 +433,7 @@ def test_the_unit_quotes_spaces_percent_dollar_and_quotes():
     assert systemd.parse("[Service]\nType=simple\n") is None
 
 
+@POSIX_ONLY  # Windows 上的规矩（反斜杠可以、% 不行）见 test_service_windows.py
 def test_paths_that_cannot_be_written_into_a_service_are_refused(tmp_path):
     workspace = tmp_path / "w"
     workspace.mkdir()
@@ -436,7 +459,7 @@ def test_install_on_mac_bootstraps_the_agent_and_waits_until_it_is_up(mac):
     assert "已经装好了" in out and plist in out and str(mac.config.data_dir / "logs" / "service.log") in out
     assert f"已经开起来了（进程 {os.getpid()}）" in out and "uv run harness service open" in out
     assert TOKEN not in out + err
-    assert (mac.config.data_dir / "logs").is_dir() and stat.S_IMODE((mac.config.data_dir / "logs").stat().st_mode) == 0o700
+    assert (mac.config.data_dir / "logs").is_dir() and has_mode((mac.config.data_dir / "logs"), 0o700)
 
 
 def test_mac_stop_start_and_restart(mac):
@@ -499,7 +522,7 @@ def test_install_on_linux_enables_the_user_unit(linux):
     assert service_cli.run(args_for("install"), linux.config, linux.system) == 0
     assert linux.fake.verbs() == [["daemon-reload"], ["daemon-reload"], ["enable", "--now", UNIT]]
     text = linux.manager.file.read_text(encoding="utf-8")
-    assert '"--service" "systemd"' in text and stat.S_IMODE(linux.manager.file.stat().st_mode) == 0o644
+    assert '"--service" "systemd"' in text and has_mode(linux.manager.file, 0o644)
     out, err = said(linux.system)
     assert "智狐的后台服务（systemd）：已经装好了" in out and f"已经开起来了（进程 {os.getpid()}）" in out
     assert "journalctl --user -u zhifox" in out
@@ -930,6 +953,26 @@ def test_follow_prints_new_lines_and_survives_a_rotation(tmp_path):
     assert out.getvalue() == "新的一行\n狐狸\n换了新文件\n"  # 开始之前的那一行不重复打印
 
 
+def test_follow_turns_windows_line_endings_into_newlines(tmp_path):
+    """Windows 上日志的行尾是 \\r\\n（以文字方式写的）。接着看的时候一律换成 \\n，\\r 和 \\n 被拆在两次读之间也一样。"""
+    path = tmp_path / "service.log"
+    path.write_bytes(b"")
+    out = io.StringIO()
+    steps = [
+        lambda: path.open("ab").write("第一行\r\n第二行\r".encode()),
+        lambda: path.open("ab").write(b"\n"),
+        lambda: None,
+    ]
+
+    def sleep(_seconds):
+        if steps:
+            steps.pop(0)()
+
+    rounds = iter(range(6))
+    logs.follow(path, out, keep_going=lambda: next(rounds, None) is not None, sleep=sleep)
+    assert out.getvalue() == "第一行\n第二行\n"
+
+
 def test_logs_command_on_mac(mac):
     system = make_system(mac.manager, mac.home)
     assert service_cli.run(args_for("logs"), mac.config, system) == 0
@@ -1117,14 +1160,14 @@ def test_the_service_log_rotates_keeps_dates_and_hides_secrets(tmp_path, monkeyp
         r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d info ---- zhifox started, pid \d+ ----\n\d{4}-\d\d-\d\d \d\d:\d\d:\d\d warning token 是 <hidden>\n",
         first,
     )
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert has_mode(path, 0o600) and has_mode(path.parent, 0o700)
     for n in range(80):
         logger.info("第 %d 行：写满了就换一个新文件", n)
     names = sorted(item.name for item in path.parent.iterdir())
     assert names == ["service.log", *(f"service.log.{n}" for n in range(1, SERVICE_LOG_BACKUPS + 1))]  # 最多留这么多份
     # 标准库按字符数估计这一行有多长，汉字一个占 3 个字节，所以可能比上限多出一行；不会多出更多
     assert all(item.stat().st_size < 400 + 200 for item in path.parent.iterdir())
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600  # 换的新文件也是只给自己看
+    assert has_mode(path, 0o600)  # 换的新文件也是只给自己看
     assert "第 79 行" in path.read_text(encoding="utf-8")
 
 
@@ -1145,6 +1188,8 @@ def test_unsupported_systems_say_so(make_config):
 
 
 def test_detect_picks_the_manager_for_this_platform(monkeypatch):
+    # Launchd 要你账号的编号（gui/<uid>），Windows 上没有 os.getuid：假装成 Mac 时给一个
+    monkeypatch.setattr(os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
     assert isinstance(service_cli.detect().manager, Launchd)
     monkeypatch.setattr(sys, "platform", "linux")
@@ -1154,7 +1199,9 @@ def test_detect_picks_the_manager_for_this_platform(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     assert service_cli.detect().manager is None and "systemd" in service_cli.detect().unsupported
     monkeypatch.setattr(sys, "platform", "win32")
-    assert service_cli.detect().manager is None
+    assert isinstance(service_cli.detect().manager, TaskScheduler)  # Windows：任务计划程序（见 test_service_windows.py）
+    monkeypatch.setattr(sys, "platform", "freebsd14")
+    assert service_cli.detect().manager is None and "Windows" in service_cli.detect().unsupported
 
 
 def test_serve_accepts_the_service_option(monkeypatch, tmp_path):
@@ -1206,10 +1253,10 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
     }
     env.pop("JOURNAL_STREAM", None)
     # 不加 -P 会怎样：同一个工作目录里，Python 先导入了埋好的 json.py
-    unsafe = subprocess.run([command[0], "-m", "harness", "--help"], cwd=workspace, env=env, capture_output=True, text=True, check=False)
+    unsafe = subprocess.run([command[0], "-m", "harness", "--help"], cwd=workspace, env=env, capture_output=True, text=True, check=False, encoding="utf-8")
     assert unsafe.returncode != 0 and "埋的 json.py" in unsafe.stderr
     with open(log_file, "ab") as output:
-        process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
+        process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **own_group())
     address = data / ".web-address"
     try:
         try:
@@ -1219,9 +1266,15 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
             log = log_file.read_text(encoding="utf-8", errors="replace") if log_file.exists() else "（没有日志文件）"
             raise AssertionError(f"等不到网页的地址；进程{'还在跑' if process.poll() is None else f'已经退出，退出码 {process.returncode}'}。日志：\n{log[-3000:]}") from None
         assert re.fullmatch(r"http://127\.0\.0\.1:\d+/\?token=[\w-]+", url)
-        assert stat.S_IMODE(address.stat().st_mode) == 0o600
-        assert instance.holder(data) == instance.Holder(process.pid, "service")  # 数据目录的锁上记着：它是后台服务
-        process.send_signal(signal.SIGTERM)  # launchctl bootout / 退出登录
+        assert has_mode(address, 0o600)
+        # 数据目录的锁上记着：它是后台服务。Windows 上 .venv\Scripts\python.exe 只是一个启动器，它再开真正的 Python，
+        # 占着锁的是那个子进程，编号不一样（见 service/supervise.py 开头）；那里只看它是不是还活着、不是测试自己
+        found = instance.holder(data)
+        if WINDOWS:
+            assert found is not None and found.kind == "service" and found.pid != os.getpid() and alive(found.pid)
+        else:
+            assert found == instance.Holder(process.pid, "service")
+        ask_to_exit(process)  # launchctl bootout / 退出登录（Windows 上是 Ctrl+Break，见 tests/processes.py）
         assert process.wait(15) == 0
     finally:
         if process.poll() is None:
@@ -1236,7 +1289,7 @@ def test_the_service_command_line_really_runs(tmp_path, make_config):
     assert all(re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (info|warning|error) ", line) for line in lines), lines
     assert lines[-1].endswith("再见。")
     assert not address.exists()  # 退出时删掉
-    assert stat.S_IMODE(log_file.stat().st_mode) == 0o600
+    assert has_mode(log_file, 0o600)
 
 
 def test_config_has_one_place_for_the_address_and_the_log(make_config):

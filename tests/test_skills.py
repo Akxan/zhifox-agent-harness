@@ -24,8 +24,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from conftest import symlinks_work
 from fake_api import failure, reply, text, tool_use
 from fake_openai import chat
+from modes import has_mode
 
 from harness.providers import ProviderError
 from harness.skills import (
@@ -81,14 +83,15 @@ def make_skill(store: SkillStore, name: str = "pdf-tools", text_: str | None = N
     """直接在磁盘上放一个 Skill（不经过 store.install），用来模拟"用户自己拷进来的"。"""
     folder = store.root / name
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "SKILL.md").write_text(text_ if text_ is not None else skill_md(name), encoding="utf-8")
+    # newline=""：原样写下去。不然 Windows 上 \n 会变成 \r\n，文件的大小、读出来的内容都和这里写的对不上
+    (folder / "SKILL.md").write_text(text_ if text_ is not None else skill_md(name), encoding="utf-8", newline="")
     for relative, content in (files or {}).items():
         path = folder / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, bytes):
             path.write_bytes(content)
         else:
-            path.write_text(content, encoding="utf-8")
+            path.write_text(content, encoding="utf-8", newline="")
     return folder
 
 
@@ -376,7 +379,7 @@ def test_create_list_and_read(store):
     folder = store.root / "pdf-tools"
     write = folder / "scripts" / "fill.py"
     write.parent.mkdir()
-    write.write_text("print('hi')\n", encoding="utf-8")
+    write.write_text("print('hi')\n", encoding="utf-8", newline="")
 
     (skill,) = store.list()
     summary = skill.summary()
@@ -393,7 +396,7 @@ def test_create_list_and_read(store):
     assert store.read_file("pdf-tools", "scripts/fill.py")["text"] == "print('hi')\n"
 
     # 文件只有自己的账号能读；skills.json 记下了它是怎么来的
-    assert stat.S_IMODE((folder / "SKILL.md").stat().st_mode) == 0o600
+    assert has_mode((folder / "SKILL.md"), 0o600)
     assert json.loads(store.state_file.read_text(encoding="utf-8"))["sources"]["pdf-tools"]["kind"] == "new"
 
 
@@ -482,7 +485,7 @@ def test_save_fixes_a_folder_without_a_valid_skill_md(store):
     assert store.list()[0].usable
 
 
-def test_save_refuses_a_linked_skill_md(store, tmp_path):
+def test_save_refuses_a_linked_skill_md(symlinks, store, tmp_path):
     folder = make_skill(store)
     outside = tmp_path / "outside.md"
     outside.write_text(skill_md(), encoding="utf-8")
@@ -504,7 +507,7 @@ def test_delete_removes_the_folder_and_its_state(store):
         store.delete("pdf-tools")
 
 
-def test_delete_does_not_follow_links_inside(store, tmp_path):
+def test_delete_does_not_follow_links_inside(symlinks, store, tmp_path):
     outside = tmp_path / "keep"
     outside.mkdir()
     (outside / "precious.txt").write_text("别删我", encoding="utf-8")
@@ -538,7 +541,7 @@ def test_a_broken_skills_json_is_treated_as_empty(store):
     assert json.loads(store.state_file.read_text(encoding="utf-8"))["disabled"] == ["a"]
 
 
-def test_what_is_listed_and_what_is_usable(store, tmp_path):
+def test_what_is_listed_and_what_is_usable(symlinks, store, tmp_path):
     make_skill(store, "good")
     make_skill(store, "manual", skill_md("manual", DESCRIPTION, "", "disable-model-invocation: true"))
     make_skill(store, "broken", doc("name: broken", "description: Use when: x"))
@@ -578,7 +581,7 @@ def test_skill_names_from_outside_cannot_be_paths(store, name):
 def test_folder_of_without_a_name_creates_the_root(store):
     assert not store.root.exists()
     assert store.folder_of(None) == store.root
-    assert store.root.is_dir() and stat.S_IMODE(store.root.stat().st_mode) == 0o700
+    assert store.root.is_dir() and has_mode(store.root, 0o700)
 
 
 @pytest.mark.parametrize(
@@ -592,7 +595,7 @@ def test_locate_stays_inside_the_skill(store, relative):
         locate(folder, relative)
 
 
-def test_locate_refuses_links_at_any_level_and_special_files(store, tmp_path):
+def test_locate_refuses_links_at_any_level_and_special_files(symlinks, store, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text("外面的秘密", encoding="utf-8")
@@ -600,13 +603,15 @@ def test_locate_refuses_links_at_any_level_and_special_files(store, tmp_path):
     os.symlink(outside / "secret.txt", folder / "link.txt")
     os.symlink(outside, folder / "linkdir")
     os.symlink(outside, folder / "scripts" / "deeper")
-    os.mkfifo(folder / "pipe")
+    if hasattr(os, "mkfifo"):  # Windows 没有命名管道这种文件：管道那一半只在 macOS、Linux 上测
+        os.mkfifo(folder / "pipe")
     for relative in ("link.txt", "linkdir/secret.txt", "scripts/deeper/secret.txt"):
         with pytest.raises(SkillError) as caught:
             locate(folder, relative)
         assert "链接" in str(caught.value), relative
-    with pytest.raises(SkillError):
-        locate(folder, "pipe")  # 管道不是普通文件：读它会一直卡着
+    if hasattr(os, "mkfifo"):
+        with pytest.raises(SkillError):
+            locate(folder, "pipe")  # 管道不是普通文件：读它会一直卡着
     assert locate(folder, "scripts/fill.py") == (folder / "scripts" / "fill.py").resolve()
     # 列文件时链接和管道都不列
     assert [path for path, _ in walk(folder)] == ["SKILL.md", "scripts/fill.py"]
@@ -773,9 +778,9 @@ def test_executable_bit_survives_installation(store):
     (candidate,) = bundle.candidates(files)
     store.install(candidate.load(), "good", replace=False, source={"kind": "upload"})
     folder = store.root / "good"
-    modes = {path: stat.S_IMODE((folder / path).stat().st_mode) for path in ("SKILL.md", "run.sh", "setuid", "windows.txt")}
-    # 只分"能不能执行"两种，setuid 这类特殊权限一律不带过来
-    assert modes == {"SKILL.md": 0o600, "run.sh": 0o700, "setuid": 0o700, "windows.txt": 0o600}
+    expected = {"SKILL.md": 0o600, "run.sh": 0o700, "setuid": 0o700, "windows.txt": 0o600}
+    # 只分"能不能执行"两种，setuid 这类特殊权限一律不带过来（Windows 上没有权限位，见 tests/modes.py）
+    assert all(has_mode(folder / path, mode) for path, mode in expected.items())
 
 
 def test_candidates_in_a_bundle():
@@ -1116,9 +1121,12 @@ def claude_dirs(tmp_path):
     home.mkdir(parents=True)
     shutil.move(str(alpha), home / "alpha")
     (home / "alpha" / "scripts" / "run.sh").chmod(0o755)
-    os.symlink(outside / "secret.txt", home / "alpha" / "leak.txt")  # 文件夹里的链接：不跟
-    real_gamma = make_skill(SkillStore(tmp_path / "real"), "gamma")
-    os.symlink(real_gamma, home / "gamma")  # Claude Code 允许整个 Skill 文件夹是一个链接：这一层跟着走
+    # 下面两个链接只在建得了链接的电脑上有（见 conftest 的 symlinks_work）。用到它们的测试带着 symlinks，
+    # 只看 alpha 的测试（改名、替换）在建不了链接的 Windows 上照常跑
+    if symlinks_work():
+        os.symlink(outside / "secret.txt", home / "alpha" / "leak.txt")  # 文件夹里的链接：不跟
+        real_gamma = make_skill(SkillStore(tmp_path / "real"), "gamma")
+        os.symlink(real_gamma, home / "gamma")  # Claude Code 允许整个 Skill 文件夹是一个链接：这一层跟着走
     (home / "empty").mkdir()  # 没有 SKILL.md
     (home / "loose-file.md").write_text("不是文件夹", encoding="utf-8")
     beta = make_skill(SkillStore(tmp_path / "y"), "beta", doc(f"description: {DESCRIPTION}"))  # 没写 name
@@ -1127,7 +1135,7 @@ def claude_dirs(tmp_path):
     return workspace
 
 
-def test_claude_code_skills_are_found_in_both_places(claude_dirs):
+def test_claude_code_skills_are_found_in_both_places(symlinks, claude_dirs):
     found = from_tools.discover(claude_dirs)
     by_key = {candidate.key: (group, candidate) for group, candidate in found}
     assert sorted(by_key) == [".claude/skills/beta", "~/.claude/skills/alpha", "~/.claude/skills/empty", "~/.claude/skills/gamma"]
@@ -1153,7 +1161,7 @@ def test_nothing_to_import(tmp_path):
     assert from_tools.discover(tmp_path / "work") == []
 
 
-def test_importing_copies_and_skips_inner_links(store, claude_dirs):
+def test_importing_copies_and_skips_inner_links(symlinks, store, claude_dirs):
     installer = Installer(store)
     preview = installer.stage(from_tools.discover(claude_dirs), {"kind": "import", "label": ""})
     keys = {candidate["key"] for candidate in preview["candidates"]}
@@ -1165,9 +1173,9 @@ def test_importing_copies_and_skips_inner_links(store, claude_dirs):
     ])
     assert [result["ok"] for result in results] == [True, True, True]
     alpha = store.root / "alpha"
-    assert sorted(str(path.relative_to(alpha)) for path in alpha.rglob("*") if path.is_file()) == ["SKILL.md", "scripts/run.sh"]
+    assert sorted(path.relative_to(alpha).as_posix() for path in alpha.rglob("*") if path.is_file()) == ["SKILL.md", "scripts/run.sh"]
     assert not (alpha / "leak.txt").exists() and not (alpha / ".hidden").exists()
-    assert stat.S_IMODE((alpha / "scripts" / "run.sh").stat().st_mode) == 0o700
+    assert has_mode((alpha / "scripts" / "run.sh"), 0o700)
     assert not (store.root / "gamma").is_symlink()  # 复制的是内容，不是链接
     assert "name: beta" in (store.root / "beta" / "SKILL.md").read_text(encoding="utf-8")  # 补上了 name
     sources = {skill.name: skill.source for skill in store.list()}
@@ -1418,7 +1426,7 @@ def test_the_model_reads_a_skill_without_asking(start):
     h.app.skills.create("pdf-tools", DESCRIPTION, "# PDF\n\nRun `python3 ${CLAUDE_SKILL_DIR}/scripts/fill.py`.\n")
     folder = (h.app.skills.root / "pdf-tools").resolve()
     (folder / "scripts").mkdir()
-    (folder / "scripts" / "fill.py").write_text("print('fill')\n", encoding="utf-8")
+    (folder / "scripts" / "fill.py").write_text("print('fill')\n", encoding="utf-8", newline="")
     h.agent.run_turn("帮我填一下这个 PDF 表单")
 
     assert h.ui.confirmations == []  # 只是读，不用问

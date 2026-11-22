@@ -101,7 +101,7 @@ def _hook_tested(page) -> None:
 
 def _sandbox(page) -> None:
     """沙箱里额外允许的路径，里面有一条很长的路径（要整条看得到，所以折行，不能冲出去）。"""
-    page.demo.api("/api/sandbox/add", {"path": "/srv/a-rather-long-folder-name/with/several/levels/that-goes-on-and-on-and-on-and-on", "write": True})
+    page.demo.api("/api/sandbox/add", {"path": steps.native_path("/srv/a-rather-long-folder-name/with/several/levels/that-goes-on-and-on-and-on-and-on"), "write": True})
     steps.open_dialog(page, "#settings-open", "settings")
     page.click("#sandbox-paths-open")
     page.wait(f"{steps.is_open('sandbox-dialog')} && document.querySelector('#sandbox-list li.sandbox-row')", what="沙箱的路径窗口打开")

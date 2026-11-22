@@ -95,6 +95,7 @@ SCRIPTS = (
     "scripts/basics.js",  # 口令、$、<html> 和 <body>
     "scripts/i18n.js",  # 多语言：t()、tel()、retext()、tattr()
     "scripts/state.js",  # 常用的几个元素、整个页面共用的状态
+    "scripts/platform.js",  # 是哪种电脑：快捷键看浏览器那台（forKeys），文件管理器的名字看助手程序那台（byServer）
     "scripts/helpers.js",  # 小工具：el()、icon()……
     "scripts/motion.js",  # 动效：calm()、play()、relayout()、crossfade()
     "scripts/flyouts.js",  # 顶栏上的按钮弹出来的小面板：开、关、位置、点外面收起、Esc 和 Tab（外观、换模型、语言共用）

@@ -8,6 +8,8 @@
   sticking_out(page, cards)  卡片里的元素（图标、按钮、小标签）伸出了卡片或者窗口：文字放得下、装它的小框却伸出去了，overflow 查不出来
   row_trio(page, sel)  一行本地存着的东西右边是不是"在访达中显示 / 编辑 / 删除"三个按钮
   native_selects(page) 用了浏览器自带箭头的下拉框
+  containing(page, words)  整个页面里（看不见的也算）还写着这些字的地方，比如 Windows 上的"⌘""访达"
+  reveal_labels(page)  画出来的每个"在访达中显示"这类按钮（带文件夹图标的）上写的话
   contrast(page, sel)  每个选择器的文字和它背后的底色的对比度（WCAG，正文至少 4.5:1）
 
 这几个检查是"启发式"的：它们按规则去找可疑的地方，找到了不一定都是错，但每一条都值得看一眼。
@@ -247,6 +249,65 @@ def native_selects(page: Page) -> list[str]:
     return page.js(_SELECTS)
 
 
+_DESCRIBE = r"""
+(node) => {
+  const path = [];
+  for (let at = node; at && at !== document.body && path.length < 4; at = at.parentElement) {
+    path.unshift(at.tagName.toLowerCase() + (at.id ? '#' + at.id : '') + (typeof at.className === 'string' && at.className.trim() ? '.' + at.className.trim().split(/\s+/).join('.') : ''));
+  }
+  return path.join(' > ');
+}
+"""
+
+_CONTAINING = r"""
+(({ words, skip }) => {
+  const describe = __DESCRIBE__;
+  const skipped = (node) => node.closest(skip.join(','));
+  const problems = [];
+  const report = (node, where, text) => {
+    if (words.some((word) => text.includes(word))) problems.push(describe(node) + where + ': ' + JSON.stringify(text.trim().slice(0, 120)));
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const parent = text.parentElement;
+    if (!parent || parent.closest('script, style') || skipped(parent)) continue;
+    report(parent, '', text.data);
+  }
+  for (const node of document.body.querySelectorAll('[title], [placeholder], [aria-label]')) {
+    if (skipped(node)) continue;
+    for (const name of ['title', 'placeholder', 'aria-label']) {
+      if (node.hasAttribute(name)) report(node, ' [' + name + ']', node.getAttribute(name));
+    }
+  }
+  return [...new Set(problems)];
+})
+""".replace("__DESCRIBE__", _DESCRIBE.strip())
+
+
+def containing(page: Page, words: list[str]) -> list[str]:
+    """整个页面里还写着 words 里任何一个的文字，以及 title、placeholder、aria-label。看不见的也算：关着的窗口、
+    悬停才出现的按钮、没打开的那一栏里的话，换个时候就会被看到。用户自己的内容（USER_CONTENT、NAMES）不算。"""
+    options = {"words": words, "skip": USER_CONTENT + NAMES}
+    return page.js(f"({_CONTAINING})({json.dumps(options, ensure_ascii=False)})")
+
+
+_REVEALS = r"""
+(() => {
+  const describe = __DESCRIBE__;
+  const shown = (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden';
+  return [...document.querySelectorAll('button')]
+    // 不算的：建议卡片、"选择文件夹"、沙箱的"管理路径"（打开一个窗口，不是打开文件管理器，图标只是说它管的是文件夹）
+    .filter((button) => button.querySelector('use[href="#i-folder"]') && !button.closest('.starter') && button.dataset.key !== 'pick-folder' && button.id !== 'sandbox-paths-open' && shown(button))
+    .map((button) => ({ where: describe(button), label: button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent.trim() }));
+})()
+""".replace("__DESCRIBE__", _DESCRIBE.strip())
+
+
+def reveal_labels(page: Page) -> list[dict]:
+    """页面上画出来的每个"在文件管理器里显示、打开"的按钮：带文件夹图标的那些，除了建议卡片、"选择文件夹"和沙箱的"管理路径"。
+    只看画出来的（悬停才淡入的也算）：关着的窗口里的按钮，打开的时候才按当前的语言重画。
+    返回 [{where, label}]，label 是读屏软件读的那句（aria-label，没有的话 title，再没有就是按钮上的字）。"""
+    return page.js(_REVEALS)
 # WCAG 的对比度：文字的颜色和它背后第一层不透明（不透明度超过 0.9）的底色
 CONTRAST = r"""
 ((selectors) => {

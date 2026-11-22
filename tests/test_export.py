@@ -7,6 +7,8 @@ import json
 import zipfile
 from datetime import datetime
 
+from conftest import symlinks_work
+
 from harness import export, i18n
 from harness.export import NOTE, PLACEHOLDER, archive_name, mask, plan, write_archive
 
@@ -70,12 +72,15 @@ def make_data(root):
     }.items():
         path = data / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="")  # 原样写：Windows 上不把 \n 换成 \r\n
     outside = root / "outside"
     outside.mkdir()
     (outside / "id_rsa").write_text("PRIVATE KEY hunter2-db-password", encoding="utf-8")
-    (data / "link-to-key").symlink_to(outside / "id_rsa")
-    (data / "linked-folder").symlink_to(outside, target_is_directory=True)
+    # 指向外面的链接只在建得了链接的电脑上有（见 conftest 的 symlinks_work）。断言里提到这两个链接的测试带着 symlinks，
+    # 别的测试在建不了链接的 Windows 上照常跑
+    if symlinks_work():
+        (data / "link-to-key").symlink_to(outside / "id_rsa")
+        (data / "linked-folder").symlink_to(outside, target_is_directory=True)
     return data
 
 
@@ -85,7 +90,7 @@ def export_bytes(data, secrets=()) -> tuple[bytes, export.Plan]:
     return out.getvalue(), work
 
 
-def test_the_archive_holds_the_whole_data_folder_and_no_secrets(tmp_path):
+def test_the_archive_holds_the_whole_data_folder_and_no_secrets(symlinks, tmp_path):
     data = make_data(tmp_path)
     raw, work = export_bytes(data)
     archive = zipfile.ZipFile(io.BytesIO(raw))
@@ -165,7 +170,7 @@ def test_the_configured_key_file_is_blocked_even_under_another_name(tmp_path):
     assert b"whatever-0000" not in raw
 
 
-def test_the_note_explains_how_to_restore(tmp_path, monkeypatch):
+def test_the_note_explains_how_to_restore(symlinks, tmp_path, monkeypatch):
     data = make_data(tmp_path)
     raw, _ = export_bytes(data)
     archive = zipfile.ZipFile(io.BytesIO(raw))

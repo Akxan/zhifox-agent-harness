@@ -137,7 +137,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 
 ## Quick start
 
-You need macOS or Linux and [uv](https://docs.astral.sh/uv/).
+You need macOS, Linux or Windows and [uv](https://docs.astral.sh/uv/). On Windows, see [Windows](#windows) for the
+PowerShell version of these steps.
 
 ```bash
 uv sync                 # install dependencies
@@ -189,7 +190,7 @@ refuses tools, ZhiFox marks the model **No tools**, tells you in the conversatio
 tool as unavailable with the reason. vLLM needs `--enable-auto-tool-choice --tool-call-parser …` and llama.cpp needs
 `--jinja` for tools. ZhiFox's system prompt and tool descriptions alone take several thousand tokens, so give the model
 a large enough context: Ollama defaults to 4096 and silently cuts the start of longer prompts; set
-`OLLAMA_CONTEXT_LENGTH=32768` (or more) before starting it, and enter the same number as the model's context limit in
+`OLLAMA_CONTEXT_LENGTH=32768` (or more) before starting it (in PowerShell: `$env:OLLAMA_CONTEXT_LENGTH=32768`), and enter the same number as the model's context limit in
 the endpoint's settings, which is what ZhiFox uses to decide when to compact the conversation.
 
 Security rules: a remote address must use `https://`; plain `http://` is accepted only for this computer (`localhost`,
@@ -200,6 +201,58 @@ characters); it never goes into environment variables, so commands and MCP serve
 providers (`OPENAI_API_KEY`, `OPENAI_ORG_ID`, `OPENAI_CUSTOM_HEADERS`, …) are never sent to a custom endpoint, redirects
 are not followed, and changing an endpoint's host means entering its key again. Agent files and other programs name an
 endpoint's model as `custom-<id>/<model>`, for example `custom-ollama/qwen3:8b`.
+
+## Windows
+
+ZhiFox runs on Windows. Every push is tested on GitHub's `windows-latest` runner (Windows Server) as well as Ubuntu and
+macOS; it hasn't been tried by hand on a Windows 10 or 11 desktop yet, so tell us if something there behaves
+differently. In PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
+uv sync
+uv run harness --web
+```
+
+(No Git? Download the ZIP from GitHub and unpack it instead.) Everything else works as on the other two systems; these
+are the differences:
+
+| | On Windows |
+|---|---|
+| Keyboard shortcuts | Ctrl wherever a Mac says ⌘, Alt for ⌥ (the table below). The page decides by the computer the browser runs on |
+| "Show in Finder" | **Show in File Explorer** (`explorer /select,`); on Linux it's "Show in file manager". The page decides by the computer ZhiFox runs on, since that's where the window opens |
+| Commands (`run_command`) | Run in **PowerShell**: PowerShell 7 (`pwsh`) when it's installed, Windows PowerShell 5.1 otherwise. The tool's description and the system prompt say which, so the model writes `Get-ChildItem` rather than `ls -la`. Your `$PROFILE` is not loaded, your execution policy is left as it is, output is read as UTF-8, and Stop or a timeout ends the command with everything it started (a Windows job object) |
+| **Allow read-only commands** | Doesn't skip any command yet: the read-only check understands bash, not PowerShell, so every command still asks, and your own "commands that don't ask" don't apply (the approval panel, that window and the capability list say so). The mode still reads files outside the working folder without asking |
+| Files only you can read | Windows has no 600/700 permissions. ZhiFox removes the inherited access from `data\` and `.env` and leaves only your account, SYSTEM and Administrators (see [Data and privacy](#data-and-privacy)) |
+| Browser use | Chrome, or Microsoft Edge (every Windows 10/11 has it) when Chrome isn't installed. Still a pipe, never a port (see [Browser use](#browser-use-a-chrome-of-its-own)) |
+| Background service | **Task Scheduler** instead of launchd or systemd: the same `uv run harness service …` commands (see [Run it in the background](#run-it-in-the-background)) |
+| Computer use | Not available yet. Settings and the capability list say so ("isn't supported on Windows yet") |
+
+Keyboard shortcuts in the web UI:
+
+| What | macOS | Windows and Linux |
+|---|---|---|
+| Send / new line | Enter / Shift+Enter | Enter / Shift+Enter |
+| Search conversations | ⌘F or ⌘K | Ctrl+F or Ctrl+K |
+| Settings | ⌘, | Ctrl+, |
+| Switch model | ⌘. | Ctrl+. |
+| Save in an editor (memory, task, skill, agent, MCP server, prompt) | ⌘Enter | Ctrl+Enter |
+| Zoom an image in the viewer | ⌘+ / ⌘− / ⌘0, ⌘ + scroll | Ctrl++ / Ctrl+− / Ctrl+0, Ctrl + scroll |
+| Close a panel or window (asks first if you have unsaved changes) | Esc | Esc |
+
+Not supported on Windows yet:
+
+- Computer use (no Windows backend for screenshots, mouse and keyboard yet).
+- The command sandbox (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)): Windows has no
+  reliable built-in way yet, so with the sandbox turned on every command is refused and the page says why. To use it,
+  run ZhiFox inside WSL with bubblewrap installed.
+- Automatic approval of read-only commands, as above.
+- A clean stop when you sign out or shut down: Windows ends the processes, so a turn in progress may not be saved. Ctrl-C
+  and Ctrl+Break in the terminal, and `uv run harness service stop`, all stop it cleanly. Closing the terminal window
+  ends it without that.
+- The background service stops when you sign out (it runs as you, with no stored password).
 
 ## Architecture
 
@@ -336,6 +389,7 @@ Each part of the harness has its own file or directory:
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
+| Platform differences | [filelock.py](harness/filelock.py), [pathnames.py](harness/pathnames.py), [winacl.py](harness/winacl.py), [winjob.py](harness/winjob.py), [console.py](harness/console.py), [exits.py](harness/exits.py), [machine.py](harness/machine.py), [tools/shell.py](harness/tools/shell.py), [browser/chrome.py](harness/browser/chrome.py), [service/windows.py](harness/service/windows.py) | macOS, Linux and Windows lock files, name paths, protect files, end process trees, encode output and run shells differently. Each difference lives in one small module (or one function of the module that uses it), and the rest of the code just calls it |
 
 Suggested reading order: `agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`.
 Read the rest as your interest takes you.
@@ -1469,6 +1523,16 @@ handing replies to whoever waits on that id and events to whoever subscribed. Ea
 on the same connection ("flat" sessions). Every request has a timeout, and every request is filed under an owner, so
 Stop cancels one run's requests and leaves everyone else's alone.
 
+**On Windows** there are no numbered descriptors to hand over. Chrome has a switch for that,
+`--remote-debugging-io-pipes=<read>,<write>`, whose values are the two pipe handles. ZhiFox opens two pipes, marks only
+Chrome's two ends as inheritable, writes their handle numbers into that switch, and starts Chrome with a `STARTUPINFO`
+handle list that contains just those (plus the standard input and output), so no other handle ZhiFox has open leaks
+into the browser. It is the same pipe and the same protocol, still with no port. The port alternative was rejected on
+Windows for the same reason as elsewhere: while it is open, any program running as you, and any web page, can drive
+the browser. Chrome and all its child processes are put in a Windows job object, so closing it (or ZhiFox crashing)
+ends every one of them, the Windows counterpart of the process group used on macOS and Linux. Without Chrome, ZhiFox
+uses Microsoft Edge, which every Windows 10 and 11 has.
+
 **Reading a page: lines with numbers.** A screenshot costs many tokens and a model can't reliably click on a picture,
 so the main way to read a page is text. `page.js` runs in an *isolated world*: it shares the page's DOM but not its
 JavaScript, so the page can neither see what it records nor replace the functions it uses. It walks the rendered page
@@ -1701,7 +1765,7 @@ privileges, and asks applications to explain the risks and get consent first. Zh
   Blocked apps are matched against the active window only: `xdotool` can't name the window under an arbitrary point.
 - **Wayland: not supported.** Wayland was designed so that one program can't capture other programs' windows or send
   them input, the exact thing computer use does (XWayland doesn't help: `xdotool` can't reach native Wayland windows).
-  Settings says so and suggests logging in to an X11 (Xorg) session. Windows isn't supported, like the rest of ZhiFox.
+  Settings says so and suggests logging in to an X11 (Xorg) session. Windows isn't supported yet: Settings and the capability list say "Controlling the whole computer isn't supported on Windows yet".
 
 **Two sets of specs, again.** Claude models in `COMPUTER_TOOLSET_MODELS` get Anthropic's
 [computer use toolset](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool),
@@ -2042,7 +2106,7 @@ channels and subagents all use the same switch.
 | Reading files outside the working directory | Asks you first. In **Allow read-only commands** mode it runs directly, unless the path is `data/`, a key file or looks like it holds secrets |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
 | Creating or changing any file | Asks you first, and shows what will be written |
-| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)). With the sandbox on, the card also says which level the command runs in (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)) |
+| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative); on Windows every command still asks). With the sandbox on, the card also says which level the command runs in (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)) |
 | Running one command outside the sandbox (`unsandboxed: true`, only while the sandbox is on) | Asks every time, in every mode, Allow everything included, with a warning on the card and no way to stop asking. A scheduled task or chat channel set to Allow everything can't ask at all, so there it is refused |
 | Any command while the sandbox is on but can't work on this computer | Refused without asking; the model is told why and how to fix it or switch the sandbox off |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
@@ -2140,6 +2204,13 @@ marked **Allowed automatically (read-only)**; a command that could change someth
 the task, in the chat. It sits between Ask every time and Allow file edits because the worst it can do is let the model
 see something (and the places worth hiding are excluded, below), while file edits really change things. It does not
 include file edits, and Allow file edits does not include read-only commands: the two loosen different things.
+
+**On Windows the mode doesn't skip any command.** Commands there run in PowerShell, and everything below is written for
+bash. PowerShell has its own syntax (`@(…)` and `$(…)`, `{ script blocks }`, the `&` call operator, backtick escapes,
+`--%`, drives such as `HKLM:` and `Env:` that `Get-Content` can read) and an alias for almost every command (`ls`, `cat`
+and `rm` all exist), so a command that looks harmless by bash's rules can mean something else. Rather than guess,
+every command asks on Windows, the commands you added included, and the page says why. Reading files outside the
+working folder without asking still applies.
 
 How ZhiFox decides ([harness/commands/](harness/commands/)), step by step:
 
@@ -2880,14 +2951,28 @@ then run:
 uv run --project "/full/path/to/this/project" harness
 ```
 
-The keys and data still come from the project's own `.env` and `data/`.
+The keys and data still come from the project's own `.env` and `data/`. To type just `zhifox` anywhere, add a shortcut
+to your shell's startup file:
+
+```bash
+# macOS and Linux: ~/.zshrc (or ~/.bashrc), then open a new terminal
+alias zhifox='uv run --project "/full/path/to/zhifox-agent-harness" harness'
+```
+
+```powershell
+# Windows: your PowerShell profile. `notepad $PROFILE` opens it (create it first with
+# `New-Item -ItemType File -Path $PROFILE -Force` if it doesn't exist), then open a new PowerShell window
+function zhifox { uv run --project "C:\full\path\to\zhifox-agent-harness" harness @args }
+```
+
+Then `zhifox`, `zhifox --web` and `zhifox service status` work from any folder (`@args` passes the rest of the line on).
 
 ## Run it in the background
 
 Started with `uv run harness --web`, ZhiFox is a child of that terminal: close the terminal, or end the Claude Code
 session that started it, and ZhiFox stops too, taking the web page and your chat bot with it. To keep it up all the
 time, hand it to the program your operating system already uses for that job, its *service manager*: **launchd** on
-macOS, **systemd** on Linux. One command does it:
+macOS, **systemd** on Linux, **Task Scheduler** on Windows. One command does it:
 
 ```bash
 uv run harness service install     # install and start it: from now on it starts at login and restarts itself after a crash
@@ -2923,6 +3008,31 @@ If the data folder is still in use, `install` refuses and says who holds it (wha
 rather than starting a service that would exit at once and be restarted every ten seconds. It works the other way
 round too: running `uv run harness --web` while the service runs says that ZhiFox is running as a background service,
 with `uv run harness service open` to reach it and `uv run harness service stop` to stop it first.
+
+On Windows, stop a ZhiFox started by hand with Ctrl-C in its PowerShell window, or find it with
+`Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*harness*' | Select-Object ProcessId, CommandLine`.
+
+### On Windows: Task Scheduler
+
+`uv run harness service install` creates a task named `ZhiFox-<your user name>` in Task Scheduler (it's a hidden task:
+**View → Show Hidden Tasks** to see it). It starts when you sign in, runs as you with no stored password and no
+administrator rights, and has no time limit. All the commands above work the same way.
+
+- **Restarting after a crash.** Task Scheduler's own "restart on failure" only fires when the task fails to *start*,
+  not when the program exits with an error. So the task runs a small supervisor
+  ([service/supervise.py](harness/service/supervise.py)) under `pythonw.exe` (no console window), and the supervisor
+  runs ZhiFox: it starts it again 10 seconds after an error exit, and not after exit code 2 (a configuration problem
+  that a restart can't fix; see the log). Task Scheduler's restart-on-failure stays on as a second line of defence.
+- **Stopping cleanly.** Ending the task in Task Scheduler kills the process at once. `uv run harness service stop`
+  instead leaves a stop request in the data folder; the supervisor closes ZhiFox's input, and ZhiFox stops what's running,
+  saves, and exits. Only if that takes longer than 30 seconds does it fall back to ending the task.
+- **The log** is `data\logs\service.log`, 1 MB per file with three older ones kept (`.1` to `.3`), the same rotation
+  as on macOS. `uv run harness service logs -f` follows it without needing `tail`.
+- **Environment.** A task can't set environment variables, so the data folder and the `.env` location are passed to the
+  supervisor as arguments (only paths, never a key). The keys are read from `.env` when ZhiFox starts, as on the other
+  systems. A path containing `%` can't be used (Task Scheduler expands `%NAME%`).
+- **When it stops.** The task runs as you, so it stops when you sign out; signing out or shutting down ends it without
+  a clean stop.
 
 ### How launchd and systemd keep it running
 
@@ -3021,8 +3131,9 @@ WantedBy=default.target
   `uv run harness service open` reads it and opens your browser, printing the address without the token; `open --print`
   prints the whole address, for a browser on another machine through an SSH tunnel.
 - **Logs.** On macOS: `data/logs/service.log`, with the date on every line. ZhiFox starts a new file at 1 MB and keeps
-  three old ones (`service.log.1` to `.3`), so the log stays under about 4 MB; launchd itself never trims it. On Linux:
-  the journal, `journalctl --user -u zhifox -f`. Either way, `status` shows the last few warnings and errors. API keys
+  three old ones (`service.log.1` to `.3`), so the log stays under about 4 MB; launchd itself never trims it. On Windows:
+  the same file and rotation, `data\logs\service.log`. On Linux: the journal, `journalctl --user -u zhifox -f`. Either
+  way, `status` shows the last few warnings and errors. API keys
   and bot tokens are replaced with `<hidden>`, and message content is never logged.
 - **macOS and protected folders.** If the project or the working folder is inside Documents, Desktop, Downloads or
   iCloud Drive, macOS may ask the first time whether python can open that folder (click OK), or simply block it
@@ -3136,9 +3247,18 @@ unprivileged user for the service.
 
 ## Data and privacy
 
+**Only your account can read it.** On macOS and Linux, `data/` and its folders are created with permissions 700 and the
+files 600. Windows has no such permission bits (`chmod` there only toggles "read-only"), and a folder you create outside
+your user folder (`C:\code\…`) normally inherits read access for every account on the computer. So on Windows ZhiFox
+runs `icacls` once per folder ([winacl.py](harness/winacl.py)): it removes the inherited entries from `data\` and its
+folders and grants full control to your account (by SID), SYSTEM and Administrators only, inherited by every file
+created inside; `.env` gets the same three entries when a key is saved. SYSTEM and Administrators stay because they can
+read everything anyway (as root can on the other systems) and removing them only breaks backup and antivirus tools. If
+`icacls` fails (a FAT32 USB stick, a network drive), ZhiFox keeps running and writes a warning in the log.
+
 | Path | Contents |
 |---|---|
-| `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only |
+| `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only (on Windows by an ACL, see below) |
 | `data/conversations/` | Every web UI conversation, one JSON file each |
 | `data/media/` | The original of every attachment you sent, named by the SHA-256 of its content, so a file sent ten times is stored once. Originals that no conversation uses any more are removed when you delete a conversation, and at startup |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
@@ -3159,7 +3279,7 @@ unprivileged user for the service.
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
-| `data/logs/` | The background service's log on macOS, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
+| `data/logs/` | The background service's log on macOS and Windows, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
 | `data/.lock` | Held by the ZhiFox that is using this data folder, with its kind (web page, `serve`, background service) and process id, so a second one can say who's in the way. Never exported |
 
@@ -3594,11 +3714,16 @@ greets you, and `[ui:flaky]` fails the first attempt at every message (so you ca
 `--script NAME` makes every conversation follow that script even without a tag; the README screenshots were taken with
 `--script readme`, which answers in English or Chinese depending on the question.
 
-Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu and macOS with Python 3.11
-and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome that comes
-with GitHub's runners. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer use
-integration test runs there against a virtual display, and bubblewrap, so the sandbox's real Linux backend is tested
+Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu, macOS and Windows with
+Python 3.11 and 3.13 ([.github/workflows/tests.yml](.github/workflows/tests.yml)), page tests included, using the Chrome
+that comes with GitHub's runners. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer
+use integration test runs there against a virtual display, and bubblewrap, so the sandbox's real Linux backend is tested
 there too. The result is the Tests badge at the top of this page.
+
+Tests that only make sense on one system say so when they're skipped: a launchd plist or a systemd unit can't be
+installed from a Windows path, there are no file descriptors 3 and 4 or process groups on Windows, `icacls`, job objects
+and the real PowerShell run only on Windows, and creating symbolic links on Windows needs administrator rights or
+Developer Mode (those tests skip there with that reason). Everything else runs on all three.
 
 ## Evals: is the assistant actually any good?
 
@@ -3751,7 +3876,8 @@ more often a bug in a task or a check than a fact about the model.
 
 ## Limitations
 
-- macOS and Linux only (running commands depends on bash).
+- On Windows: no computer use yet, read-only commands are not auto-allowed (every command asks), and signing out or
+  shutting down ends ZhiFox without a clean stop (see [Windows](#windows)).
 - The background service (`harness service`) is tested against a fake `launchctl` and `systemctl` only; the tests never
   install a real one. On macOS, a project inside Documents, Desktop or Downloads may need a privacy permission first.
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
@@ -3919,7 +4045,8 @@ server, run `harness serve` (see [Deploying to a server](#deploying-to-a-server)
 
 ### Does it run on Windows?
 
-No. ZhiFox supports macOS and Linux only, because running commands depends on bash.
+Yes. It is tested on every push on GitHub's Windows runner (not yet by hand on a Windows 10/11 desktop). Commands run in PowerShell, the background service uses Task
+Scheduler, and the page says Ctrl and File Explorer. Computer use isn't available on Windows yet. See [Windows](#windows).
 
 ## Keywords
 

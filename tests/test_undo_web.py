@@ -81,7 +81,7 @@ def started(rig, *replies, files: dict[str, str] | None = None):
     """起服务器，工作目录里先放好这几个文件，"要不要每次都问"设成 edits。"""
     s = rig(*replies)
     for name, body in (files or {}).items():
-        work(s, name).write_text(body, encoding="utf-8")
+        work(s, name).write_text(body, encoding="utf-8", newline="")
     set_approval(s, "edits")
     return s
 
@@ -372,7 +372,7 @@ def test_a_file_changed_after_the_turn_asks_first(rig):
     say(s, "改一下")
     set_id = last_line(s)["set"]
     a = work(s, "a.txt")
-    a.write_text("我自己又改了\n", encoding="utf-8")
+    a.write_text("我自己又改了\n", encoding="utf-8", newline="")
 
     status, answer = post(s, "undo", set_id)
     assert status == 409 and answer["error"] == CONFIRM_FIRST and answer["blocked"] == []
@@ -580,7 +580,7 @@ def test_a_conflict_stops_the_rewind_until_you_say_so(rig):
     s = started(rig, *edits(replace(1, "a.txt", "one", "ONE")), reply(text("新的回答。")), files={"a.txt": "one\n"})
     state = say(s, "改一下")
     a = work(s, "a.txt")
-    a.write_text("我自己又改了\n", encoding="utf-8")
+    a.write_text("我自己又改了\n", encoding="utf-8", newline="")
     requests, after, history = len(s.api.requests), last_id(s), list(s.app.agent.messages)
 
     status, answer = s.browser.post("/api/turn/retry", {**target(state), "confirmed": True, "undo_files": True})
@@ -647,11 +647,11 @@ def test_a_tampered_manifest_cannot_reach_the_env_file(rig):
     state = say(s, "改一下")
     set_id = last_line(s)["set"]
     env = s.config.env_file
-    env.write_text("FAKE_KEY=not-a-real-key\n", encoding="utf-8")  # 编造的密钥
+    env.write_text("FAKE_KEY=not-a-real-key\n", encoding="utf-8", newline="")  # 编造的密钥
     manifest = s.config.undo_dir / set_id / store.MANIFEST
     data = json.loads(manifest.read_text(encoding="utf-8"))
     data["files"][0]["path"] = str(env.resolve())
-    manifest.write_text(json.dumps(data), encoding="utf-8")
+    manifest.write_text(json.dumps(data), encoding="utf-8", newline="")
     assert s.app.changes.store.manifest(set_id) is not None  # 改过以后格式照样对：拦住它的是"不能碰的文件"这一条
 
     for force in (False, True):

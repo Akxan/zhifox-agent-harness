@@ -87,7 +87,7 @@ function taskRow(task) {
     return node;
   };
   button('play', k('立即运行'), k('立即运行：{name}'), 'run').addEventListener('click', () => runTask(task));
-  button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示任务的文件') : k('在文件夹中显示任务的文件'), 'reveal').addEventListener('click', () => revealData('tasks'));
+  button('folder', showLabel(), byServer(k('在访达中显示任务的文件'), k('在文件资源管理器中显示任务的文件'), k('在文件管理器中显示任务的文件')), 'reveal').addEventListener('click', () => revealData('tasks'));
   button('edit', k('编辑'), k('编辑任务：{name}'), 'edit').addEventListener('click', () => openEditor(task));
   button('trash', k('删除'), k('删除任务：{name}'), 'delete', 'danger-hover').addEventListener('click', () => {
     removingTask = task.id;

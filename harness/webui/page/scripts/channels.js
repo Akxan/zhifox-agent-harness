@@ -16,7 +16,7 @@ const chanPanel = $('panel-channels');
 const CHAN_STATUS = { online: k('在线'), connecting: k('连接中'), error: k('有问题'), off: k('已关闭') };
 const CHAN_STAGE = { ready: k('现在能用'), soon: k('即将支持'), public_url: k('需要公网地址 · 第二阶段'), unsupported: k('不支持') };
 const CHAN_STEPS = [k('建机器人'), k('填 token'), k('配对'), k('确认方式')];
-const CHAN_MODES = APPROVAL_ORDER.map((mode) => ({ mode, text: APPROVAL_TEXT[mode] }));  // 几档的名字和说明在 approval-modes.js
+const CHAN_MODES = APPROVAL_ORDER.map((mode) => ({ mode }));  // 几档的名字和说明在 approval-modes.js（说明每次画的时候取：Windows 上只读那一档说得不一样）
 let chanState = null;            // 状态里的 channels：{problem, file, platforms, approvals}
 let chanView = { kind: 'list' };
 let chanDrawn = '';

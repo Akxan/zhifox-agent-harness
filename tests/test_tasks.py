@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import threading
 import time
 from datetime import datetime
@@ -16,6 +15,7 @@ from functools import partial
 
 import pytest
 from fake_api import reply, text, tool_use
+from modes import has_mode
 
 from harness import i18n, safe
 from harness.i18n import Message
@@ -40,7 +40,17 @@ from harness.tools.files import FileEditor
 
 @pytest.fixture(autouse=True)
 def zone():
-    """把这个进程的本地时区换成指定的那个，测试结束时换回来。默认用一个没有夏令时的时区，结果不随这台电脑变。"""
+    """把这个进程的本地时区换成指定的那个，测试结束时换回来。默认用一个没有夏令时的时区，结果不随这台电脑变。
+
+    Windows 上没有 time.tzset，程序里换不了时区：默认的那一个就用这台电脑自己的（CI 的 Windows 是 UTC，也没有夏令时），
+    要换成别的时区（测夏令时）的测试跳过。"""
+    if not hasattr(time, "tzset"):
+        def keep(name: str) -> None:
+            if name != "Asia/Shanghai":
+                pytest.skip(f"Windows 上不能在程序里换时区（没有 time.tzset），测不了 {name}")
+
+        yield keep
+        return
     old = os.environ.get("TZ")
 
     def use(name: str) -> None:
@@ -292,7 +302,7 @@ def test_tasks_are_saved_and_read_back(tmp_path):
 
     assert task["next_run"] == at(2026, 11, 21, 9, 0) and task["created_at"] == now()
     assert agent["next_run"] == now() + 3600
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600  # 只有自己的账号能读
+    assert has_mode(path, 0o600)  # 只有自己的账号能读
     assert "起来喝杯水" in path.read_text(encoding="utf-8")  # 中文原样写进去，打开就能看懂
 
     again = TaskStore(path)  # 重新启动

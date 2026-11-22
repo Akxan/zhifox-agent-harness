@@ -19,6 +19,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import pathnames
 from ..config import UNDO_FILE_BYTES
 from ..safe import write_file
 from ..tools.files import _EDITING  # 和文件工具排同一个队（见上面）
@@ -109,10 +110,16 @@ def same_path(path: str) -> str:
     return os.path.normcase(os.path.normpath(path))
 
 
+def protected_key(path: str) -> str:
+    """认"是不是保存密钥的那个文件"用的写法：和文件工具同一条规矩（pathnames.key：不分大小写；Windows 上再去掉
+    尾巴上的点和空格、数据流），所以 .ENV、.env. 这些写法也认得出是 .env。"""
+    return pathnames.key(os.path.normpath(path))
+
+
 class Restorer:
     def __init__(self, changes: ChangeStore, protected: Iterable[Path], workspace: Path, private: Iterable[Path]):
         self.store = changes
-        self.protected = {same_path(str(path.resolve())) for path in protected}
+        self.protected = {protected_key(str(path.resolve())) for path in protected}
         self.workspace = workspace.resolve()
         self.private = [path.resolve() for path in private]
 
@@ -203,15 +210,15 @@ class Restorer:
 
     def _path_problem(self, path: Path) -> str:
         """这个位置能不能写。撤回只写清单里记下的那个位置，而且只在它还是"那个位置"的时候写。"""
-        if not path.is_absolute():
-            return "moved"
+        if not path.is_absolute() or pathnames.trick(str(path)):
+            return "moved"  # 清单是程序写的，不会有 Windows 的花招（\\?\、设备名、数据流……）；有的话就是被人改过，不写
         try:
             real = path.resolve()
         except OSError:
             return "moved"
         if same_path(str(real)) != same_path(str(path)):
             return "moved"  # 它自己或者上面的文件夹换成了链接：不跟着链接去写别处
-        if same_path(str(real)) in self.protected or self.store.contains(real):
+        if protected_key(str(real)) in self.protected or self.store.contains(real):
             return "protected"
         if path.is_dir():
             return "directory"

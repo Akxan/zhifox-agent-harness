@@ -13,9 +13,11 @@ from __future__ import annotations
 import http.client
 import json
 import time
+from pathlib import Path
 
 import test_webui
 from fake_api import reply, text, tool_use
+from modes import has_mode
 from test_browser_tools import STATE, FakeSession
 from test_webui import latest_state
 
@@ -41,7 +43,7 @@ def test_the_state_says_where_the_browser_stands(serve):
     s = serve()
     browser = latest_state(s.browser)["browser"]
     assert browser["enabled"] is False and browser["running"] is False and browser["busy"] is False
-    assert browser["profile"].endswith("browser/profile") and browser["error"] is None
+    assert Path(browser["profile"]).parts[-2:] == ("browser", "profile") and browser["error"] is None  # Windows 上是反斜杠
     assert browser["shot_days"] > 0
 
 
@@ -105,7 +107,7 @@ def test_reveal_opens_only_the_profile_folder(serve):
     status, answer = s.browser.post("/api/browser/reveal", {"path": "/etc"})  # 页面给的路径一律不看
     assert status == 200 and answer["path"] == str(s.app.browser.profile)
     assert s.revealed == [s.app.browser.profile] and s.app.browser.profile.is_dir()
-    assert (s.app.browser.profile.stat().st_mode & 0o777) == 0o700
+    assert has_mode(s.app.browser.profile, 0o700)
 
 
 def test_clearing_the_profile_removes_it_but_not_while_busy(serve):

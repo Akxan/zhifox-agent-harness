@@ -39,7 +39,10 @@ RUNNING_FIELDS = {"run_id", "started_at", "step", "max_steps", "cost", "activity
 
 @pytest.fixture(autouse=True)
 def zone():
-    """固定用一个没有夏令时的时区，结果不随这台电脑变。"""
+    """固定用一个没有夏令时的时区，结果不随这台电脑变。Windows 上换不了（没有 time.tzset），用这台电脑自己的。"""
+    if not hasattr(time, "tzset"):
+        yield
+        return
     old = os.environ.get("TZ")
     os.environ["TZ"] = "Asia/Shanghai"
     time.tzset()
@@ -525,12 +528,13 @@ def test_a_task_can_be_allowed_to_run_read_only_commands(serve):
     s = serve(routes={
         "查服务器": [
             reply(tool_use("toolu_1", "run_command", {"command": "df -h"}), stop_reason="tool_use"),
-            reply(tool_use("toolu_2", "run_command", {"command": "npm test"}), stop_reason="tool_use"),
+            # 你加的命令用一个哪台电脑上都没有的名字：它真的会被执行，npm test 在装着 npm 的机器上要跑好几秒
+            reply(tool_use("toolu_2", "run_command", {"command": "zhifox-no-such-tool test"}), stop_reason="tool_use"),
             reply(tool_use("toolu_3", "run_command", {"command": "touch made.txt"}), stop_reason="tool_use"),
             reply(text("看过了，没动东西。")),
         ],
     })
-    s.app.agent.permissions.commands.add("npm test")  # 你自己加的：在这一档里也不问
+    s.app.agent.permissions.commands.add("zhifox-no-such-tool test")  # 你自己加的：在这一档里也不问
     task_id = save(s, title="巡检", kind="agent", prompt="查服务器", schedule=DAILY, approval="readonly")
     assert task_of(s, task_id)["approval"] == "readonly"
     s.browser.post("/api/task/run", {"id": task_id})

@@ -1,4 +1,4 @@
-"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问就读的地方。
+r"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问就读的地方。
 
 "只读"不等于"读什么都行"。有三种地方，命令就算只是看，也照常问你：
 
@@ -20,7 +20,11 @@
 跟着符号链接走的（ls -RL、find -L）同样要先看一遍有没有指到别处去的链接。
 
 还有两类路径根本不去看：macOS 的 /net/主机名 一碰就会去连那台主机（自动挂载），判断时 stat 一下都等于联网；
-/dev 下是设备，读一下可能有副作用。
+/dev 下是设备，读一下可能有副作用。Windows 上对应的是 \\服务器\共享（一碰就去连，还会把登录凭据发过去）、
+\\.\、\\?\ 这类设备路径，和 CON、NUL、COM1 这些在哪个文件夹里都是设备的名字（见 pathnames.py）。
+
+Windows 上同一个文件还有别的写法：.env.、.env::$DATA 都是 .env（比较时由 pathnames.key 统一）；
+ENV~1 这种短名字也可能是它（只看字符串认不出来，磁盘上真有这个名字就问）。
 """
 
 from __future__ import annotations
@@ -29,8 +33,9 @@ import fnmatch
 import os
 import unicodedata
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from .. import pathnames
 from ..config import READONLY_SCAN_ENTRIES
 from .words import Unclear
 
@@ -46,19 +51,24 @@ SECRET_DIRS = (
     (".ssh",), (".gnupg",), (".aws",), (".azure",), (".kube",), (".docker",), (".password-store",), ("keychains",),
     ("keyrings",), (".config", "gcloud"), (".config", "gh"), (".config", "hub"), (".terraform.d",),
 )
-# 一碰就有事的地方：/dev 下是设备；/net、/Network 是 macOS 的自动挂载（ls /net/某个域名 会去连那台主机）
+# Windows 上另外几处：gcloud、gpg、GitHub CLI 放在 AppData 里；Windows 自己的凭据管理器、DPAPI 的主密钥、
+# Vault；PowerShell 的命令历史（PSReadLine）
+WINDOWS_SECRET_DIRS = (
+    ("appdata", "roaming", "gcloud"), ("appdata", "roaming", "gnupg"), ("appdata", "roaming", "github cli"),
+    ("microsoft", "credentials"), ("microsoft", "protect"), ("microsoft", "vault"), ("psreadline",),
+)
+# 一碰就有事的地方：/dev 下是设备；/net、/Network 是 macOS 的自动挂载（ls /net/某个域名 会去连那台主机）。
+# Windows 上的见 _untouchable
 UNTOUCHABLE = ("/dev", "/net", "/network")
 PROC_SECRETS = ("environ", "mem", "kmem", "kcore", "pagemap")
 
 
-def _folded(path: str | Path) -> str:
-    """比较路径用的写法：不分大小写，Unicode 统一成同一种写法（见文件开头）。"""
-    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", os.path.normcase(str(path))).casefold())
-
-
-def _inside(path: str, folder: str) -> bool:
-    """path 是不是 folder 本身或者在它里面（两个都已经 _folded 过）。"""
-    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+def _untouchable(folded: str, windows: bool) -> bool:
+    r"""一个 pathnames.key 算出来的路径是不是一碰就有事的地方。Windows 上：以 // 开头的（\\服务器\共享、\\.\设备、\\?\…，
+    映射的网络盘展开之后也是这样），和 \??\ 开头的设备路径。"""
+    if windows and folded.startswith(("//", "/??/")):
+        return True
+    return any(pathnames.inside(folded, item) for item in UNTOUCHABLE)
 
 
 @dataclass
@@ -69,12 +79,13 @@ class Places:
     protected: list[Path] = field(default_factory=list)  # 密钥文件、"不用问的命令"清单
     private: list[Path] = field(default_factory=list)  # 智狐的数据目录
     home: Path = field(default_factory=lambda: Path(os.path.expanduser("~")))
+    windows: bool = pathnames.WINDOWS  # 按不按 Windows 的规矩看（测试里可以在别的系统上打开）
 
     def __post_init__(self) -> None:
-        self._protected = [_folded(path.resolve()) for path in self.protected]
-        self._private = [_folded(path.resolve()) for path in self.private]
+        self._protected = [self._folded(path.resolve()) for path in self.protected]
+        self._private = [self._folded(path.resolve()) for path in self.private]
         home = self.home.resolve()
-        self._secret_dirs = [_folded(home.joinpath(*parts)) for parts in SECRET_DIRS]
+        self._secret_dirs = [self._folded(home.joinpath(*parts)) for parts in _secret_dirs(self.windows)]
         self._inodes = set()
         for path in self.protected:
             try:
@@ -85,24 +96,32 @@ class Places:
 
     # ---- 一个路径 ------------------------------------------------------------
 
+    def _folded(self, path: str | Path) -> str:
+        """比较路径用的写法：不分大小写，Unicode 统一成同一种写法，Windows 上同一个文件的几种写法也统一（见 pathnames.key）。"""
+        return pathnames.key(path, self.windows)
+
     def resolve(self, raw: str) -> Path:
         """命令里的一个词，当作路径时指的是哪里（展开 ~、相对于工作目录、顺着符号链接）。"""
-        if raw == "~" or raw.startswith("~/"):
+        # 先只按字面看一遍（不碰磁盘）：\\某个主机\共享、/net/某个主机 光是 stat 一下就会去连它，CON 一打开就是设备
+        reason = pathnames.word_trick(raw, self.windows)
+        if reason:
+            raise Unclear(reason)
+        if raw == "~" or raw.startswith("~/") or (self.windows and raw.startswith("~\\")):
             raw = str(self.home) + raw[1:]
         path = Path(raw)
         if not path.is_absolute():
             path = self.workspace / path
-        # 先只按字面算一遍（不碰磁盘）：/net/某个主机 光是 stat 一下就会去连它
-        if any(_inside(_folded(os.path.normpath(path)), item) for item in UNTOUCHABLE):
+        if _untouchable(self._folded(os.path.normpath(path)), self.windows):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         try:
             resolved = path.resolve()
         except (OSError, RuntimeError, ValueError) as exc:  # 符号链接绕成了圈、名字太长、有不能用的字符……
             raise Unclear(f"看不清 {raw} 指的是哪里") from exc
         # 顺着符号链接走完的路径里不会再有符号链接。还剩一个，说明走到一个圈上停下了：Python 3.12 以前这里会抛 RuntimeError，
-        # 3.13 起不抛了，原样交回绕圈的那一段（GitHub 上 3.13 的测试抓到的）。看不清，就不能算"只是看看"
+        # 3.13 起不抛了，原样交回绕圈的那一段（GitHub 上 3.13 的测试抓到的）。Windows 上 resolve 碰到走不到头的链接也是原样交回，
+        # 而且那里的"链接"还包括目录联接（pathnames.is_link 认得它，os.path.islink 认不得）。看不清，就不能算"只是看看"
         try:
-            linked = any(os.path.islink(part) for part in (resolved, *resolved.parents))
+            linked = pathnames.is_link(resolved) or any(os.path.islink(part) for part in (resolved, *resolved.parents))
         except (OSError, ValueError) as exc:
             raise Unclear(f"看不清 {raw} 指的是哪里") from exc
         if linked:
@@ -115,20 +134,24 @@ class Places:
             self._check_one(candidate)
 
     def _check_one(self, raw: str) -> None:
-        _secret_name(raw)  # 先看写出来的样子（~/.ssh/x），再看顺着符号链接找到的真正位置
+        _secret_name(raw, self.windows)  # 先看写出来的样子（~/.ssh/x），再看顺着符号链接找到的真正位置
         path = self.resolve(raw)
-        folded = _folded(path)
-        if any(_inside(folded, item) for item in self._protected):
+        folded = self._folded(path)
+        if any(pathnames.inside(folded, item) for item in self._protected):
             raise Unclear(f"{raw} 是保存密钥的文件")
-        if any(_inside(folded, item) for item in self._private):
+        if any(pathnames.inside(folded, item) for item in self._private):
             raise Unclear(f"{raw} 在智狐自己的数据目录里")
-        if any(_inside(folded, item) for item in self._secret_dirs):
+        if any(pathnames.inside(folded, item) for item in self._secret_dirs):
             raise Unclear(f"{raw} 在存着密钥的文件夹里")
-        if any(_inside(folded, item) for item in UNTOUCHABLE):
+        if _untouchable(folded, self.windows):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         if folded.startswith("/proc/") and path.name.casefold() in PROC_SECRETS:
             raise Unclear(f"{raw} 是进程的内存或环境变量")
-        _secret_name(str(path))
+        _secret_name(str(path), self.windows)
+        # 像短名字（ENV~1）、磁盘上又真有这个名字的：它可能是别的什么文件的另一个名字，只看字符串认不出是谁的。
+        # 磁盘上没有的（HEAD~1 这种 git 的写法）什么都读不到，不用问
+        if pathnames.short_name(raw, self.windows) and os.path.lexists(path):
+            raise Unclear(f"{raw} 像 Windows 的短名字，看不清它是谁的别名")
         try:
             info = os.stat(path)
         except OSError:
@@ -155,15 +178,19 @@ class Places:
                 return
         except OSError as exc:
             raise Unclear(f"看不清 {raw} 是什么") from exc
-        folded = _folded(path)
+        folded = self._folded(path)
         watched = [*self._private, *self._secret_dirs, *(self._protected if contents else [])]
-        if any(_inside(item, folded) for item in watched):
+        if any(pathnames.inside(item, folded) for item in watched):
             raise Unclear(f"{raw} 里面有不该不问就读的地方")
         if contents or follow:
             self._scan(path, raw)
 
     def _scan(self, root: Path, raw: str) -> None:
-        """把文件夹看一遍（不跟着符号链接走）：有像密钥的名字、指向文件夹的符号链接、密钥文件的另一个名字、看不完，都抛出 Unclear。"""
+        """把文件夹看一遍（不跟着符号链接走）：有像密钥的名字、指向文件夹的符号链接、密钥文件的另一个名字、看不完，都抛出 Unclear。
+
+        Windows 的目录联接（junction）和符号链接一样算：DirEntry.is_symlink 认不出它，要靠 pathnames.entry_linked；
+        DirEntry.stat 在 Windows 上没有 st_ino，比"是不是同一个文件"要用 pathnames.entry_info。
+        """
         seen = 0
         pending = [root]
         while pending:
@@ -177,8 +204,8 @@ class Places:
                 if seen > READONLY_SCAN_ENTRIES:
                     raise Unclear(f"{raw} 里面的东西太多，看不完")
                 try:
-                    _secret_name(entry.path)
-                    if entry.is_symlink():
+                    _secret_name(entry.path, self.windows)
+                    if pathnames.entry_linked(entry, self.windows):
                         target = Path(entry.path).resolve()
                         if target.is_dir():
                             raise Unclear(f"{raw} 里面有指向别的文件夹的符号链接")
@@ -186,7 +213,7 @@ class Places:
                     elif entry.is_dir(follow_symlinks=False):
                         pending.append(Path(entry.path))
                     else:
-                        self._same_file(entry.stat(follow_symlinks=False), entry.path)
+                        self._same_file(pathnames.entry_info(entry, self.windows), entry.path)
                 except (OSError, RuntimeError) as exc:
                     raise Unclear(f"看不清 {entry.path}") from exc
 
@@ -204,13 +231,20 @@ def _candidates(raw: str) -> list[str]:
     return [item for item in dict.fromkeys(found) if item and item != "-"]
 
 
-def _secret_name(raw: str) -> None:
-    """路径里有一段的名字像是存着密钥的（.env、id_rsa、.ssh……），就抛出 Unclear。"""
-    parts = [unicodedata.normalize("NFC", part).casefold() for part in Path(raw).parts]
+def _secret_dirs(windows: bool) -> tuple[tuple[str, ...], ...]:
+    return SECRET_DIRS + WINDOWS_SECRET_DIRS if windows else SECRET_DIRS
+
+
+def _secret_name(raw: str, windows: bool | None = None) -> None:
+    """路径里有一段的名字像是存着密钥的（.env、id_rsa、.ssh……），就抛出 Unclear。
+    Windows 上每一段先换成它真正指的名字（.env::$DATA、.env. 都是 .env，见 pathnames.names）。"""
+    windows = pathnames.WINDOWS if windows is None else windows
+    split = pathnames.names(raw, windows=True) if windows else PurePosixPath(raw).parts
+    parts = [unicodedata.normalize("NFC", part).casefold() for part in split]
     for part in parts:
         if any(fnmatch.fnmatchcase(part, pattern) for pattern in SECRET_FILES):
             raise Unclear(f"{raw} 看起来存着密钥")
-    for pattern in SECRET_DIRS:
+    for pattern in _secret_dirs(windows):
         size = len(pattern)
         if any(tuple(parts[index : index + size]) == pattern for index in range(len(parts) - size + 1)):
             raise Unclear(f"{raw} 在存着密钥的文件夹里")

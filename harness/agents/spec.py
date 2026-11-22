@@ -33,6 +33,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from .. import pathnames
 from ..i18n import Message, t
 from ..providers import CLAUDE_MODELS, every, find
 from ..skills.frontmatter import (
@@ -95,6 +96,8 @@ def name_problem(name: object) -> Message | None:
         return t("name 最多 {n} 个字符，现在是 {count} 个。", n=MAX_NAME, count=len(name))
     if not NAME.fullmatch(name):
         return t("name 只能有字母（中文也可以）、数字、连字符（-）和下划线（_），以字母或数字开头，不能有空格。")
+    if pathnames.reserved(name):  # 名字就是文件名：Windows 上 CON.md、nul.md、COM¹.md 都是设备，存进去的东西就没了
+        return t("{name} 在 Windows 上是设备的名字（CON、NUL、COM1……），不能用作名字。", name=name)
     return None
 
 

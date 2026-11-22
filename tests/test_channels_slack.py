@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -40,6 +41,7 @@ from fake_slack import (
     unescape,
     unescaped,
 )
+from oscmd import mark_then_sleep
 from sample_files import JPEG_BYTES, PDF_BYTES, PNG_BYTES
 from test_channels import result_text, run, stop_later, tool_results, until
 from test_send_file import result_of, send
@@ -559,7 +561,7 @@ def test_slash_commands_in_the_dm(bot):
 
 
 def test_stop_from_slack_stops_a_running_command(bot):
-    s = bot(run("toolu_1", "touch started && sleep 30"), approval="all")
+    s = bot(run("toolu_1", mark_then_sleep("started", 30)), approval="all")
     start = s.say("跑一个很久的命令")
     s.wait_reply(start, "已自动允许")
     until(lambda: (s.config.workspace / "started").exists(), what="命令开始运行")
@@ -612,15 +614,17 @@ def test_incoming_text_and_links_are_unescaped_for_the_model(bot):
 
 
 def test_a_title_with_special_characters_is_escaped_everywhere(bot):
-    create = tool_use("toolu_f", "str_replace_based_edit_tool", {"command": "create", "path": "a&b<c>.txt", "file_text": "x < y"})
+    # Windows 的文件名里不能有 < 和 >（文件工具直接拒绝，见 harness/pathnames.py），那里只用 &
+    name, escaped = ("a&b (1).txt", "a&amp;b (1).txt") if os.name == "nt" else ("a&b<c>.txt", "a&amp;b&lt;c&gt;.txt")
+    create = tool_use("toolu_f", "str_replace_based_edit_tool", {"command": "create", "path": name, "file_text": "x < y"})
     s = bot(reply(create, stop_reason="tool_use"), reply(text("建好了")))
     start = s.say("建个文件")
     ask = s.asked(start)
-    assert "a&amp;b&lt;c&gt;.txt" in ask["text"] and "a&b<c>.txt" in ask["plain"]
+    assert escaped in ask["text"] and name in ask["plain"]
     s.fake.press(ask)
     s.wait_reply(start, "建好了")
     s.idle()
-    assert (s.config.workspace / "a&b<c>.txt").read_text(encoding="utf-8") == "x < y"
+    assert (s.config.workspace / name).read_text(encoding="utf-8") == "x < y"
 
 
 # ---- 图片和文件 --------------------------------------------------------------

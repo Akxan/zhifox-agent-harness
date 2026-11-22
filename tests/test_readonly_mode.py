@@ -12,11 +12,10 @@
 from __future__ import annotations
 
 import json
-import os
-import stat
 
 import pytest
 from fake_api import reply, text, tool_use
+from modes import has_mode
 from test_webui import latest_state, say, serve, set_approval  # noqa: F401  serve 是 fixture
 
 from harness import cli
@@ -37,10 +36,10 @@ def place(tmp_path):
     data = workspace / "data"
     (workspace / "src").mkdir(parents=True)
     data.mkdir()
-    (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n")
-    (workspace / "src" / "a.py").write_text("print(1)\n")
-    (data / "settings.json").write_text("{}\n")
-    (tmp_path / "outside.txt").write_text("外面\n")
+    (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n", encoding="utf-8")
+    (workspace / "src" / "a.py").write_text("print(1)\n", encoding="utf-8")
+    (data / "settings.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("外面\n", encoding="utf-8")
     commands = CommandList(data / "commands.json")
     editor = FileEditor(workspace, data / "backups", protected=[workspace / ".env", data / "commands.json"])
     return Permissions(editor, private=[data], commands=commands)
@@ -137,7 +136,7 @@ def test_a_read_only_command_runs_without_asking_and_is_marked(start):
         reply(tool_use("toolu_2", SHELL, {"command": "touch made.txt"}), stop_reason="tool_use"),
         reply(text("看完了，文件也建了。")),
     )
-    (h.config.workspace / "seen.txt").write_text("x\n")
+    (h.config.workspace / "seen.txt").write_text("x\n", encoding="utf-8")
     h.agent.permissions.mode = "readonly"
     h.agent.run_turn("看看有什么，再建个文件")
     assert h.ui.auto_whys == [WHY_READONLY]  # ls 没问
@@ -159,11 +158,12 @@ def test_the_terminal_says_why_a_step_was_not_asked(start, capsys):
 def test_the_web_page_marks_read_only_steps(serve):  # noqa: F811
     s = serve(
         reply(tool_use("toolu_1", SHELL, {"command": "ls"}), stop_reason="tool_use"),
-        reply(tool_use("toolu_2", SHELL, {"command": "npm test"}), stop_reason="tool_use"),
+        # 你加的命令用一个哪台电脑上都没有的名字：它真的会被执行，用 npm test 的话，装着 npm 的机器（CI 的 Windows）上要跑好几秒
+        reply(tool_use("toolu_2", SHELL, {"command": "zhifox-no-such-tool test"}), stop_reason="tool_use"),
         reply(text("都看过了。")),
     )
     assert set_approval(s, "readonly")["approval"] == "readonly"
-    assert s.browser.post("/api/commands/add", {"command": "npm test"})[0] == 200
+    assert s.browser.post("/api/commands/add", {"command": "zhifox-no-such-tool test"})[0] == 200
     say(s, "看一眼，再跑测试")
     assert [event["why"] for event in s.browser.of_type("auto_allowed")] == [WHY_READONLY, WHY_LISTED]
     assert s.browser.of_type("confirm") == []
@@ -184,8 +184,8 @@ def test_the_list_is_added_to_changed_and_removed(tmp_path):
     store.remove("make check")
     assert store.entries() == ["npm run lint"]
     saved = tmp_path / "data" / "commands.json"
-    assert json.loads(saved.read_text()) == {"commands": ["npm run lint"]}
-    assert stat.S_IMODE(os.stat(saved).st_mode) == 0o600
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"commands": ["npm run lint"]}
+    assert has_mode(saved, 0o600)
     # 另一个（命令行里的、重启以后的）读到的是同一份
     assert CommandList(saved).entries() == ["npm run lint"]
 
@@ -251,10 +251,10 @@ def test_the_file_is_read_again_when_it_changes(tmp_path):
     # 你在命令行里（另一个程序）加了一条：开着的这个下一次判断时就读到
     CommandList(path).add("npm test")
     assert store.words() == [["npm", "test"]]
-    path.write_text(json.dumps({"commands": ["make check", "bash", "rm -rf ~; x", "make check"]}))
+    path.write_text(json.dumps({"commands": ["make check", "bash", "rm -rf ~; x", "make check"]}), encoding="utf-8")
     assert store.entries() == ["make check"]  # 不许加的、看不懂的、重复的都没用上
     assert "2 条" in store.problem and "bash" in store.problem
-    path.write_text("{坏了")
+    path.write_text("{坏了", encoding="utf-8")
     assert store.entries() == [] and "坏了" in store.problem
     path.unlink()
     assert store.entries() == [] and store.problem == ""

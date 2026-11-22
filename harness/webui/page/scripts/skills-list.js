@@ -81,7 +81,7 @@ function skillToolbar() {
   bar.appendChild(tel('p', 'skill-count', skills.length === 1 ? k('1 个 Skill，{on} 个启用') : k('{n} 个 Skill，{on} 个启用'),
     { n: skills.length.toLocaleString(LOCALES[language]), on: on.toLocaleString(LOCALES[language]) }));
   bar.append(...skillAdders());
-  const folder = iconButton('folder', ON_MAC ? k('在访达中打开 Skill 文件夹') : k('打开 Skill 文件夹'));
+  const folder = iconButton('folder', byServer(k('在访达中打开 Skill 文件夹'), k('在文件资源管理器中打开 Skill 文件夹'), k('在文件管理器中打开 Skill 文件夹')));
   folder.classList.remove('small');
   folder.dataset.key = 'bar:folder';
   folder.addEventListener('click', () => revealSkill(null));
@@ -209,7 +209,7 @@ function skillRow(skill, fresh) {
     node.appendChild(icon(iconName));
     return node;
   };
-  action('folder', SHOW_FILE, ON_MAC ? k('在访达中显示：{name}') : k('在文件夹中显示：{name}'), '', 'folder').addEventListener('click', () => revealSkill(name));
+  action('folder', showLabel(), showNamedLabel(), '', 'folder').addEventListener('click', () => revealSkill(name));
   action('edit', k('编辑'), k('编辑 Skill：{name}'), 'idle-only', 'edit').addEventListener('click', () => openSkill(name, true));
   action('trash', k('删除'), k('删除 Skill：{name}'), 'idle-only danger-hover', 'trash').addEventListener('click', () => {
     skillDeleting = name;
@@ -249,11 +249,7 @@ async function toggleSkill(name, enabled, toggle) {
 // 在文件管理器里显示一个 Skill 的文件夹（name 为 null 时打开整个 Skill 文件夹）。页面只给名字，路径由助手程序算
 async function revealSkill(name, view) {
   const reply = await call('/api/skill/reveal', name ? { name } : {});
-  const shown = shortPath(reply.data.path);
-  const said = !reply.ok ? { text: reply.error, bad: true }
-    : state && state.file_manager === false ? { key: k('这台电脑上没有文件管理器。文件在：{path}'), values: { path: String(reply.data.path || '') }, good: true }
-    : name ? { key: ON_MAC ? k('已在访达中显示：{path}') : k('已在文件夹中显示：{path}'), values: { path: shown }, good: true }
-      : { key: ON_MAC ? k('已在访达中打开：{path}') : k('已打开文件夹：{path}'), values: { path: shown }, good: true };
+  const said = reply.ok ? { ...revealedSaid(reply.data.path, !name), good: true } : { text: reply.error, bad: true };
   if (view && skillView === view) { view.said = said; paintSkill(); }
   else extensionSay(said.key || null, said.values, said.bad ? 'bad' : 'good', said.text);
 }
@@ -285,7 +281,7 @@ skillPanel.addEventListener('keydown', (key) => {
     key.preventDefault();
     key.stopPropagation();
     leaveSkillView();
-  } else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && skillView.save) {
+  } else if (key.key === 'Enter' && commandHeld(key) && skillView.save) {
     key.preventDefault();
     skillView.save();
   }

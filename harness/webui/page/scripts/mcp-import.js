@@ -42,7 +42,7 @@ function openMcpPaste() {
     updateMcpPaste();
   });
   area.addEventListener('keydown', (key) => {
-    if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && !key.isComposing) { key.preventDefault(); mcpView.servers ? applyMcpPaste() : readMcpPaste(); }
+    if (key.key === 'Enter' && commandHeld(key) && !key.isComposing) { key.preventDefault(); mcpView.servers ? applyMcpPaste() : readMcpPaste(); }
   });
   mcpShow([head, field, result, foot], 'paste', 'paste-text');
   updateMcpPaste();
@@ -55,7 +55,7 @@ function updateMcpPaste() {
   $('mcp-paste-add').disabled = !view.servers || !count || view.loading;
   $('mcp-paste-add').textContent = count ? t('添加选中的 {n} 个', { n: count }) : t('添加选中的');
   $('mcp-paste-read').disabled = view.loading;
-  if (!view.servers) retext($('mcp-paste-message'), ON_MAC ? k('⌘Enter 读取') : k('Ctrl+Enter 读取'));
+  if (!view.servers) retext($('mcp-paste-message'), forKeys(k('⌘Enter 读取'), k('Ctrl+Enter 读取')));
 }
 
 async function readMcpPaste() {

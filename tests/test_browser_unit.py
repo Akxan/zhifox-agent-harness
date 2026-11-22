@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import fake_chrome
 import pytest
+from modes import has_mode
 
 import harness.browser.manager as manager_module
 from harness.browser import chrome, keys, urls
@@ -278,8 +279,8 @@ def test_shots_are_named_by_their_content_and_kept_private(tmp_path):
     assert store.read(shot) == b"jpeg-bytes"
     assert store.save(b"jpeg-bytes") == shot  # 同一张只存一份
     assert [path.name for path in (tmp_path / "shots").iterdir()] == [f"{shot}.jpg"]
-    assert (tmp_path / "shots").stat().st_mode & 0o777 == 0o700
-    assert (tmp_path / "shots" / f"{shot}.jpg").stat().st_mode & 0o777 == 0o600
+    assert has_mode(tmp_path / "shots", 0o700)
+    assert has_mode(tmp_path / "shots" / f"{shot}.jpg", 0o600)
 
 
 @pytest.mark.parametrize("shot_id", ["", "../../etc/passwd", "A" * 64, "g" * 64, "a" * 63, "a" * 65, "a" * 64 + ".jpg", "a" * 64 + "\n"])
@@ -289,7 +290,7 @@ def test_reading_a_shot_only_accepts_64_hex_characters(tmp_path, shot_id):
     assert store.read(shot_id) is None
 
 
-def test_a_missing_shot_or_a_symlink_or_a_folder_reads_as_none(tmp_path):
+def test_a_missing_shot_or_a_symlink_or_a_folder_reads_as_none(symlinks, tmp_path):
     store = ShotStore(tmp_path / "shots")
     store.save(b"real")
     assert store.read("0" * 64) is None
@@ -502,8 +503,8 @@ def test_a_crashed_chrome_leaves_no_pipes_open(browser):
     with pytest.raises(CDPClosed):
         connection.call("Fake.exit", timeout=5)
     wait_until(lambda: rig.manager._chrome is None, what="收拾完")
-    time.sleep(0.05)
-    assert fake_chrome.open_pipes() == before
+    # 收拾是在另一个线程里做的（manager._reap）：Windows 上结束进程要运行 taskkill，慢一些，等它做完
+    wait_until(lambda: fake_chrome.open_pipes() == before, what="管道都关上")
 
 
 def test_a_chrome_that_fails_to_start_is_reaped_and_its_pipes_closed(browser):
@@ -514,6 +515,10 @@ def test_a_chrome_that_fails_to_start_is_reaped_and_its_pipes_closed(browser):
     pid = rig.launched[0].pid
     wait_until(lambda: rig.launched[0].connection.closed, what="连接断开")  # 进程已经死了
     time.sleep(0.05)
+    if os.name == "nt":
+        # Windows 没有僵尸进程，也没有 waitpid：看它确实不在了、管道都关上了
+        wait_until(lambda: not rig.launched[0].alive() and fake_chrome.open_pipes() == before, what="进程退出、管道关上")
+        return
     leaked = fake_chrome.open_pipes() - before
     try:
         os.waitpid(pid, os.WNOHANG)  # 能收到的话，说明智狐自己没有收它（是个僵尸）
@@ -595,7 +600,7 @@ def test_clear_profile_waits_until_the_browser_is_not_busy(browser):
     rig.manager.clear_profile()  # 没有可删的也没关系
 
 
-def test_clear_profile_removes_a_symlink_but_not_what_it_points_to(browser, tmp_path):
+def test_clear_profile_removes_a_symlink_but_not_what_it_points_to(symlinks, browser, tmp_path):
     rig = browser()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()

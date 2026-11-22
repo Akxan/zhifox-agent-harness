@@ -60,7 +60,9 @@ class Browser:
         context = self.connection.call("Target.createBrowserContext", {"disposeOnDetach": True})["browserContextId"]
         target = self.connection.call("Target.createTarget", {"url": "about:blank", "browserContextId": context})["targetId"]
         session = self.connection.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-        return Page(self.connection, target, session, context)
+        page = Page(self.connection, target, session, context)
+        page.emulate()  # 系统设置一律从"默认"开始（见 Page.emulate：不跟着这台机器的减少动态效果）
+        return page
 
     def close(self) -> None:
         self.process.close()

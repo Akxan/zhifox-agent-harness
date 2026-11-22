@@ -54,6 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import commands as commands_rules
 from .agents import tools as agent_tools
 from .browser.session import Facts as BrowserFacts
 from .channels import platforms
@@ -172,6 +173,7 @@ LOCAL = k("在这台电脑上执行")
 _NO_DESKTOP = {
     desktop_backend.WAYLAND: k("这台电脑用的是 Wayland 桌面：Wayland 不允许一个程序截别的程序的图、替别人点鼠标，所以用不了。登录时换成 X11（Xorg）桌面就可以。"),
     desktop_backend.NO_DISPLAY: k("这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。"),
+    desktop_backend.WINDOWS: k("Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。"),
     desktop_backend.PLATFORM: k("只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。"),
 }
 
@@ -484,7 +486,10 @@ def _shell(context: _Context) -> Capability:
     commands = context.permissions.commands
     listed = len(commands.words()) if commands is not None else 0
     note = ""
-    if listed and context.permissions.mode == "readonly":
+    if commands_rules.WINDOWS and (listed or context.permissions.mode == "readonly"):
+        # Windows 上命令是 PowerShell，一条都不算只读，你加的也不算（见 commands/__init__.py）：上面的"每条都先问"是真的，这里说为什么
+        note = t("Windows 上命令在 PowerShell 里运行，还认不出哪些只是看，所以每条命令都先问你；你加的“不用问的命令”暂时也不起作用。")
+    elif listed and context.permissions.mode == "readonly":
         note = t("你自己加的 {n} 条命令也不用问。", n=listed)
     elif listed and context.permissions.mode in ("ask", "edits"):
         note = t("你自己加的 {n} 条“不用问的命令”，只在“只读的命令不用问”这一档里算数。", n=listed)

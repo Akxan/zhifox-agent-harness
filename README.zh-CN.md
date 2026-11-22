@@ -81,7 +81,7 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 
 ## 快速开始
 
-需要 macOS 或 Linux，以及 [uv](https://docs.astral.sh/uv/)。
+需要 macOS、Linux 或 Windows，以及 [uv](https://docs.astral.sh/uv/)。Windows 上的 PowerShell 写法见下面的[在 Windows 上使用](#在-windows-上使用)。
 
 ```bash
 uv sync                 # 安装依赖
@@ -127,7 +127,7 @@ Mistral、GPT-OSS 支持；小的、老的模型（Llama 2、Gemma 2、Phi-3）�
 服务器第一次拒绝带工具的请求时，智狐把这个模型标成**不能用工具**，在对话里说一声，"智狐能做的事"里每一项都写着用不了和原因。
 vLLM 要加 `--enable-auto-tool-choice --tool-call-parser …`、llama.cpp 要加 `--jinja` 才能用工具。
 智狐自己的系统提示词和工具说明书就要好几千个 token，所以上下文要给够：Ollama 默认只给 4096，更长的提示会被它悄悄截掉开头；
-启动它之前设 `OLLAMA_CONTEXT_LENGTH=32768`（或者更大），并在接口的设置里把这个模型的上下文上限填成同样的数，
+启动它之前设 `OLLAMA_CONTEXT_LENGTH=32768`（或者更大；PowerShell 里写 `$env:OLLAMA_CONTEXT_LENGTH=32768`），并在接口的设置里把这个模型的上下文上限填成同样的数，
 智狐靠这个数决定什么时候压缩对话。
 
 安全上的规矩：外面的地址必须是 `https://`；明文的 `http://` 只许这台电脑（`localhost`、`127.x`、`::1`）和内网的地址
@@ -136,6 +136,54 @@ vLLM 要加 `--enable-auto-tool-choice --tool-call-parser …`、llama.cpp 要�
 页面上只看得到最后 4 位），不进环境变量，所以命令和 MCP 服务器都看不到它。内置几家的密钥和设置（`OPENAI_API_KEY`、
 `OPENAI_ORG_ID`、`OPENAI_CUSTOM_HEADERS`……）永远不会发给自定义接口；重定向不跟；改了接口的服务器地址，要重新填一次密钥。
 Agent 文件和别的程序用 `custom-<编号>/<模型名>` 指定接口上的模型，比如 `custom-ollama/qwen3:8b`。
+
+### 在 Windows 上使用
+
+智狐能在 Windows 上运行。每次推送都会在 GitHub 的 `windows-latest`（Windows Server）上和 Ubuntu、macOS 一起跑一遍测试；
+还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。在 PowerShell 里：
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
+uv sync
+uv run harness --web
+```
+
+（没装 Git 的话，从 GitHub 下载 ZIP 解压也行。）别的用法和另外两个系统一样，不同的是这几处：
+
+| | 在 Windows 上 |
+|---|---|
+| 快捷键 | Mac 上写 ⌘ 的地方都是 Ctrl，⌥ 是 Alt（见下表）。按打开页面的那台电脑（浏览器）判断 |
+| "在访达中显示" | **在文件资源管理器中显示**（`explorer /select,`）；Linux 上是"在文件管理器中显示"。按智狐所在的那台电脑判断，因为窗口是在那台电脑上打开的 |
+| 执行命令（`run_command`） | 在 **PowerShell** 里运行：装了 PowerShell 7（`pwsh`）就用它，没装就用系统自带的 Windows PowerShell 5.1。工具说明和系统提示词里写明是哪一种，模型才会写 `Get-ChildItem` 而不是 `ls -la`。不运行你的 `$PROFILE`，执行策略照你的设置，输出按 UTF-8 读；"停止"或者超时会连同它启动的所有程序一起结束（Windows 的作业对象） |
+| **自动允许只读命令** | 暂时一条命令都不放过：只读的判断认得的是 bash，不是 PowerShell，所以每条命令照样问，你自己加的"不用问的命令"也不算（"要不要先问你"的窗口、那个清单窗口和能力清单里都写着）。这一档读工作目录之外的文件照样不问 |
+| 只有你自己能读 | Windows 没有 600、700 这种权限。智狐把 `data\` 和 `.env` 从上一层继承来的权限去掉，只留你自己的账号、SYSTEM 和管理员（见[数据存在哪里](#数据存在哪里)） |
+| 浏览器 | Chrome；没装 Chrome 时用每台 Windows 10、11 都有的 Microsoft Edge。照样只走管道、不开端口（见[浏览器：智狐自己的一个 Chrome](#浏览器智狐自己的一个-chrome)） |
+| 后台服务 | 用 **任务计划程序**，不是 launchd、systemd：命令还是那几条 `uv run harness service …`（见[在后台一直运行](#在后台一直运行)） |
+| 操作整台电脑 | 暂时用不了。设置和能力清单里写着"Windows 上暂时不支持" |
+
+网页界面的快捷键：
+
+| 做什么 | macOS | Windows 和 Linux |
+|---|---|---|
+| 发送 / 换行 | Enter / Shift+Enter | Enter / Shift+Enter |
+| 搜索会话 | ⌘F 或 ⌘K | Ctrl+F 或 Ctrl+K |
+| 设置 | ⌘, | Ctrl+, |
+| 换模型 | ⌘. | Ctrl+. |
+| 编辑窗口里保存（记忆、任务、Skill、Agent、MCP 服务器、提示词） | ⌘Enter | Ctrl+Enter |
+| 查看器里缩放图片 | ⌘+ / ⌘− / ⌘0，⌘ 加滚轮 | Ctrl++ / Ctrl+− / Ctrl+0，Ctrl 加滚轮 |
+| 收起面板、关上窗口（有没保存的修改时先问一次） | Esc | Esc |
+
+Windows 上暂时还不支持的：
+
+- 操作整台电脑（还没有 Windows 上截图、动鼠标键盘的那一套）。
+- 命令的沙箱（见[命令的沙箱](#命令的沙箱命令只碰得到该碰的地方)）：Windows 上暂时没有可靠的办法，打开了沙箱的话每条命令都会被拒绝，
+  页面上写着为什么。想用的话，在 WSL 里运行智狐，再装上 bubblewrap。
+- 自动允许只读命令，见上面。
+- 注销、关机时好好地收尾：Windows 会直接结束进程，正在进行的那一轮可能存不上。在终端里按 Ctrl-C、Ctrl+Break，
+  以及 `uv run harness service stop`，都会好好地停下；直接关掉终端窗口不会。
+- 后台服务在你注销时会停下（它以你的身份运行，不保存密码）。
 
 ### 网页界面
 
@@ -592,6 +640,21 @@ uv run harness
 uv run --project "/这个项目的完整路径" harness
 ```
 
+密钥和数据照样用项目自己的 `.env` 和 `data/`。想在哪儿都只敲一个 `zhifox`，在 shell 的启动文件里加一个快捷方式：
+
+```bash
+# macOS 和 Linux：写进 ~/.zshrc（或者 ~/.bashrc），然后另开一个终端
+alias zhifox='uv run --project "/这个项目的完整路径/zhifox-agent-harness" harness'
+```
+
+```powershell
+# Windows：写进 PowerShell 的配置文件。`notepad $PROFILE` 打开它（还没有的话先运行
+# `New-Item -ItemType File -Path $PROFILE -Force`），然后另开一个 PowerShell 窗口
+function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-harness" harness @args }
+```
+
+之后在哪个文件夹里都能用 `zhifox`、`zhifox --web`、`zhifox service status`（`@args` 把后面的参数原样传过去）。
+
 ## Harness 是什么
 
 模型只会一件事：读入一段文字，写出下一段文字。它不记得上一次对话，也执行不了任何操作。
@@ -649,6 +712,7 @@ uv run --project "/这个项目的完整路径" harness
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
+| 系统之间的差别 | [filelock.py](harness/filelock.py)、[pathnames.py](harness/pathnames.py)、[winacl.py](harness/winacl.py)、[winjob.py](harness/winjob.py)、[console.py](harness/console.py)、[exits.py](harness/exits.py)、[machine.py](harness/machine.py)、[tools/shell.py](harness/tools/shell.py)、[browser/chrome.py](harness/browser/chrome.py)、[service/windows.py](harness/service/windows.py) | macOS、Linux、Windows 锁文件、写路径、保护文件、结束进程树、给输出编码、执行命令的办法都不一样。每一处差别只放在一个小模块里（或者用到它的那个模块的一个函数里），别处只调用它 |
 
 建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`，其余的按兴趣看。
 
@@ -1639,6 +1703,13 @@ Chrome 要等助手第一次用到它才启动，`BROWSER_IDLE_MINUTES`（10）�
 每个标签页通过同一条连接上的一个 sessionId 来操作（"flat"模式）。每个请求都有超时，也都记在某个"主人"名下，
 所以"停止"只取消这一次运行的请求，别人的不碰。
 
+**Windows 上**没有"第几号描述符"可以交过去。Chrome 为此另有一个参数 `--remote-debugging-io-pipes=读,写`，两个数是管道的句柄。
+智狐开两根管道，只把给 Chrome 的那两头设成可以继承，把它们的句柄写进这个参数，再用 `STARTUPINFO` 的句柄清单启动 Chrome，
+清单里只有这两个（加上标准输入输出），智狐开着的别的句柄一个都不会漏给浏览器。还是同一根管道、同一套协议，照样没有端口。
+Windows 上也不用端口，理由和别处一样：端口开着的时候，你账号下的任何程序、任何网页都能操纵这个浏览器。
+Chrome 和它所有的子进程放在一个 Windows 作业对象里，关掉它（或者智狐崩溃退出）就一个不剩地结束，这是 macOS、Linux 上进程组在 Windows 上的对应。
+没装 Chrome 时，智狐用每台 Windows 10、11 都有的 Microsoft Edge。
+
 **读网页：带编号的一行一行。** 截图很费 token，模型对着一张图也点不准，所以读网页主要靠文字。`page.js` 运行在一个"隔离世界"
 （isolated world）里：和网页共用同一个 DOM，但不共用 JavaScript，所以网页看不到它记下的东西，也换不掉它用的函数。
 它把显示出来的页面走一遍，每个有意义的元素写一行，能操作的元素给一个编号：
@@ -1816,7 +1887,7 @@ Anthropic 的文档建议在一台专用的、权限最小的虚拟机或者容�
   同一个桌面上的程序本来就能互相截图、发事件。不许碰的程序只按当前窗口认：`xdotool` 说不出屏幕上任意一点是哪个窗口。
 - **Wayland：不支持。** Wayland 的设计就是不许一个程序截别的程序的图、替别的程序发键盘鼠标事件，而这正是操作电脑要做的
   （有 XWayland 也不行：`xdotool` 碰不到原生的 Wayland 窗口）。设置里会说明，并建议登录时选 X11（Xorg）桌面。
-  Windows 不支持，和智狐的其他部分一样。
+  Windows 上暂时不支持：设置和能力清单里写着"Windows 上暂时不支持操作整台电脑"。
 
 **又是两套说明书。** `COMPUTER_TOOLSET_MODELS` 里的 Claude 模型用 Anthropic 的
 [电脑工具包](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) `computer_toolset_20260801`：
@@ -2095,7 +2166,7 @@ uv run harness channels sandbox telegram workspace   # 一个通道的：default
 | 读取工作目录之外的文件 | 先问你。选了 **自动允许只读命令** 时直接执行，除非是 `data/`、密钥文件，或者看起来存着密钥的地方 |
 | 读取 `data/` 里的文件（保存的会话、设置） | 先问你，即使 `data/` 就在工作目录里 |
 | 创建、修改任何文件 | 先问你，并显示要写入的内容 |
-| 执行任何 shell 命令 | 先问你，并显示完整的命令。选了 **自动允许只读命令** 时，智狐看得出只是看的命令直接执行（见[只读的命令](#只读的命令以及为什么判断得这么保守)）。打开了沙箱的话，卡片上还写着命令在哪一档里运行（见[命令的沙箱](#命令的沙箱命令只碰得到该碰的地方)） |
+| 执行任何 shell 命令 | 先问你，并显示完整的命令。选了 **自动允许只读命令** 时，智狐看得出只是看的命令直接执行（见[只读的命令](#只读的命令以及为什么判断得这么保守)；Windows 上每条照样问）。打开了沙箱的话，卡片上还写着命令在哪一档里运行（见[命令的沙箱](#命令的沙箱命令只碰得到该碰的地方)） |
 | 在沙箱之外运行一条命令（`unsandboxed: true`，只有沙箱开着时才有这回事） | 每次都问，不管选了哪一档，"全部自动允许"也一样，卡片上带着警告，没有"不再问"可选。选了"全部自动允许"的定时任务、聊天通道根本不能问，所以在那里直接拒绝 |
 | 沙箱开着、这台电脑上却用不了时的任何命令 | 不问，直接拒绝，并告诉模型为什么、怎么修好或者把沙箱关掉 |
 | 联网搜索 | 直接执行（在 Anthropic 的服务器上进行，不碰你的电脑），次数有上限 |
@@ -2171,6 +2242,11 @@ MCP 的调用也会停下来等你批准。
 标着"自动允许（只读）"；会改动东西的命令照常问你，在对话里、在任务里、在聊天里都一样。它排在"每次确认"和"自动允许改文件"中间，
 因为它最坏也只是让模型看到了什么（值得藏起来的地方另外拦着，见下面），而改文件是真的会改掉东西。
 它不包括改文件，"自动允许改文件"也不包括只读的命令：两档放开的是两样不同的东西。
+
+**Windows 上这一档一条命令都不放过。** 那里的命令在 PowerShell 里运行，下面说的全是照着 bash 写的。PowerShell 有它自己的一套写法
+（`@(…)` 和 `$(…)`、`{ 脚本块 }`、`&` 调用、反引号转义、`--%`、`Get-Content` 能读的 `HKLM:`、`Env:` 这类"驱动器"），
+而且几乎每个命令都有别名（`ls`、`cat`、`rm` 都有），按 bash 的规矩看着无害的一条，在 PowerShell 里可能是另一回事。
+与其去猜，Windows 上每条命令都问，你自己加的也一样，页面上写明为什么。读工作目录之外的文件不问，这一条照样算。
 
 智狐怎么判断（[harness/commands/](harness/commands/)），一步一步：
 
@@ -2295,7 +2371,7 @@ uv run harness hooks add no-rm --event PreToolUse --matcher shell --on-failure b
 
 用 `uv run harness --web` 开起来的智狐，是那个终端的子进程：终端关了，或者开它的 Claude Code 会话结束了，它也跟着退出，
 网页打不开，聊天机器人也没人应。想让它一直开着，就把它交给操作系统里本来就管这件事的程序，也就是"服务管家"：
-macOS 上是 **launchd**，Linux 上是 **systemd**。一条命令就够了：
+macOS 上是 **launchd**，Linux 上是 **systemd**，Windows 上是 **任务计划程序**。一条命令就够了：
 
 ```bash
 uv run harness service install     # 装上并启动：以后每次登录都自动启动，出错退出后自己重启
@@ -2328,6 +2404,25 @@ uv run harness service open
 数据目录还被占着的话，`install` 不装，并且说清楚是谁占着（哪一种智狐、进程编号），免得装上一个一开起来就退出、
 每隔十秒又被重新开一次的服务。反过来也一样：服务开着的时候，你在终端里运行 `uv run harness --web`，它会告诉你智狐正作为后台服务运行，
 用 `uv run harness service open` 打开它的页面，想在终端里另开一个就先 `uv run harness service stop`。
+
+Windows 上，手动开的智狐在它的 PowerShell 窗口里按 Ctrl-C 关掉；找不到那个窗口的话，这样找到它：
+`Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*harness*' | Select-Object ProcessId, CommandLine`。
+
+### Windows 上：任务计划程序
+
+`uv run harness service install` 在任务计划程序里建一个叫 `ZhiFox-你的用户名` 的任务（是隐藏的任务：在**查看 → 显示隐藏的任务**里才看得到）。
+你登录时启动，以你的身份运行，不保存密码、不要管理员权限，不限运行时间。上面那几条命令用法都一样。
+
+- **出错退出后重启。** 任务计划程序自己的"失败时重新启动"只在任务*没能启动*时才管用，程序出错退出它是不管的。
+  所以任务里运行的是一个小小的看护程序（[service/supervise.py](harness/service/supervise.py)，用 `pythonw.exe`，不弹黑色的窗口），
+  由它来运行智狐：出错退出后等 10 秒再开；退出码是 2（设置有问题，重启也没用，看日志）时不再开。任务计划程序的"失败时重新启动"留着当第二道保险。
+- **好好地停下。** 在任务计划程序里"结束"任务，进程会被直接结束。`uv run harness service stop` 不这样：它在数据目录里放一个"请停下"的标记，
+  看护程序关上智狐的输入，智狐停下正在做的事、存好盘再退出。30 秒还没停下，才退一步去结束任务。
+- **日志** 在 `data\logs\service.log`，每个文件 1 MB，留三个旧的（`.1` 到 `.3`），和 macOS 上一样。`uv run harness service logs -f`
+  跟着看，不需要 `tail`。
+- **环境变量。** 任务没法设环境变量，所以数据目录、`.env` 的位置作为参数交给看护程序（只有路径，从来没有密钥）。
+  密钥和别的系统上一样，智狐启动时从 `.env` 里读。路径里不能有 `%`（任务计划程序会把 `%名字%` 展开）。
+- **什么时候停。** 它以你的身份运行，所以你注销时它就停了；注销、关机时它来不及好好地收尾。
 
 ### launchd 和 systemd 是怎么让它一直开着的
 
@@ -2516,9 +2611,16 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 
 ## 数据存在哪里
 
+**只有你自己的账号能读。** macOS 和 Linux 上，`data/` 和里面的文件夹建出来就是 700，文件是 600。Windows 没有这种权限位
+（`chmod` 在那里只能改"只读"这一个标记），而你在用户文件夹以外建的文件夹（`C:\code\…`）默认会继承"这台电脑上的所有账号都能读"。
+所以 Windows 上智狐对每个文件夹运行一次 `icacls`（[winacl.py](harness/winacl.py)）：把 `data\` 和里面的文件夹从上一层继承来的权限去掉，
+只给你自己的账号（按 SID 认）、SYSTEM 和管理员完全控制，里面以后新建的文件都继承这一份；保存密钥时 `.env` 也是这三项。
+留着 SYSTEM 和管理员，是因为它们本来就什么都读得到（和别的系统上的 root 一样），去掉它们只会让备份和杀毒软件出错。
+`icacls` 失败的时候（FAT32 的 U 盘、网络盘），智狐照常运行，在日志里写一句警告。
+
 | 路径 | 内容 |
 |---|---|
-| `.env` | 各家的 API 密钥。通过网页界面保存时，会把它设成只有你的账号能读 |
+| `.env` | 各家的 API 密钥。通过网页界面保存时，会把它设成只有你的账号能读（Windows 上靠访问控制列表，见上面） |
 | `data/conversations/` | 网页界面里的每段会话，一段一个 JSON 文件 |
 | `data/media/` | 发过的每个附件的原件，文件名是内容的 SHA-256，同一个文件发十次只存一份。删除会话时（以及每次启动时），没有会话再用的原件会被删掉 |
 | `data/memories/` | 助手的长期记忆和笔记。可以在网页的信息栏里查看、修改和删除，也可以手动编辑 |
@@ -2878,10 +2980,14 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 `[ui:flaky]` 每条消息第一次都会失败（可以试试在失败的那一轮上"重新生成"）。
 `--script 名字` 让没写暗号的对话也按那段剧本回答；README 里的截图用的是 `--script readme`，问的是中文就答中文，否则答英文。
 
-每次推送到 GitHub、每个 pull request，都会在 Ubuntu 和 macOS 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
+每次推送到 GitHub、每个 pull request，都会在 Ubuntu、macOS 和 Windows 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
 （[.github/workflows/tests.yml](.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome；
 在 Ubuntu 上还会装好 Xvfb、`xdotool` 和 ImageMagick，让操作电脑的集成测试对着虚拟屏幕跑一遍，还有 bubblewrap，
 让沙箱在 Linux 上真的后端也在那里测一遍。结果就是页面顶上的 Tests 徽章。
+
+只在某一个系统上才说得通的测试，跳过时会写明原因：Windows 的路径装不进 launchd 的 plist 和 systemd 的 unit；Windows 上没有
+3、4 号文件描述符和进程组；`icacls`、作业对象和真的 PowerShell 只在 Windows 上测；Windows 上建符号链接要管理员权限或者开发者模式，
+做不到时那几个测试照这个原因跳过。别的在三个系统上都跑。
 
 ## 评测：助手到底好不好用
 
@@ -3015,7 +3121,7 @@ say = "改好了。"
 
 ## 局限
 
-- 只支持 macOS 和 Linux（执行命令的部分依赖 bash）。
+- Windows 上：还不能操作整台电脑；只读的命令不会自动放行（每条都问）；注销、关机时智狐来不及好好地收尾（见[在 Windows 上使用](#在-windows-上使用)）。
 - 后台服务（`harness service`）只对着假的 `launchctl` 和 `systemctl` 测过，测试从来不真的装上一个。macOS 上项目在"文稿""桌面""下载"里的话，
   可能要先给一个隐私权限。
 - GPT 和 Gemini 没有用真实的密钥实测过（见上面"支持的模型"）。

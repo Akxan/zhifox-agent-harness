@@ -15,6 +15,9 @@
 .commands-heading small { font-variant-numeric: tabular-nums; }
 .commands-problem { margin: 0 0 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; color: var(--err); background: var(--err-soft); border: 1px solid var(--err-line); border-radius: 12px; overflow-wrap: anywhere; }
 .commands-problem[hidden] { display: none; }
+/* Windows 上这一整页暂时不起作用（命令是 PowerShell，见 harness/commands/__init__.py）：放在最上面说清楚，用提醒的颜色，不是出错的红色 */
+.commands-windows { margin: 0 0 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 12px; overflow-wrap: anywhere; }
+.commands-windows[hidden] { display: none; }
 
 .commands-list { display: grid; gap: 2px; margin: 0 0 10px; padding: 0; list-style: none; }
 .commands-empty { padding: 14px 12px; font-size: 13px; color: var(--ink-3); background: var(--hover); border-radius: 12px; }

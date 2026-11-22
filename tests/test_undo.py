@@ -19,7 +19,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from modes import has_mode
 
+from harness import pathnames
 from harness.config import UNDO_KEEP_DAYS
 from harness.conversations import ConversationStore
 from harness.i18n import t
@@ -88,7 +90,7 @@ class Rig:
         path = self.root / set_id / store.MANIFEST
         data = json.loads(path.read_text(encoding="utf-8"))
         change(data)
-        path.write_text(json.dumps(data), encoding="utf-8")
+        path.write_text(json.dumps(data), encoding="utf-8", newline="")
         assert self.manifest(set_id) is not None
 
 
@@ -177,21 +179,22 @@ def test_snapshot_blobs_and_manifest(rig):
 def test_snapshots_are_private(rig):
     """留底里是你文件的原文：文件夹 700、文件 600（和会话文件一样，只有自己的账号能读），撤回时留的那份也一样。"""
     path = rig.work / "a.txt"
-    path.write_text("secret plan\n")
+    path.write_text("secret plan\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "plan", "PLAN"))
     rig.act("undo", summary["set"])
 
     folder = rig.root / summary["set"]
-    assert mode_of(rig.root) == 0o700 and mode_of(folder) == 0o700
+    assert has_mode(rig.root, 0o700) and has_mode(folder, 0o700)  # Windows 上看的是 ACL，不是权限位（见 tests/modes.py）
     assert names(folder) == ["0-after", "0-before", "0-undo-1", "manifest.json"]
     for name in names(folder):
-        assert mode_of(folder / name) == 0o600, name
+        assert has_mode(folder / name, 0o600), name
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 上的文件没有可执行这一位：chmod 只能改只读，权限位读回来总是 666")
 def test_commands_flag_is_passed_through(rig):
     """这一轮还执行过命令时，事件上带着 commands：页面把"命令改动的文件没法自动撤回"写得醒目一点。"""
     path = rig.work / "a.txt"
-    path.write_text("x\n")
+    path.write_text("x\n", encoding="utf-8", newline="")
     assert rig.turn(replace(path, "x", "y"), commands=True)["commands"] is True
 
 
@@ -202,9 +205,9 @@ def test_kinds_created_modified_overwritten_inserted(rig):
     """新建（连同新建的几层文件夹）、str_replace、create 覆盖已有的文件、insert，各自记成对的种类。
     新建的文件没有"改之前"，记下的是为它新建的文件夹（从外到里），撤回时空了的一起删掉。"""
     modified, overwritten, inserted = rig.work / "m.txt", rig.work / "o.txt", rig.work / "i.txt"
-    modified.write_text("alpha\n")
-    overwritten.write_text("old\n")
-    inserted.write_text("x\ny\n")
+    modified.write_text("alpha\n", encoding="utf-8", newline="")
+    overwritten.write_text("old\n", encoding="utf-8", newline="")
+    inserted.write_text("x\ny\n", encoding="utf-8", newline="")
     new = rig.work / "new" / "deep" / "n.txt"
 
     summary = rig.turn(
@@ -227,7 +230,7 @@ def test_kinds_created_modified_overwritten_inserted(rig):
     assert entries[0]["dirs"] == [str(rig.work / "new"), str(rig.work / "new" / "deep")]
     assert [entry["dirs"] for entry in entries[1:]] == [[], [], []]
     assert "0-before" not in names(rig.root / summary["set"])
-    assert inserted.read_text() == "x\nbetween\ny\n"
+    assert inserted.read_text(encoding="utf-8") == "x\nbetween\ny\n"
 
 
 def test_kind_after_several_edits_in_one_turn(rig):
@@ -246,16 +249,16 @@ def test_kind_after_several_edits_in_one_turn(rig):
     assert [(item["path"], item["kind"]) for item in summary["files"]] == [("a.txt", "overwritten"), ("b.txt", "created")]
     folder = rig.root / summary["set"]
     assert (folder / "0-before").read_bytes() == b"one\n"  # 不是中间那一版 ONE
-    assert (folder / "0-after").read_bytes() == edited.read_bytes() and edited.read_text() == "rewritten\n"
-    assert (folder / "1-after").read_bytes() == fresh.read_bytes() and fresh.read_text() == "second\n"
+    assert (folder / "0-after").read_bytes() == edited.read_bytes() and edited.read_text(encoding="utf-8") == "rewritten\n"
+    assert (folder / "1-after").read_bytes() == fresh.read_bytes() and fresh.read_text(encoding="utf-8") == "second\n"
 
 
 def test_failed_calls_leave_no_entry(rig):
     """文件工具出错（old_str 找不到、文件不存在、insert 的行号不对）时什么都没改：清单里没有它，也不留底，
     否则撤回时会去"恢复"一个根本没动过的文件；它也不占格子（后面的文件接着用这个格号）。"""
     good, other = rig.work / "good.txt", rig.work / "other.txt"
-    good.write_text("1\n")
-    other.write_text("keep\n")
+    good.write_text("1\n", encoding="utf-8", newline="")
+    other.write_text("keep\n", encoding="utf-8", newline="")
     missing = rig.work / "ghost" / "nothing.txt"
     later = rig.work / "later.txt"
     later.write_bytes(b"L\n")
@@ -273,14 +276,14 @@ def test_failed_calls_leave_no_entry(rig):
     assert names(rig.root / summary["set"]) == ["0-after", "0-before", "1-after", "1-before", "manifest.json"]
     assert (rig.root / summary["set"] / "1-before").read_bytes() == b"L\n"
     assert not missing.parent.exists()
-    assert other.read_text() == "keep\n"
+    assert other.read_text(encoding="utf-8") == "keep\n"
 
 
 def test_turn_without_net_change_leaves_nothing(rig):
     """改了又改回去、整个覆盖成一模一样的内容、只有出错的调用：等于没改。合上账返回 None（页面上不出那一行），留底的文件夹删掉。"""
     path, same = rig.work / "a.txt", rig.work / "same.txt"
-    path.write_text("one\n")
-    same.write_text("same\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
+    same.write_text("same\n", encoding="utf-8", newline="")
     for calls in (
         [replace(path, "one", "ONE"), replace(path, "ONE", "one")],
         [create(same, "same\n")],
@@ -295,13 +298,13 @@ def test_turn_without_net_change_leaves_nothing(rig):
                     pass
         assert rig.changes.finish(journal) is None
         assert not (rig.root / journal.id).exists()
-    assert path.read_text() == "one\n"
+    assert path.read_text(encoding="utf-8") == "one\n"
 
 
 def test_manifest_that_cannot_be_written_shows_nothing(rig, monkeypatch):
     """清单写不进去（磁盘满了……）：撤不回来，就不显示那一行，留了一半的底也删掉。文件工具那一次的修改照样成功。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
 
     def full(*args, **kwargs):
         raise OSError("No space left on device")
@@ -312,20 +315,20 @@ def test_manifest_that_cannot_be_written_shows_nothing(rig, monkeypatch):
         rig.editor.run(replace(path, "one", "ONE"))
     assert rig.changes.finish(journal) is None
     assert not (rig.root / journal.id).exists()
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 def test_snapshot_failure_never_breaks_the_edit(rig, monkeypatch):
     """留底写不进去时文件工具照样改（不能因为"撤回"这个附加功能让模型的修改失败），只是这个文件撤不回来，清单里没有它。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
 
     def full(*args, **kwargs):
         raise OSError("No space left on device")
 
     monkeypatch.setattr(ChangeStore, "put", full)
     assert rig.turn(replace(path, "one", "ONE")) is None
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 # ---- 撤回和重做 -------------------------------------------------------------
@@ -358,7 +361,7 @@ def test_undo_deletes_created_files_and_only_their_empty_new_folders(rig):
     inside_existing = existing / "e.txt"
 
     summary = rig.turn(create(deep, "deep\n"), create(shared, "shared\n"), create(inside_existing, "e\n"))
-    (rig.work / "shared" / "yours.txt").write_text("你后来放进去的\n")  # 这一轮之后，别人往这个新文件夹里放了东西
+    (rig.work / "shared" / "yours.txt").write_text("你后来放进去的\n", encoding="utf-8", newline="")  # 这一轮之后，别人往这个新文件夹里放了东西
 
     result = rig.act("undo", summary["set"])
 
@@ -369,7 +372,7 @@ def test_undo_deletes_created_files_and_only_their_empty_new_folders(rig):
     assert [what for _, what in result.notes] == ["delete", "delete", "delete"]
 
     rig.act("redo", summary["set"])
-    assert deep.read_text() == "deep\n" and shared.read_text() == "shared\n" and inside_existing.read_text() == "e\n"
+    assert deep.read_text(encoding="utf-8") == "deep\n" and shared.read_text(encoding="utf-8") == "shared\n" and inside_existing.read_text(encoding="utf-8") == "e\n"
 
 
 def test_undo_removes_a_new_folder_shared_by_two_created_files(rig):
@@ -389,34 +392,34 @@ def test_undo_and_redo_keep_file_modes(rig):
     """撤回把权限改回这一轮之前的样子（write_file 新写出来的文件是 600，不改回去的话脚本就不能执行了）；
     重做放回撤回时的权限。只改权限不改内容不算"又改过"（看的是哈希）。"""
     path = rig.work / "run.sh"
-    path.write_text("echo one\n")
+    path.write_text("echo one\n", encoding="utf-8", newline="")
     path.chmod(0o755)
     summary = rig.turn(replace(path, "one", "two"))
     path.chmod(0o700)  # 这一轮之后你改了权限
 
     undo = rig.act("undo", summary["set"])
-    assert undo.asks == [] and path.read_text() == "echo one\n" and mode_of(path) == 0o755
+    assert undo.asks == [] and path.read_text(encoding="utf-8") == "echo one\n" and mode_of(path) == 0o755
     assert undo.event["files"][0]["replaced"]["mode"] == 0o700
 
     rig.act("redo", summary["set"])
-    assert path.read_text() == "echo two\n" and mode_of(path) == 0o700
+    assert path.read_text(encoding="utf-8") == "echo two\n" and mode_of(path) == 0o700
 
 
 def test_undo_redo_undo_again_keeps_a_new_snapshot_each_time(rig):
     """撤回→重做→再撤回：第 n 次撤回之前的样子存在 <格>-undo-<n>，再重做放回的是最近那一份。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     changed = path.read_bytes()
     folder = rig.root / summary["set"]
     manifest = rig.manifest(summary["set"])
 
     first = rig.act("undo", summary["set"])
-    assert first.event["files"][0]["n"] == 1 and path.read_text() == "one\n"
+    assert first.event["files"][0]["n"] == 1 and path.read_text(encoding="utf-8") == "one\n"
     rig.act("redo", summary["set"])
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
     second = rig.act("undo", summary["set"])
-    assert second.event["files"][0]["n"] == 2 and path.read_text() == "one\n"
+    assert second.event["files"][0]["n"] == 2 and path.read_text(encoding="utf-8") == "one\n"
     assert (folder / "0-undo-1").read_bytes() == changed and (folder / "0-undo-2").read_bytes() == changed
     rig.act("redo", summary["set"])
     assert path.read_bytes() == changed
@@ -427,7 +430,7 @@ def test_undo_redo_undo_again_keeps_a_new_snapshot_each_time(rig):
 def test_undo_event_and_notes(rig):
     """file_undo 事件的内容：哪一轮、做了什么、每个文件第几次撤回和换下来的样子、给人看的路径；notes 是给模型的说明。"""
     edited, created = rig.work / "a.txt", rig.work / "b.txt"
-    edited.write_text("one\n")
+    edited.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(edited, "one", "ONE"), create(created, "new\n"))
     edited_now, created_now = edited.read_bytes(), created.read_bytes()
     modes = [edited.stat().st_mode & 0o7777, created.stat().st_mode & 0o7777]
@@ -452,8 +455,8 @@ def test_undo_event_and_notes(rig):
 def test_state_is_folded_from_events(rig):
     """撤回了几个、全部撤回以后再撤、没撤回过就重做：都看事件推出来的状态，说清楚为什么没做。"""
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("a\n")
-    second.write_text("b\n")
+    first.write_text("a\n", encoding="utf-8", newline="")
+    second.write_text("b\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "a", "A"), replace(second, "b", "B"))
     set_id = summary["set"]
 
@@ -463,7 +466,7 @@ def test_state_is_folded_from_events(rig):
     rig.act("undo", set_id, indices=[0])
     assert rig.changes.applied(set_id, rig.events) == 1
     rig.act("undo", set_id)  # 没给 indices：剩下还没撤回的那一个
-    assert first.read_text() == "a\n" and second.read_text() == "b\n"
+    assert first.read_text(encoding="utf-8") == "a\n" and second.read_text(encoding="utf-8") == "b\n"
     assert rig.changes.applied(set_id, rig.events) == 0
     assert rig.act("undo", set_id).error == t("这一轮的改动已经全部撤回了。")
     assert rig.changes.last_set([{"type": "user"}]) == ""
@@ -476,28 +479,28 @@ def test_file_changed_after_the_turn_asks_first(rig):
     """这一轮之后文件又被改过（哈希对不上）：撤回会把那些改动一起冲掉，所以先问，什么都不写；点"仍然撤回"（force）才做，
     而且把你后来的那一版留了底，重做能放回来。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
-    path.write_text("你后来手改的\n")
+    path.write_text("你后来手改的\n", encoding="utf-8", newline="")
 
     asked = rig.act("undo", summary["set"])
     assert asked.event is None and asked.error == t("这几个文件要先确认一下再撤回。")
     assert bare(asked.asks) == [{"index": 0, "path": "a.txt", "reasons": ["changed"]}]
     assert asked.asks[0]["why"] == ["这一轮之后它又被改过（可能是你自己、执行的命令或者别的程序）：撤回会把那些改动一起冲掉。"]
-    assert path.read_text() == "你后来手改的\n"
+    assert path.read_text(encoding="utf-8") == "你后来手改的\n"
     assert "0-undo-1" not in names(rig.root / summary["set"])
 
     forced = rig.act("undo", summary["set"], force=True)
-    assert forced.event is not None and path.read_text() == "one\n"
+    assert forced.event is not None and path.read_text(encoding="utf-8") == "one\n"
     rig.act("redo", summary["set"])
-    assert path.read_text() == "你后来手改的\n"
+    assert path.read_text(encoding="utf-8") == "你后来手改的\n"
 
 
 def test_modified_file_deleted_after_the_turn_asks_missing(rig):
     """这一轮改过的文件后来被删了：撤回会把它建回来，先问（missing）。重做放回撤回时的样子，也就是"不在"。"""
     path = rig.work / "sub" / "a.txt"
     path.parent.mkdir()
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     path.unlink()
     path.parent.rmdir()
@@ -506,7 +509,7 @@ def test_modified_file_deleted_after_the_turn_asks_missing(rig):
     assert reasons(asked.asks) == [(0, ["missing"])] and not path.exists()
 
     forced = rig.act("undo", summary["set"], force=True)
-    assert forced.event["files"][0]["replaced"] is None and path.read_text() == "one\n"
+    assert forced.event["files"][0]["replaced"] is None and path.read_text(encoding="utf-8") == "one\n"
     rig.act("redo", summary["set"])
     assert not path.exists()
 
@@ -527,8 +530,8 @@ def test_later_turns_that_touched_the_file_are_named(rig):
     """后面的几轮也改过同一个文件：撤回的是"这一轮之前"的样子，后面那几轮的改动也会没了，另外说明（later，带着几轮）。
     先把后面那几轮撤回，这一轮就又干净了，不用问。"""
     path, other = rig.work / "a.txt", rig.work / "b.txt"
-    path.write_text("v0\n")
-    other.write_text("b\n")
+    path.write_text("v0\n", encoding="utf-8", newline="")
+    other.write_text("b\n", encoding="utf-8", newline="")
     first = rig.turn(replace(path, "v0", "v1"))
     second = rig.turn(replace(path, "v1", "v2"), replace(other, "b", "B"))
     third = rig.turn(replace(path, "v2", "v3"))
@@ -536,29 +539,29 @@ def test_later_turns_that_touched_the_file_are_named(rig):
     asked = rig.act("undo", first["set"])
     assert bare(asked.asks) == [{"index": 0, "path": "a.txt", "reasons": ["later"], "later": 2}]
     assert asked.asks[0]["why"] == ["后面还有 2 轮也改过它：撤回会把它恢复成这一轮之前的样子，后面那几轮对它的改动也会一起没了。"]
-    assert path.read_text() == "v3\n"
+    assert path.read_text(encoding="utf-8") == "v3\n"
 
     assert rig.act("undo", third["set"]).asks == []
     assert rig.act("undo", second["set"], indices=[0]).asks == []
-    assert path.read_text() == "v1\n"
+    assert path.read_text(encoding="utf-8") == "v1\n"
     clean = rig.act("undo", first["set"])
-    assert clean.asks == [] and clean.event is not None and path.read_text() == "v0\n"
-    assert other.read_text() == "B\n"  # 第二轮里另一个文件没撤回，不受影响
+    assert clean.asks == [] and clean.event is not None and path.read_text(encoding="utf-8") == "v0\n"
+    assert other.read_text(encoding="utf-8") == "B\n"  # 第二轮里另一个文件没撤回，不受影响
 
 
 def test_redo_after_the_file_changed_again_asks(rig):
     """撤回以后文件又被改过：重做会把那些改动冲掉，同样先问（changed），force 才做。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     rig.act("undo", summary["set"])
-    path.write_text("撤回以后又改的\n")
+    path.write_text("撤回以后又改的\n", encoding="utf-8", newline="")
 
     asked = rig.act("redo", summary["set"])
     assert asked.error == t("这几个文件要先确认一下再重做。") and reasons(asked.asks) == [(0, ["changed"])]
-    assert path.read_text() == "撤回以后又改的\n"
+    assert path.read_text(encoding="utf-8") == "撤回以后又改的\n"
     rig.act("redo", summary["set"], force=True)
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 # ---- 不能碰的、做不了的 ------------------------------------------------------
@@ -568,9 +571,9 @@ def test_protected_file_in_a_tampered_manifest_is_refused(rig):
     """清单被改成指向 .env（文件工具的 protected 名单）：撤回不写它，"仍然撤回"也不写。撤回只写当初记下的位置，
     但当初记下的也可能被人动过，所以每次都再对一遍名单。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
-    rig.env.write_text("FAKE_KEY=not-a-real-key\n")
+    rig.env.write_text("FAKE_KEY=not-a-real-key\n", encoding="utf-8", newline="")
 
     def point_at_env(data):
         data["files"][0]["path"] = str(rig.env)
@@ -580,13 +583,36 @@ def test_protected_file_in_a_tampered_manifest_is_refused(rig):
         result = rig.act("undo", summary["set"], force=force)
         assert result.event is None and result.error == t("没有能撤回的文件。")
         assert bare(result.blocked) == [{"index": 0, "path": str(rig.env), "reasons": ["protected"]}]
-    assert rig.env.read_text() == "FAKE_KEY=not-a-real-key\n"
+    assert rig.env.read_text(encoding="utf-8") == "FAKE_KEY=not-a-real-key\n"
+
+
+def test_a_tampered_manifest_cannot_reach_env_by_another_spelling(rig, monkeypatch):
+    """清单里换一种写法指向 .env（大小写不同；Windows 上还有数据流、尾巴上的点）：和文件工具一样认得出是同一个文件，不写。"""
+    path = rig.work / "a.txt"
+    path.write_text("one\n", encoding="utf-8", newline="")
+    summary = rig.turn(replace(path, "one", "ONE"))
+    rig.env.write_text("FAKE_KEY=not-a-real-key\n", encoding="utf-8", newline="")
+    shouting = str(rig.env.with_name(".ENV"))
+
+    def point_at_env(data):
+        data["files"][0]["path"] = shouting
+
+    rig.tamper(summary["set"], point_at_env)
+    result = rig.act("undo", summary["set"], force=True)
+    assert result.event is None and reasons(result.blocked) == [(0, ["protected"])]  # Linux 上 .ENV 是另一个文件，照样不写：只会多拦
+    assert rig.env.read_text(encoding="utf-8") == "FAKE_KEY=not-a-real-key\n"
+    # Windows 上的花招（数据流、设备名、尾巴上的点……）：清单是程序写的，不会有这些；有的话当作被人改过，不写（每个系统上都能测）
+    monkeypatch.setattr(pathnames, "WINDOWS", True)
+    for tricky in (str(rig.env) + "::$DATA", str(rig.work / "CON"), str(rig.work / "a.txt.")):
+        rig.tamper(summary["set"], lambda data, tricky=tricky: data["files"][0].update(path=tricky))
+        assert reasons(rig.act("undo", summary["set"], force=True).blocked) == [(0, ["moved"])], tricky
+    assert rig.env.read_text(encoding="utf-8") == "FAKE_KEY=not-a-real-key\n"
 
 
 def test_path_inside_the_snapshot_folder_is_refused(rig):
     """撤回从不往留底的文件夹里写（否则能拿一份留底去盖掉另一份，或者盖掉清单）。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     target = rig.root / summary["set"] / store.MANIFEST
 
@@ -609,31 +635,31 @@ def test_path_that_became_a_symlink_is_moved(rig, tmp_path):
 
     # 文件换成了链接
     link = rig.work / "a.txt"
-    link.write_text("one\n")
+    link.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(link, "one", "ONE"))
     link.unlink()
-    target.write_text("ONE\n")
+    target.write_text("ONE\n", encoding="utf-8", newline="")
     link.symlink_to(target)
     result = rig.act("undo", summary["set"], force=True)
-    assert reasons(result.blocked) == [(0, ["moved"])] and target.read_text() == "ONE\n"
+    assert reasons(result.blocked) == [(0, ["moved"])] and target.read_text(encoding="utf-8") == "ONE\n"
 
     # 上面的文件夹换成了链接
     folder = rig.work / "sub"
     folder.mkdir()
-    (folder / "b.txt").write_text("bee\n")
+    (folder / "b.txt").write_text("bee\n", encoding="utf-8", newline="")
     second = rig.turn(replace(folder / "b.txt", "bee", "BEE"))
     real = rig.work / "real-sub"
     folder.rename(real)
     folder.symlink_to(real, target_is_directory=True)
     result = rig.act("undo", second["set"], force=True)
-    assert reasons(result.blocked) == [(0, ["moved"])] and (real / "b.txt").read_text() == "BEE\n"
+    assert reasons(result.blocked) == [(0, ["moved"])] and (real / "b.txt").read_text(encoding="utf-8") == "BEE\n"
 
 
 def test_tampered_or_missing_snapshot_is_refused(rig):
     """留底被改过（哈希对不上）或者没有了：不拿一份不知道是什么的东西去盖你的文件（snapshot）。"""
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("a\n")
-    second.write_text("b\n")
+    first.write_text("a\n", encoding="utf-8", newline="")
+    second.write_text("b\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "a", "A"), replace(second, "b", "B"))
     folder = rig.root / summary["set"]
     (folder / "0-before").write_bytes(b"something else\n")
@@ -641,26 +667,26 @@ def test_tampered_or_missing_snapshot_is_refused(rig):
 
     result = rig.act("undo", summary["set"], force=True)
     assert reasons(result.blocked) == [(0, ["snapshot"]), (1, ["snapshot"])]
-    assert first.read_text() == "A\n" and second.read_text() == "B\n"
+    assert first.read_text(encoding="utf-8") == "A\n" and second.read_text(encoding="utf-8") == "B\n"
 
 
 def test_redo_without_its_snapshot_is_refused(rig):
     """撤回时留的那份（<格>-undo-<n>）没有了：重做做不了（snapshot），文件保持撤回后的样子。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     rig.act("undo", summary["set"])
     (rig.root / summary["set"] / "0-undo-1").unlink()
 
     result = rig.act("redo", summary["set"], force=True)
-    assert reasons(result.blocked) == [(0, ["snapshot"])] and path.read_text() == "one\n"
+    assert reasons(result.blocked) == [(0, ["snapshot"])] and path.read_text(encoding="utf-8") == "one\n"
 
 
 def test_already_undone_or_applied_single_file(rig):
     """指定的文件已经撤回过了（done）、还没撤回过就要重做（applied）：做不了，说清楚。"""
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("a\n")
-    second.write_text("b\n")
+    first.write_text("a\n", encoding="utf-8", newline="")
+    second.write_text("b\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "a", "A"), replace(second, "b", "B"))
     rig.act("undo", summary["set"], indices=[0])
 
@@ -674,31 +700,31 @@ def test_already_undone_or_applied_single_file(rig):
 def test_unknown_set_is_an_error(rig, set_id):
     """编号格式不对、不是这段会话里的某一轮、根本不是字符串：一律"找不到"，什么都不做。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     rig.turn(replace(path, "one", "ONE"))
     for action in ("undo", "redo"):
         result = rig.changes.act(action, set_id, rig.events)
         assert result.error == t(NOT_FOUND) and result.event is None
     assert rig.changes.diff(set_id, 0, rig.events)[0] == t(NOT_FOUND)
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 def test_bad_requests_are_errors(rig):
     """不认识的动作、超出范围的第几个、重复的、不是整数的：参数不对，什么都不做。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     assert rig.changes.act("delete", summary["set"], rig.events).error == t(NOT_FOUND)
     for indices in ([1], [-1], [0, 0], [True], ["0"], [0.0]):
         result = rig.changes.act("undo", summary["set"], rig.events, indices)
         assert result.error == t("参数不正确") and result.event is None, indices
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 def test_cleared_or_broken_manifest_is_gone(rig):
     """留底被清理掉、清单坏了或者格式不对（编号对不上、相对路径、重复的格子……）：都当作"不在了"，撤不回来。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     set_id = summary["set"]
     manifest_path = rig.root / set_id / store.MANIFEST
@@ -726,14 +752,14 @@ def test_cleared_or_broken_manifest_is_gone(rig):
         broken(lambda data: data["files"][0]["before"].update(mode=0o17777)),
         broken(lambda data: data["files"].append(dict(entry))),  # 两项用同一个格子
     ):
-        manifest_path.write_text(text, encoding="utf-8")
+        manifest_path.write_text(text, encoding="utf-8", newline="")
         assert rig.manifest(set_id) is None, text
         assert rig.changes.act("undo", set_id, rig.events).error == gone
         assert rig.changes.diff(set_id, 0, rig.events)[0] == gone
     manifest_path.unlink()
     assert rig.changes.act("undo", set_id, rig.events).error == gone
     assert rig.changes.applied(set_id, rig.events) == 0
-    assert path.read_text() == "ONE\n"
+    assert path.read_text(encoding="utf-8") == "ONE\n"
 
 
 @posix
@@ -744,8 +770,8 @@ def test_write_failure_is_reported_for_that_file_only(rig):
     locked = rig.work / "locked"
     locked.mkdir()
     stuck, free = locked / "a.txt", rig.work / "b.txt"
-    stuck.write_text("one\n")
-    free.write_text("bee\n")
+    stuck.write_text("one\n", encoding="utf-8", newline="")
+    free.write_text("bee\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(stuck, "one", "ONE"), replace(free, "bee", "BEE"))
 
     locked.chmod(0o500)
@@ -755,10 +781,10 @@ def test_write_failure_is_reported_for_that_file_only(rig):
         locked.chmod(0o700)
     assert reasons(result.blocked) == [(0, ["failed"])] and result.blocked[0]["error"]
     assert [item["index"] for item in result.event["files"]] == [1]
-    assert stuck.read_text() == "ONE\n" and free.read_text() == "bee\n"
+    assert stuck.read_text(encoding="utf-8") == "ONE\n" and free.read_text(encoding="utf-8") == "bee\n"
 
     retry = rig.act("undo", summary["set"])
-    assert retry.blocked == [] and stuck.read_text() == "one\n"
+    assert retry.blocked == [] and stuck.read_text(encoding="utf-8") == "one\n"
 
 
 # ---- 工作目录之外、助手自己的数据目录 ----------------------------------------
@@ -768,30 +794,30 @@ def test_file_outside_the_workspace_asks(rig, tmp_path):
     """工作目录之外的文件：当初改它就要你点头，撤回时也一样，先说清楚是哪儿（outside），force 才做。"""
     path = tmp_path / "elsewhere" / "x.txt"
     path.parent.mkdir()
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     assert summary["files"][0]["path"] == str(path.resolve()) and summary["files"][0]["place"] == "outside"
 
     asked = rig.act("undo", summary["set"])
-    assert reasons(asked.asks) == [(0, ["outside"])] and path.read_text() == "ONE\n"
-    path.write_text("又改了\n")
+    assert reasons(asked.asks) == [(0, ["outside"])] and path.read_text(encoding="utf-8") == "ONE\n"
+    path.write_text("又改了\n", encoding="utf-8", newline="")
     both = rig.act("undo", summary["set"])
     assert reasons(both.asks) == [(0, ["changed", "outside"])]
     rig.act("undo", summary["set"], force=True)
-    assert path.read_text() == "one\n"
+    assert path.read_text(encoding="utf-8") == "one\n"
 
 
 def test_file_in_the_private_data_dir_asks(rig):
     """助手自己的数据目录（data/）里的文件：撤回前同样先问（private）。"""
     path = rig.data / "notes.md"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     assert summary["files"][0]["place"] == "private"
 
     asked = rig.act("undo", summary["set"])
-    assert bare(asked.asks) == [{"index": 0, "path": str(path), "reasons": ["private"]}] and path.read_text() == "ONE\n"
+    assert bare(asked.asks) == [{"index": 0, "path": str(path), "reasons": ["private"]}] and path.read_text(encoding="utf-8") == "ONE\n"
     rig.act("undo", summary["set"], force=True)
-    assert path.read_text() == "one\n"
+    assert path.read_text(encoding="utf-8") == "one\n"
 
 
 # ---- 上限 --------------------------------------------------------------------
@@ -813,7 +839,7 @@ def test_big_file_is_changed_but_not_snapshotted(rig, monkeypatch):
 
     result = rig.act("undo", summary["set"], force=True)
     assert reasons(result.blocked) == [(0, ["big"])] and result.error == t("没有能撤回的文件。")
-    assert path.read_text() == "y" * 30 + "\n"
+    assert path.read_text(encoding="utf-8") == "y" * 30 + "\n"
     assert rig.changes.diff(summary["set"], 0, rig.events) == ("", {"rows": [], "more": 0, "binary": False, "unavailable": True})
 
 
@@ -821,25 +847,25 @@ def test_turn_budget_skips_later_files(rig, monkeypatch):
     """一轮的留底加起来超了上限：后面的文件只记哈希（skipped=budget），撤不回来；前面的照样能撤回。"""
     monkeypatch.setattr(journal_module, "UNDO_TURN_BYTES", 50)
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("a" * 19 + "\n")
-    second.write_text("b" * 19 + "\n")
+    first.write_text("a" * 19 + "\n", encoding="utf-8", newline="")
+    second.write_text("b" * 19 + "\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "a" * 19, "A" * 19), replace(second, "b" * 19, "B" * 19))
 
     assert [item.get("skipped", "") for item in summary["files"]] == ["", "budget"]
     asked = rig.act("undo", summary["set"])
     assert asked.event is None and reasons(asked.blocked) == [(1, ["budget"])]
-    assert first.read_text() == "A" * 19 + "\n"  # 有做不了的，又不是 force：先不做，问你
+    assert first.read_text(encoding="utf-8") == "A" * 19 + "\n"  # 有做不了的，又不是 force：先不做，问你
     forced = rig.act("undo", summary["set"], force=True)
     assert [item["index"] for item in forced.event["files"]] == [0] and reasons(forced.blocked) == [(1, ["budget"])]
-    assert first.read_text() == "a" * 19 + "\n" and second.read_text() == "B" * 19 + "\n"
+    assert first.read_text(encoding="utf-8") == "a" * 19 + "\n" and second.read_text(encoding="utf-8") == "B" * 19 + "\n"
 
 
 def test_error_does_not_claim_nothing_is_undoable_when_something_is(rig, monkeypatch):
     """一个文件超了上限、另一个好好的：没加 force 时什么都没做，但给你的那句话不能说"没有能撤回的文件"。"""
     monkeypatch.setattr(journal_module, "UNDO_TURN_BYTES", 50)
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("a" * 19 + "\n")
-    second.write_text("b" * 19 + "\n")
+    first.write_text("a" * 19 + "\n", encoding="utf-8", newline="")
+    second.write_text("b" * 19 + "\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "a" * 19, "A" * 19), replace(second, "b" * 19, "B" * 19))
 
     asked = rig.act("undo", summary["set"])
@@ -852,20 +878,20 @@ def test_file_cap_counts_untracked(rig, monkeypatch):
     monkeypatch.setattr(journal_module, "UNDO_TURN_FILES", 2)
     paths = [rig.work / f"{name}.txt" for name in "abcd"]
     for path in paths:
-        path.write_text("x\n")
+        path.write_text("x\n", encoding="utf-8", newline="")
     summary = rig.turn(*(replace(path, "x", "y") for path in paths))
 
     assert [item["path"] for item in summary["files"]] == ["a.txt", "b.txt"] and summary["untracked"] == 2
-    assert all(path.read_text() == "y\n" for path in paths)
+    assert all(path.read_text(encoding="utf-8") == "y\n" for path in paths)
     rig.act("undo", summary["set"])
-    assert [path.read_text() for path in paths] == ["x\n", "x\n", "y\n", "y\n"]
+    assert [path.read_text(encoding="utf-8") for path in paths] == ["x\n", "x\n", "y\n", "y\n"]
 
 
 def test_only_untracked_files_still_reports_them(rig, monkeypatch):
     """一个都没记下（上限是 0）但确实改了：不能当作"什么都没改"，事件里说有几个没记下，编号是空的（没有可撤回的）。"""
     monkeypatch.setattr(journal_module, "UNDO_TURN_FILES", 0)
     path = rig.work / "a.txt"
-    path.write_text("x\n")
+    path.write_text("x\n", encoding="utf-8", newline="")
     journal = rig.changes.start()
     with recording(journal):
         rig.editor.run(replace(path, "x", "y"))
@@ -877,18 +903,18 @@ def test_failed_call_over_the_file_cap_is_not_counted(rig, monkeypatch):
     """超了个数上限以后，一次出错（什么都没改）的调用不该算成"还有 1 个文件没记下"。"""
     monkeypatch.setattr(journal_module, "UNDO_TURN_FILES", 1)
     first, second = rig.work / "a.txt", rig.work / "b.txt"
-    first.write_text("x\n")
-    second.write_text("keep\n")
+    first.write_text("x\n", encoding="utf-8", newline="")
+    second.write_text("keep\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(first, "x", "y"), replace(second, "not there", "z"))
 
-    assert second.read_text() == "keep\n"
+    assert second.read_text(encoding="utf-8") == "keep\n"
     assert summary["untracked"] == 0
 
 
 def test_diff_unavailable_when_snapshots_are_missing_or_too_big(rig, monkeypatch):
     """预览要两份留底都在、都不太大：改之后的那份没了，或者超了 UNDO_DIFF_BYTES，只说改了，看不到改了什么（unavailable）。"""
     path = rig.work / "a.txt"
-    path.write_text("one\n")
+    path.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(path, "one", "ONE"))
     unavailable = ("", {"rows": [], "more": 0, "binary": False, "unavailable": True})
 
@@ -904,7 +930,7 @@ def test_diff_unavailable_when_snapshots_are_missing_or_too_big(rig, monkeypatch
 def test_diff_of_a_turn(rig):
     """展开"改了 N 个文件"时看的预览：改之前 → 这一轮改完，按行；新建的文件全是加上的行。参数不对时说清楚。"""
     edited, created = rig.work / "a.txt", rig.work / "b.txt"
-    edited.write_text("1\n2\n3\n")
+    edited.write_text("1\n2\n3\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(edited, "2", "two"), create(created, "x\ny\n"))
 
     assert rig.changes.diff(summary["set"], 0, rig.events) == ("", {
@@ -925,7 +951,7 @@ def test_undo_and_redo_survive_saving_and_reopening(rig, tmp_path):
     """事件存进会话文件、读回来（ConversationStore 真的写磁盘）、换一个新的 FileChanges（程序重启过）：
     照样能撤回和重做，"现在是什么状态"全从读回来的事件里推出来。"""
     edited, created = rig.work / "a.txt", rig.work / "new" / "b.txt"
-    edited.write_text("one\n")
+    edited.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(edited, "one", "ONE"), create(created, "new\n"))
 
     folder = tmp_path / "conversations"
@@ -941,7 +967,7 @@ def test_undo_and_redo_survive_saving_and_reopening(rig, tmp_path):
     loaded, changes = reopen()
     assert changes.applied(summary["set"], loaded.events) == 2
     undo = changes.act("undo", summary["set"], loaded.events)
-    assert undo.event is not None and edited.read_text() == "one\n" and not created.exists()
+    assert undo.event is not None and edited.read_text(encoding="utf-8") == "one\n" and not created.exists()
     loaded.events.append({"type": "file_undo", **undo.event})
     ConversationStore(folder).save(loaded)
 
@@ -949,7 +975,7 @@ def test_undo_and_redo_survive_saving_and_reopening(rig, tmp_path):
     assert changes.applied(summary["set"], loaded.events) == 0
     assert changes.act("undo", summary["set"], loaded.events).error == t("这一轮的改动已经全部撤回了。")
     redo = changes.act("redo", summary["set"], loaded.events)
-    assert redo.event is not None and edited.read_text() == "ONE\n" and created.read_text() == "new\n"
+    assert redo.event is not None and edited.read_text(encoding="utf-8") == "ONE\n" and created.read_text(encoding="utf-8") == "new\n"
 
 
 # ---- 只记你这一轮的 ----------------------------------------------------------
@@ -958,8 +984,8 @@ def test_undo_and_redo_survive_saving_and_reopening(rig, tmp_path):
 def test_edits_from_another_thread_are_not_recorded(rig):
     """账记在这一轮的线程上（ContextVar 不会带进新开的线程）：同一时间别的线程（定时任务、聊天通道）用同一个文件工具改的文件不记。"""
     mine, theirs = rig.work / "mine.txt", rig.work / "theirs.txt"
-    mine.write_text("m\n")
-    theirs.write_text("t\n")
+    mine.write_text("m\n", encoding="utf-8", newline="")
+    theirs.write_text("t\n", encoding="utf-8", newline="")
     errors: list[BaseException] = []
 
     def other_run():
@@ -976,7 +1002,7 @@ def test_edits_from_another_thread_are_not_recorded(rig):
         worker.join()
     summary = rig.changes.finish(journal)
 
-    assert errors == [] and theirs.read_text() == "T\n"
+    assert errors == [] and theirs.read_text(encoding="utf-8") == "T\n"
     assert [item["path"] for item in summary["files"]] == ["mine.txt"]
 
 
@@ -988,7 +1014,7 @@ def test_without_a_journal_watching_does_nothing(rig):
     rig.editor.run(replace(path, "one", "ONE"))
     with watching(path, "create"):
         pass
-    assert path.read_text() == "ONE\n" and not rig.root.exists()
+    assert path.read_text(encoding="utf-8") == "ONE\n" and not rig.root.exists()
 
     journal = rig.changes.start()
     with recording(journal):
@@ -1013,12 +1039,12 @@ def test_prune_removes_only_old_folders_with_valid_names(tmp_path):
     bad_date = root / "20261399-000000-abcdef"
     for folder in (old, recent, odd, bad_date):
         folder.mkdir()
-        (folder / "manifest.json").write_text("{}")
+        (folder / "manifest.json").write_text("{}", encoding="utf-8", newline="")
     plain_file = root / "20250101-000000-fedcba"
-    plain_file.write_text("not a folder")
+    plain_file.write_text("not a folder", encoding="utf-8", newline="")
     target = tmp_path / "keep-me"
     target.mkdir()
-    (target / "precious.txt").write_text("!")
+    (target / "precious.txt").write_text("!", encoding="utf-8", newline="")
     link = root / "20250101-000000-aaaaaa"
     try:
         link.symlink_to(target, target_is_directory=True)
@@ -1103,7 +1129,7 @@ def test_notes_list_at_most_the_line_cap(monkeypatch):
 def test_undo_result_feeds_the_notes(rig):
     """act 交回的 notes 直接交给 Notes：给模型的那段话里写的是给人看的路径和做了什么。"""
     edited, created = rig.work / "a.txt", rig.work / "b.txt"
-    edited.write_text("one\n")
+    edited.write_text("one\n", encoding="utf-8", newline="")
     summary = rig.turn(replace(edited, "one", "ONE"), create(created, "x\n"))
     rig.changes.notes.add("conv", rig.act("undo", summary["set"]).notes)
     rig.changes.notes.add("conv", rig.act("redo", summary["set"], indices=[0]).notes)

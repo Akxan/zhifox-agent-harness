@@ -317,7 +317,7 @@ $('close-endpoint').addEventListener('click', requestCloseEndpoint);
 endpointDialog.addEventListener('keydown', (key) => {
   if (key.isComposing || key.keyCode === 229) return;
   if (key.key === 'Escape' && !key.defaultPrevented) { key.preventDefault(); key.stopPropagation(); requestCloseEndpoint(); }
-  else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) { key.preventDefault(); saveEndpoint(); }
+  else if (key.key === 'Enter' && commandHeld(key)) { key.preventDefault(); saveEndpoint(); }  // ⌘Enter / Ctrl+Enter（见 platform.js）
 });
 // 保险：去掉一个模型时，拿着焦点的那个按钮没了，焦点掉到窗口外面，Esc 就直接变成 cancel
 endpointDialog.addEventListener('cancel', (event) => { event.preventDefault(); requestCloseEndpoint(); });

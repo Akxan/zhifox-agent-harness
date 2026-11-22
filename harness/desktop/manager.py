@@ -22,7 +22,7 @@ from ..config import COMPUTER_TOOLSET_TOKENS, DESKTOP_SHOT_DAYS
 from ..i18n import k
 from ..tools.base import ToolError
 from . import backend as backends
-from .backend import NO_DISPLAY, PLATFORM, WAYLAND, Backend
+from .backend import NO_DISPLAY, PLATFORM, WAYLAND, WINDOWS, Backend
 from .frame import Frame, Screen
 from .session import DesktopSession
 
@@ -30,6 +30,7 @@ OFF = "操作整台电脑现在是关着的（用户在设置里关掉了）。�
 UNSUPPORTED = {
     WAYLAND: "这台电脑用的是 Wayland 桌面，智狐没法在上面截图、控制鼠标键盘（Wayland 不允许）。可以请用户换成 X11 桌面（登录时选“Xorg”）。",
     NO_DISPLAY: "这台电脑没有图形界面（DISPLAY 没有设置，比如在服务器上），没有屏幕可以操作。",
+    WINDOWS: "智狐暂时还不能在 Windows 上操作整台电脑（现在只支持 macOS 和 Linux 的 X11 桌面）。",
     PLATFORM: "智狐只能在 macOS 和 Linux（X11 桌面）上操作整台电脑，这台电脑的系统不支持。",
 }
 # 谁占着屏幕（页面上翻译，给模型的回答里用原文）
@@ -177,7 +178,7 @@ class DesktopManager:
             "unattended": bool(self.settings.computer.get("unattended")),
             "blocked": list(self.settings.computer.get("blocked") or []),
             "supported": found is not None,
-            "reason": reason,  # wayland / no_display / platform（页面按它写说明）
+            "reason": reason,  # wayland / no_display / windows / platform（页面按它写说明）
             "platform": found.platform if found is not None else "",
             "checks": _safe_checks(found),  # 权限给了没有（macOS）、要的程序装了没有（Linux）
             "active": holder is not None,

@@ -181,7 +181,7 @@ def test_sending_an_image_and_a_document(editor):
     assert (document.media_type, document.kind, document.caption) == ("application/octet-stream", "document", "")
 
 
-def test_files_it_must_never_send(editor):
+def test_files_it_must_never_send(symlinks, editor):
     outlet = FakeOutlet()
     tool = make_send_tool(editor, outlet)
     (editor.workspace / "data" / "channels.json").write_text("{}", encoding="utf-8")
@@ -198,7 +198,7 @@ def test_files_it_must_never_send(editor):
     assert outlet.sent == []
 
 
-def test_a_file_changed_after_approval_is_not_sent(editor):
+def test_a_file_changed_after_approval_is_not_sent(symlinks, editor):
     target = editor.workspace / "notes.txt"
     target.write_text("给你看的那一版", encoding="utf-8")
     outlet = FakeOutlet()

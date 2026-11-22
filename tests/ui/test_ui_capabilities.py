@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -98,9 +99,14 @@ def test_keyboard_opens_rows_and_focus_survives_a_redraw(page):
     # 换一档确认方式：清单是助手程序按新的一档重新算的，页面重画了这一节，点开的那一行还开着，焦点还在原处
     status, reply = page.demo.api("/api/approval", {"mode": "readonly"})
     assert status == 200, reply
-    page.wait(f"document.querySelector({row('shell')!r} + ' .caps-chip').textContent === '部分先问'", what="执行命令变成部分先问")
+    if os.name == "nt":
+        # 演示服务器真的在 Windows 上：命令一条都不算只读，这一行照样"每条都先问"，下面写着为什么
+        page.wait(f"document.querySelector({row('shell')!r} + ' .caps-fine') && document.querySelector({row('shell')!r} + ' .caps-fine').textContent.includes('PowerShell')", what="执行命令下面写着 Windows 的原因")
+        assert page.text(row("shell") + " .caps-summary") == "每条命令都先问你"
+    else:
+        page.wait(f"document.querySelector({row('shell')!r} + ' .caps-chip').textContent === '部分先问'", what="执行命令变成部分先问")
+        assert "只读的命令直接执行" in page.text(row("shell") + " .caps-summary")
     assert page.text("#caps-mode-name") == "自动允许只读命令"
-    assert "只读的命令直接执行" in page.text(row("shell") + " .caps-summary")
     assert page.js("document.activeElement.dataset.capFocus") == "shell|head"
     assert page.js(f"document.querySelector({row('shell')!r} + ' .caps-head').getAttribute('aria-expanded')") == "true"
     # 空格键收起来

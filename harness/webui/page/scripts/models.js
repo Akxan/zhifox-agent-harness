@@ -23,7 +23,7 @@
 const modelButton = $('model'), modelsPanel = $('models'), modelsMenu = $('models-menu');
 const modelsFind = $('models-find'), modelsSearch = $('models-search');
 const MODELS_SEARCH_FROM = 9;  // 一共有这么多个模型时，搜索框一直显示在顶上；少的时候直接打字，它才出来
-const MODELS_KEY = () => (ON_MAC ? '⌘.' : 'Ctrl+.');  // 打开面板的快捷键（见 keyboard.js）
+const MODELS_KEY = () => forKeys('⌘.', 'Ctrl+.');  // 打开面板的快捷键（见 keyboard.js；Mac 以外写 Ctrl，见 platform.js）
 
 let modelsCatalog = null;   // 最近一次取到的目录（格式见 harness/model_catalog.py 开头）
 let modelsLoading = false;  // 正在取目录

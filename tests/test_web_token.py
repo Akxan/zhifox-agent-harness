@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-import stat
+from modes import has_mode
 
 from harness.config import WEB_TOKEN
 from harness.export import plan
@@ -18,16 +18,16 @@ def test_the_service_token_survives_a_restart(tmp_path):
     first = stable_token(tmp_path)
     assert stable_token(tmp_path) == first  # "重启"：再要一次，还是同一个
     path = tmp_path / WEB_TOKEN
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert has_mode(path, 0o600)
     path.chmod(0o644)  # 被别的程序改宽了：读的时候收回来
-    assert stable_token(tmp_path) == first and stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stable_token(tmp_path) == first and has_mode(path, 0o600)
     forget_token(tmp_path)  # 卸载服务
     assert not path.exists() and stable_token(tmp_path) != first
     forget_token(tmp_path)
     forget_token(tmp_path)  # 已经没有了，再删一次也没事
 
 
-def test_a_damaged_or_linked_token_file_is_replaced_not_followed(tmp_path):
+def test_a_damaged_or_linked_token_file_is_replaced_not_followed(symlinks, tmp_path):
     path = tmp_path / WEB_TOKEN
     path.write_text("太短\n", encoding="utf-8")
     token = stable_token(tmp_path)

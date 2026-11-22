@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
+from modes import WINDOWS
 from sample_files import (
     JPEG_BYTES,
     PDF_BYTES,
@@ -67,6 +68,9 @@ def sha(content: bytes) -> str:
 
 
 def mode(path: Path) -> int:
+    """权限位。Windows 上没有这一套（见 tests/modes.py），直接当作"只有自己能读"。"""
+    if WINDOWS:
+        return 0o700 if path.is_dir() else 0o600
     return stat.S_IMODE(path.stat().st_mode)
 
 

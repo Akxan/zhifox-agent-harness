@@ -10,7 +10,8 @@
     （只设置 HARNESS_DATA_DIR 再运行正式程序是不够的：那样用的还是真正的 `.env` 和真正的 API。）
   - 回复是一小段一小段慢慢发的，能看到逐字输出的效果。测试用的 fake_api.py 是一次发完的，看不出来。
   - 页面每次刷新都重新从磁盘读、重新拼（harness/webui/page/ 里的各块和 markdown.js），改完刷新一下就能看到，不用重启。
-  - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。
+  - "在访达中显示"和"打开记忆文件夹"只把路径打印出来，不会真的弹出窗口。加 --platform windows（或 linux、mac）
+    看助手程序在别的系统上时按钮怎么写（"在文件资源管理器中显示"……）；浏览器那边的快捷键（⌘ 还是 Ctrl）看的是你的浏览器。
   - 全新的数据目录里预先放了三条编造的记忆，信息栏的"记忆"一栏里能看、能删。
   - 也预先装了几个编造的 Skill（扩展 → Skill）：一个合格的、一个带脚本的、一个停用的、一个写坏了的。
     "从其他工具导入"看的是临时目录里假的 ~/.claude/skills、~/.codex/skills、~/.agents/skills……（HOME 换成了临时目录），
@@ -72,6 +73,7 @@ import argparse
 import dataclasses
 import json
 import os
+import signal
 import sys
 import tempfile
 import threading
@@ -92,7 +94,8 @@ parser.add_argument("--telegram-port", type=int, default=0, help="假 Telegram�
 parser.add_argument("--phone-port", type=int, default=0, help="别的几家共用的\"手机\"页面用的端口，默认随便挑一个空闲的")
 parser.add_argument("--no-sdk", action="store_true", help="当作飞书、钉钉的官方 SDK 没装，看页面上怎么说")
 parser.add_argument("--browser-window", action="store_true", help="浏览器演示时显示 Chrome 的窗口（默认在后台运行，看不到窗口）")
-parser.add_argument("--service", choices=("terminal", "launchd", "systemd"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--service", choices=("terminal", "launchd", "systemd", "taskscheduler"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
+parser.add_argument("--platform", choices=("mac", "windows", "linux"), default="", help="当作助手程序在哪种电脑上运行（状态里的 platform）：按钮上写\"访达\"\"文件资源管理器\"还是\"文件管理器\"；windows 时\"操作整台电脑\"也显示成暂时不支持。默认是这台电脑真正的系统")
 parser.add_argument("--no-sandbox", action="store_true", help="当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看页面上怎么说")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
@@ -119,6 +122,7 @@ from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
 
 import harness.webui.server as server_module
+from harness import console, machine
 from harness.agents import examples as agent_examples
 from harness.app import build_app
 from harness.channels import platforms
@@ -134,6 +138,14 @@ from harness.tasks import new_run
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
+
+console.use_utf8()  # Windows 上输出接到管道（页面测试读它）时也用 UTF-8，和正式程序一样（见 harness/console.py）
+if hasattr(signal, "SIGBREAK"):
+    # Windows 上页面测试请它退出用的是 Ctrl+Break（见 tests/processes.py）：和 Ctrl-C 一样收尾
+    def _interrupted(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGBREAK, _interrupted)
 
 if options.script and options.script not in demo_scripts.SCRIPTS:
     parser.error(f"没有叫 {options.script} 的剧本，有这几个：{'、'.join(demo_scripts.SCRIPTS)}")
@@ -486,6 +498,10 @@ root = options.data or Path(tempfile.mkdtemp(prefix="harness-demo-"))
 # 绝不读你电脑上真正的配置（那里面有你的密钥）。改了这些工具放文件的地方的环境变量（CODEX_HOME 这些）也清掉
 fake_home = root / "home"
 os.environ["HOME"] = str(fake_home)
+if os.name == "nt":
+    # Windows 上 Python 找家目录看的是 USERPROFILE，不是 HOME。但不能改 USERPROFILE：Windows 上的 Chrome 只要它不是这个账号
+    # 真正的那个文件夹，启动以后就一直不回答（演示里的浏览器就用不了了）。所以只换掉 Path.home（"从其他工具导入"看的就是它）
+    Path.home = lambda: fake_home  # type: ignore[method-assign]
 for name in import_places.VARIABLES:
     os.environ.pop(name, None)
 # 一个走 HTTP 的假 MCP 服务器，就在这个进程里跑。它的端口每次都不一样，所以配置里写 ${DEMO_MCP_URL}，启动时再换成真正的地址
@@ -628,7 +644,7 @@ if not (root / "data").exists():
         "paused": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "enabled": False},
     }
     (root / "data" / "mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=2), encoding="utf-8")
-    # 编造的 Claude Desktop / Claude Code 配置，给"从 Claude 导入"用（macOS 和 Linux 的位置各放一份）
+    # 编造的 Claude Desktop / Claude Code 配置，给"从 Claude 导入"用（macOS、Linux、Windows 的位置各放一份）
     desktop = {
         "mcpServers": {
             "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/demo/Desktop"]},
@@ -636,7 +652,7 @@ if not (root / "data").exists():
             "files": servers["files"],
         }
     }
-    for folder in (fake_home / "Library" / "Application Support" / "Claude", fake_home / ".config" / "Claude"):
+    for folder in (fake_home / "Library" / "Application Support" / "Claude", fake_home / ".config" / "Claude", fake_home / "AppData" / "Roaming" / "Claude"):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "claude_desktop_config.json").write_text(json.dumps(desktop, indent=2), encoding="utf-8")
     claude_code = {
@@ -667,12 +683,14 @@ if not (root / "data").exists():
     '[mcp_servers.figma]\nurl = "https://mcp.figma.example/mcp"\nbearer_token_env_var = "FIGMA_TOKEN"\nstartup_timeout_sec = 20\n',
     encoding="utf-8",
 )
-(fake_home / ".config" / "goose").mkdir(parents=True, exist_ok=True)
-(fake_home / ".config" / "goose" / "config.yaml").write_text(
-    "# Goose 的配置（YAML）\nGOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n    enabled: true\n  memory:\n    type: stdio\n"
-    "    name: Memory\n    cmd: npx\n    args: [-y, '@modelcontextprotocol/server-memory']\n    envs: {}\n    env_keys: [MEMORY_FILE_PATH]\n    enabled: true\n    timeout: 300\n",
-    encoding="utf-8",
-)
+# Goose：macOS、Linux 上在 ~/.config/goose，Windows 上在 %APPDATA%\Block\goose\config（见 harness/imports/registry.py）
+for goose in (fake_home / ".config" / "goose", fake_home / "AppData" / "Roaming" / "Block" / "goose" / "config"):
+    goose.mkdir(parents=True, exist_ok=True)
+    (goose / "config.yaml").write_text(
+        "# Goose 的配置（YAML）\nGOOSE_PROVIDER: openai\nextensions:\n  developer:\n    type: builtin\n    enabled: true\n  memory:\n    type: stdio\n"
+        "    name: Memory\n    cmd: npx\n    args: [-y, '@modelcontextprotocol/server-memory']\n    envs: {}\n    env_keys: [MEMORY_FILE_PATH]\n    enabled: true\n    timeout: 300\n",
+        encoding="utf-8",
+    )
 (fake_home / ".kiro" / "settings").mkdir(parents=True, exist_ok=True)
 (fake_home / ".kiro" / "settings" / "mcp.json").write_text('{\n  "mcpServers": {\n    "broken": {"command": "x",\n', encoding="utf-8")  # 故意写坏的
 for folder, body in {
@@ -796,13 +814,19 @@ def send_fresh_page(self) -> None:
 
 
 server_module.Handler._send_page = send_fresh_page
+# --platform：当作助手程序在另一种电脑上（只是演示和页面测试用，正式程序永远照 sys.platform 说）
+# 当作那是一台有桌面的电脑：显示了文件之后说"已在文件资源管理器中显示……"，不说"这台电脑上没有文件管理器"（没有图形界面的 CI 机器上也一样）
+if options.platform:
+    machine.system = lambda: options.platform
+    server_module.has_file_manager = lambda: True
 # 演示里不真的打开文件管理器
 server_module.reveal_in_file_manager = lambda path: print(f"（演示：这里本来会在文件管理器里显示 {path}）", flush=True)
 
 ui = WebUI()
 fresh = not (root / "data" / "tasks.json").exists()
 # 演示里"这台电脑上用哪个后端"永远回答这台假的电脑：真的那个（截你的屏幕、动你的鼠标）连找都不会去找
-desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop)
+# 假电脑是哪种系统：默认当作 macOS；--platform linux 时当作 X11 桌面（举的组合键、权限的说明跟着变）
+desktop = FakeDesktop(1280, 800, density=2, app_at=window_or_desktop, platform="x11" if options.platform == "linux" else "macos")
 desktop_backend.detect = lambda: (desktop, "")
 if options.no_sandbox:
     # 当作没装 bubblewrap 的 Linux：设置里选了一档的话，命令一律会被拒绝执行（和真的用不了时一样）
@@ -830,6 +854,8 @@ app = build_app(config, ui, client_factory=client_factory)
 app.settings.set_browser({"enabled": True, "headless": not options.browser_window})
 # 操作整台电脑也打开，但背后一定是假的电脑：编造的截图，点击、打字只记下来，绝不碰这台电脑真的屏幕和键盘鼠标
 install(app.desktop, desktop)
+if options.platform == "windows":  # Windows 上还没有后端：设置和信息栏里照着真的样子说"暂时不支持"
+    app.desktop._backend, app.desktop._reason, app.desktop._detected = None, desktop_backend.WINDOWS, True
 app.settings.set_computer({"enabled": True})
 app.refresh_tools()
 if fresh:

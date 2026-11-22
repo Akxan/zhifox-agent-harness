@@ -12,6 +12,10 @@ executable(文件夹) 在那里写一小段 sh 脚本，转手用当前的 Pytho
 为什么是 sh 而不是在本文件开头写 #!python：这个仓库的路径里有空格和中文，shebang 行在空格处就被截断了；
 sh 脚本里可以把路径好好地加上引号。sh 用 exec 换成 python，进程号不变，所以 launch() 拿到的进程号就是这个脚本的。
 
+Windows 上没有 sh，写的是一个 .cmd（cmd.exe 运行它，它再运行 python）。真的 Chrome 在 Windows 上不从 3、4 号读写，
+而是从 --remote-debugging-io-pipes=读,写 这两个继承来的句柄（见 harness/browser/chrome.py）：这里照样从那儿读写。
+cmd.exe 把能继承的句柄原样传给 python，句柄的数值也不变。launch() 拿到的进程号是 cmd.exe 的，关的时候 taskkill /T 连同 python 一起结束。
+
     executable = fake_chrome.executable(tmp_path)
     started = chrome.launch(executable, profile, True, extra_args=[fake_chrome.script_arg(tmp_path, silent=["Page.navigate"])])
 
@@ -76,8 +80,16 @@ _counter = itertools.count(1)
 # ---- 给测试用的小工具 ----------------------------------------------------------
 
 
+WINDOWS = os.name == "nt"
+
+
 def executable(folder: Path) -> Path:
-    """在 folder 里写一个能交给 chrome.launch() 的"Chrome"（见文件开头：为什么是一段 sh 脚本）。"""
+    """在 folder 里写一个能交给 chrome.launch() 的"Chrome"（见文件开头：为什么是一段 sh 脚本，Windows 上是 .cmd）。"""
+    if WINDOWS:
+        path = folder / "fake-chrome.cmd"
+        if not path.exists():
+            path.write_text(f'@"{sys.executable}" "{HERE}" %*\n', encoding="oem")  # cmd.exe 按控制台的代码页读 .cmd：路径里有中文也认得
+        return path
     path = folder / "fake-chrome"
     if not path.exists():
         path.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(HERE))} "$@"\n', encoding="utf-8")
@@ -203,7 +215,7 @@ class Logic:
         if method == "Fake.argv":
             return {"argv": self.argv}
         if method == "Fake.process":
-            return {"pid": os.getpid(), "pgid": os.getpgid(0), "ppid": os.getppid(), "fds": _open_fds()}
+            return {"pid": os.getpid(), "pgid": None if WINDOWS else os.getpgid(0), "ppid": os.getppid(), "fds": _open_fds()}
         if method == "Fake.emit":
             before.extend(params.get("events", []))
             return {}
@@ -264,13 +276,27 @@ def main() -> None:
             script = json.loads(Path(argument[len(SCRIPT_FLAG) :]).read_text(encoding="utf-8"))
     if script.get("pidfile"):
         # 先起孙进程，再改信号：SIG_IGN 会被子进程继承，那样它也杀不掉了
-        child = subprocess.Popen(["sleep", "30"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        sleeper = [sys.executable, "-c", "import time; time.sleep(30)"] if WINDOWS else ["sleep", "30"]
+        child = subprocess.Popen(sleeper, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         temp = script["pidfile"] + ".tmp"
         Path(temp).write_text(str(child.pid), encoding="utf-8")
         os.replace(temp, script["pidfile"])
     if script.get("ignore_term"):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    serve(Logic(script, sys.argv[1:]))
+    serve(Logic(script, sys.argv[1:]), *_pipes())
+
+
+def _pipes() -> tuple[int, int]:
+    """从哪儿读、往哪儿写：macOS、Linux 上是 3、4 号；Windows 上是 --remote-debugging-io-pipes 给的两个句柄。"""
+    if not WINDOWS:
+        return 3, 4
+    import msvcrt
+
+    for argument in sys.argv[1:]:
+        if argument.startswith("--remote-debugging-io-pipes="):
+            read, write = (int(part) for part in argument.split("=", 1)[1].split(","))
+            return msvcrt.open_osfhandle(read, os.O_RDONLY), msvcrt.open_osfhandle(write, os.O_WRONLY)
+    raise SystemExit("没有 --remote-debugging-io-pipes")
 
 
 if __name__ == "__main__":

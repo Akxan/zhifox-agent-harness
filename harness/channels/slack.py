@@ -276,7 +276,8 @@ class SlackChannel(PushChannel):
         try:
             while not self._stopping.is_set():
                 raw = ws.recv(timeout=min(1.0, CHANNEL_IDLE_SECONDS / 2))  # 最多等到下一次该看看要不要 ping 的时候
-                if ping_at is not None and ws.last_seen > ping_at:
+                # >=，不是 >：Windows 上 Python 3.12 以前的 time.monotonic 一格是 15.6 毫秒，pong 常常和 ping 落在同一格里
+                if ping_at is not None and ws.last_seen >= ping_at:
                     ping_at = None
                 if raw is None:
                     now = time.monotonic()

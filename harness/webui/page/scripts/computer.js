@@ -17,6 +17,7 @@ const COMPUTER_WHO = { [k('一个定时任务')]: k('（一个定时任务）'),
 const COMPUTER_REASONS = {
   wayland: k('这台电脑用的是 Wayland 桌面：Wayland 不允许一个程序截别的程序的图、替别人点鼠标，所以用不了。登录时换成 X11（Xorg）桌面就可以。'),
   no_display: k('这台电脑没有图形界面（比如在服务器上），没有屏幕可以操作。'),
+  windows: k('Windows 上暂时不支持操作整台电脑：现在只能在 macOS 和 Linux（X11 桌面）上用。'),
   platform: k('只能在 macOS 和 Linux（X11 桌面）上用，这台电脑的系统不支持。'),
 };
 
@@ -128,7 +129,8 @@ function drawComputerSettings(force) {
   $('computer-card').classList.toggle('on', Boolean(status.enabled));
   if (status.enabled && !$('computer-confirm').hidden) showComputerConfirm(false);
   retext($('computer-state'), !status.supported ? k('（这台电脑上用不了）') : !status.enabled ? k('（关着）') : status.busy ? k('（正在操作）') : k('（开着）'));
-  const mac = status.platform ? status.platform === 'macos' : ON_MAC;  // 能用的时候按后端认的系统，不然按这台电脑的浏览器
+  // 能用的时候按后端认的系统，不然按助手程序所在的电脑（被操作的是那一台，不是打开页面的这一台，见 platform.js）
+  const mac = status.platform ? status.platform === 'macos' : serverSystem === 'mac';
   const [first, second] = COMPUTER_KEYS[mac ? 'mac' : 'other'];
   retext($('computer-rule-keys'), k('{first}、{second} 这类按下去收不回来的组合键：不管怎么放开都照样问，卡片上带着警告'), { first, second });
   // 这段对话里放开了什么（只有你正看着的这段对话会有）。换一段对话就没了；这里也能收回

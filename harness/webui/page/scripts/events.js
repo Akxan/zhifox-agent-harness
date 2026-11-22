@@ -33,6 +33,7 @@ const handlers = {
 
   state(event) {
     state = event;
+    noteServerSystem(event.platform);  // 先于下面画的每一样：按钮上写"访达"还是"文件资源管理器"要看它（见 platform.js）
     if (event.language in LOCALES && event.language !== language) applyLanguage(event.language);
     const current = event.providers.find((provider) => provider.id === event.provider);
     $('workspace').textContent = event.workspace;

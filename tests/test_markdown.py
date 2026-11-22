@@ -28,7 +28,7 @@ def test_the_renderer_passes_its_node_tests():
         if os.environ.get("CI"):
             pytest.fail("CI 上找不到 node：Markdown 渲染器的测试没有跑")
         pytest.skip("这台电脑上没有 Node.js，跳过 Markdown 渲染器的测试")
-    result = subprocess.run([node, "--test", str(NODE_TESTS)], check=False, capture_output=True, text=True, timeout=300, cwd=ROOT)
+    result = subprocess.run([node, "--test", str(NODE_TESTS)], check=False, capture_output=True, text=True, timeout=300, cwd=ROOT, encoding="utf-8")
     assert result.returncode == 0, result.stdout[-6000:] + result.stderr[-2000:]
 
 

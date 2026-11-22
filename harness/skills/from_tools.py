@@ -17,6 +17,7 @@ import os
 import stat
 from pathlib import Path
 
+from .. import pathnames
 from ..i18n import t
 from ..imports.places import Env
 from ..imports.registry import SKILLS, places
@@ -111,7 +112,7 @@ def read_folder(folder: Path) -> Files:
         except OSError as exc:
             raise SkillError(t("没能读出 {path}：{error}", path=str(path), error=exc.strerror or exc)) from exc
         for entry in entries:
-            if entry.name.startswith(".") or entry.is_symlink():
+            if entry.name.startswith(".") or pathnames.entry_linked(entry):  # 包括 Windows 的目录联接
                 continue
             relative = prefix + entry.name
             info = entry.stat(follow_symlinks=False)
@@ -123,7 +124,7 @@ def read_folder(folder: Path) -> Files:
                 # 先看大小再读：一个几 GB 的文件不该先整个读进内存，才发现超了
                 if info.st_size + sum(len(item[0]) for item in files.values()) > MAX_TOTAL_BYTES:
                     raise SkillError(t("内容太大了：解开之后最多 {n} MB。", n=MAX_TOTAL_BYTES // 1_000_000))
-                descriptor = os.open(entry.path, os.O_RDONLY | os.O_NOFOLLOW)
+                descriptor = pathnames.open_nofollow(entry.path, os.O_RDONLY)  # Windows 没有 O_NOFOLLOW，见 pathnames
                 with os.fdopen(descriptor, "rb") as handle:
                     data = handle.read(MAX_TOTAL_BYTES + 1)
                 _add(files, seen, relative, data, bool(info.st_mode & 0o111))

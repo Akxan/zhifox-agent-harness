@@ -12,7 +12,9 @@
   - 命令用参数列表交给系统（["npx", "-y", "某个包"]），不经过 shell：参数里有什么字符都不会被当成命令的一部分。
   - 子进程拿不到各家模型的 API 密钥（和 run_command 一样，见 tools/shell.py），只拿到你给这个服务器配的环境变量。
   - 子进程放在单独的进程组里。关掉它时整组一起结束：npx 这类启动器会再启动真正的服务器进程，只结束外面那一层的话，
-    里面那个会一直留在后台。
+    里面那个会一直留在后台。Windows 上没有进程组和信号，用 taskkill /T 连同子进程一起结束（见 tools/shell.kill_tree）。
+  - Windows 上的 npx、uvx 这类命令其实是 npx.cmd、uvx.exe：系统启动程序时只会自己补 .exe，不会补 .cmd，
+    所以先按 PATH 和 PATHEXT 找到完整的文件名（shutil.which），再启动它。
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -29,7 +32,7 @@ from pathlib import Path
 
 from ..i18n import t
 from ..safe import clean, tame, to_json
-from ..tools.shell import SECRET_ENV_VARS
+from ..tools.shell import SECRET_ENV_VARS, WINDOWS, kill_tree
 from . import jsonrpc
 from .jsonrpc import McpError, RpcError, Slot
 from .log import ServerLog
@@ -64,17 +67,23 @@ class StdioTransport:
         # 你的环境变量照常给它（PATH、HOME 这些服务器多半要用），只是去掉各家模型的密钥；再加上给这个服务器配的
         env = {name: value for name, value in os.environ.items() if name not in SECRET_ENV_VARS}
         env.update(self.env)
+        program = (shutil.which(self.command, path=env.get("PATH")) or self.command) if WINDOWS else self.command  # 见文件开头
         try:
             self._process = subprocess.Popen(
-                [self.command, *self.args],
+                [program, *self.args],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
                 cwd=Path(self.cwd).expanduser() if self.cwd else None,
-                start_new_session=True,  # 单独的进程组，见文件开头的说明
+                start_new_session=not WINDOWS,  # 单独的进程组，见文件开头的说明
+                creationflags=subprocess.CREATE_NO_WINDOW if WINDOWS else 0,  # 后台服务里运行时不闪出黑色的窗口
             )
         except FileNotFoundError as exc:
+            if WINDOWS:
+                raise McpError(
+                    t("找不到命令“{command}”。检查一下拼写，或者写出完整的路径（在 PowerShell 里运行 Get-Command {command} 可以查到）。", command=self.command)
+                ) from exc
             raise McpError(
                 t("找不到命令“{command}”。检查一下拼写，或者写出完整的路径（在终端里运行 which {command} 可以查到）。", command=self.command)
             ) from exc
@@ -258,7 +267,11 @@ class StdioTransport:
 
 
 def _end_group(pid: int) -> None:
-    """结束整个进程组：先客气地请它退出（SIGTERM），一秒之内还有没退出的，再强制结束（SIGKILL）。"""
+    """结束整个进程组：先客气地请它退出（SIGTERM），一秒之内还有没退出的，再强制结束（SIGKILL）。
+    Windows 上没有信号可发（关上 stdin 已经是客气的那一步了），直接连同子进程一起结束。"""
+    if WINDOWS:
+        kill_tree(pid)
+        return
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(pid, sig)

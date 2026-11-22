@@ -19,6 +19,7 @@ import re
 from .config import APP_NAME, APP_NAME_LATIN, MAX_PROMPT_CHARS, Config
 from .i18n import t
 from .safe import clean_text, private_dir, write_file
+from .tools import shell as shell_tool
 
 # 内置的提示词由下面几段拼成。拼起来就是一整段普通的文字（用户在设置里看到、改的就是它）；
 # 分开写，是因为自定义 Agent 的提示词（agents/prompt.py）要用到其中"环境"和"规矩"那几条，同一句话只写一处
@@ -84,6 +85,14 @@ class PromptError(ValueError):
     """提示词存不了。错误信息可以直接显示给用户。"""
 
 
+def _system_line() -> str:
+    """"操作系统"那一行。Windows 上加一句命令用的是哪个 shell：模型最容易默认写 bash，那里跑不起来（见 tools/shell.py）。"""
+    line = f"{platform.system()} {platform.release()}"
+    if shell_tool.WINDOWS:
+        line += f"（run_command 在 {shell_tool.shell_name()} 里执行，请写 PowerShell 的命令）"
+    return line
+
+
 def placeholder_values(config: Config, web: bool | None = None) -> dict[str, str]:
     """占位符换成什么。web：这一家有没有联网搜索（None 表示按配置里的开关）。"""
     web = config.web if web is None else web
@@ -91,7 +100,7 @@ def placeholder_values(config: Config, web: bool | None = None) -> dict[str, str
         "name": APP_NAME,
         "latin": APP_NAME_LATIN,
         "workspace": str(config.workspace),
-        "system": f"{platform.system()} {platform.release()}",
+        "system": _system_line(),
         "web_line": _WEB_LINE if web else "",  # 能联网时是一行说明，不能时是空的
     }
 

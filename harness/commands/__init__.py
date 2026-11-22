@@ -17,10 +17,16 @@
 
 这里说"算只读"，只是说不问你就可以运行；它照样经过确认之外的所有规矩（命令看不到 API 密钥，见 tools/shell.py），
 对话里也照样标着"自动允许（只读）"，你看得到它做了什么。
+
+Windows 上一条都不算只读，你自己加的"不用问的命令"也不算，每条都照常问你。因为那里的命令是 PowerShell（见 tools/shell.py），
+这里的拆词、名单都是照着 bash 写的，换成 PowerShell 就看不准了：它有自己的一套写法——@(…) 和 $(…)、{ 脚本块 }、
+& 调用、反引号转义、--% 之后原样传、Get-Content 能读 HKLM: 和 Env: 这类"驱动器"、几乎每个命令都有别名（ls、cat、rm 都是）……
+按 bash 的规矩看着无害的一条，在 PowerShell 里可能是另一回事。拿不准的一律问，所以整个关掉，不去猜。
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -29,6 +35,8 @@ from .rules import RULES, Context
 from .words import Unclear, stages
 
 __all__ = ["Places", "Unclear", "Verdict", "classify"]
+
+WINDOWS = os.name == "nt"  # 测试里换成 True，看 Windows 上的样子
 
 
 @dataclass(frozen=True)
@@ -40,6 +48,8 @@ class Verdict:
 
 def classify(command: object, places: Places, listed: Iterable[Sequence[str]] = ()) -> Verdict:
     """command 这条命令可不可以不问就运行。listed 是你自己加的命令，每条拆成了词（见 allowlist.py）。"""
+    if WINDOWS:
+        return Verdict(False, reason="Windows 上的命令是 PowerShell，这里看不准它的写法，每条都问（见开头的说明）")
     try:
         found = stages(command)  # type: ignore[arg-type]
         if len(found) == 1:

@@ -35,6 +35,10 @@ function recall(key) {
   try { return localStorage.getItem(key); } catch (_) { return null; }
 }
 
+// 两段文字除了换行的写法以外一不一样。文本框（textarea）读出来的换行永远是 \n，可文件里可能是 \r\n
+// （Windows 上用记事本写的记忆、提示词、SKILL.md）：直接比的话，打开编辑器什么都没改也算"改过了"，Esc 关不掉
+const sameText = (a, b) => String(a ?? '').replace(/\r\n?/g, '\n') === String(b ?? '').replace(/\r\n?/g, '\n');
+
 function firstLine(text) {
   const line = text.trim().split('\n')[0] || '';
   return line.length > 120 ? line.slice(0, 119) + '…' : line;

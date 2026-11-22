@@ -7,6 +7,7 @@ pilot.py 只会"点、按、读"，不知道页面长什么样；这里知道。
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 from .pilot import Page
@@ -18,6 +19,14 @@ IDLE = (
 NARROW_NAV = "matchMedia('(max-width: 960px)').matches"  # 和页面里的 overlayNav 一致：窄屏上会话栏是抽屉
 NARROW_SIDE = "matchMedia('(max-width: 1180px)').matches"  # 信息栏也一样
 
+
+def native_path(posix: str) -> str:
+    """一个 / 开头的路径，写成这台电脑上的绝对路径：Windows 上 /srv/app 不算绝对路径（会被拒绝），写成 C:\\srv\\app。"""
+    return "C:" + posix.replace("/", "\\") if os.name == "nt" else posix
+
+
+# 页面测试里加进沙箱的那条"额外允许的路径"
+SANDBOX_EXTRA = native_path("/srv/app")
 
 def idle(page: Page, timeout: float = 5) -> None:
     page.wait(IDLE, timeout, "动画播完")
@@ -37,8 +46,10 @@ def send(page: Page, text: str) -> None:
     """在输入框里打字，按回车发出去，等这条消息出现在对话里。"""
     page.click("#input")
     page.type(text)
+    # 字真的进了输入框再按回车：点的那一下没落在输入框上（比如它正好挪走了），在这里就说清楚，不用等 20 秒再猜
+    page.wait(f"document.getElementById('input').value.includes({json.dumps(text)})", 5, "打的字进了输入框")
     page.key("Enter")
-    page.wait(f"[...document.querySelectorAll('#log .msg.user')].some((node) => node.textContent === {json.dumps(text)})", 10, "发出的消息出现在对话里")
+    page.wait(f"[...document.querySelectorAll('#log .msg.user')].some((node) => node.textContent === {json.dumps(text)})", 20, "发出的消息出现在对话里")  # 慢的机器（CI 的 Windows）上 10 秒偶尔不够
 
 
 def reply(page: Page, contains: str, timeout: float = 20) -> None:
@@ -163,7 +174,8 @@ def import_view(page: Page, tab: str) -> None:
     """打开"扩展"里一页的"从其他工具导入"（mcp、skills、agents），等清单画好，把最下面的"没找到的"也点开。"""
     extensions_tab(page, tab)
     page.click(IMPORT_BUTTONS[tab])
-    page.wait(f"document.querySelector('#panel-{tab} .import-overview')", what=f"{tab} 的导入页画好")
+    # 要把二十几个工具放东西的地方挨个看一遍：慢的机器上（CI 的 Windows）10 秒偶尔不够
+    page.wait(f"document.querySelector('#panel-{tab} .import-overview')", timeout=30, what=f"{tab} 的导入页画好")
     page.js(f"document.querySelectorAll('#panel-{tab} details.import-missing').forEach((details) => {{ details.open = true; }})")
     idle(page)
 

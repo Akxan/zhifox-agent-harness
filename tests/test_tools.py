@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import threading
 import time
@@ -15,6 +16,7 @@ import pytest
 from harness.config import load_env_file
 from harness.permissions import MODES, Permissions
 from harness.tools import files
+from harness.tools import shell as shell_module
 from harness.tools.base import ToolError, check_input
 from harness.tools.files import FileEditor
 from harness.tools.memory import make_memory_tool
@@ -167,7 +169,7 @@ def test_file_protects_the_key_file(editor):
     assert (editor.workspace / ".env").read_text(encoding="utf-8") == "ANTHROPIC_API_KEY=secret"
 
 
-def test_paths_are_resolved_before_checking(editor, tmp_path):
+def test_paths_are_resolved_before_checking(symlinks, editor, tmp_path):
     assert editor.in_workspace(editor.resolve("a/b.txt"))
     assert not editor.in_workspace(editor.resolve("../outside.txt"))
     assert not editor.in_workspace(editor.resolve(str(tmp_path / "other" / "x.txt")))
@@ -253,7 +255,7 @@ def test_permission_rules(editor, tmp_path):
     )
 
 
-def test_the_assistants_own_data_is_not_read_without_asking(tmp_path):
+def test_the_assistants_own_data_is_not_read_without_asking(symlinks, tmp_path):
     # 在项目目录里运行时，数据目录（保存的会话、设置、待办）就在工作目录里面。把它当成普通的工作目录文件的话，
     # 模型不用问就能把以前所有会话的内容读走，发给现在用的这一家厂商
     workspace = tmp_path / "work"
@@ -358,6 +360,64 @@ def test_long_previews_are_shortened(editor):
 # ---- 命令 -----------------------------------------------------------------
 
 
+needs_bash = pytest.mark.skipif(shell_module.WINDOWS, reason="Windows 上命令在 PowerShell 里运行，见下面 Windows 的那几个")
+needs_windows = pytest.mark.skipif(not shell_module.WINDOWS, reason="PowerShell 只在 Windows 上测")
+
+
+def test_on_windows_commands_go_to_powershell_encoded(monkeypatch):
+    """Windows 上的命令整个编码以后交给 PowerShell（每个系统上都能测：只看拼出来的参数，不运行）。"""
+    monkeypatch.setattr(shell_module, "WINDOWS", True)
+    monkeypatch.setattr(shell_module.shutil, "which", lambda name: None)  # 没装 PowerShell 7：用系统自带的
+    command = 'Get-ChildItem "C:\\Program Files" | Select-String "你好" ; echo $env:PATH'
+    args = shell_module.command_line(command)
+    assert args[0].lower().endswith("windowspowershell\\v1.0\\powershell.exe")
+    assert args[1:5] == ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]
+    script = base64.b64decode(args[5]).decode("utf-16-le")
+    assert script.endswith("\n" + command)  # 一个字都不变：引号、反斜杠、中文、$ 都原样
+    assert "OutputEncoding" in script.split("\n")[0]
+    monkeypatch.setattr(shell_module.shutil, "which", lambda name: "C:\\pwsh\\pwsh.exe" if name == "pwsh" else None)
+    assert shell_module.command_line("x")[0] == "C:\\pwsh\\pwsh.exe"
+    description, parameter = shell_module.describe()
+    assert "PowerShell 7（pwsh）" in description and "没有 bash" in description and "PowerShell" in parameter
+
+
+def test_on_macos_and_linux_commands_go_to_bash(monkeypatch):
+    monkeypatch.setattr(shell_module, "WINDOWS", False)
+    assert shell_module.command_line("ls -la") == ["/bin/bash", "-c", "ls -la"]
+    assert "bash" in shell_module.describe()[0]
+
+
+@needs_windows
+def test_powershell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("HARMLESS", "visible")
+    tool = make_shell_tool(Shell(tmp_path))
+    assert tool.run({"command": "(Get-Location).Path"}).lower() == str(tmp_path.resolve()).lower()
+    assert tool.run({"command": 'Write-Output "[$env:ANTHROPIC_API_KEY] [$env:HARMLESS]"'}) == "[] [visible]"
+    assert tool.run({"command": "Write-Output '你好，智狐'"}) == "你好，智狐"  # 输出按 UTF-8 读，中文不乱
+    assert tool.run({"command": "Write-Output out; [Console]::Error.WriteLine('err'); exit 3"}) == "out\nerr\n[退出码 3]"
+    assert tool.run({"command": "$null"}) == "（没有输出）"
+
+
+@needs_windows
+def test_powershell_timeout_kills_the_command_and_its_children(tmp_path):
+    tool = make_shell_tool(Shell(tmp_path))
+    marker = tmp_path / "finished.txt"
+    # 再开一个子进程去等：taskkill /T 要连它一起结束，不然它 30 秒后还会写出文件
+    command = f"Write-Output started; Start-Process -NoNewWindow -Wait powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 30; Set-Content -LiteralPath ''{marker}'' x'"
+    result = tool.run({"command": command, "timeout_seconds": 2})
+    assert "started" in result and "超过 2 秒" in result
+    assert not marker.exists()
+
+
+@needs_windows
+def test_powershell_clips_long_output(tmp_path):
+    result = make_shell_tool(Shell(tmp_path)).run({"command": "1..50000 | ForEach-Object { 'y' }"})
+    assert len(result) < 21_000
+    assert "中间省略了" in result
+
+
+@needs_bash
 def test_shell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
     monkeypatch.setenv("HARMLESS", "visible")
@@ -370,6 +430,7 @@ def test_shell_runs_in_workspace_without_secrets(tmp_path, monkeypatch):
     assert tool.run({"command": "true"}) == "（没有输出）"
 
 
+@needs_bash
 def test_shell_timeout_kills_the_command(tmp_path):
     tool = make_shell_tool(Shell(tmp_path))
     result = tool.run({"command": "echo started; sleep 30; echo finished", "timeout_seconds": 1})
@@ -377,6 +438,7 @@ def test_shell_timeout_kills_the_command(tmp_path):
     assert "超过 1 秒" in result
 
 
+@needs_bash
 def test_shell_clips_long_output(tmp_path):
     result = make_shell_tool(Shell(tmp_path)).run({"command": "yes | head -n 50000"})
     assert len(result) < 21_000

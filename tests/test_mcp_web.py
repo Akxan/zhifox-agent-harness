@@ -80,7 +80,7 @@ def test_adding_editing_and_renaming_servers(serve):
     s = serve()
     assert s.browser.post("/api/mcp/save", {"original": None, "server": new_stdio("one", env=[{"name": "TOKEN", "value": SECRET_ENV}])}) == OK
     mcp_state(s, ready("one"))
-    saved = json.loads(s.config.mcp_file.read_text())["mcpServers"]["one"]
+    saved = json.loads(s.config.mcp_file.read_text(encoding="utf-8"))["mcpServers"]["one"]
     assert saved["env"] == {"TOKEN": SECRET_ENV} and saved["args"][-1].endswith("fake_mcp.py")
 
     assert s.browser.post("/api/mcp/approval", {"name": "one", "tool": "echo", "approval": "auto"}) == OK
@@ -89,7 +89,7 @@ def test_adding_editing_and_renaming_servers(serve):
     assert s.browser.post("/api/mcp/save", {"original": "one", "server": edit}) == OK
     state = mcp_state(s, ready("renamed"))
     assert row(state, "one") is None
-    saved = json.loads(s.config.mcp_file.read_text())["mcpServers"]
+    saved = json.loads(s.config.mcp_file.read_text(encoding="utf-8"))["mcpServers"]
     assert list(saved) == ["renamed"] and saved["renamed"]["env"] == {"TOKEN": SECRET_ENV}
     assert saved["renamed"]["approval"] == {"default": "ask", "tools": {"echo": "auto"}}
 
@@ -112,7 +112,7 @@ def test_enable_restart_and_delete(serve, make_config):
     assert s.browser.post("/api/mcp/enable", {"name": "fake", "enabled": False}) == OK
     mcp_state(s, lambda state: row(state, "fake")["status"] == "disabled" and row(state, "fake")["enabled"] is False)
     wait_until(lambda: process.poll() is not None, what="进程被关掉")
-    assert json.loads(s.config.mcp_file.read_text())["mcpServers"]["fake"]["enabled"] is False
+    assert json.loads(s.config.mcp_file.read_text(encoding="utf-8"))["mcpServers"]["fake"]["enabled"] is False
 
     assert s.browser.post("/api/mcp/enable", {"name": "fake", "enabled": True}) == OK
     mcp_state(s, ready("fake"))
@@ -122,7 +122,7 @@ def test_enable_restart_and_delete(serve, make_config):
 
     assert s.browser.post("/api/mcp/delete", {"name": "fake"}) == OK
     mcp_state(s, lambda state: state["servers"] == [])
-    assert json.loads(s.config.mcp_file.read_text())["mcpServers"] == {}
+    assert json.loads(s.config.mcp_file.read_text(encoding="utf-8"))["mcpServers"] == {}
     status, body = s.browser.post("/api/mcp/delete", {"name": "fake"})
     assert status == 409 and "没有找到" in body["error"]
     assert s.browser.post("/api/mcp/detail", {"name": "fake"})[0] == 409
@@ -150,7 +150,7 @@ def test_importing_from_claude_code(serve):
     from pathlib import Path
 
     (Path.home()).mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"from-code": {"type": "stdio", "command": sys.executable, "args": [str(FAKE)], "env": {"K": SECRET_ENV}}}}))
+    (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"from-code": {"type": "stdio", "command": sys.executable, "args": [str(FAKE)], "env": {"K": SECRET_ENV}}}}), encoding="utf-8")
     status, body = s.browser.post("/api/mcp/scan", {})
     assert status == 200
     sources = {source["id"]: source for source in body["sources"]}
@@ -168,7 +168,7 @@ def test_importing_from_claude_code(serve):
     status, body = s.browser.post("/api/mcp/import", {"picks": [{"source": "claude-code-user", "name": "from-code"}, {"source": "nowhere", "name": "x"}]})
     assert status == 200 and body["added"] == ["from-code"] and len(body["skipped"]) == 1
     mcp_state(s, ready("from-code"))
-    assert json.loads(s.config.mcp_file.read_text())["mcpServers"]["from-code"]["env"] == {"K": SECRET_ENV}
+    assert json.loads(s.config.mcp_file.read_text(encoding="utf-8"))["mcpServers"]["from-code"]["env"] == {"K": SECRET_ENV}
     assert s.browser.post("/api/mcp/import", {"picks": []})[0] == 400
     assert s.browser.post("/api/mcp/import", {"picks": [{"source": 1}]})[0] == 400
 
@@ -213,7 +213,7 @@ def test_a_broken_config_file_is_reported_and_left_alone(serve, make_config):
     assert state["problem"] and "读不出来" in state["problem"]["text"] and state["problem"]["key"]
     status, body = s.browser.post("/api/mcp/save", {"original": None, "server": new_stdio("x")})
     assert status == 409 and "读不出来" in body["error"]
-    assert path.read_text() == "{ broken"
+    assert path.read_text(encoding="utf-8") == "{ broken"
 
 
 def test_mcp_endpoints_need_the_token_and_our_origin(serve):

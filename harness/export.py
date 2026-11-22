@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
 
+from . import pathnames
 from .config import APP_NAME
 from .i18n import k, t
 from .redact import mask_shapes
@@ -148,9 +149,10 @@ def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
     for folder, folders, names in os.walk(data_dir):
         here = Path(folder)
         for name in sorted(folders):
-            if (here / name).is_symlink():  # os.walk 不会进去，但要说一声没导出
+            # 链接（包括 Windows 的目录联接，is_symlink 认不出它，os.walk 会走进去）不进去，但要说一声没导出
+            if pathnames.is_link(here / name):
                 result.skipped.append(((here / name).relative_to(data_dir).as_posix() + "/", t("符号链接，可能指向数据文件夹外面")))
-        folders[:] = sorted(name for name in folders if not (here / name).is_symlink())
+        folders[:] = sorted(name for name in folders if not pathnames.is_link(here / name))
         for name in list(folders):
             relative = (here / name).relative_to(data_dir).as_posix()
             if relative in LEFT_OUT_FOLDERS:
@@ -163,7 +165,7 @@ def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
                 continue
             if _is_secret_file(name) or os.path.realpath(path) in blocked:
                 result.skipped.append((relative, t("存着密钥的文件")))
-            elif path.is_symlink():
+            elif pathnames.is_link(path):
                 result.skipped.append((relative, t("符号链接，可能指向数据文件夹外面")))
             elif relative in MASKED_FILES:
                 _plan_masked(result, path, relative)

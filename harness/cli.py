@@ -21,7 +21,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import capabilities, i18n, model_catalog, rewind
+from . import capabilities, console, i18n, model_catalog, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -303,6 +303,7 @@ def run_terminal(config: Config) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    console.use_utf8()  # Windows 上输出接到管道或者文件时也用 UTF-8，打印中文不会出错（见 console.py）
     config = load_config()
     # 先按设置文件定下界面语言，下面的命令行说明（--help）才是这种语言
     i18n.choose(Settings(config.settings_file, config.default_provider, config.default_model).language)
@@ -315,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     serve = commands.add_parser("serve", help=t("在服务器上一直运行：定时任务和聊天通道，不开浏览器"))
     serve.add_argument("--web", dest="serve_web", action="store_true", help=t("同时开着网页界面（只监听 127.0.0.1，用 SSH 隧道访问）"))
     serve.add_argument("--port", dest="serve_port", type=int, default=None, help=t("网页界面使用的端口（默认 8765，被占用时自动换一个）"))
-    serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
+    serve.add_argument("--service", dest="serve_service", choices=("launchd", "systemd", "taskscheduler"), default=None, help=t("作为后台服务运行（harness service install 写进服务的设置里，不用自己加）"))
     channels_cli.add_parser(commands)
     commands_cli.add_parser(commands)
     hooks_cli.add_parser(commands)

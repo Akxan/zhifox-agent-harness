@@ -28,7 +28,7 @@ function hooksToolbar() {
   const add = tools.appendChild(hooksButton('plus', k('添加钩子'), 'primary'));
   add.dataset.focus = 'add';
   add.addEventListener('click', () => openHooksForm(null));
-  const reveal = tools.appendChild(iconButton('folder', ON_MAC ? k('在访达中显示配置文件') : k('在文件夹中显示配置文件')));
+  const reveal = tools.appendChild(iconButton('folder', byServer(k('在访达中显示配置文件'), k('在文件资源管理器中显示配置文件'), k('在文件管理器中显示配置文件'))));
   reveal.classList.remove('small');
   reveal.dataset.focus = 'reveal';
   reveal.addEventListener('click', revealHooksFile);
@@ -126,7 +126,7 @@ function hooksRow(row) {
   test.dataset.focus = 'test:' + row.name;
   test.disabled = pending || !hook;
   test.addEventListener('click', () => openHooksDetail(row.name, true));
-  const reveal = button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示“{name}”的配置文件') : k('在文件夹中显示“{name}”的配置文件'));
+  const reveal = button('folder', showLabel(), byServer(k('在访达中显示“{name}”的配置文件'), k('在文件资源管理器中显示“{name}”的配置文件'), k('在文件管理器中显示“{name}”的配置文件')));
   reveal.dataset.focus = 'reveal:' + row.name;
   reveal.disabled = false;
   reveal.addEventListener('click', revealHooksFile);

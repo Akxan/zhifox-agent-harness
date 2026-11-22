@@ -1,4 +1,4 @@
-"""读写文件 —— 第二类工具：Anthropic 定义格式，我们负责执行。
+r"""读写文件 —— 第二类工具：Anthropic 定义格式，我们负责执行。
 
 这个工具（text editor）的名字和参数格式是 Anthropic 规定的，模型在训练时就学过怎么用，
 所以说明书只需要一行声明，不用自己写参数格式。但文件操作发生在你的电脑上，
@@ -9,18 +9,25 @@ view 一张图片（PNG、JPEG、GIF、WebP）时，交回去的不是文字，�
 （MCP、浏览器、操作电脑的截图都是这么交给模型的），看得懂图片的模型会直接看到它；看不懂的（DeepSeek）
 由适配层换成一句说明（见 providers/openai_compat.py）。是不是图片看文件开头的几个字节，不看扩展名。
 
+路径要先过一遍（resolve）：模型给的路径可能用了 Windows 的花招（.env.、.env::$DATA、ENV~1、\\服务器\共享……，
+见 pathnames.py），用了就不认。保存密钥的文件按"写法"（不分大小写，见 pathnames.key）和"是不是同一个文件"两样比（is_protected）。
+
+换行原样保留（见 _read）：Windows 上的仓库里 \r\n 和 \n 结尾的文件都有，改一处不能把整个文件的换行都换掉。
+
 哪些操作要先问用户，由 permissions.py 决定，不在这里。
 """
 
 from __future__ import annotations
 
 import base64
+import os
 import shutil
 import threading
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
+from .. import pathnames
 from ..attachments import MAX_IMAGE_BYTES, sniff_image
 from ..redact import MARKED
 from ..undo.journal import watching
@@ -43,21 +50,47 @@ class FileEditor:
         self.workspace = workspace.resolve()
         self.backup_dir = backup_dir
         self.protected = {path.resolve() for path in protected}
+        self._protected_keys = {pathnames.key(path) for path in self.protected}
 
     # ---- 路径 -------------------------------------------------------------
 
     def resolve(self, raw: object) -> Path:
-        """把模型给的路径变成绝对路径。相对路径以工作目录为起点。
+        r"""把模型给的路径变成绝对路径。相对路径以工作目录为起点。
 
         模型给的路径不能直接信任：这里把 `..` 和符号链接全部展开，
-        之后的检查看到的才是真正会被访问的那个位置。
+        之后的检查看到的才是真正会被访问的那个位置。用了 Windows 花招的写法直接不认（见 pathnames.trick）：
+        \\服务器\共享 光是展开一下就会去连那台主机，.env. 这种写法展开之后也未必看得出它就是 .env。
         """
         if not isinstance(raw, str) or not raw.strip():
             raise ToolError("缺少 path 参数。")
+        reason = pathnames.trick(raw)
+        if reason:
+            raise ToolError(f"{reason}。为了安全，这种写法不认，请换成普通的完整路径。")
         path = Path(raw).expanduser()
         if not path.is_absolute():
             path = self.workspace / path
         return path.resolve()
+
+    def is_protected(self, path: Path) -> bool:
+        """path（resolve 过的）是不是保存密钥的文件。
+
+        两样都比：写法（不分大小写、Windows 上不管尾巴上的点……见 pathnames.key），和"是不是同一个文件"
+        （硬链接、Windows 的短名字这类另一个名字：st_dev、st_ino 一样）。还不存在的只能比写法，这一样也要紧：
+        不能让模型先建一个 .ENV，macOS 上以后读 .env 的程序读到的就是它（里面可以写 ANTHROPIC_BASE_URL）。
+        """
+        if pathnames.key(path) in self._protected_keys:
+            return True
+        try:
+            info = os.stat(path)
+        except (OSError, ValueError):
+            return False
+        for item in self.protected:
+            try:
+                if os.path.samestat(info, os.stat(item)):
+                    return True
+            except OSError:
+                continue
+        return False
 
     def in_workspace(self, path: Path) -> bool:
         return path == self.workspace or path.is_relative_to(self.workspace)
@@ -75,7 +108,7 @@ class FileEditor:
             raise ToolError("参数必须是一个 JSON 对象。")
         command = tool_input.get("command")
         path = self.resolve(tool_input.get("path"))
-        if path in self.protected:
+        if self.is_protected(path):
             raise ToolError("这个文件保存着密钥或者权限的设置，助手不能读取或修改它。")
 
         if command == "view":
@@ -106,7 +139,7 @@ class FileEditor:
         picture = self._picture(path)
         if picture is not None:
             return picture
-        lines = self._read(path).split("\n")
+        lines = self._read(path)[0].split("\n")
         start, end = 1, len(lines)
         if view_range is not None:
             if (
@@ -131,25 +164,27 @@ class FileEditor:
         if existed:
             self._backup(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        _write(path, text, "\n")  # 整个文件是模型给的：原样写下去，一个字节都不换
         return f"已覆盖 {path}（旧版本已备份）。" if existed else f"已创建 {path}。"
 
     def _str_replace(self, path: Path, old: str, new: str) -> str:
-        content = self._read(path)
+        content, newline = self._read(path)
+        old, new = _lines(old, newline), _lines(new, newline)
         count = content.count(old) if old else 0
         if count == 0:
             raise ToolError("没有在文件里找到 old_str。它必须和文件内容逐字一致，包括空格和换行。")
         if count > 1:
             raise ToolError(f"old_str 在文件里出现了 {count} 次，无法确定替换哪一处。请多带一些上下文，让它只出现一次。")
-        path.write_text(content.replace(old, new, 1), encoding="utf-8")
+        _write(path, content.replace(old, new, 1), newline)
         return f"已修改 {path}。"
 
     def _insert(self, path: Path, line: object, text: str) -> str:
-        lines = self._read(path).split("\n")
+        content, newline = self._read(path)
+        lines = content.split("\n")
         if not isinstance(line, int) or isinstance(line, bool) or not 0 <= line <= len(lines):
             raise ToolError(f"insert_line 应该是 0 到 {len(lines)} 之间的整数（0 表示插在文件开头）。")
-        lines[line:line] = text.split("\n")
-        path.write_text("\n".join(lines), encoding="utf-8")
+        lines[line:line] = _lines(text, newline).split("\n")
+        _write(path, "\n".join(lines), newline)
         return f"已在 {path} 的第 {line} 行之后插入内容。"
 
     # ---- 辅助 -------------------------------------------------------------
@@ -191,15 +226,25 @@ class FileEditor:
         kind = media_type.split("/", 1)[1].upper()
         return ToolOutput(f"图片 {path}（{kind}，{_size(size)}）。图片本身附在这条结果里。", images=(ToolImage(media_type, data),))
 
-    def _read(self, path: Path) -> str:
+    def _read(self, path: Path) -> tuple[str, str]:
+        r"""读出一个文本文件（一律 UTF-8）：返回（交给模型的文字，这个文件用的换行）。
+
+        换行原样保留。直接按字节解码，不让 Python 转换换行（read_text 会把 \r\n 读成 \n，
+        Windows 上 write_text 又会把 \n 写成 \r\n：改一处，整个文件的换行就全变了，git 里一片红）。
+        整个文件都用 \r\n 的，交给模型之前换成 \n（模型写 old_str 时用的是 \n），写回去时再换回来（"\r\n"）；
+        只用 \n 的、混着用的，原样交给模型、原样写回去（"\n"）。
+        """
         if not path.exists():
             raise ToolError(f"{path} 不存在。")
         if path.is_dir():
             raise ToolError(f"{path} 是一个目录，不是文件。")
         try:
-            return path.read_text(encoding="utf-8")
+            text = path.read_bytes().decode("utf-8")
         except UnicodeDecodeError:
             raise ToolError(f"{path} 不是文本文件，无法读取。") from None
+        if "\r\n" in text and text.count("\r\n") == text.count("\n"):
+            return text.replace("\r\n", "\n"), "\r\n"
+        return text, "\n"
 
     def _backup(self, path: Path) -> None:
         """整个覆盖一个文件之前，先把旧版本存一份到 data/backups/。调用的人拿着 _EDITING。"""
@@ -210,6 +255,16 @@ class FileEditor:
             number += 1
             target = self.backup_dir / f"{stamp}-{number}-{path.name}"
         shutil.copy2(path, target)
+
+
+def _lines(text: str, newline: str) -> str:
+    r"""模型给的一段文字，换成和文件一样的换行（交给 _write 之前统一成 \n，见 _read）。"""
+    return text.replace("\r\n", "\n") if newline == "\r\n" else text
+
+
+def _write(path: Path, text: str, newline: str) -> None:
+    """写回一个文本文件：UTF-8，换行是 newline（_read 说的那一种）。按字节写，Python 不再改换行。"""
+    path.write_bytes((text.replace("\n", "\r\n") if newline == "\r\n" else text).encode("utf-8"))
 
 
 def _size(size: int) -> str:

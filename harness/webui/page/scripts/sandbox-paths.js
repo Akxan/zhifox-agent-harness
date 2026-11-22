@@ -118,7 +118,7 @@ function sandboxRow(item) {
   bits.appendChild(sandboxTag(item.write));
   if (!item.exists) bits.appendChild(tel('span', 'sandbox-missing', k('现在不存在')));
   const actions = row.appendChild(el('div', 'sandbox-actions'));
-  const reveal = actions.appendChild(iconButton('folder', SHOW_FILE));
+  const reveal = actions.appendChild(iconButton('folder', showLabel()));  // 访达 / 文件资源管理器 / 文件管理器（见 platform.js）
   const edit = actions.appendChild(iconButton('edit', k('编辑')));
   const trash = actions.appendChild(iconButton('trash', k('删除')));
   trash.classList.add('danger-hover');

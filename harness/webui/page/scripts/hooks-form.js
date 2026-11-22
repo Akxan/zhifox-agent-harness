@@ -145,7 +145,7 @@ function openHooksForm(original) {
   const message = foot.appendChild(el('p', 'hooks-help'));
   message.id = 'hooks-f-message';
   message.setAttribute('role', 'status');
-  retext(message, ON_MAC ? k('⌘Enter 保存，Esc 返回') : k('Ctrl+Enter 保存，Esc 返回'));
+  retext(message, forKeys(k('⌘Enter 保存，Esc 返回'), k('Ctrl+Enter 保存，Esc 返回')));
   const cancel = foot.appendChild(tel('button', 'button', k('取消')));
   cancel.type = 'button';
   cancel.id = 'hooks-f-cancel';
@@ -157,7 +157,7 @@ function openHooksForm(original) {
   form.addEventListener('input', hooksDirty);
   form.addEventListener('change', hooksDirty);
   form.addEventListener('keydown', (key) => {
-    if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey) && !key.isComposing) { key.preventDefault(); saveHooksForm(); }
+    if (key.key === 'Enter' && commandHeld(key) && !key.isComposing) { key.preventDefault(); saveHooksForm(); }
   });
   hooksShow([head, form], 'form', 'name');
   setHooksEvent(view.event, false);
@@ -183,7 +183,7 @@ function hooksDirty() {
   const view = hooksView;
   if (view.kind !== 'form') return;
   view.dirty = true;
-  if (view.armed) { view.armed = false; hooksFormSay(ON_MAC ? k('⌘Enter 保存，Esc 返回') : k('Ctrl+Enter 保存，Esc 返回')); }
+  if (view.armed) { view.armed = false; hooksFormSay(forKeys(k('⌘Enter 保存，Esc 返回'), k('Ctrl+Enter 保存，Esc 返回'))); }
 }
 
 function hooksFormSay(key, values, bad) {

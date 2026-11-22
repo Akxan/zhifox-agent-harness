@@ -7,7 +7,6 @@
 // 页面不用自己去轮询。页面只拿到相对路径，查看和删除时原样交回去；文件到底在哪儿由服务器重新算，出不了那个文件夹。
 
 const memoryList = $('memories'), memoryDialog = $('memory-dialog');
-const MEMORY_FOLDER = ON_MAC ? k('在访达中打开记忆文件夹') : k('打开记忆文件夹');
 const MAX_MEMORIES = 500;   // 和助手程序那边列表的上限一致
 let memories = [];          // 最新的记忆列表：[{path, size, modified}]
 let knownMemories = null;   // 上一次画的时候有哪些。新出现的（刚记下的）那几条浮现出来
@@ -21,7 +20,7 @@ let viewDrawn = '';
 let memoryQuery = '';       // 搜索框里的字（已经转成小写）
 const narrowMemory = matchMedia('(max-width: 760px)');  // 窄屏：列表和内容一次只显示一边
 
-retext($('memory-folder-label'), MEMORY_FOLDER);
+whenServerKnown(() => retext($('memory-folder-label'), byServer(k('在访达中打开记忆文件夹'), k('在文件资源管理器中打开记忆文件夹'), k('在文件管理器中打开记忆文件夹'))));
 
 // 窗口里没有浮在页面上的提示（被窗口的暗底挡着），所以说明写在窗口里：正看着一条的，写在它下面；否则写在列表下面
 function memorySay(text, bad) {
@@ -141,7 +140,7 @@ function memoryRow(item, fresh) {
     node.appendChild(icon(iconName));
     return node;
   };
-  button('folder', SHOW_FILE, ON_MAC ? k('在访达中显示：{name}') : k('在文件夹中显示：{name}')).addEventListener('click', () => showMemoryFile(item.path));
+  button('folder', showLabel(), showNamedLabel()).addEventListener('click', () => showMemoryFile(item.path));
   button('edit', k('编辑'), k('编辑记忆：{name}'), 'idle-only').addEventListener('click', () => openMemory(item.path, true));
   button('trash', k('删除'), k('删除记忆：{name}'), 'idle-only danger-hover').addEventListener('click', () => {
     forgetting = item.path;
@@ -336,8 +335,8 @@ function drawViewerFoot() {
     const folder = el('button', 'icon-button');
     folder.id = 'memory-reveal';
     folder.type = 'button';
-    folder.title = t(SHOW_FILE);
-    folder.setAttribute('aria-label', t(SHOW_FILE));
+    folder.title = t(showLabel());
+    folder.setAttribute('aria-label', t(showLabel()));
     folder.appendChild(icon('folder'));
     folder.disabled = gone;
     folder.addEventListener('click', () => showMemoryFile(viewing.path));
@@ -368,7 +367,7 @@ function drawViewerFoot() {
   if (keep && $(keep)) $(keep).focus();
 }
 
-const SAVE_HINT = ON_MAC ? k('⌘Enter 保存，Esc 退出编辑') : k('Ctrl+Enter 保存，Esc 退出编辑');
+const SAVE_HINT = forKeys(k('⌘Enter 保存，Esc 退出编辑'), k('Ctrl+Enter 保存，Esc 退出编辑'));
 
 function startEdit() {
   if (!viewing || !viewing.data) return;
@@ -396,7 +395,7 @@ function startEdit() {
 }
 
 const editChanged = () => Boolean(viewing && viewing.edit) && (
-  $('memory-edit-name').value.trim() !== viewing.edit.base.name || $('memory-edit-text').value !== viewing.edit.base.text);
+  $('memory-edit-name').value.trim() !== viewing.edit.base.name || !sameText($('memory-edit-text').value, viewing.edit.base.text));
 
 // 离开编辑（取消、Esc、关掉对话框）。改过还没保存的，先提醒一次，再来一次才真的放弃。
 // 返回 true 表示已经离开了编辑
@@ -467,7 +466,7 @@ memoryDialog.addEventListener('keydown', (key) => {
     key.preventDefault();
     key.stopPropagation();
     leaveEdit();
-  } else if (key.key === 'Enter' && (ON_MAC ? key.metaKey : key.ctrlKey)) {
+  } else if (key.key === 'Enter' && commandHeld(key)) {
     key.preventDefault();
     saveEdit();
   }
@@ -513,9 +512,7 @@ async function forgetViewed() {
 // 请助手程序在文件管理器里打开记忆文件夹。页面什么路径都不给，开哪个文件夹由助手程序自己定
 async function openMemoryFolder() {
   const reply = await call('/api/memory/reveal');
-  const parts = String(reply.data.path || '').split('/');
-  const shown = (parts.length > 3 ? '…/' : '') + parts.slice(-3).join('/');
-  const said = reply.ok ? (ON_MAC ? t('已在访达中打开：{path}', { path: shown }) : t('已打开文件夹：{path}', { path: shown })) : reply.error;
+  const said = reply.ok ? revealedText(reply.data.path, true) : reply.error;
   memorySay(said, !reply.ok);
 }
 

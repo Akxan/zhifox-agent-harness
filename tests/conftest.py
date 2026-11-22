@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import functools
+import os
+import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,13 +19,52 @@ import fake_sandbox
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
-from harness import i18n, providers
+from harness import commands as commands_module
+from harness import i18n, providers, winacl
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
 from harness.imports import places as import_places
 from harness.service import base as service_base
 from harness.service import cli as service_cli
+
+# ---- 符号链接 -------------------------------------------------------------------
+# Windows 上建符号链接要管理员权限，或者打开了"开发者模式"；普通用户建的时候报 OSError（WinError 1314）。
+# 这样的电脑上，建链接的测试跳过并写明原因，别的测试照常跑。macOS 和 Linux 上一直建得了，什么都不跳过。
+# 不按"是不是 Windows"判断，而是真的建一次：开了开发者模式的 Windows 也能建，那就照常测。
+# 硬链接（os.link）在 Windows 的 NTFS 上不要特别的权限，不受这里影响。
+NO_SYMLINKS = "这台 Windows 电脑上不能建符号链接（要管理员权限或者开发者模式）"
+
+
+@functools.cache
+def symlinks_work() -> bool:
+    """在一个新的临时文件夹里真的建一次链接，看这台电脑行不行。只试一次，之后用记下的结果。
+
+    文件的链接和文件夹的链接各建一个：Windows 上这是两种不同的链接（文件夹的要 target_is_directory），
+    测试里两种都用到了。
+    """
+    folder = Path(tempfile.mkdtemp(prefix="harness-symlink-probe-"))
+    try:
+        (folder / "file").write_text("x", encoding="utf-8")
+        (folder / "dir").mkdir()
+        (folder / "file-link").symlink_to(folder / "file")
+        (folder / "dir-link").symlink_to(folder / "dir", target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        return False
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.fixture
+def symlinks():
+    """要建符号链接的测试带上它：建不了链接的电脑上，整个测试跳过。
+
+    好几个测试共用的准备工作（比如 test_skills 的 claude_dirs）不带它，而是只在 symlinks_work() 时建链接，
+    再让真正用到这些链接的那几个测试带上它，免得不相干的测试也跟着跳过。
+    """
+    if not symlinks_work():
+        pytest.skip(NO_SYMLINKS)
 
 
 class RecordingUI:
@@ -137,6 +180,9 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)  # 语音转文字的接口地址（见 Config.transcribe_api）
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    # Windows 上 os.path.expanduser 看的是 USERPROFILE（不是 HOME，也不经过 Path.home）：一起换掉，免得读到这台电脑真正的家目录
+    if os.name == "nt":
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     # "从其他工具导入"会看这几个环境变量（CODEX_HOME 这些）找别的工具的配置：清掉，只看假的家目录
     for name in import_places.VARIABLES:
         monkeypatch.delenv(name, raising=False)
@@ -156,6 +202,14 @@ def isolated_environment(monkeypatch, tmp_path):
     def forbidden(*args, **kwargs):
         raise AssertionError(f"测试里不许运行真的系统命令或者打开浏览器：{args}")
 
+    # Windows 上收紧访问权限（winacl.py）要运行 icacls：测试里换成什么都不做的假的（每建一个临时目录就运行一次太慢），
+    # 真的 icacls 只在 tests/test_winacl.py 里、只在 Windows 上测
+    monkeypatch.setattr(winacl, "runner", lambda args: (0, '"test\\me","S-1-5-21-1-2-3-1001"'))
+    winacl.forget()
+    # "只读的命令不用问"在 Windows 上整个关着（每条都问，见 harness/commands/__init__.py）。测拆词、名单的那几百个测试
+    # 在 Windows 上照样要跑（路径的检查在那里才真正有 Windows 的样子），所以默认按 macOS、Linux 的规矩判断；
+    # 测 Windows 上"一律不算只读"的测试自己把它换回 True（tests/test_commands.py 的 test_on_windows_nothing_is_readonly）
+    monkeypatch.setattr(commands_module, "WINDOWS", False)
     monkeypatch.setattr(service_base, "run_command", forbidden)
     monkeypatch.setattr(service_base, "run_attached", forbidden)
     monkeypatch.setattr(service_cli, "_open_browser", forbidden)

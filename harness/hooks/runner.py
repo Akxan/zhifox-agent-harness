@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import threading
 import time
@@ -33,7 +32,7 @@ from typing import Any
 from ..config import HOOK_OUTPUT_BYTES
 from ..i18n import t
 from ..safe import clean_text
-from ..tools.shell import SECRET_ENV_VARS
+from ..tools.shell import SECRET_ENV_VARS, kill_tree
 
 DRAIN_WAIT_SECONDS = 1.0  # 程序退出以后，再等这么久把输出读完（它启动的后台进程可能还拿着管道，不能一直等）
 
@@ -97,20 +96,20 @@ class SandboxMissing(Exception):
 
 
 def _group() -> dict:
-    """新进程单独放进一个进程组的写法（系统相关）。POSIX 是新的会话；Windows 是 CREATE_NEW_PROCESS_GROUP。"""
+    """新进程单独放进一个进程组的写法（系统相关）。POSIX 是新的会话；Windows 是 CREATE_NEW_PROCESS_GROUP，
+    再加 CREATE_NO_WINDOW：作为后台服务运行时（没有控制台），每个钩子不会闪出一个黑色的窗口。"""
     if hasattr(os, "killpg"):
         return {"start_new_session": True}
-    return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _kill_tree(process: subprocess.Popen) -> None:
-    """连同它启动的子进程一起结束（系统相关）。"""
+    """连同它启动的子进程一起结束。怎么结束按系统分，只写在 tools/shell.kill_tree 一处（Windows 上是 System32 里的
+    taskkill /T /F，写完整的路径，PATH 里同名的程序冒充不了）。"""
     try:
-        if hasattr(os, "killpg"):
-            os.killpg(process.pid, signal.SIGKILL)
-        else:  # Windows：taskkill /T 连子进程一起结束；参数列表、不经过 shell
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, timeout=10, check=False)
-            process.kill()
+        kill_tree(process.pid)
+        if process.poll() is None:
+            process.kill()  # 都没能结束它（极少见）：至少结束它自己
     except (ProcessLookupError, PermissionError, OSError, subprocess.SubprocessError):
         pass
 

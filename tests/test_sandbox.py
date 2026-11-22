@@ -7,7 +7,6 @@ test_sandbox_linux.py（CI 里的 ubuntu），网页、接口、命令行、和�
 from __future__ import annotations
 
 import os
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from fake_sandbox import REAL_DETECT, install
+from modes import has_mode
 
 from harness.i18n import Message
 from harness.sandbox import backend as backends
@@ -30,6 +30,8 @@ from harness.trace.text import _row
 
 # Windows 上的命令是 PowerShell（没有 touch、>&2 这些写法），而且 Windows 上本来就没有沙箱（见 harness/sandbox/windows.py）
 BASH_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="这一项用 bash 的写法运行命令；Windows 上的命令是 PowerShell，沙箱在 Windows 上也用不了")
+# macOS（SBPL）和 Linux（bubblewrap）的后端怎么写参数：用的文件夹名里故意带着引号、换行、反斜杠，Windows 上的文件名不许有这些
+POSIX_NAMES = pytest.mark.skipif(sys.platform == "win32", reason="这一项测 macOS、Linux 的沙箱后端，用的文件夹名里带引号和换行：Windows 上的文件名不能有这些，那里也没有沙箱")
 
 
 
@@ -132,6 +134,7 @@ def test_the_environment_inside(place, tmp_path):
 ODD = 'a "quote" (paren) \\back; slash=1\n换行 中文 $HOME `x`'
 
 
+@POSIX_NAMES
 def test_the_profile_never_contains_a_path(place, tmp_path):
     workspace, _, _ = place
     odd = tmp_path / ODD
@@ -210,6 +213,7 @@ def _pairs(args: list[str], flag: str) -> list[tuple[str, str]]:
     return [(args[index + 1], args[index + 2]) for index, arg in enumerate(args) if arg == flag]
 
 
+@POSIX_NAMES
 def test_the_bwrap_arguments(place, tmp_path):
     workspace = place[0]
     tools = tmp_path / ODD
@@ -330,7 +334,7 @@ def test_the_scratch_folders_are_private_and_shared_within_a_run(layout, monkeyp
     second = box.enter(["true"], {})
     assert first.env["HOME"] == second.env["HOME"]
     home = Path(first.env["HOME"])
-    assert home.is_dir() and stat.S_IMODE(home.parent.stat().st_mode) == 0o700
+    assert home.is_dir() and has_mode(home.parent, 0o700)  # Windows 上看的是 ACL（见 tests/modes.py）
     assert len(fake.calls) == 2
     assert Sandbox(found).enter(["true"], {}).env["HOME"] != first.env["HOME"]  # 另一次运行，另一个
 
