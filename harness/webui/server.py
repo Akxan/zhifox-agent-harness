@@ -8,7 +8,9 @@
 
 每个接口查完参数以后怎么做，在各自的文件里：
 
-  webapp.py            WebApp：把助手接到网页上。共用的状态和锁（对话的锁 _turn、存盘、这段会话归谁）、发给页面的状态快照
+  webapp.py            WebApp：把助手接到网页上。共用的状态和锁（见 sessions.py）、存盘、这段会话归谁、发给页面的状态快照
+  sessions.py          几段对话同时进行：每段一个 Session（它的助手、事件日志、锁），名单和"你正看着哪一段"
+  sessions_api.py      新建一段、换着看、停下一段（/api/stop）、一轮收尾、退出时都停下
   chat_api.py          发消息、答复确认：一轮对话怎么开始、在后台怎么跑、怎么收尾
   rewind_api.py        编辑最后一条消息、重新生成（倒回最后一轮，见 ../rewind.py）
   conversations_api.py 新对话、打开、改名、删除、在文件管理器里显示一段会话，搜索
@@ -33,8 +35,9 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
 浏览器只会发这几种请求：
 
   GET  /               页面本身（page/ 里的几块拼成的一页，见 page/__init__.py）
-  GET  /events         事件流。这个连接一直不关，服务器把 WebUI 日志里的新事件不断推过去。
-                       刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件
+  GET  /events         事件流。这个连接一直不关，服务器把你正看着的那一段的 WebUI 日志里的新事件不断推过去。
+                       刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件。
+                       换着看另一段时，先发一个不带编号的 reset，再把那一段的日志从头补发（见 _send_events）
   GET  /manifest.webmanifest  网页应用的清单：书签、"创建快捷方式 / 安装成应用"用的名字、图标和打开的地址（见 manifest.py）
   GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py 和 chat_api.py）
@@ -42,7 +45,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py 和 rewind_api.py）。
                        带上 undo_files 的话，倒回去之前先撤回这一轮改的文件（见 undo/）
   POST /api/changes/diff、undo、redo   "改了 N 个文件"那一行：看一个文件改了什么、撤回、重做（见 changes_api.py）
-  POST /api/stop       用户点了"停止"
+  POST /api/stop       用户点了"停止"：只停一段（带 conversation 的是会话栏上后台的那一段，见 sessions_api.py）
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/ 和 conversations_api.py）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话（见 conversations_api.py）
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
@@ -152,6 +155,7 @@ from . import (
     prompt_api,
     reveal,
     rewind_api,
+    sessions_api,
     settings_api,
     tasks_api,
 )
@@ -243,8 +247,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path in ("/api/turn/edit", "/api/turn/retry"):
             rewind_api.route_turn(self, web, path, body)
         elif path == "/api/stop":
-            web.stop()
-            self._send_json(200, {"ok": True})
+            sessions_api.route_stop(self, web, body)
         elif path == "/api/new":
             conversations_api.route_new(self, web, body)
         elif path.startswith("/api/conversation/"):
@@ -505,6 +508,17 @@ class Handler(BaseHTTPRequestHandler):
         "旧的补完了，后面的都是此刻正在发生的"。页面靠它区分两种内容：补发的旧内容直接画出来，
         实时的新内容才播放入场动画。标记不带编号、也不进日志，所以不影响断线重连时
         "从第几号接着发"的计算。
+
+        读的是你正看着的那一段的日志（见 sessions.py）。换着看另一段时（打开一段正在后台跑的会话、
+        你正看着的那一段在跑时开了新对话），先写一个不带编号的 reset（页面清空，"reset 到下一个状态之间算重放"），
+        再把那一段的日志从头补发：它可能正在一轮中间，确认卡片、写了一半的回复都在里面，之后的事件接着实时发过来。
+        那个 reset 不带编号：浏览器记着的还是最后一个真实事件的编号。
+
+        断线重连时浏览器报上来它收到的最后一个编号（Last-Event-ID）。几段的编号从同一个数往下排（见 ui.EventIds），
+        这一段从 since 那一号起才成了正看着的：报上来的比 since 小，说明浏览器还没收到过这一段的日志（或者不知道收全了没有），
+        从头补发一遍（前面加上 reset）；不小于 since，说明它收到的就是这一段的，接着发后面的。
+        换过去的那一刻（Sessions.view）和这里读日志（Sessions.watching）拿的是同一把锁，所以换过去以前读到的事件，
+        编号一定都比 since 小：浏览器不会拿着上一段的编号，被当成"这一段已经收到这里了"。
         """
         try:
             # 浏览器断线重连时，会用这个请求头告诉我们它上次收到了第几号事件
@@ -517,15 +531,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         caught_up = False  # 已有的事件补发完了没有
+        watched = None  # 正在读的是哪一段的日志
         try:
             while True:
-                # 第一次不等待：有多少旧事件就发多少，紧接着发标记
-                wait = KEEPALIVE_SECONDS if caught_up else 0
-                events = self.server.web.ui.events_after(cursor, timeout=wait)
-                if not events and caught_up:
-                    self.wfile.write(b": keepalive\n\n")  # 没有新事件时也定期写一点，才能发现对方已经断开
-                if events:
-                    cursor = events[-1]["id"]
+                # 第一次（浏览器报上来的编号不是这一段的），或者换着看了另一段（restart）：页面清空，从头补发这一段的日志
+                # 每次现找 server.web：从备份恢复以后换上了一个新的 WebApp（见 restore_api.py），接着读它的（还是同一个 WebUI）
+                ui, restart, events, wakes = self.server.web.sessions.watching(cursor, watched)
+                watched = ui
+                if restart:
+                    if not events or events[0]["type"] != "reset":  # 这一段的日志不是从 reset 开始的：替它补一个
+                        self.wfile.write(f"data: {to_json({'type': 'reset'})}\n\n".encode())
+                    events = latest_state_only(events)
+                if not events:
+                    if not caught_up:
+                        caught_up = True
+                        self.wfile.write(b"event: synced\ndata: {}\n\n")
+                    elif not ui.wait_newer(cursor, KEEPALIVE_SECONDS, wakes):
+                        self.wfile.write(b": keepalive\n\n")  # 没有新事件时也定期写一点，才能发现对方已经断开
+                    continue
+                cursor = events[-1]["id"]
                 if not caught_up:
                     events = latest_state_only(events)  # 补发的这一批里，过时的状态不用发
                 for event in events:

@@ -45,8 +45,7 @@ class EndpointsAPI:
 
     def state(self) -> dict:
         """状态里的清单。"""
-        app = self.web.app
-        used = {app.agent.backend.provider, app.settings.provider}
+        used = self.web.app.providers_in_use()  # 活着的每一段对话用的（网页上在后台跑着的也算），加上设置里选的
         return {
             "items": [summary(item, item.provider_id in used) for item in self.store.list()],
             "file": str(self.store.path),
@@ -72,19 +71,19 @@ class EndpointsAPI:
             return 400, {"error": t("参数不正确")}
         if action == "delete" and not ident:
             return 400, {"error": t("参数不正确")}
-        if not self.web._turn.acquire(blocking=False):
-            return 409, {"error": self.web._busy()}
-        try:
-            if action == "save":
-                endpoint = self.web.app.save_endpoint(body["form"], ident or None)
-            else:
-                self.web.app.delete_endpoint(ident)
-        except EndpointError as exc:
-            return 409, {"error": exc.message}
-        except OSError as exc:
-            return 409, {"error": t("没能写进 {file}（{error}）。", file=self.store.path, error=exc)}
-        finally:
-            self.web._turn.release()
+        # 保存会换掉你正看着的那一段的连接（它在用这个接口的话），所以拿它的锁，和换模型一样（见 WebApp._viewed_idle）
+        with self.web._viewed_idle() as free:
+            if not free:
+                return 409, {"error": self.web._busy()}
+            try:
+                if action == "save":
+                    endpoint = self.web.app.save_endpoint(body["form"], ident or None)
+                else:
+                    self.web.app.delete_endpoint(ident)
+            except EndpointError as exc:
+                return 409, {"error": exc.message}
+            except OSError as exc:
+                return 409, {"error": t("没能写进 {file}（{error}）。", file=self.store.path, error=exc)}
         self.web.publish_state()
         if action == "delete":
             return 200, {"ok": True}

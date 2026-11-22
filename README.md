@@ -77,6 +77,11 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   agent: what it's good at, which tools and model it may use, and its instructions. The main assistant can hand a task
   to it as a *subagent* (a fresh history of its own; only its conclusions come back), or you can start a conversation
   with it as the *persona*. An agent never gets more tools than whoever calls it, and its commands still ask you first.
+- 🪟 **Several conversations at once.** While one conversation is working (or waiting for your **Allow**), open another
+  or start a new one and keep going: the first carries on in the background. The sidebar marks each one (running, needs
+  your approval, failed, new reply) with a **Stop** button next to it, and an approval waiting in the background shows at
+  the top of the page and as a system notification. Up to three run at the same time
+  ([details](#several-conversations-at-once)).
 - ⏰ **Scheduled and recurring tasks.** Free reminders, or instructions the assistant runs on its own at a set time:
   once, daily, weekly, monthly or every N minutes, in local time and safe across daylight saving. Runs happen alongside
   your conversation (up to three at once), ask for approval the way you choose for each task (Ask every time by
@@ -507,6 +512,7 @@ Each part of the harness has its own file or directory:
 | Custom agents | [harness/agents/](harness/agents/), [harness/tools/agent.py](harness/tools/agent.py) | One assistant can't be good at everything, and a long research job floods the conversation with pages of material. An agent is a file with its own instructions, tools and model: the main assistant hands it a task and gets back only the conclusions (a subagent), or you talk to it directly (a persona) |
 | Importing from other tools | [harness/imports/](harness/imports/) | You already set up MCP servers, skills and agents in other AI tools, each in its own place and format. A registry of where two dozen tools keep them, and small readers that rewrite each format the ZhiFox way before the usual checks (see [Importing from other tools](#importing-from-other-tools)) |
 | Shared catalog | [harness/catalog.py](harness/catalog.py) | The lists of skills and agents change at any time, but the system prompt mustn't. Both lists travel in user messages, attached again only when they change |
+| Several conversations at once | [harness/webui/sessions.py](harness/webui/sessions.py), [harness/webui/sessions_api.py](harness/webui/sessions_api.py) | Waiting for one reply shouldn't stop you from starting the next. Each live conversation is a session with its own agent, shell, event log and lock; the list of sessions, which one you're looking at, the limit, and switching, stopping and finishing one (see [Several conversations at once](#several-conversations-at-once)) |
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply, and `send_file` ([tools/send.py](harness/tools/send.py)) to send photos and files back into the chat (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
@@ -1177,6 +1183,43 @@ sources, so they are no longer dropped:
 
 GPT, Gemini and DeepSeek have no web search, so their answers never carry sources.
 
+### Several conversations at once
+
+In the web UI you can leave a conversation working and go on in another one. Each conversation that is "alive" is a
+**session** ([harness/webui/sessions.py](harness/webui/sessions.py)): its own `Agent` with its own adapter and history,
+its own shell, browser tabs and computer use session, its own MCP call owner, its own event log (a `WebUI`) and its own
+lock. `App.chat` is the one you're looking at; `App.agent`, `App.conversation` and the rest belong to it, so code that
+only reads "the current conversation" didn't have to change. A turn that keeps running in the background only ever
+uses its own session's things ([harness/webui/chat_api.py](harness/webui/chat_api.py)).
+
+- **Switching.** If the conversation you're looking at is in the middle of a turn when you open another one, start a
+  new one or fork, it stays in the list and keeps running; you get a fresh session. If it isn't running, it's simply
+  reused, exactly as before. Opening a conversation that is running in the background switches to its session: the page
+  gets a `reset`, the session's whole log is replayed (a half-written reply, an approval card still waiting) and live
+  events continue from there, so streaming picks up where it is. A session that finishes in the background and is saved
+  is dropped from memory; the sidebar keeps a "new reply" or "failed" mark until you open it.
+- **Locks.** There is no longer one "conversation lock". Each session has its own: sending, regenerating, undoing a
+  turn's files, switching models or renaming take *that* session's lock, so the same conversation never runs two turns
+  at once, while other conversations stay free. Changing the set of live sessions (open, new, fork, delete) goes one at
+  a time. Global changes that a running turn might be using (editing a memory or a skill, restoring a backup) need
+  *every* session to be idle; the refusal names the ones still running. The lock order is written at the top of
+  `sessions.py`.
+- **What stays separate, what is shared.** Approval cards have globally unique numbers, so an answer only reaches the
+  session waiting for it. "Don't ask again in this conversation" for screenshots or clicks, the sites you allowed in the
+  browser, Stop, the record of a turn's file edits and the run trace are per session. The approval mode you pick at the
+  bottom of the chat is one setting for all of them, and the screen is one: when two conversations want to operate the
+  computer, the second is told the screen is in use, as with scheduled tasks. A conversation running in the background
+  also holds its claim, so a chat channel can't write into it at the same time.
+- **Limits.** At most `MAX_PARALLEL_CHATS` conversations (3, in [config.py](harness/config.py)) run turns at the same
+  time; past that, sending (or regenerating) is refused with the reason, and the page doesn't send. Scheduled tasks and
+  chat channels don't count toward it: they have their own rules. Unlike a scheduled task, a background conversation is
+  one you started and can watch: it uses your chat's approval mode, its approvals wait for you, and switching to it
+  shows everything as it happens.
+- **One stream.** The page reads one event stream, always the conversation you're looking at; every open tab sees the
+  same one. Event numbers come from one counter shared by all sessions, and each session remembers from which number it
+  has been the one on screen, so a reconnecting tab that reports a number from another conversation gets the whole log
+  again instead of half of it. On quit, every session is stopped, waited for and saved.
+
 ### Scheduled tasks: running when nobody is watching
 
 A task is a saved instruction plus a schedule ([harness/tasks.py](harness/tasks.py)). Running one reuses the same loop,
@@ -1187,7 +1230,7 @@ with three things handled differently ([harness/webui/scheduler.py](harness/webu
    out on the calendar in local time rather than by adding 24 hours, which is what keeps "every day at 9:00" at 9:00 on
    the wall clock across daylight saving. Each task's next time is saved in `data/tasks.json`; finding it in the past on
    the next start is how ZhiFox knows a run was missed.
-2. **Side by side.** A run doesn't take your conversation's lock: you keep chatting, switching models and opening
+2. **Side by side.** A run doesn't take any of your conversations' locks: you keep chatting, switching models and opening
    conversations while tasks run, and several tasks can run at once. That works because everything that can be
    *stopped* is per run (`App.unattended_agent`): its own shell, so stopping a run ends only that run's command, and
    the chat's Stop never reaches a task; its own MCP calls (each run's tool snapshot files its calls under that run,
@@ -2575,6 +2618,15 @@ This starts a small server on your computer and opens the chat page in your brow
   your computer, **Rename** and **Delete**. Conversations save automatically at the end of every turn, with nothing to
   do by hand. The button at the top left hides the sidebar; clicking the bottom row opens the folder where conversations
   are saved.
+- **Several conversations at once.** While a reply is being written or an approval card is waiting, you can click another
+  conversation or **New chat** and keep working: the first one carries on in the background. Its row in the sidebar
+  says what it's doing: **Running**, **Needs your approval** (the most visible, with a warm stripe on the left), **Failed**
+  or **New reply** (it finished while you were elsewhere; the mark goes when you open it). Hovering over a running
+  row shows **Stop this conversation** in front of **Show in Finder**; rename and delete wait until it's done. When a
+  conversation in the background stops to ask you, a bar at the top of the page says so (click it to go there and
+  answer), a short message appears, and with the page in the background you get a system notification, the same as for
+  the conversation on screen. Open it and you see everything so far, with the reply still streaming in. Up to three
+  conversations can run at the same time; with three going, sending a fourth message tells you to wait or stop one.
 - **Search** (top of the sidebar, ⌘F or Ctrl+F; ⌘K and Ctrl+K work too, and pressing ⌘F again while you're in the
   search box hands over to the browser's own find-in-page). Searches all saved conversations, titles and content, without needing
   an exact match. Separate keywords with spaces. Each result shows the passage that matched; open it (or press Enter to

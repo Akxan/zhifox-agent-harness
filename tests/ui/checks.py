@@ -44,6 +44,8 @@ USER_CONTENT = [
     ".hooks-command", ".hooks-out", ".hooks-payload", ".hooks-user", "#trace-body .trace-hook-note",
     # "改了 N 个文件"那一行里点开的预览：一行一行的是文件里的字
     "#log .changes-code",
+    # 顶上那条"「某段会话」在等你确认"：里面是会话的标题（见 page/scripts/live.js）
+    "#chat-alert-text",
 ]
 # 用户起的名字：既不检查它们自己，它们的文字也算"认得的"——按钮的说明里带着名字（"编辑任务：每日安排"）不算没翻译
 NAMES = [

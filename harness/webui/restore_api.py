@@ -12,7 +12,8 @@
 上传好的那一份只有一个：再传一个就换掉，不确认的话 RESTORE_STAGE_SECONDS 秒以后删掉，退出时也删掉（见 lifecycle.stop）。
 
 恢复以后怎么让程序用上新的数据：和重启一样，照着磁盘重新组装一遍（build_app），换上一个新的 WebApp。
-  1. 拿住对话的锁（web._turn，拿不到用 _busy 回答）；定时任务在跑、聊天通道正占着一段会话，不恢复，说明为什么
+  1. 拿住 web._turn（"没有一段对话在跑"，见 sessions.py 的 AllIdle；拿不到就说是哪几段在跑）；
+     定时任务在跑、聊天通道正占着一段会话，不恢复，说明为什么
   2. 停下定时任务、聊天通道、MCP 服务器、浏览器（lifecycle.stop，和退出时一样，存好盘）
   3. 恢复（restore.apply：先自动备份，再写）
   4. 照着新的数据组装一个新的 App 和 WebApp，换到服务器上（server.web）；原来开着定时任务、聊天通道的，新的也开起来。
@@ -174,7 +175,7 @@ class RestoreAPI:
         web = self.web
         if look:
             if not web._turn.acquire(blocking=False):
-                return web._busy()
+                return web._busy_everywhere()
             web._turn.release()
         running = [task["title"] for task in web.tasks.snapshot()[0] if task.get("running")]
         if running:
@@ -197,10 +198,10 @@ class RestoreAPI:
             return 409, {"error": t("上传的备份已经不在了（只留 {minutes} 分钟），请重新选一次。", minutes=RESTORE_STAGE_SECONDS // 60), "gone": True}
         web = self.web
         if not web._turn.acquire(blocking=False):
-            return 409, {"error": web._busy()}
+            return 409, {"error": web._busy_everywhere()}
         retired = False
         try:
-            blocked = self._blocked() or web._before_leaving("restore")
+            blocked = self._blocked() or web._before_leaving(web.sessions.viewed, "restore")
             if blocked:
                 return 409, {"error": blocked}
             with self._lock:
@@ -254,7 +255,10 @@ class RestoreAPI:
         return 200, {"ok": True, "result": result}, True
 
     def _rebuild(self) -> WebApp:
-        """照着磁盘上的数据重新组装一遍（和启动时一样），接到同一个界面、同一个口令上。"""
+        """照着磁盘上的数据重新组装一遍（和启动时一样），接到同一个界面、同一个口令上。
+
+        同一个界面是你正看着的那一段的事件日志（old.ui）：页面开着的事件流正读着它，换上新的 WebApp 以后接着读，不用重连。
+        新的 WebApp 上只有这一段（恢复之前没有一段在跑，没存上盘的也在 lifecycle.stop 里存过了）。"""
         old = self.web
         app = old.app
         old.ui.forget_stop_callbacks()  # 旧的那一份登记的"停止时要做的事"不再要（新的 WebApp 会登记它自己的）

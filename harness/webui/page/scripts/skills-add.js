@@ -85,7 +85,7 @@ function buildSkillCreate(view) {
 async function createSkill(view) {
   if (skillView !== view || view.saving) return;
   const { name, description, steps } = view.fields;
-  if (busy) { view.said = { key: BUSY_HINT, bad: true }; view.refresh(); return; }
+  if (anyRunning()) { view.said = { key: BUSY_HINT, bad: true }; view.refresh(); return; }
   if (!name.value.trim()) { name.focus(); return; }
   if (!description.value.trim()) { view.said = { key: k('请写一句说明：它做什么、什么时候用。'), bad: true }; view.refresh(); description.focus(); return; }
   view.saving = true;

@@ -8,6 +8,13 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Several conversations at once in the web UI: while one is working or waiting for your approval, open another or
+  start a new one and the first keeps running in the background. The sidebar marks each one (running, needs your
+  approval, failed, new reply) and can stop it; an approval waiting in the background shows at the top of the page and
+  as a system notification. At most `MAX_PARALLEL_CHATS` (3) run at the same time.
+
 ## [0.2.0]
 
 _Not released yet; the date is set when it is._

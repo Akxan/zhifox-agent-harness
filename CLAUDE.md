@@ -195,7 +195,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
-| `harness/webui/server.py`、`webapp.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁（`_turn`）、存盘、这段会话归谁、状态快照。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
+| `harness/webui/server.py`、`webapp.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
 | `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
@@ -227,7 +227,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   落在压缩进摘要的那一段的、没记 mark 的一律拒绝，不猜。`events` 截到同一个位置；`file_changes`、`file_undo` 不复制
   （`fork.LEFT_OUT`：留底按一轮的编号存、磁盘上的文件只有一份，两段会话都能撤回同一轮就会对不上，所以撤回只在原会话里做，
   `forked_from.changes` 让新会话顶上说一句）；`task`、`channel` 不带（新会话是普通的网页会话，没有 send_file）。
-  分叉要换会话，所以拿 `WebApp._turn`（你的一轮没结束时回答"先等"）；页面只给会话编号、那一轮 user 事件的编号和 at，对不上就 409。
+  分叉要换会话，所以和打开会话一样（见"你的几段对话同时进行"）：拿 `_switch`、试一下正看着的那一段的锁；它在跑就留在后台，
+  分叉出来的另建一段给你看（`fork_conversation(..., chat=)`）。读的是磁盘上存好的样子，所以正在跑的那一轮（还没存盘）分不了。
+  页面只给会话编号、那一轮 user 事件的编号和 at，对不上就 409。
   以后新加"跟着一轮走、但不能在两段会话里各管一份"的事件，加进 `fork.LEFT_OUT`。
 - **历史里只放普通的字典和字符串**，这样才能原样存成 JSON 文件、读回来原样发给 API。
 - **每个工具调用都必须有对应的结果**，包括被用户中断的情况。相关逻辑在 `Agent._run_tools` 的 `finally` 里。
@@ -265,12 +267,20 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **事件流的约定不能破坏。** 浏览器刚连上时，服务器先补发日志里已有的事件（过时的"状态"只留最后一个），
   然后发一个名叫 `synced` 的标记（没有编号、不进日志），之后才是实时事件。页面靠这个标记，加上
   "`reset` 到下一个 `state` 之间算重放"，来决定哪些内容播放入场动画。
+  事件流读的是你正看着的那一段的日志（`Sessions.watching`）。换着看另一段时（`Sessions.view`，拿着 `_publishing`），先发一个
+  **不带编号**的 `{"type":"reset"}`（那一段的日志本来就从 reset 开始的就不补），再从头补发那一段的日志，之后实时的接着来；
+  状态只发给正看着的那一段，换走的那一段的日志里的状态当场清掉（`forget_states`），换回来时"重放"不会停在一张旧状态上。
+  几段的事件编号从同一个数往下排（`ui.EventIds`），每段记着它从哪一号起被看着（`Session.since`）：重连时报上来的 Last-Event-ID
+  比它小（或者比谁都新），就当作换着看，从头补发。读日志和换过去在同一把锁里做，所以浏览器不会拿着上一段的编号被当成"这一段收到这里了"。
+  事件流每一圈现找 `server.web`（从备份恢复会换掉 WebApp）。
 - **系统通知只给实时的事**（`page/scripts/notify.js`）：确认卡片、一轮结束、出错的提示，只有 `isLive()`、页面在后台（`document.hidden`）、
   设置里开着（`harness.notify`，记在浏览器里）、浏览器允许了、同一个智狐的别的标签页没被看着（BroadcastChannel）时才弹；刷新、打开旧会话、
   倒回一轮时重放出来的一律不弹。弹通知只用 `systemNotify`，问浏览器要权限只用 `askNotify`（只在 click 里调，浏览器只认用户点过以后的询问），
   别处不再 `new Notification`、`requestPermission`。标签页的标题只经过 `setPageTitle`（后台时前面加标记），不要直接写 `document.title`；
   图标上的点是把 `<link rel="icon">` 换成另一个 data: 地址，页面的 CSP 本来就允许 `img-src data:`，不为它放宽任何一项。
   页面测试用 `steps.fake_notifications` / `background` / `notes`（假的 Notification 和 `document.hidden`），不弹真的系统通知。
+  后台另一段对话的事（`page/scripts/live.js`）照着状态里 `live` 的变化提醒：刚开始等你确认的弹 urgent 的通知（页面在眼前、你正看着别的会话时
+  另有 toast），在后台跑完、出错的弹普通的；刚连上、换着看的那一下收到的状态是"现在的样子"，不算新的。标题和图标走 `noteChatsWaiting`、`noteBackground`。
 - **发给浏览器的、写进文件的，都要用 `harness/safe.py`。** 模型的输出和用户粘贴的文字里可能有半个表情
   （落单的代理字符）、NaN 这类非法的数，直接 `json.dumps` 会写出浏览器解析不了的东西，或者干脆编码失败，
   让事件流永久断开。所以：事件和 HTTP 回答用 `to_json`，文件用 `write_file`（先写临时文件、fsync、再替换，
@@ -283,15 +293,41 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   看不懂的一律不算；改 `commands/rules.py` 之前先看 `tests/test_commands.py`，新发现的绕过先加一行会失败的测试。
   `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
   对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。
-- **定时任务和对话同时进行，不拿 `WebApp._turn`。** 这把锁只属于你的对话，以及会改动对话状态的操作（换模型、开新对话、
-  改提示词、改记忆、改 Skill……），拿不到时用 `self._busy()` 回答；任务运行时这些照常可以做。凡是"会被停下"的东西，
-  每次运行各有一份（`App.unattended_agent` 返回的 `UnattendedRun`）：自己的 `Shell`、自己名下的 MCP 调用
-  （`mcp.snapshot(owner)` / `cancel_running(owner)`）、自己的 `RunUI`、适配层和权限。对话的"停止"只停对话自己的
-  （MCP 的 owner 是 None），停任务走 `/api/task/stop`，只停那一次；退出时 `cancel_all()`、`Scheduler.wait_idle`。
-  共用的只有磁盘上的东西，每样都有锁：`TodoStore`、`TaskStore`、`ConversationStore`、`tools/files.py` 的 `_EDITING`、
-  `tools/memory.py` 的 `_LOCK`、`Ledger`、`MediaIndex`、`SkillStore`。新加会被对话和任务同时用到的共享状态，也要加锁，
-  并写一个去掉锁就会失败的并发测试。同时最多跑 `config.MAX_PARALLEL_TASKS` 个，多的排队；同一个任务不会同时跑两次。
-  提醒不调用模型，不排队。
+- **你的几段对话、定时任务、聊天通道同时进行**（`harness/webui/sessions.py`、`sessions_api.py`）。
+  - 网页上一段"活着的"对话是一个 `Session`：`chat`（`app.py` 的 `Chat`：Agent 和适配层、会话、自己的 `Shell`、浏览器和电脑的 session、
+    MCP 的快照和调用记在谁名下 `owner`）、它自己的事件日志 `ui`（WebUI）、一把锁 `lock`、`running`、存盘失败的原因 `unsaved`。
+    `App.chat` 是你正看着的那一段，`App.agent`、`conversation`、`shell`、`chat_browser`、`chat_desktop` 都是它的：读它们的代码不用管有几段。
+    **会在后台接着跑的代码**（`chat_api._run_turn` 和它调用的收尾）只用 Session 自己的东西，调用 App 的方法时传 `chat=`，
+    不要用 `App.agent`、`self.ui`：跑到一半你换去看别的，它们就是别的那一段的了。终端界面只有一个 Chat。
+  - 你正看着的那一段在跑时，打开别的会话、开新对话、分叉：它留在名单里（后台）接着跑，新建一段（`_fresh_session` = `app.new_chat`
+    加它自己的日志）给你看；它没在跑就直接换掉它的内容（还是同一个 Session，和以前一样）。打开一段正活着的会话 = 换过去看它（`_show_live`）。
+    后台的一段跑完、存好盘就从名单里拿掉（`Sessions.finish`），会话栏上留"跑完了""出错了"，打开时去掉；没存上盘的、第一条消息就没答出来的留着。
+    同一段会话最多一个 Session；同时在跑最多 `config.MAX_PARALLEL_CHATS` 段（`Sessions.start` 在锁里数，重新生成也算），超了回答原因，页面上也不发。
+  - **锁的顺序**（只能从前往后拿）：`WebApp._switch`（RLock：改动"哪几段活着、正看着哪一段"的操作一个一个来）→ `_publishing`
+    （算状态快照；换"正看着哪一段"也拿着它）→ `Sessions._lock`（只保护名单和几个字段）→ 每段 WebUI 自己的锁。各段的 `Session.lock` 一律只"试一下"
+    （`_holding`、`_take`），拿着 `_switch` 不会卡在别人身上。丢掉一段要先拿着它的锁；拿到一段的锁以后要再看它还在不在名单里。
+  - **谁拿什么**：发消息、重新生成拿正看着的那一段的锁（一直拿到这一轮收尾，在跑它的线程里放）；撤回文件、换模型、填密钥、改提示词、
+    改自定义接口拿 `_switch` 加正看着那一段的锁（`_viewed_idle`：拿着时谁也换不走"正看着哪一段"，`self.app.agent` 就是它的）；
+    新对话、打开、分叉、改名、删除拿 `_switch`，再拿要动的那一段的锁（在跑的那一段不能改名、删除；别的会话随时能改）。
+    **`WebApp._turn` 不再是"那一把对话锁"**，而是 `AllIdle`：拿着 `_switch` 和每一段的锁，"没有任何一段在跑、也开始不了"。
+    全局的操作拿它：改记忆、改 Skill（原来拿 `_turn` 是因为助手这一轮可能正在用它）、从备份恢复（拿不到用 `_busy_everywhere()` 说是哪几段在跑）。
+    拿着它的线程再拿某一段的锁（`_holding`）算拿到了。以后新加的全局操作照这样办；只关系到一段的，拿那一段的。
+  - **每段各一份、不能串的**：确认卡片（编号全局唯一，`/api/confirm` 只答到正在等它的那一段，`/api/computer/trust` 只放开那一段的 DesktopSession）、
+    "这段对话里截图 / 点击打字不再问"、浏览器允许过的网站、"停止"（`/api/stop` 带 `conversation` 停那一段，不带停正看着的；只停它自己的
+    shell、MCP 调用、浏览器和电脑的动作、钩子）、撤回文件的记账（`undo/journal.py` 的 ContextVar 挂在每一轮自己的线程上）、运行记录、钩子的 HookRun、
+    多媒体库里还没存盘的附件（`_live_sources`，清理原件时也算"在用"）、聊天通道的认领（每段在自己那一轮里 `Claims.take(id, "web")`）。
+    **共用一份的**：权限（`App.permissions`：对话里选的那一档是全局的，几段都按它）、遮密钥、备用模型、账本（source 照旧是 chat）、
+    屏幕（`DesktopManager.claim`：两段都要操作电脑时后到的被拒绝）。一轮结束时先 `chat.desktop.release()`、放开认领，再 `Sessions.finish`、
+    发状态、`end_turn`、放开锁（`sessions_api._settle`：认领要在拿掉之前放开，"结束了"和放开锁之间不做别的）。
+  - 几个标签页看的是服务器上同一段（正看着的那一段），和以前一样；刷新页面补发的也是它，会话栏的标记从状态里的 `live` 来。
+  - 退出时 `lifecycle.stop`：`stop_all`（每段都停、各自的命令都结束）、`wait_idle`（等每段收尾存盘）、`save_all`（没存上的再存一次）。
+  - **定时任务不受影响**：它们本来就不拿这些锁。凡是"会被停下"的东西，每次运行各有一份（`App.unattended_agent` 返回的 `UnattendedRun`）：
+    自己的 `Shell`、自己名下的 MCP 调用（`mcp.snapshot(owner)` / `cancel_running(owner)`）、自己的 `RunUI`、适配层和权限。停任务走
+    `/api/task/stop`，只停那一次；退出时 `cancel_all()`、`Scheduler.wait_idle`。
+  - 共用的只有磁盘上的东西，每样都有锁：`TodoStore`、`TaskStore`、`ConversationStore`、`tools/files.py` 的 `_EDITING`、
+    `tools/memory.py` 的 `_LOCK`、`Ledger`、`MediaIndex`、`SkillStore`。新加会被几段对话和任务同时用到的共享状态，也要加锁，
+    并写一个去掉锁就会失败的并发测试（`tests/test_parallel_chats.py` 的上限检查就是这样）。定时任务同时最多跑 `config.MAX_PARALLEL_TASKS` 个，
+    多的排队；同一个任务不会同时跑两次。提醒不调用模型，不排队。
 - **任务按自己的那一档问不问。** 每个 agent 任务有 `approval`（ask / edits / all，默认 ask），运行时用
   `Permissions.unattended(mode)`，和对话里选的那一档无关；在"扩展 → MCP"里设成"不用问"的工具在任务里不算数
   （`trust_mcp` 为假）。没问就放行的照样调用 `auto_allowed()`。`.env` 和 `data/` 和对话里一样严。
@@ -324,15 +360,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   - 恢复前先备份：`restore.backup_first` 把现在的数据导出一份到 `data/restore-backups/`（和导出一样遮密钥，留 `RESTORE_KEEP_BACKUPS` 份），
     备份不成就不恢复。覆盖先在 `.restore-xxxx/` 里摆好、一样一样换上去，出错换回原样，确认新程序开起来了才 `commit` 删掉旧的；
     合并只加（会话、记忆、Agent、多媒体按文件，Skill 按文件夹），整份的文件现在有就留着现在的。写文件一律 `safe.write_stream`。
-  - 网页上拿 `WebApp._turn`（拿不到用 `_busy()`），定时任务在跑、聊天通道占着会话（`Claims.held`）就拒绝。恢复以后照着磁盘 `build_app`
-    一遍、换上一个新的 WebApp（`server.web`；口令、端口、WebUI 不变，旧的那个的 `_turn` 永远不放）。**有意的破例**：WebApp 不再是
+  - 网页上拿 `WebApp._turn`（没有一段对话在跑；拿不到用 `_busy_everywhere()`，说是哪几段在跑），定时任务在跑、聊天通道占着会话（`Claims.held`）就拒绝。
+    恢复以后照着磁盘 `build_app` 一遍、换上一个新的 WebApp（`server.web`；口令、端口、你正看着的那一段的 WebUI 不变，新的上面只有这一段；
+    旧的那个的 `_turn` 永远不放）。**有意的破例**：WebApp 不再是
     启动时那一个，所以拿着它的地方要用 `server.web` 现找（`serve.py` 的收尾就是这样）；测试和演示换过的东西（client_factory、
     聊天平台的 factories / checks、headless_only）在 `restore_api._rebuild` 里带过去，再加这类东西也要带。
   - 上传是原样的字节（不是 JSON），在 server.py 的 do_POST 里先于 `_read_json` 交给 `restore_api.upload`：边读边写进系统的临时文件，
     上限 `RESTORE_MAX_UPLOAD_BYTES`，超了读掉最多 `RESTORE_DISCARD_BYTES` 再回 413。终端的 `harness restore` 先占住数据目录的锁（kind `restore`），
     没有终端又没有 `--yes` 不恢复。
 - **聊天通道和定时任务是同一个做法。** 每个聊天的每一轮用 `App.channel_agent`（和 `unattended_agent` 共用 `_side_run`：
-  自己的 shell、自己名下的 MCP 调用、`Permissions.unattended(通道的档位)`，记账 source=`channel`），不拿 `WebApp._turn`；
+  自己的 shell、自己名下的 MCP 调用、`Permissions.unattended(通道的档位)`，记账 source=`channel`），不拿网页上的那几把锁（`_turn`、`_switch`、各段的锁）；
   开始之前先用 `Claims.take` 占住这段会话，网页这时不能写它（409），一轮结束放开、网页上开着的话重新读一遍。
   只有配对过的主人能用：不是主人的消息不处理（不在配对的时候一个字都不回），群聊一律不理，按钮也只认主人点的。
   确认请求在聊天里写明是谁在问（主助手还是哪个子 Agent）、完整的命令和工作目录；网页上也能答，先到的算数。
@@ -381,7 +418,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   换一段对话从头再问；二是这次运行实际用的那一档是 all（对话的、任务自己的、聊天通道的都算）。定时任务和聊天通道的 session 不是
   attended 的：卡片上不给，也打不开。放开了也不变的：危险的组合键（`keys.DANGEROUS`，按系统分）每次都问，问题标 `always`、不带 offer；
   不许碰的程序照样拒绝；没问就做的每一步都调用 `auto_allowed()`（这段对话里放开的 why 是 `trusted`）。
-  一轮结束时先 `chat_desktop.release()` 再 `end_turn()`：让出屏幕会刷新状态，顺序反过来，页面马上发来的请求会撞上还没放开的锁。
+  一轮结束时先 `chat.desktop.release()`（每一段自己的那个）再 `end_turn()`：让出屏幕会刷新状态，顺序反过来，页面马上发来的请求会撞上还没放开的锁。
   键盘动作前把问你时最前面的程序换回来（`_focus`），鼠标动作前那一点换了窗口就不做（`_guard`），因为点"允许"会把浏览器换到最前面。
   屏幕只有一个：`DesktopManager.claim` 让一个运行占着它，这一轮结束 `release` 或 `run.close`；"停止"之后这一轮里一直拒绝。
   工具包和浏览器同一套写法：Claude 用 `computer_toolset_20260801`，一轮里失败后的结果用 `tools/computer.HALTED`（和浏览器那句不同，文档规定）；
@@ -420,7 +457,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **撤回一轮改的文件（`harness/undo/`）**：只记文件工具的改动，记账靠这一轮线程上的 `ContextVar`，`tools/files.py` 里只有 `watching` 一行；
   定时任务和聊天通道不记。留底在 `data/backups/turns/<编号>/`，清单写好后不再改，撤回、重做的状态只记在 `file_undo` 事件里（由 `restore.fold` 推出来）。
   `file_changes` 排在 `trace` 之后、`turn_end` 之前；断言事件顺序的测试要写上它。撤回走 `/api/changes/…`：页面只给一轮的编号和清单里的第几个文件，
-  路径由程序照着清单算；拿 `WebApp._turn`、认领这段会话；查和写都拿 `_EDITING`。保存密钥的文件、留底文件夹、换成链接的路径永远不写；
+  路径由程序照着清单算；只撤你正看着的那一段的，拿 `_switch` 和它的锁（`_viewed_idle`）、认领这段会话；查和写都拿 `_EDITING`。保存密钥的文件、留底文件夹、换成链接的路径永远不写；
   工作目录之外、数据目录里、哈希对不上的，先问再写。模型没有撤回的工具。撤回之后在下一条消息前附 `<file_changes>`（`undo/notes.py`），不进系统提示词。
   **有意的破例**：倒回最后一轮时，这一轮之后才撤回的更早几轮的 `file_undo` 事件不跟着截掉，挪到最后一条用户消息前面（`webui/ui.kept_after_rewind`）。
   命令改动的文件不假装能撤：界面上明说撤不回来；不替用户的仓库做 git 快照。
@@ -527,7 +564,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）只在本机 macOS 上从本地的 wheel 和 zip 真装过（2026-11-22，临时的家目录和工具目录）；Linux、Windows 上的真装，从 GitHub 的 `git+https://` 和 zip 地址装，`uv tool upgrade` 从 GitHub 拉新版本，都没实测。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
+几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）只在本机 macOS 上从本地的 wheel 和 zip 真装过（2026-11-22，临时的家目录和工具目录）；Linux、Windows 上的真装，从 GitHub 的 `git+https://` 和 zip 地址装，`uv tool upgrade` 从 GitHub 拉新版本，都没实测。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

@@ -3,7 +3,7 @@
 和 test_rewind_web.py 一样：真实的 HTTP 服务器，测试代码扮演浏览器，模型是本地的假 API（不花钱）。
 页面发请求时带着它看到的那一轮：会话的编号（conversation）、那一轮的 user 事件的编号（turn）、在哪儿分叉（at）。
 要对得上的几样：原会话的文件一个字节都不变；新的一段换上了（reset、重放、状态），接着聊时发给模型的历史就是原来的前缀；
-标题和来路；多媒体和搜索的索引；压缩进摘要的、没记位置的、正在进行一轮的不能分叉。截到哪的细节在 test_fork.py 里测。
+标题和来路；多媒体和搜索的索引；压缩进摘要的、没记位置的不能分叉；正在进行一轮时分叉，那一轮留在后台接着跑。截到哪的细节在 test_fork.py 里测。
 """
 
 from __future__ import annotations
@@ -263,16 +263,21 @@ def test_a_turn_without_a_mark_cannot_be_forked(rig):
     assert texts(saved["events"], "user") == ["看看今天的安排", "接着问"]
 
 
-def test_no_fork_while_a_turn_is_running(rig):
+def test_forking_while_a_turn_runs_leaves_that_turn_in_the_background(rig):
+    """你的这一轮还没结束时也能从之前的一轮分叉（和打开别的会话一样，见 test_parallel_chats.py）：
+    原来那一段留在后台接着等你确认，分叉出来的那一段另外建一个给你看；答复照样送到原来那一段，它跑完存进它自己的文件。"""
     s = rig(reply(text("答一")), reply(tool_use("toolu_1", "run_command", {"command": "echo hi"}), stop_reason="tool_use"), reply(text("不执行了")))
-    say(s, "问一")
+    source = say(s, "问一")["conversation"]
     payload = body(s, "reply", 0)
     s.browser.post("/api/message", {"text": "执行一条命令"})
     confirm = s.browser.wait_for("confirm")
-    assert "请先等当前这一轮对话结束" in refused(s, payload)  # 你的这一轮还没结束：先等它（换会话也是这样）
+    code, answer = s.browser.post("/api/fork", payload)
+    assert code == 200 and answer["conversation"] != source
+    assert s.web.sessions.viewed.id == answer["conversation"] and s.web.sessions.find(source).running
     assert s.browser.post("/api/confirm", {"id": confirm["id"], "allow": False}) == (200, {"ok": True})
-    s.browser.wait_for("turn_end")
-    fork_at(s, "reply", 0)
+    assert s.web.wait_idle(10)
+    assert [event["text"] for event in saved_file(s.config, source)["events"] if event["type"] == "user"] == ["问一", "执行一条命令"]
+    assert s.web.sessions.find(source) is None  # 在后台跑完、存好了盘：不再留在内存里
 
 
 def test_a_conversation_held_by_a_chat_channel_can_still_be_forked(rig):
@@ -291,11 +296,11 @@ def test_an_unsaved_conversation_is_not_forked(rig):
     s = rig(reply(text("答一")))
     say(s, "问一")
     payload = body(s, "reply", 0)
-    s.web._unsaved = "磁盘满了"
+    s.web.sessions.viewed.unsaved = "磁盘满了"
     try:
         assert "没能保存" in refused(s, payload)
     finally:
-        s.web._unsaved = ""
+        s.web.sessions.viewed.unsaved = ""
 
 
 def test_file_changes_stay_with_the_original(rig):

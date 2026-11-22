@@ -23,7 +23,7 @@ function drawMcpList(focus) {
       const note = mcpNote('calm', t('这段对话开始时用的是那一刻已经连上的工具，之后才连上或者有变化的，从下一段新对话开始才用得上（对话中途换工具会让模型的缓存失效）。'));
       const fresh = note.appendChild(tel('button', 'mcp-link', k('开一段新对话')));
       fresh.type = 'button';
-      fresh.addEventListener('click', () => { if (!busy && requestCloseExtensions()) newButton.click(); });
+      fresh.addEventListener('click', () => { if (requestCloseExtensions()) newButton.click(); });
       nodes.push(note);
     }
   }

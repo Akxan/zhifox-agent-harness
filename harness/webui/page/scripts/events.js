@@ -50,6 +50,7 @@ const handlers = {
     $('cards').hidden = !current.has_key;
     $('setup-text').textContent = t('还没有设置 {provider} 的 API 密钥，填好之后就可以开始对话。', { provider: current.label });
 
+    renderLive(event);  // 先于会话列表：后台那几段的标记、顶上的"在等你确认"、提醒（见 live.js）
     renderConversations();
     renderTodos(event.todos);
     renderMemories(event.memories);
@@ -77,6 +78,8 @@ const handlers = {
     if (replaying) {  // 重放的旧内容到这里就画完了
       replaying = false;
       refreshStatus();  // 重放期间没有刷新过，这里按最终的状态刷新一次
+      // 换过去看一段正在后台跑着的对话：写了一半的那段回复从现在起是实时的了，后面的字接着来（和刷新页面时一样，见 start.js）
+      if (busy && block && !block.paused) setStreaming(true);
       if (synced) settle();
     }
     renderTurnTools();  // "编辑""重新生成"摆在最后一轮上（见 rewind.js）

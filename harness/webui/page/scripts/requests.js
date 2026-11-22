@@ -65,7 +65,6 @@ function refreshStatus() {
   sendButton.disabled = !busy && !input.value.trim() && !pending.length;  // 只带附件、不写字也能发
   tattr(sendButton, 'title', label);
   tattr(sendButton, 'aria-label', label);
-  newButton.disabled = $('new-compact').disabled = $('persona-open').disabled = busy;
   body.classList.toggle('busy', busy);
   working.classList.toggle('on', busy);
   working.classList.toggle('waiting', busy && !stopping && confirms.size > 0);

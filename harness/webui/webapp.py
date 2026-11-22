@@ -13,10 +13,11 @@ WebApp 由几块拼成。这个文件里是几组功能都要用的部分；每�
   McpActions           mcp_api.py            MCP 服务器
   ModelActions         models_api.py         换模型、密钥、同步模型列表、价格
   SettingsActions      settings_api.py       语言、问不问、遮密钥、预算、花费明细、导出之前的信息
+  SessionActions       sessions_api.py       几段对话同时进行：新建一段、换着看、停下、一轮收尾、退出
 
 为什么是混进来的基类，而不是 web.memory.delete(...) 这样另建一个对象：方法的名字照旧是 web.open_conversation(...)，
 调用它们的地方（定时任务、聊天通道、别的 *_api.py、测试）一个都不用改；这些方法用到的又都是 WebApp 自己的状态
-（self.app、self.ui、self._turn……），放在别的对象上也得一路 self.web. 回来。混进来的类只有方法：没有 __init__、
+（self.app、self.ui、self.sessions……），放在别的对象上也得一路 self.web. 回来。混进来的类只有方法：没有 __init__、
 不存状态，状态都在下面的 __init__ 里定义，一眼看得全。新的一组功能照这样办：方法写进它自己的 *_api.py 的 XxxActions，
 加进 WebApp 的基类；要新的状态就在 __init__ 里加上，写明是给谁用的。
 （skills_api.py、browser_api.py 这些较早的接口是另一种写法：WebApp 上的一个对象，见 __init__。两种并存，都能用。）
@@ -24,9 +25,12 @@ WebApp 由几块拼成。这个文件里是几组功能都要用的部分；每�
 留在这个文件里的：
   - 状态快照（publish_state）：页面要显示的一切。每一组功能的那一节由它们自己算（_media_state、_mcp_state、_rewind_state……）
   - 这段会话归谁（_claim、_held_elsewhere，见 claims.py）：聊天通道正在用的会话，网页上不能写
-  - 存盘和离开当前会话（_save、_before_leaving、_left）
-  - 对话的锁 self._turn：谁拿着它，谁就在进行一轮对话（或者正在改会动到对话的设置）。拿不到时用 _busy 回答；
-    定时任务和聊天通道不拿它（见 scheduler.py、channels/hub.py）
+  - 存盘和离开一段会话（_save、_before_leaving、_left）
+  - 锁（规矩见 sessions.py 开头）。网页上可以几段对话同时进行，每段一个 Session，各有一把锁（Session.lock）：
+    在这一段里进行一轮、改它（换模型、改名、撤回文件……）拿它自己的；拿不到时用 _busy 回答。
+    self._turn 不再是"那一把对话锁"，而是 AllIdle：没有任何一段在跑才拿得到，全局的操作（改记忆、改 Skill……）拿它。
+    self._switch：改动"哪几段活着、正看着哪一段"的操作一个一个来。定时任务和聊天通道这几把都不拿（见 scheduler.py、channels/hub.py）
+  - self.ui 是你正看着的那一段的事件日志（换着看的时候跟着换）；后台那几段的在各自的 Session.ui 里
 """
 
 from __future__ import annotations
@@ -40,7 +44,6 @@ from ..channels.hub import ChannelHub
 from ..claims import Claims
 from ..conversations import ConversationError
 from ..i18n import k, t
-from ..media import Entry
 from ..pricing import estimate
 from ..providers import every
 from . import fallback_api, reveal
@@ -65,6 +68,8 @@ from .reveal import RevealActions
 from .rewind_api import RewindActions
 from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
+from .sessions import AllIdle, Session, Sessions
+from .sessions_api import SessionActions
 from .settings_api import SettingsActions
 from .skills_api import SkillsAPI
 from .tasks_api import TodoActions
@@ -72,25 +77,33 @@ from .ui import WebUI
 from .voice_api import VoiceAPI
 
 
-class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, MemoryActions, PromptActions, RevealActions, TodoActions, McpActions, ModelActions, SettingsActions):
-    """把助手接到网页界面上，并保证同一时间只进行一轮对话。"""
+class WebApp(
+    ChatActions, RewindActions, ConversationActions, SessionActions, MediaActions, MemoryActions, PromptActions, RevealActions, TodoActions,
+    McpActions, ModelActions, SettingsActions,
+):
+    """把助手接到网页界面上：几段对话可以同时进行（每段一个 Session，见 sessions.py），同一段同一时间只进行一轮。"""
 
     def __init__(self, app: App, ui: WebUI, token: str, service: str | None = None):
         self.app = app
-        self.ui = ui
         self.token = token
         # 智狐是怎么开着的，设置里"后台运行"一节照着它说（见 page/scripts/service.js）：
         # "launchd" / "systemd" 是 harness service install 装的后台服务；"terminal" 是在终端里开的 harness --web；
         # None 是不清楚（在终端或者系统服务里开的 harness serve），那一节就不显示
         self.service = service
-        self._turn = threading.Lock()  # 谁拿着这把锁，谁就在进行一轮对话（或者正在改设置）
+        # 你的对话：一开始只有 build_app 建的那一段（ui 是它的事件日志），你正看着它。后开的几段的事件编号和它从同一个数往下排
+        first = Session(app.chat, ui)
+        self.sessions = Sessions(first)
+        self._ids = ui.ids
+        app.live = lambda: [session.chat for session in self.sessions.all()]  # App 也要知道有哪几段活着（删接口、换密钥、退出时）
+        # 改动"哪几段活着、正看着哪一段"的操作一个一个来（打开、新对话、删除、换模型……）。只用"试一下"的方式拿，拿不到回答"忙"
+        self._switch = threading.RLock()
+        # 以前的对话锁：现在是"没有任何一段在跑"（见 sessions.py 的 AllIdle）。改记忆、改 Skill 这些全局的操作拿它
+        self._turn = AllIdle(self._switch, self.sessions)
         # 发状态快照时用的小锁："算出快照"和"发出去"要一口气做完。同步模型、改价格这些不拿对话锁的操作
         # 可能和一轮对话同时发快照，不这样的话，先算的旧快照可能反而后发出去，把新的盖掉。
+        # 换"正看着哪一段"也拿着它（见 _show）：快照里不会一半是原来那一段的、一半是新的这一段的
         self._publishing = threading.Lock()
-        self._unsaved = ""  # 当前会话上一次存盘失败的原因。空字符串表示内容都在磁盘上了
-        self._discard_ok = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
         self._memories_shown: list[dict] = []  # 上一次发给页面的记忆列表（见 refresh_memories）
-        self._live: tuple[object, tuple[Entry, ...]] = (None, ())  # 当前会话里的附件，和算它时的依据（见 _live_media）
         # Skill 一页的接口。"在文件管理器里显示"每次都按名字现找这个函数（测试会把它换掉）
         self.skills = SkillsAPI(self, lambda path: reveal.reveal_in_file_manager(path))
         self.agents = AgentsAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
@@ -111,15 +124,10 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         # 同一段会话不能两边同时写，所以每一轮开始前先认领它（见 claims.py）
         self.claims = Claims()
         self.channels = ChannelHub(app, self.claims, changed=self.publish_state, saved=self.conversation_saved_elsewhere)
-        ui.on_stop(app.shell.kill_running)  # 点"停止"时，连正在运行的命令一起结束
-        ui.on_stop(app.mcp.cancel_running)  # 也取消正在等的 MCP 工具调用：只是对话自己的，任务的各自管各自的（见 McpManager.call）
-        # 还有正在做的浏览器动作：只是这段对话自己的（换一段对话就换一个，所以每次现找）
-        ui.on_stop(lambda: app.chat_browser.stop())
-        ui.on_stop(lambda: app.chat_desktop.stop())  # 正在操作电脑的那一步也停下（同样只是这段对话自己的）
-        ui.on_stop(lambda: app.agent.hooks.stop())  # 正在跑的钩子也结束掉（只是对话自己的那一个，见 hooks/engine.py）
+        # 点"停止"时，连这一段正在运行的命令、正在等的 MCP 调用、浏览器和电脑的动作、钩子一起停下；用量变了刷新状态（见 _arm）
+        self._arm(first)
         app.browser.on_change = self.publish_state  # 浏览器开了、关了、忙起来了：页面顶上的提示跟着变
         app.desktop.on_change = self.publish_state  # 有运行开始、停止操作电脑：页面顶上"智狐正在控制这台电脑"跟着变
-        app.agent.on_usage = self.publish_state  # 每调用完一次模型，就刷新一次用量和费用
         app.mcp.on_change = self.publish_state  # MCP 服务器连上了、断开了、工具变了，页面上跟着变
         if app.tasks.problem:
             ui.hint(app.tasks.problem, level="error")  # 任务文件读不出来：说一声，原来的文件留在哪儿
@@ -127,6 +135,11 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
         # 上次运行时一轮做到一半就退出了（存了原件、会话却没来得及存盘），留下没人用的原件：启动时清一遍。
         # 这时还没有开始接受请求，不会有哪一轮正在存新的原件
         self._collect_media(None)
+
+    @property
+    def ui(self) -> WebUI:
+        """你正看着的那一段的事件日志（换着看的时候跟着换，见 sessions.py）。"""
+        return self.sessions.viewed.ui
 
     # ---- 状态快照 ------------------------------------------------------------
 
@@ -155,6 +168,10 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
             conversation=self.app.conversation.id,
             title=self.app.conversation.title,
             conversations=self.app.conversation_summaries(),
+            # 几段对话同时进行（见 sessions.py）：会话编号 → running 在跑 / confirm 等你确认 / error 在后台出了错 / done 在后台跑完了、你还没看。
+            # 正看着的那一段也在里面（页面不给它画标记）。parallel：最多同时几段、现在几段在跑（页面照着它决定能不能再发）
+            live=self.sessions.live(),
+            parallel={"max": self._parallel_limit(), "running": self.sessions.running()},
             providers=[self._provider_state(provider) for provider in every()],
             # 自定义模型接口（设置里"自定义模型接口"一节，见 endpoints_api.py）：密钥只有最后 4 位
             endpoints=self.endpoints.state(),
@@ -224,123 +241,115 @@ class WebApp(ChatActions, RewindActions, ConversationActions, MediaActions, Memo
 
     # ---- 这段会话归谁（网页和聊天通道不能同时写，见 claims.py）------------------
 
-    def _claim(self) -> str:
-        """认领当前这段会话（见 claims.py）。它正在聊天通道里跑一轮的话返回原因，不认领。调用的人拿着 self._turn。"""
-        conversation = self.app.conversation
+    def _claim(self, session: Session | None = None) -> str:
+        """认领一段会话（不给是你正看着的那一段，见 claims.py）。它正在聊天通道里跑一轮的话返回原因，不认领。调用的人拿着这一段的锁。"""
+        session = session or self.sessions.viewed
+        conversation = session.chat.conversation
         holder = self.claims.take(conversation.id, "web")
         if holder is not None:
             return t("这段会话正在 {platform} 上进行。等那边这一轮结束再发。", platform=self.channels.holder(conversation.id) or holder)
-        if conversation.saved and not self._unsaved:
+        if conversation.saved and not session.unsaved:
             # 聊天那边可能刚在这段会话里聊过一轮（存到了磁盘上，这里的还是旧的）：先读回来，不然这一轮存盘时会把那一轮盖掉
             try:
                 newer = self.app.store.load(conversation.id).updated_at > conversation.updated_at
             except ConversationError:
                 newer = False
             if newer:
-                self._reload_current()
+                self._reload_current(session)
         return ""
 
-    def _reload_current(self) -> None:
-        """从磁盘把当前这段会话重新读一遍，页面跟着重画。调用的人拿着 self._turn。"""
+    def _reload_current(self, session: Session | None = None) -> None:
+        """从磁盘把一段会话重新读一遍（不给是你正看着的那一段），页面跟着重画。调用的人拿着这一段的锁。"""
+        session = session or self.sessions.viewed
         try:
-            conversation = self.app.open_conversation(self.app.conversation.id)
+            conversation = self.app.open_conversation(session.id, chat=session.chat)
         except ConversationError:
             return
-        self.ui.load_events(conversation.events)
+        session.ui.load_events(conversation.events)
         self.publish_state()
 
     def conversation_saved_elsewhere(self, conversation_id: str) -> None:
         """聊天通道刚把一段会话存了盘。网页正开着它、手上又没事的话，跟着刷新：页面上看到的就是最新的，
         你接着在网页上聊，也不会用一份旧的历史把聊天里的那一轮盖掉。"""
-        if conversation_id != self.app.conversation.id or self._unsaved or not self._turn.acquire(blocking=False):
+        session = self.sessions.viewed
+        if conversation_id != session.id or session.unsaved or not self._switch.acquire(blocking=False):
             return
         try:
-            if conversation_id == self.app.conversation.id:
-                self._reload_current()
+            with self._holding(session) as idle:
+                if idle and session is self.sessions.viewed and conversation_id == session.id:
+                    self._reload_current(session)
         finally:
-            self._turn.release()
+            self._switch.release()
 
     def _held_elsewhere(self, conversation_id: str) -> str:
         """这段会话正在聊天通道里跑一轮的话，返回不能打开、改名、删除的原因。"""
         platform = self.channels.holder(conversation_id)
         return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform) if platform else ""
 
-    # ---- 存盘、离开当前会话 ----------------------------------------------------
+    # ---- 存盘、离开一段会话 ----------------------------------------------------
 
-    def _save(self) -> None:
-        """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
-        problem = self._try_save()
+    def _save(self, session: Session | None = None) -> None:
+        """把一段会话存盘（不给是你正看着的那一段）。存不上就在它的页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
+        session = session or self.sessions.viewed
+        problem = self._try_save(session)
         if problem:
-            self.ui.error(t("保存会话失败：{error}", error=problem))
+            session.ui.error(t("保存会话失败：{error}", error=problem))
 
-    def _try_save(self) -> str:
-        """存盘。返回失败的原因（成功返回空字符串），并记下当前会话是不是还有没存上的内容。"""
+    def _try_save(self, session: Session | None = None) -> str:
+        """存盘。返回失败的原因（成功返回空字符串），并记下这一段是不是还有没存上的内容。"""
+        session = session or self.sessions.viewed
         try:
-            self.app.save_conversation(self.ui.export_events())
+            self.app.save_conversation(session.ui.export_events(), chat=session.chat)
         except Exception as exc:  # noqa: BLE001 —— 什么错都要接住：这是在一轮对话收尾时调用的，漏出去的话页面永远等不到"结束"
-            self._unsaved = str(exc) or type(exc).__name__
+            session.unsaved = str(exc) or type(exc).__name__
         else:
-            self._unsaved = ""
-            self._discard_ok = ""
-        return self._unsaved
+            session.unsaved = ""
+            session.discard_ok = ""
+        return session.unsaved
 
-    def _before_leaving(self, action: str) -> str:
-        """要离开当前会话了（新对话、打开别的会话、换到另一家）。返回不让走的原因；空字符串表示可以走。
+    def _before_leaving(self, session: Session, action: str) -> str:
+        """要离开 session 里的这段会话了（新对话、打开别的会话、换到另一家）。返回不让走的原因；空字符串表示可以走。
 
-        当前会话要是有没存上的内容（上一次存盘失败了），一走这些内容就没了，所以先再存一次。
+        它要是有没存上的内容（上一次存盘失败了），一走这些内容就没了，所以先再存一次。
         还是存不上的话拦一下、把话说清楚；用户紧接着再做一次同样的操作，就当他确认要放弃。
         """
-        if not self._unsaved or not self._try_save():
+        if not session.unsaved or not self._try_save(session):
             return ""
-        if self._discard_ok == action:
+        if session.discard_ok == action:
             return ""
-        self._discard_ok = action
-        return t("当前这段会话还没能保存（{error}），现在离开会丢掉它的内容。可以先解决保存的问题；确实要放弃的话，再点一次。", error=self._unsaved)
+        session.discard_ok = action
+        return t("当前这段会话还没能保存（{error}），现在离开会丢掉它的内容。可以先解决保存的问题；确实要放弃的话，再点一次。", error=session.unsaved)
 
-    def _left(self) -> None:
+    def _left(self, session: Session) -> None:
         """已经离开了原来的会话：关于它的"没存上"和"确认放弃"都不用再记着。"""
-        self._unsaved = self._discard_ok = ""
+        session.unsaved = session.discard_ok = ""
 
     def _show_warnings(self) -> None:
         """把助手攒下的提醒（比如"没能记住这次选的模型"）显示出来。只显示，不存进会话。"""
         for text in self.app.take_warnings():
             self.ui.hint(text, level="error")
 
-    # ---- 对话的锁 ------------------------------------------------------------
+    # ---- 忙 ------------------------------------------------------------------
 
     BUSY = k("请先等当前这一轮对话结束，或者点“停止”")
 
     def _busy(self, otherwise: str | None = None) -> str:
-        """对话的锁被占着（你的这一轮还没结束，或者正在改设置）时，告诉用户为什么。
+        """要用的锁被占着（这一段的这一轮还没结束，或者正在改设置）时，告诉用户为什么。
 
-        定时任务不拿这把锁，所以任务在跑的时候不会走到这里：你照常发消息、换模型、打开会话。
+        定时任务不拿这些锁，所以任务在跑的时候不会走到这里：你照常发消息、换模型、打开会话。
         """
         return otherwise or t(self.BUSY)
-
-    def stop(self) -> None:
-        """对话里的"停止"：只停你的这一轮（连同它正在运行的命令）。
-
-        定时任务的运行各有各的界面和 shell，这里碰不到它们；停任务走 /api/task/stop。
-        """
-        self.ui.request_stop()
-
-    def wait_idle(self, timeout: float) -> bool:
-        """等正在进行的一轮对话结束（包括它收尾时的存盘）。等到了返回 True，超时返回 False。"""
-        if not self._turn.acquire(timeout=timeout):
-            return False
-        self._turn.release()
-        return True
 
     # ---- 工具 ----------------------------------------------------------------
 
     def refresh_tools(self) -> bool:
-        """浏览器开、关了：还没开始的这段对话马上换上新的工具。返回 True 表示这段对话已经开始了，工具不变。"""
-        if not self._turn.acquire(blocking=False):
-            return True  # 正在进行一轮：这段对话当然已经开始了
-        try:
-            started = bool(self.app.agent.backend.export())
+        """浏览器开、关了：你正看着的这段对话还没开始的话，马上换上新的工具。返回 True 表示这段对话已经开始了，工具不变。
+        后台那几段都在跑，早就开始了，不动。"""
+        session = self.sessions.viewed
+        with self._holding(session) as idle:
+            if not idle:
+                return True  # 正在进行一轮：这段对话当然已经开始了
+            started = bool(session.chat.agent.backend.export())
             if not started:
-                self.app.refresh_tools()
+                self.app.refresh_tools(session.chat)
             return started
-        finally:
-            self._turn.release()

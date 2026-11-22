@@ -40,22 +40,23 @@ def started(web: WebApp) -> bool:
 
 
 def stop(web: WebApp, wait: float, holding_turn: bool = False) -> None:
-    """退出前的收尾：网页上正在进行的一轮、正在运行的定时任务、聊天里正在进行的对话，都停下来、存好盘。
+    """退出前的收尾：网页上正在进行的每一段（你正看着的，和在后台跑着的）、正在运行的定时任务、聊天里正在进行的对话，
+    都停下来、存好盘。
 
-    holding_turn：调用的人自己拿着对话的锁（web._turn，从备份恢复时，见 restore_api.py），网页上的对话不会在跑，
-    不用叫它停、也不用等它（等的话要等满 wait 秒：锁就在调用的人手里）。"""
+    holding_turn：调用的人自己拿着 web._turn（"没有一段在跑"，见 sessions.py 的 AllIdle；从备份恢复时，见 restore_api.py），
+    网页上的对话一段都不会在跑，不用叫它们停、也不用等（等的话要等满 wait 秒：锁就在调用的人手里）。"""
     _started.discard(web)
     app = web.app
     web.tasks.close()  # 排队的不跑了，正在跑的各自停下（连同它们自己的命令）
     if not holding_turn:
-        web.stop()
-    app.shell.kill_running()
+        web.stop_all()  # 网页上的每一段都停下（连同它们各自正在运行的命令，见 sessions_api.py）
     app.mcp.cancel_all()  # 正在等的 MCP 调用，不管是对话的、任务的还是聊天里的，都取消
     deadline = time.monotonic() + wait
     # 聊天通道：不再收消息；聊天里正在进行的停下，等它们存好盘（最多 CHANNEL_SHUTDOWN_SECONDS 秒，和下面的一起算）
     web.channels.close()
     if not holding_turn:
         web.wait_idle(max(0.0, deadline - time.monotonic()))
+    web.save_all()  # 上一次没存上盘、还留在内存里的那几段，最后再存一次
     web.tasks.wait_idle(max(0.0, deadline - time.monotonic()))
     app.close()  # 关掉 MCP 服务器的进程
     web.restore.close()  # 上传了、还没确认的备份（在系统的临时文件夹里）删掉
