@@ -200,7 +200,9 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.open_models(page)
     look("换模型", ["#models"])
     page.click("#models-menu [role=menuitemradio][data-model='claude-sonnet-5-5']")  # 同一家：马上换，底下写一句
-    page.wait("document.getElementById('models-status').classList.contains('good')", what="换好了")
+    # 等它说出结果（换好了，或者为什么没换成），没换成的话把那句话写进报错里
+    page.wait("['good', 'error'].some((kind) => document.getElementById('models-status').classList.contains(kind))", what="换模型有了结果")
+    assert page.js("document.getElementById('models-status').classList.contains('good')"), page.text("#models-status")
     look("换模型（换好以后）", ["#models"])
     steps.escape_closes_flyout(page, "models", "#model")
 
