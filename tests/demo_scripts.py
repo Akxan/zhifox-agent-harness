@@ -138,6 +138,9 @@ def fallback(body: dict) -> dict:
 # 演示的数据目录里一段以前存下的联网搜索回答（demo_web.py 启动时写进去）：每个文字块后面都跟着一个 block_end。
 # 页面测试按这个编号打开它（tests/ui/test_ui_citations.py）
 FRAGMENTED_ID = "20261101-090000-c17e0d"
+# 一段 Telegram 里的旧会话：第一条消息是一段语音转出来的（user 事件带着 voice，见 harness/voice/）。页面测试按这个编号打开它
+# （tests/ui/test_ui_voice.py），看消息上的"语音转文字"小标记
+VOICE_ID = "20261101-091500-0a1ce5"
 
 # [ui:cite] 引用的三个网页。第二个的网址里有括号（维基百科常这样），第三个的标题和网址都很长（窄屏上看会不会冲出去）
 CITE_A = ("https://perfect-items.example/sobre-nosotros", "Perfect Items · Sobre nosotros")

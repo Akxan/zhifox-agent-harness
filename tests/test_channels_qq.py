@@ -714,7 +714,7 @@ def test_a_file_reaches_the_model_as_text(bot):
 
 def test_voice_and_video_get_an_explanation(bot):
     s = bot()
-    s.wait_reply(s.say("", attachments=[("voice.amr", "voice", b"#!AMR\n")]), "还处理不了语音")
+    s.wait_reply(s.say("", attachments=[("voice.amr", "voice", b"#!AMR\n")]), "还处理不了语音：语音转文字暂时只支持 Telegram")
     s.wait_reply(s.say("", attachments=[("clip.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42")]), "还处理不了视频")
     s.idle()
     assert s.api.requests == []

@@ -147,6 +147,8 @@ function openSettings() {
   showComputerConfirm(false);
   drawComputerSettings(true);
   drawSandboxSettings(true);  // "沙箱"一节（见 sandbox.js）
+  voicePicked = '';
+  drawVoiceSettings(true);  // "语音转文字"一节（见 voice.js）
   renderService();  // "后台运行"一节（见 service.js）
   settings.showModal();
 }

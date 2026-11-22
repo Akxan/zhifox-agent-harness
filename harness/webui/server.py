@@ -60,6 +60,7 @@
   POST /api/browser/shot                         一张浏览器截图的大图（只收编号，回答 image/jpeg，见 browser_api.py）
   POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图（或者点击、打字）不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
   POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
+  POST /api/voice/settings                       语音转文字：用哪一种、哪个模型、本机服务的地址（见 voice_api.py 和 ../voice/）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -155,6 +156,7 @@ from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
 from .ui import WebUI, latest_state_only, said
+from .voice_api import VoiceAPI
 
 DEFAULT_PORT = 8765
 MAX_BODY_BYTES = 1_000_000
@@ -239,6 +241,7 @@ class WebApp:
         self.agents = AgentsAPI(self, lambda path: reveal_in_file_manager(path))  # Agent 一页的接口，同样的道理
         self.browser = BrowserAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
+        self.voice = VoiceAPI(self)  # 设置里"语音转文字"一节的接口（聊天里发来的语音，见 ../voice/）
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
@@ -348,6 +351,8 @@ class WebApp:
             browser=self.browser.state(),
             # 操作整台电脑：开没开、这台电脑上能不能用、权限、谁正在操作、截图留几天（见 computer_api.py）
             computer=self.computer.state(),
+            # 语音转文字：设置、实际会用哪一种、有没有 OpenAI 的密钥（只说有没有）、每个模型每分钟多少钱（见 voice_api.py）
+            voice=self.voice.state(),
             # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
             rewind=self._rewind_state(),
         )
@@ -1654,6 +1659,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "image/jpeg", content, headers)
         elif path.startswith("/api/computer/"):
             status, payload = web.computer.route(path.removeprefix("/api/computer/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/voice/"):
+            status, payload = web.voice.route(path.removeprefix("/api/voice/"), body)
             self._send_json(status, payload)
         else:
             self._send_json(404, {"error": "not found"})

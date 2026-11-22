@@ -11,7 +11,7 @@
 // 超没超预算还一直写在费用卡片上，底部的费用按钮上也有一个红点。
 
 const spendDialog = $('spend-dialog'), spendBody = $('spend-body');
-const SOURCES = { chat: k('对话'), task: k('定时任务'), subagent: k('子 Agent'), channel: k('聊天通道') };
+const SOURCES = { chat: k('对话'), task: k('定时任务'), subagent: k('子 Agent'), channel: k('聊天通道'), voice: k('语音转文字') };
 const PERIODS = { month: k('本月'), recent: k('最近 {n} 天'), all: k('全部') };
 let spendReport = null, spendProblem = '', spendLoading = false, spendAgain = false;
 let spendPick = -1;        // 柱状图上选中的是哪一天（下标）；-1 表示还没选，默认是今天
@@ -24,11 +24,13 @@ let exportInfo = null;     // 数据文件夹有多大（打开设置时问一�
 
 const callsText = (n) => (n === 1 ? t('1 次调用') : t('{n} 次调用', { n: n.toLocaleString(LOCALES[language]) }));
 const tokensText = (n) => new Intl.NumberFormat(LOCALES[language], { notation: 'compact', maximumFractionDigits: 1 }).format(n);
-const tokenMeta = (row) => t('输入 {input} · 输出 {output} token', { input: tokensText(row.input + row.cache_read + row.cache_write), output: tokensText(row.output) });
+// 语音转文字（见 voice.js）按分钟算钱、一个 token 都没有：不写"输入 0 · 输出 0 token"
+const tokenMeta = (row) => (row.input + row.cache_read + row.cache_write + row.output ? t('输入 {input} · 输出 {output} token', { input: tokensText(row.input + row.cache_read + row.cache_write), output: tokensText(row.output) }) : '');
 const dayDate = (text) => { const [year, month, day] = text.split('-').map(Number); return new Date(year, month - 1, day); };
 const dayText = (text, long) => dayDate(text).toLocaleDateString(LOCALES[language], long ? { month: 'short', day: 'numeric', weekday: 'short' } : { month: 'short', day: 'numeric' });
 const monthText = (text) => dayDate(text + '-01').toLocaleDateString(LOCALES[language], { year: 'numeric', month: 'long' });
-const providerLabel = (id) => { const found = state && state.providers.find((one) => one.id === id); return found ? found.label : id; };
+// local：语音转文字用的你自己运行的兼容服务（见 voice.js），不是一家模型提供方
+const providerLabel = (id) => { const found = state && state.providers.find((one) => one.id === id); return found ? found.label : id === 'local' ? t('你自己运行的服务') : id; };
 const sourceText = (source) => (SOURCES[source] ? t(SOURCES[source]) : source);
 
 // 信息栏：今天、本月；填了预算的话，再加一条进度和一句"还剩多少"
@@ -284,7 +286,7 @@ function spendBreakdown(report, animate) {
     const top = Math.max(...period.models.map((row) => row.cost));
     section.appendChild(el('p', 'spend-sub', t('模型')));
     section.appendChild(spendList(period.models.map((row) =>
-      spendRow(row.model, costText(row.cost), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].join(' · '), top ? row.cost / top : 0, true)), animate));
+      spendRow(row.model, costText(row.cost), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].filter(Boolean).join(' · '), top ? row.cost / top : 0, true)), animate));
   }
   const topSource = Math.max(...period.sources.map((row) => row.cost));
   section.appendChild(el('p', 'spend-sub', t('来源')));
@@ -293,7 +295,7 @@ function spendBreakdown(report, animate) {
   if (period.unpriced.length) {
     section.appendChild(el('p', 'spend-sub', t('没有价格的模型')));
     section.appendChild(spendList(period.unpriced.map((row) =>
-      spendRow(row.model, t('未计入'), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].join(' · '), null, true)), false));
+      spendRow(row.model, t('未计入'), [providerLabel(row.provider), callsText(row.requests), tokenMeta(row)].filter(Boolean).join(' · '), null, true)), false));
     section.appendChild(el('p', 'hint', t('这些调用发生时，模型还没有价格，只记下了 token 数，没有算进上面的金额。在“设置”里给它填上价格以后，之后的调用就会计入。')));
   }
   return section;

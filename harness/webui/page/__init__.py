@@ -83,6 +83,7 @@ STYLES = (
     "styles/animations.css",  # 入场动画
     "styles/browser.css",  # 浏览器
     "styles/computer.css",  # 操作整台电脑
+    "styles/voice.css",  # 语音转文字：设置里的一节、消息上的小标记
     "styles/trace.css",  # 运行记录：每一轮上的入口、滑出来的窗口（合计、瀑布图、逐段的详情）
     "styles/service.css",  # 设置里的"后台运行"
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
@@ -161,6 +162,7 @@ SCRIPTS = (
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑
+    "scripts/voice.js",  # 语音转文字：设置里的一节、消息上的小标记
     "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端
     "scripts/keyboard.js",  # 键盘
     "scripts/start.js",  # 开始：连上事件流

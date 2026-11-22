@@ -122,6 +122,7 @@ class Demo:
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
             ("/api/fallbacks", {"provider": "anthropic", "models": []}),  # 备用模型：测试里选过的不留给下一个测试
+            ("/api/voice/settings", {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": ""}),  # 语音转文字（test_ui_voice.py 会改）
         ):
             answers: list = []
 

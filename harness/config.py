@@ -332,6 +332,16 @@ SERVICE_STOP_SECONDS = 30
 SERVICE_COMMAND_SECONDS = 60
 
 
+# ---- 语音转文字（聊天里发来的语音，见 voice/）----------------------------------------------
+# 按分钟计费（价格见 pricing.TRANSCRIBE_PRICES），所以太长的不转：说一声上限是多少，一分钱都不花
+VOICE_MAX_SECONDS = 600
+# 一条语音最多下载、上传这么大：Telegram 的机器人最多能下载 20 MB（https://core.telegram.org/bots/api#getfile），
+# OpenAI 最多收 25 MB（https://developers.openai.com/api/docs/guides/speech-to-text），取小的那个
+VOICE_MAX_BYTES = 20_000_000
+VOICE_TIMEOUT = 120  # 转一条最多等多久（秒）。一条十分钟的语音上传加识别，慢的网络上要一会儿
+VOICE_TEXT_CHARS = 20_000  # 转出来的文字最多留这么多个字（一个出了毛病的服务器不能把一大堆东西塞进对话）
+
+
 # Claude 思考的力度能选的几档，从浅到深（见 Config.effort）
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -360,6 +370,9 @@ class Config:
     dingtalk_api: str = "https://api.dingtalk.com"
     # 钉钉的老接口（上传图片和文件，发图片、文件消息要先传上去拿到 media_id，见 channels/dingtalk.py）在另一个域名下
     dingtalk_oapi: str = "https://oapi.dingtalk.com"
+    # 语音转文字用的 OpenAI 接口（见 voice/transcribe.py）。和上面的一样只能用环境变量改（OPENAI_BASE_URL，
+    # 和 OpenAI 的 SDK 认的是同一个）：OpenAI 的 API key 会发到这里去。测试把它指向本地的假服务器
+    transcribe_api: str = "https://api.openai.com/v1"
 
     @property
     def todo_file(self) -> Path:
@@ -520,5 +533,6 @@ def load_config(workspace: Path | None = None) -> Config:
         default_provider=os.environ.get("HARNESS_PROVIDER", "anthropic"),
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
         telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
+        transcribe_api=(os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},
     )
