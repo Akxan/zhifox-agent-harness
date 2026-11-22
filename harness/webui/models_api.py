@@ -91,8 +91,9 @@ class ModelActions:
         }
 
     # ---- 换模型、密钥、同步模型列表、价格 ------------------------------------
-    # 换模型、填密钥会改动助手的状态，所以和对话共用一把锁：对话进行中不能改。同步模型列表、改价格不拿锁。
-    # 返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
+    # 换模型、填密钥会改动你正看着的那一段的助手，所以拿它的锁（见 _viewed_idle）：它在进行一轮时不能改。
+    # 后台在跑的那几段不受影响（它们各有各的适配层；填的密钥从它们的下一次请求起生效，见 App.set_api_key）。
+    # 同步模型列表、改价格不拿锁。返回值的约定和 send 一样：空字符串表示成功，否则是失败的原因。
 
     def select_model(self, provider_id: str, model: str) -> str:
         provider = find(provider_id)
@@ -100,13 +101,13 @@ class ModelActions:
             return t("这个模型接口已经不在了，可能刚被删掉。")
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥", provider=provider.label)
-        if not self._turn.acquire(blocking=False):
-            return self._busy()
-        try:
+        with self._viewed_idle() as free:
+            if not free:
+                return self._busy()
             # 换到另一家要开始新对话，也就是离开当前会话（同一个自定义接口上，能不能用工具不一样的两个模型之间换也是，见 providers.continues）
             same_provider = provider_id == self.app.agent.backend.provider
             if not continues(self.app.agent.backend, provider, model):
-                blocked = self._before_leaving(f"model:{provider_id}:{model}")
+                blocked = self._before_leaving(self.sessions.viewed, f"model:{provider_id}:{model}")
                 if blocked:
                     return blocked
             else:
@@ -116,7 +117,7 @@ class ModelActions:
                     return held
             continued = self.app.select_model(provider_id, model)
             if not continued:
-                self._left()
+                self._left(self.sessions.viewed)
                 self.ui.reset()  # 换了一家：历史格式不通用，页面也清空
             label = provider.label
             if continued:
@@ -129,8 +130,6 @@ class ModelActions:
             if continued:
                 self._save()  # 这段会话以后用新模型，记下来
             self.publish_state()
-        finally:
-            self._turn.release()
         return ""
 
     def set_api_key(self, provider_id: str, key: str) -> tuple[str, str]:
@@ -139,10 +138,10 @@ class ModelActions:
         保存成功后顺便同步一次模型列表；如果同步失败（比如 key 不对），key 仍然保存了，
         原因放在"提醒"里告诉用户。
         """
-        if not self._turn.acquire(blocking=False):
-            return self._busy(), ""
         warning = ""
-        try:
+        with self._viewed_idle() as free:
+            if not free:
+                return self._busy(), ""
             self.app.set_api_key(provider_id, key)
             if key:
                 try:
@@ -152,8 +151,6 @@ class ModelActions:
             else:
                 self.app.settings.set_models(provider_id, None)
             self.publish_state()
-        finally:
-            self._turn.release()
         return "", warning
 
     def sync_models(self, provider_id: str) -> str:

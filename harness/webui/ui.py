@@ -12,6 +12,10 @@ server.py 再把日志里的事件推送给浏览器，浏览器收到后画出�
 它们调用这里的 answer_confirm / request_stop。
 
 循环运行在一个后台线程里，浏览器的请求由别的线程处理，所以这里的状态都用一把锁保护。
+
+网页上同时进行的几段对话各有一个 WebUI（见 sessions.py），事件的编号却从同一个数往下排（EventIds）：
+谁的编号都不会和别人的撞上，确认卡片的编号也就认得出是哪一段在等（见 chat_api.route_confirm）。
+页面只读你正看着的那一段的日志，换着看的时候怎么补发，见 server.py 的 _send_events。
 """
 
 from __future__ import annotations
@@ -61,6 +65,24 @@ REPLAYABLE = frozenset(
 PARAGRAPH = frozenset({"text", "cite", "block_end", "state"})
 
 
+class EventIds:
+    """事件的编号：递增，同一个 EventIds 发出去的编号不会重复。一个 WebUI 自己用一个；网页上同时进行的几段对话共用一个（见上面）。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._next = 1
+
+    def take(self) -> int:
+        with self._lock:
+            taken, self._next = self._next, self._next + 1
+            return taken
+
+    def peek(self) -> int:
+        """下一个要发出去的编号（还没发）。"""
+        with self._lock:
+            return self._next
+
+
 def latest_state_only(events: list[dict]) -> list[dict]:
     """一批要一起补发给页面的事件里，"状态"只留最后一个。
 
@@ -73,12 +95,15 @@ def latest_state_only(events: list[dict]) -> list[dict]:
 
 
 class WebUI:
-    def __init__(self) -> None:
+    def __init__(self, ids: EventIds | None = None) -> None:
         # 这把锁保护下面所有的状态；有新事件、新答复或停止请求时，用它唤醒正在等待的线程
         self._changed = threading.Condition()
         # 当前对话的事件日志。浏览器刷新页面后，靠重放这份日志把整个对话重新画出来
         self._events: list[dict] = []
-        self._next_id = 1
+        self.ids = ids or EventIds()  # 事件的编号从哪儿领（见 EventIds）
+        self.wakes = 0  # 被 wake 叫过几次（见 wait_newer）
+        # 开始等你确认、等完了的时候调用（在锁外面）。网页上在后台跑着的那一段靠它让会话栏标出"等你确认"（见 sessions.py）
+        self.on_waiting: Callable[[], None] | None = None
         self._block_open = False  # 是否有一段文字正在逐字输出
         self._sources = Numbering()  # 页面上正在写的这段回复引用的网页，和它们的编号（见 cite）
         self._stop_requested = False
@@ -92,8 +117,7 @@ class WebUI:
     def publish(self, type: str, **data: Any) -> int:
         """往日志里追加一个事件，并通知所有正在等新事件的浏览器连接。返回事件编号。"""
         with self._changed:
-            event = {"id": self._next_id, "type": type, **data}
-            self._next_id += 1
+            event = {"id": self.ids.take(), "type": type, **data}
             self._events.append(event)
             if type not in PARAGRAPH:  # 页面上的这段回复到这里结束了：下一段的来源从 1 数起
                 self._sources.clear()
@@ -107,10 +131,34 @@ class WebUI:
                 self._changed.wait(timeout)
             return self._newer(cursor)
 
+    def wait_newer(self, cursor: int, timeout: float, wakes: int) -> bool:
+        """等到有编号大于 cursor 的事件，或者被 wake 叫醒，最多等 timeout 秒。等到了（或者本来就有）返回 True，超时返回 False。
+
+        wakes 是调用的人上一次看到的 self.wakes：在那之后已经叫过（还没开始等就叫了）的话马上返回，不会白等 timeout 秒。"""
+        with self._changed:
+            if self.wakes != wakes or self._newer(cursor):
+                return True
+            return self._changed.wait(timeout)
+
+    def wake(self) -> None:
+        """叫醒正在等新事件的连接：页面换着看另一段了，事件流要换一份日志读（见 server.py 的 _send_events）。"""
+        with self._changed:
+            self.wakes += 1
+            self._changed.notify_all()
+
+    def next_id(self) -> int:
+        """下一个事件会拿到的编号。"""
+        return self.ids.peek()
+
+    def first_id(self) -> int:
+        """日志里第一个事件的编号（日志是空的时候是下一个会拿到的编号）。"""
+        with self._changed:
+            return self._events[0]["id"] if self._events else self.ids.peek()
+
     def _newer(self, cursor: int) -> list[dict]:
         if not self._events:
             return []
-        if cursor >= self._next_id:  # 浏览器记住的编号比我们的还新，说明对不上了，全部重发
+        if cursor >= self.ids.peek():  # 浏览器记住的编号比我们的还新，说明对不上了，全部重发
             cursor = 0
         # 编号是递增的，但不一定连续（过时的状态会被清掉，见 _drop_stale_states），所以用二分查找来定位
         return self._events[bisect_right(self._events, cursor, key=lambda event: event["id"]) :]
@@ -123,6 +171,12 @@ class WebUI:
         """
         latest = max((index for index, event in enumerate(self._events) if event["type"] == "state"), default=-1)
         self._events = [event for index, event in enumerate(self._events) if event["type"] != "state" or index == latest]
+
+    def forget_states(self) -> None:
+        """把日志里的"状态"全部清掉：这一段不再是你正看着的了（见 sessions.py）。状态只发给正看着的那一段，
+        它日志里留着的那张是换走之前的；以后换回来看它时，"reset 到下一个状态之间算重放"不能停在这张旧的上面。"""
+        with self._changed:
+            self._events = [event for event in self._events if event["type"] != "state"]
 
     def forget_old_states(self) -> None:
         """现在就把过时的"状态"清掉（平时是每轮对话开始时清）。
@@ -302,6 +356,11 @@ class WebUI:
         for callback in callbacks:
             callback()
 
+    def stop_requested(self) -> bool:
+        """这一轮点过"停止"了没有（一轮开始时清掉）。"""
+        with self._changed:
+            return self._stop_requested
+
     def _check_stop(self) -> None:
         if self._stop_requested:
             raise KeyboardInterrupt
@@ -385,17 +444,34 @@ class WebUI:
             self._waiting_confirm = confirm_id
             self._waiting_offer = offer if offer in OFFERS else ""
             self._confirm_answer = None
+        self._tell_waiting()
+        with self._changed:
             while self._confirm_answer is None and not self._stop_requested:
                 self._changed.wait()
             answer = self._confirm_answer
             self._waiting_confirm = None
             self._waiting_offer = ""
+        self._tell_waiting()
         if answer is None:  # 等待期间用户点了"停止"
             self.publish("confirm_done", confirm=confirm_id, allowed=False, stopped=True)
             raise KeyboardInterrupt
         allowed, feedback = answer
         self.publish("confirm_done", confirm=confirm_id, allowed=allowed, stopped=False)
         return allowed, feedback
+
+    def waiting(self) -> bool:
+        """是不是正在等你答复一张确认卡片。"""
+        with self._changed:
+            return self._waiting_confirm is not None and self._confirm_answer is None
+
+    def waiting_on(self, confirm_id: int) -> bool:
+        """正在等的是不是这一张卡片。"""
+        with self._changed:
+            return self._waiting_confirm == confirm_id and self._confirm_answer is None
+
+    def _tell_waiting(self) -> None:
+        if self.on_waiting is not None:
+            self.on_waiting()
 
     def offered(self, confirm_id: object, offer: str) -> bool:
         """confirm_id 是不是正在等你答复的那张卡片，而且它上面给了 offer 这个选择（/api/computer/trust 先问这一句：

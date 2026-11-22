@@ -107,6 +107,11 @@ SOURCE_URL_CHARS = 2048
 # 同时跑得太多既费钱又难盯住。再到时间的先排队，前面的跑完一个，排在最前面的那个就开始（见 webui/scheduler.py）
 MAX_PARALLEL_TASKS = 3
 
+# 网页上你自己的对话最多同时进行几段（见 webui/sessions.py）：一段在跑的时候，你可以打开别的会话、开新对话、在那里接着发消息，
+# 原来那段在后台接着跑。每段都在调用模型、花钱，可能开着命令、等你确认，同时太多既费钱又盯不过来。到了上限，
+# 再发一条会被拒绝（页面上说明原因），等其中一段结束再发。定时任务和聊天通道不算在里面，它们各有各的规矩
+MAX_PARALLEL_CHATS = 3
+
 # 命令的沙箱（见 sandbox/）：设置里"额外允许的路径"最多这么多条，每条最长这么多个字符
 SANDBOX_MAX_PATHS = 50
 SANDBOX_PATH_CHARS = 1000
@@ -386,6 +391,7 @@ class Config:
     default_provider: str = "anthropic"  # 还没在界面上选过模型时用哪一家
     default_model: str = "claude-opus-5-5"
     max_parallel_tasks: int = MAX_PARALLEL_TASKS  # 定时任务最多同时运行几个（测试里会改小）
+    max_parallel_chats: int = MAX_PARALLEL_CHATS  # 网页上你的对话最多同时进行几段（测试里会改小）
     # Telegram Bot API 的地址。一般不用改；在连不上 api.telegram.org 的地方可以换成自建的 Bot API 服务器，
     # 测试和演示把它指向本地的假服务器。只能用环境变量 TELEGRAM_API_BASE 改，页面上改不了：token 会发到这个地址去
     telegram_api: str = "https://api.telegram.org"

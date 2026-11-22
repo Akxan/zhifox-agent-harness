@@ -405,9 +405,8 @@ def test_a_confirmation_can_only_be_answered_once(serve):
     confirm = s.browser.wait_for("confirm")
 
     assert s.browser.post("/api/confirm", {"id": confirm["id"] + 99, "allow": True})[0] == 409  # 编号不对
-    # 确认期间不能发新消息，也不能开新对话
+    # 确认期间不能在这一段里再发一条（同一段不会同时跑两轮）。开新对话可以：这一段留在后台等着（见 test_parallel_chats.py）
     assert s.browser.post("/api/message", {"text": "另一句"})[0] == 409
-    assert s.browser.post("/api/new")[0] == 409
     assert s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})[0] == 200
     s.browser.wait_for("turn_end")
     assert s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})[0] == 409  # 已经答复过
@@ -1171,7 +1170,9 @@ def test_new_and_deleted_conversations_start_clean_with_other_providers(serve, m
     fresh_start(say(s, "第三段"))
 
 
-def test_conversations_cannot_be_opened_renamed_or_deleted_during_a_turn(serve):
+def test_only_the_conversation_in_a_turn_cannot_be_renamed_or_deleted(serve):
+    """一轮进行中：正在跑的那一段不能改名、删除（轮末的存盘会和它撞上）；别的会话照常能改。
+    打开别的会话、开新对话也可以（这一段留在后台接着跑），那些在 test_parallel_chats.py 里测。"""
     s = serve(
         reply(text("一")),
         reply(tool_use("toolu_1", "run_command", {"command": "true"}), stop_reason="tool_use"),
@@ -1184,24 +1185,24 @@ def test_conversations_cannot_be_opened_renamed_or_deleted_during_a_turn(serve):
     resets = len(s.browser.of_type("reset"))
 
     for path, data in (
-        ("/api/conversation/open", {"id": first}),
-        ("/api/conversation/rename", {"id": first, "title": "改个名"}),  # 改名要改写文件，会和轮末的存盘撞上
-        ("/api/conversation/rename", {"id": current, "title": "改个名"}),
-        ("/api/conversation/delete", {"id": first}),
+        ("/api/conversation/rename", {"id": current, "title": "改个名"}),  # 改名要改写文件，会和轮末的存盘撞上
         ("/api/conversation/delete", {"id": current}),
     ):
         status, body = s.browser.post(path, data)
         assert status == 409 and "等当前这一轮对话结束" in body["error"]
-    assert saved_ids(s.config) == [first] and saved_file(s.config, first)["title"] == "第一段"
+    # 没在跑的那一段：照常改名（它这时也不会被打开、开始一轮，见 rename_conversation）
+    assert s.browser.post("/api/conversation/rename", {"id": first, "title": "改个名"}) == OK
+    assert saved_ids(s.config) == [first] and saved_file(s.config, first)["title"] == "改个名"
 
     s.browser.post("/api/confirm", {"id": confirm["id"], "allow": True})
     s.browser.wait_for("turn_end")
     # 这一轮没有受到打扰：页面没有被清空，内容存进了它自己的那一段
     state = latest_state(s.browser)
     assert len(s.browser.of_type("reset")) == resets
-    assert listed(state) == [(current, "跑一下"), (first, "第一段")] and saved_ids(s.config) == sorted([first, current])
+    assert listed(state) == [(current, "跑一下"), (first, "改个名")] and saved_ids(s.config) == sorted([first, current])
     assert [message["role"] for message in s.api.requests[-1]["messages"]] == ["user", "assistant", "user"]
-    # 结束之后就可以了
+    # 结束之后它自己也能改名、打开别的
+    assert s.browser.post("/api/conversation/rename", {"id": current, "title": "跑完了"}) == OK
     replayed, state = open_conversation(s, first)
     assert state["conversation"] == first
     assert kinds(replayed) == ["user", "turn_start", "text", "block_end", "trace", "turn_end"]

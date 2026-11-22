@@ -6,7 +6,8 @@
   POST /api/prompt/preview   还没保存的模板换上占位符是什么样子（只是算一下）
 
 PromptActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
-保存拿对话的锁：当前这段还没开始聊的话要换掉它的适配层，不能和正在进行的一轮撞上。
+保存拿你正看着的那一段的锁：它还没开始聊的话要换掉它的适配层，不能和正在进行的一轮撞上。
+后台在跑的那几段早就开始了，照旧用它们开始时的那版（一段对话里提示词不变，见 ../prompt.py）。
 
 route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
 """
@@ -42,11 +43,11 @@ class PromptActions:
     def save_prompt(self, text: str | None) -> tuple[str, bool]:
         """保存（None 表示恢复内置的）提示词。返回（失败原因，当前这段是不是也用上了）。
 
-        和改设置一样拿对话的锁：当前这段还没开始聊的话，要换掉它的适配层，不能和正在进行的一轮撞上。
+        和改设置一样拿你正看着的那一段的锁：它还没开始聊的话，要换掉它的适配层，不能和正在进行的一轮撞上。
         """
-        if not self._turn.acquire(blocking=False):
-            return self._busy(), False
-        try:
+        with self._viewed_idle() as free:
+            if not free:
+                return self._busy(), False
             try:
                 applied = self.app.set_prompt(text)
             except prompts.PromptError as exc:
@@ -54,8 +55,6 @@ class PromptActions:
             except OSError as exc:
                 return t("没能保存提示词：{error}", error=exc.strerror or exc), False
             self.publish_state()
-        finally:
-            self._turn.release()
         return "", applied
 
 

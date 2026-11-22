@@ -66,7 +66,7 @@ class ComputerAPI:
         if action == "trust":
             return self._trust(body.get("what"), body.get("confirm"))
         if action == "untrust":
-            # 收回这段对话里的"不再问"（设置里的那个按钮）。只会更严，所以不用对着哪张卡片、什么时候都能点
+            # 收回这段对话里的"不再问"（设置里的那个按钮，只管你正看着的这一段）。只会更严，所以不用对着哪张卡片、什么时候都能点
             self.web.app.chat_desktop.untrust()
             self.web.publish_state()
             return 200, {"ok": True}
@@ -80,7 +80,9 @@ class ComputerAPI:
             return 400, {"error": t("参数不正确")}
         if not self.manager.enabled:
             return 409, {"error": t("“操作整台电脑”现在是关着的。")}
-        if not self.web.ui.offered(confirm_id, what) or not self.web.app.chat_desktop.trust(what):
+        # 卡片的编号是全局唯一的（见 ui.EventIds）：找到正在等它的那一段，放开的只是那一段的电脑操作，别的几段照样每一步都问
+        session = self.web.session_waiting_on(confirm_id)
+        if session is None or not session.ui.offered(confirm_id, what) or not session.chat.desktop.trust(what):
             return 409, {"error": t("这张确认卡片已经处理过了，或者上面没有这个选择。")}
         self.web.publish_state()
         return 200, {"ok": True}

@@ -7,7 +7,9 @@
 RewindActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态都在 WebApp.__init__ 里。
   _rewind_state    状态里的 rewind：最后一轮能不能倒、为什么不能、倒之前要不要问你（页面的按钮只照着它画）
   _rewind_problem  为什么倒不回去
-  rewind           真的倒回去：和发消息一样拿对话的锁、认领会话，截断以后马上存盘，新的一轮交给 _run_turn（见 chat_api.py）
+  rewind           真的倒回去：和发消息一样拿这一段的锁、认领会话，截断以后马上存盘，新的一轮交给 _run_turn（见 chat_api.py）。
+                   只倒你正看着的那一段（页面带来的会话编号对不上就 409）：拿着它的锁、它又没在跑，这时谁也换不走"正看着哪一段"，
+                   所以这里用 self.ui、self.app.agent 这些就是它的；新的一轮在后台线程里只用它自己的（Session）
   _undo_with_rewind  倒回去之前先撤回这一轮改的文件（确认卡片上勾了"同时撤回"）
 
 route_* 由 server.py 的 Handler._route 调用（写法和约定见 server.py 开头）。
@@ -105,13 +107,15 @@ class RewindActions:
         provider = self.app.provider
         if not has_key(provider):
             return t("还没有设置 {provider} 的 API 密钥，请先点右上角的“设置”填写。", provider=provider.label), {}
-        if not self._turn.acquire(blocking=False):
+        session = self.sessions.viewed
+        if not self._take(session):
             return self._busy(t("上一轮对话还没有结束")), {}
-        started = False
+        started = claimed = False
         try:
-            elsewhere = self._claim()
+            elsewhere = self._claim(session)
             if elsewhere:
                 return elsewhere, {}
+            claimed = True
             start, events = self.ui.last_turn_events()
             turn = rewind.last_turn(events, start)
             if turn is None or turn.mark is None or (self.app.conversation.id, turn.id) != target:
@@ -126,6 +130,10 @@ class RewindActions:
                 effects, more = rewind.listed(found)
                 extra = {"effects": effects, "more": more, "operated": rewind.operated(turn.events)}
                 return t("这一轮做过可能改动了电脑的事，倒回去之前要先确认。"), extra
+            # 重新生成、编辑都会开始新的一轮：同时在跑的到了上限，就先不倒回去（不然倒回去了却开始不了，那一轮白白没了）。
+            # 只有你正看着的这一段能开始新的一轮，它的锁在我们手里，所以这里数的和下面真的开始时一样
+            if self.sessions.running() >= self._parallel_limit():
+                return self._too_many(), {}
             backend = self.app.agent.backend
             kept = action == "retry" and backend.turn_at(mark)  # 重新生成、用户消息还在历史里：原样留着它
             attachments: list[Attachment] = []
@@ -150,15 +158,17 @@ class RewindActions:
             # 这一轮从对话里去掉了：撤回过它改的文件、还没来得及告诉模型的那几句也不用说了（模型本来就不知道它改过）
             self.app.changes.notes.drop(self.app.conversation.id, rewind_sets(turn.events))
             self.ui.rewind(keep_user=action == "retry")
-            self._save()
+            self._save(session)
             self.publish_state()  # 重放到这里结束：之后新的一轮照常播放入场动画
-            threading.Thread(target=self._run_turn, args=(turn.text if kept else text, attachments, mark if action == "retry" else None), daemon=True).start()
+            self.sessions.start(session, self._parallel_limit())
+            threading.Thread(target=self._run_turn, args=(session, turn.text if kept else text, attachments, mark if action == "retry" else None), daemon=True).start()
             started = True
             return "", {}
         finally:
             if not started:
-                self.claims.release(self.app.conversation.id, "web")
-                self._turn.release()
+                if claimed:
+                    self.claims.release(session.id, "web")
+                self.sessions.unlock(session)
 
     def _undo_with_rewind(self, turn: rewind.Turn, force: bool) -> tuple[str, dict]:
         """倒回最后一轮之前，撤回它改的文件。返回（不能接着倒回去的原因，回答里另外带的东西）。调用的人拿着对话的锁。"""

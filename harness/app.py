@@ -1,6 +1,11 @@
 """组装：把配置、工具、权限、模型和循环拼成一个可以运行的助手。
 
 终端版和网页版从这里拿到的是同一套东西，区别只在于传进来的界面（ui）不同。
+
+你的一段对话用的东西（助手、会话、shell、浏览器和电脑的 session……）装在一个 Chat 里。终端界面只有一个；
+网页上可以几段对话同时进行（见 webui/sessions.py），每段一个。App.chat 是你正看着的那一段，
+App.agent、App.conversation、App.shell、App.chat_browser、App.chat_desktop 都是它的，读它们的代码不用管有几段。
+会在后台接着跑的那几段，调用这里的方法时把它们自己的 Chat 传进来（chat=…），不要用 App.agent 这些。
 """
 
 from __future__ import annotations
@@ -36,7 +41,7 @@ from .endpoints import EndpointError, EndpointStore
 from .hooks import HookConfig, HookRun, Hooks
 from .i18n import t
 from .ledger import Ledger
-from .mcp import McpConfig, McpManager
+from .mcp import McpConfig, McpManager, Snapshot
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .media import MediaStore
 from .permissions import Permissions
@@ -98,18 +103,41 @@ class UnattendedRun:
 
 
 @dataclass
+class Chat:
+    """你的一段对话在助手这一侧用的全部东西（见文件开头）。网页上同时进行的几段，各有一个（见 webui/sessions.py）。
+
+    凡是"会被停下"的都各用各的，和定时任务的每次运行一样（见 _side_run）：点这一段的"停止"，只结束它自己的命令、
+    它自己名下的 MCP 调用、它自己的浏览器和电脑的动作、它自己正在跑的钩子。共用的只有磁盘上的东西（各有各的锁）、
+    权限（"要不要先问你"那一档是全局的一个，见 App.permissions）、遮密钥和备用模型的设置、花费账本。
+    """
+
+    agent: Agent  # 这段对话的助手：适配层（历史）、用量、运行记录、钩子都在它上面
+    conversation: Conversation  # 这段会话
+    shell: Shell  # 它自己的 shell
+    tools: ToolRegistry  # 它自己的那一套基本工具：和 App.tools 一样，只是 run_command 用的是它自己的 shell
+    browser: BrowserSession  # 它用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
+    desktop: DesktopSession  # 它的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
+    owner: object | None = None  # 它的 MCP 调用记在谁名下（见 McpManager.call）：一开始的那一段是 None，后来开的每段各一个
+    # 这段对话的适配层用的是哪一版提示词。和 App.system_prompt 不一样，说明用户改过了：
+    # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
+    prompt_in_use: str = ""
+    # 这段对话是用哪个 Agent 当角色开始的（见 agents/ 开头的说明）；普通的对话是 None。
+    # 它在这段对话开始时读好，之后不再变：你中途改了那个 Agent 的文件，从下一段用它开始的对话起才算数
+    persona: CustomAgent | None = None
+    # 这段对话开始时拍下的 MCP 快照（见 fresh_tools）。正看着它的时候，McpManager.active 就是它（信息栏和 MCP 一页按它画）
+    mcp: Snapshot = field(default_factory=Snapshot)
+
+
+@dataclass
 class App:
     config: Config
     settings: Settings
-    agent: Agent
     todos: TodoStore
     tasks: TaskStore  # 定时任务（只在网页界面开着的时候运行，见 webui/scheduler.py）
-    tools: ToolRegistry
-    shell: Shell
+    tools: ToolRegistry  # 基本的工具（一开始的那一段对话、定时任务、聊天通道都从它换上自己的 shell）
     system_prompt: str  # 新的一段对话要用的系统提示词（用户可以改，见 prompt.py 和 set_prompt）
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
-    conversation: Conversation  # 当前正在进行的这一段
     media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
     ledger: Ledger  # 花费账本：每一次模型调用花了多少（见 ledger.py）
     skills: SkillStore  # 装好的 Skill（data/skills/）
@@ -117,20 +145,141 @@ class App:
     agents: AgentStore  # 自定义 Agent（data/agents/，见 agents/）
     delegator: Delegator  # 给每个会叫子 Agent 的一方做 agent 工具，并把子 Agent 跑起来（见 agents/runner.py）
     browser: BrowserManager  # 智狐自己的那个 Chrome（见 browser/）
-    chat_browser: BrowserSession  # 你正在看的这段对话用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
     desktop: DesktopManager  # 操作整台电脑（见 desktop/）：进阶选项，默认关着
-    chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
     hooks: Hooks  # 你的钩子（data/hooks.json，见 hooks/）：每次运行各用一个 HookRun，配置和"上一次跑得怎么样"是共用的这一份
     sandbox_layout: Layout  # 命令的沙箱要用的几个地方（见 sandbox/）：每次运行的 Sandbox 都照着它建
     endpoints: EndpointStore  # 自定义模型接口（data/endpoints.json，见 endpoints/）。providers.find / every 也看得到它们
     changes: FileChanges  # 每一轮文件工具改了哪些文件，和撤回、重做（见 undo/）。只有你的对话记账，定时任务和聊天通道不记
+    # 你的对话共用的权限：几段对话同时进行时也是这一个，所以"要不要先问你"那一档是全局的（见 webui/settings_api.py）
+    permissions: Permissions
+    redact: Any = None  # 遮密钥（见 redact.py）：你的每段对话、定时任务、聊天通道、子 Agent 都用这同一个
+    fallbacks: Callable[[str, str], list[str]] | None = None  # 备用模型的名单（见 fallback.py），每次现读设置
+    chat: Chat = None  # type: ignore[assignment]  # 你正看着的这一段（见 Chat）。build_app 建好以后才有
+    # 此刻活着的每一段（包括正看着的这一段）。网页界面换成它自己的那份名单（见 webui/sessions.py）；终端只有 chat 这一段
+    live: Callable[[], Sequence[Chat]] | None = None
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
-    # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
-    # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
-    prompt_in_use: str = ""
-    # 当前这段对话是用哪个 Agent 当角色开始的（见 agents/ 开头的说明）；普通的对话是 None。
-    # 它在这段对话开始时读好，之后不再变：你中途改了那个 Agent 的文件，从下一段用它开始的对话起才算数
-    persona: CustomAgent | None = None
+    # 换"正看着哪一段"和设 McpManager.active 时拿的小锁：后台那一段刚拍完快照的同一刻你换了一段，不能把它的快照装到你正看着的这一段上
+    _viewing: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    # ---- 你正看着的这一段（见 Chat）-----------------------------------------------
+
+    @property
+    def agent(self) -> Agent:
+        return self.chat.agent
+
+    @property
+    def conversation(self) -> Conversation:
+        return self.chat.conversation
+
+    @conversation.setter
+    def conversation(self, conversation: Conversation) -> None:
+        self.chat.conversation = conversation
+
+    @property
+    def shell(self) -> Shell:
+        return self.chat.shell
+
+    @property
+    def chat_browser(self) -> BrowserSession:
+        return self.chat.browser
+
+    @chat_browser.setter
+    def chat_browser(self, session: BrowserSession) -> None:
+        self.chat.browser = session  # 测试换成假的浏览器用
+
+    @property
+    def chat_desktop(self) -> DesktopSession:
+        return self.chat.desktop
+
+    @chat_desktop.setter
+    def chat_desktop(self, session: DesktopSession) -> None:
+        self.chat.desktop = session
+
+    @property
+    def persona(self) -> CustomAgent | None:
+        return self.chat.persona
+
+    @persona.setter
+    def persona(self, persona: CustomAgent | None) -> None:
+        self.chat.persona = persona
+
+    @property
+    def prompt_in_use(self) -> str:
+        return self.chat.prompt_in_use
+
+    @prompt_in_use.setter
+    def prompt_in_use(self, text: str) -> None:
+        self.chat.prompt_in_use = text
+
+    def chats(self) -> list[Chat]:
+        """此刻活着的每一段对话（终端只有正看着的这一段）。"""
+        return list(self.live()) if self.live is not None else [self.chat]
+
+    def view(self, chat: Chat) -> None:
+        """换成看另一段（网页上同时进行几段对话时，见 webui/sessions.py）。只是换"正看着哪一段"：
+        那一段自己的东西一样都不动，后台的那一段照常跑。信息栏、MCP 一页照着 McpManager.active 画，跟着换。"""
+        with self._viewing:
+            self.chat = chat
+            self.mcp.active = chat.mcp
+
+    def new_chat(self, ui: Any, shell: Shell | None = None) -> Chat:
+        """准备一段新对话要用的全部东西（见 Chat）：此刻设置里选的那一家、那个模型，一段空的会话。
+
+        build_app 用它建一开始的那一段（shell 是工具箱里 run_command 用的那一个）；网页上同时进行几段对话时，
+        后开的每一段也用它建（见 webui/sessions.py）：自己的 shell、浏览器和电脑的 session、MCP 调用的名下。
+        权限、遮密钥、备用模型、记账、钩子的配置都是共用的同一份。ui 是这一段自己的界面（网页上是它自己的事件日志）。
+        """
+        first = shell is not None
+        shell = shell or Shell(self.config.workspace, Sandbox(self.sandbox_layout))
+        tools = self.tools if first else self.tools.replaced(make_shell_tool(shell))
+        provider_id, model = self.settings.provider, self.settings.model
+        provider = find(provider_id)
+        if provider is None:  # 设置里选的自定义接口不在了：用内置的默认那一家（和 new_conversation 一样）
+            provider_id, model = FALLBACK
+            provider = PROVIDERS[provider_id]
+        prompt = build_system_prompt(self.config, web=self.config.web and provider.web)
+        backend = make_backend(provider, model, self.config, tools, prompt, self.client_factory(provider))
+        agent = Agent(backend=backend, config=self.config, tools=tools, permissions=self.permissions, ui=ui)
+        if self.chat is not None:
+            agent.clock = self.chat.agent.clock  # 和你正看着的那一段同一个钟（测试会把它固定住）
+        chat = Chat(
+            agent=agent,
+            conversation=self._new(provider_id, model, None),
+            shell=shell,
+            tools=tools,
+            browser=self.browser.session("chat"),
+            desktop=self.desktop.session(desktop_labels.CHAT, attended=True),
+            owner=None if first else object(),
+            prompt_in_use=self.system_prompt,
+        )
+        self._wire(chat)
+        return chat
+
+    def _wire(self, chat: Chat) -> None:
+        """给一段对话的助手接上共用的那几样：Skill 和 Agent 的目录、记账、遮密钥、备用模型、运行记录、钩子、撤回文件的说明。"""
+        agent = chat.agent
+        # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）。
+        # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）。
+        # 用不了工具的模型（自定义接口上的一些模型）也一样：工具一个都没发给它
+        skill_note = notifier(self.skills)
+        agent.notes.append(lambda history: skill_note(history) if agent.tools.get(SKILL_TOOL) is not None and agent.backend.tools_supported else "")
+        # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）
+        agent.notes.append(agent_notifier(self.agents, lambda: agent.tools if agent.backend.tools_supported else ToolRegistry([])))
+        # 你撤回、重做了文件以后，这段会话的下一条消息前面附一段说明，模型才知道它记得的文件内容过时了（见 undo/notes.py）
+        agent.notes.append(lambda history: self.changes.notes.text(chat.conversation.id))
+        # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
+        agent.on_call = self.ledger.recorder(self.prices)
+        if self.redact is not None:
+            agent.redact = self.redact
+        agent.fallbacks = self.fallbacks
+        # 每一轮结束时的运行记录（见 trace/）：网页界面存进会话的事件里，终端界面留着给 /trace。界面没有这一项（测试用的界面）就不交
+        agent.on_trace = getattr(agent.ui, "trace", None)
+        # 你的钩子：交给钩子的 session_id 是这一段的会话编号（不是你正看着的那一段的），沙箱是这一段自己的
+        agent.hooks = HookRun(self.hooks, "chat", session=lambda: chat.conversation.id, sandbox=lambda: chat.shell.sandbox)
+        # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
+        # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
+        agent.use_tools(self.conversation_tools(None, chat=chat))
+        agent.on_start = lambda: self.fresh_tools(chat)
 
     @property
     def provider(self) -> Provider:
@@ -172,16 +321,17 @@ class App:
         provider = find(provider_id)
         if provider is None:
             raise ProviderError(t("这个模型接口已经不在了，可能刚被删掉。"))
-        same_provider = continues(self.agent.backend, provider, model)
+        chat = self.chat
+        same_provider = continues(chat.agent.backend, provider, model)
         if same_provider:
-            switch_model(self.agent.backend, provider, model)
-            self.conversation.model = model
+            switch_model(chat.agent.backend, provider, model)
+            chat.conversation.model = model
         else:
-            backend = self._backend_for(provider_id, model, self.persona, channel="")  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
-            self.agent.backend = backend
-            self.prompt_in_use = self.system_prompt
-            self.conversation = self._new(provider_id, model, self.persona)
-            self.agent.usage.context_tokens = 0
+            backend = self._backend_for(provider_id, model, chat.persona, channel="")  # 会失败的先做。用 Agent 开始的对话，新的一段还是它
+            chat.agent.backend = backend
+            chat.prompt_in_use = self.system_prompt
+            chat.conversation = self._new(provider_id, model, chat.persona)
+            chat.agent.usage.context_tokens = 0
         self._remember_choice(provider_id, model)
         return same_provider
 
@@ -196,21 +346,23 @@ class App:
         else:
             save_template(self.config, text)
         self.system_prompt = build_system_prompt(self.config)
-        if self.agent.backend.export():
+        chat = self.chat
+        if chat.agent.backend.export():
             return False
-        backend = self.agent.backend
-        self.agent.backend = self._backend_for(backend.provider, backend.model, self.persona)
-        self.prompt_in_use = self.system_prompt
+        backend = chat.agent.backend
+        chat.agent.backend = self._backend_for(backend.provider, backend.model, chat.persona)
+        chat.prompt_in_use = self.system_prompt
         return True
 
-    def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None, channel: str | None = None) -> Any:
+    def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None, channel: str | None = None, chat: Chat | None = None) -> Any:
         """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。
-        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是当前这段的。
+        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是 chat 那一段的。
+        chat：给哪一段对话用（工具照着它摆），不给是你正看着的这一段。
         这一家不在了（自定义接口被删掉了）时抛出 ProviderError。"""
         provider = find(provider_id)
         if provider is None:
             raise ProviderError(t("这个模型接口已经不在了，可能刚被删掉。"))
-        tools = self.conversation_tools(persona, channel=channel)
+        tools = self.conversation_tools(persona, channel=channel, chat=chat)
         web = self.config.web and provider.web  # 能不能联网，要看是哪一家
         if persona is None:
             prompt = build_system_prompt(self.config, web=web)
@@ -220,7 +372,10 @@ class App:
         return make_backend(provider, model, self.config, tools, prompt, self.client_factory(provider))
 
     def _new(self, provider_id: str, model: str, persona: CustomAgent | None) -> Conversation:
+        live = {chat.conversation.id for chat in self.chats()} if self.chat is not None else set()
         conversation = self.store.new(provider_id, model)
+        while conversation.id in live:  # 同一秒里开的另一段还没存盘（store.new 只查磁盘）：编号撞上了就再抽一个
+            conversation = self.store.new(provider_id, model)
         conversation.agent = persona.name if persona is not None else ""
         return conversation
 
@@ -275,7 +430,7 @@ class App:
         sandbox: Callable[[], str] = lambda: SANDBOX_DEFAULT,
     ) -> UnattendedRun:
         """定时任务和聊天通道共用的那一套：自己的 shell、自己名下的 MCP 调用、自己那一档权限、自己那一档沙箱、记在 source 名下的账。"""
-        permissions = self.agent.permissions.unattended(approval)
+        permissions = self.permissions.unattended(approval)
         # 沙箱：这次运行自己的那一档。没人看着的运行，选了"全部自动允许"就不许请人放行（在沙箱之外运行一条），
         # 别的几档照样问你（见 sandbox/session.py）。看的是此刻的模式：聊天通道每一轮会按你在页面上改过的重新设
         escape = lambda: permissions.mode != "all"
@@ -293,7 +448,7 @@ class App:
         own_desktop = make_computer_tools(lambda: desktop[0], lambda: self.desktop.unattended) if self.desktop.unattended else []
         # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 conversation_tools）：
         # 两边的工具清单一字不差，在网页上接着聊也照样命中缓存
-        own_send = [make_send_tool(self.agent.permissions.editor, outlet)] if source == "channel" else []
+        own_send = [make_send_tool(self.permissions.editor, outlet)] if source == "channel" else []
         tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop, *own_send])
         backend = self._backend_for(provider_id, model, persona)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
@@ -307,7 +462,7 @@ class App:
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(self.prices, source=source)
         agent.redact = self.agent.redact  # 遮密钥：和你的对话同一个（同一份已知的密钥、同一个开关，见 redact.py）
-        agent.fallbacks = self.agent.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
+        agent.fallbacks = self.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
         # 你的钩子也照样跑（runsIn 里有 task / channel 的那些，默认都有，理由见 hooks/__init__.py）。
@@ -339,13 +494,15 @@ class App:
 
     # ---- 会话 -------------------------------------------------------------
 
-    def new_conversation(self, agent: str | None = None) -> None:
+    def new_conversation(self, agent: str | None = None, chat: Chat | None = None) -> None:
         """开始一段新会话。之前的会话已经在磁盘上，随时可以再打开。
 
         agent：用哪个自定义 Agent 当角色（见 agents/ 开头的说明）。这段对话的系统提示词换成它的设定，工具只有它放开的，
         模型用它选的那个（它写了的话；这个选择也会记成"现在用的模型"，和打开一段旧会话一样）。
         这个 Agent 不存在或者不合格时抛出 AgentError，什么都不换。
+        chat：在哪一段里开始（它原来的那段会话就离开了），不给是你正看着的这一段。
         """
+        chat = chat or self.chat
         persona = self.agents.usable(agent) if agent else None  # 会失败的先做
         if persona is not None and persona.spec.model:
             provider_id, model = persona.spec.provider, persona.spec.model_id
@@ -355,38 +512,39 @@ class App:
         if provider is None:  # 设置里选的自定义接口不在了（手改了 endpoints.json）：用内置的默认那一家
             provider_id, model = FALLBACK
             provider = PROVIDERS[provider_id]
-        backend = self.agent.backend
+        backend = chat.agent.backend
         if (
             persona is not None
-            or self.persona is not None
-            or self.prompt_in_use != self.system_prompt
+            or chat.persona is not None
+            or chat.prompt_in_use != self.system_prompt
             or not continues(backend, provider, model)
         ):
             # 提示词不一样了（换了角色、用户改过提示词、换了一家）：新的一段用新的。提示词存在适配层里，
             # 所以换一个新建的（历史本来就要清空）。自定义接口上能不能用工具不一样了，也换一个新建的（见 providers.continues）
-            self.agent.backend = self._backend_for(provider_id, model, persona, channel="")
-            self.prompt_in_use = self.system_prompt
+            chat.agent.backend = self._backend_for(provider_id, model, persona, channel="", chat=chat)
+            chat.prompt_in_use = self.system_prompt
         else:
-            self.agent.reset()
+            chat.agent.reset()
             switch_model(backend, provider, model)
-        self.persona = persona
-        self.conversation = self._new(provider_id, model, persona)
-        self.agent.usage.context_tokens = 0
-        self._fresh_browser()
-        self._fresh_desktop()
+        chat.persona = persona
+        chat.conversation = self._new(provider_id, model, persona)
+        chat.agent.usage.context_tokens = 0
+        self._fresh_browser(chat)
+        self._fresh_desktop(chat)
         # 手里的工具换成新的这一段会用的（它还没开始，换了不丢任何东西）：角色只放开的那些、上一段中途打开的浏览器……
         # 上一段是网页上打开的聊天通道会话的话，新的这一段不在聊天软件里，不带 send_file。
         # 信息栏里"智狐能做的事"照着手里的工具画（见 toolbox），不换的话第一条消息之前列的还是上一段的
-        self.refresh_tools()
+        self.refresh_tools(chat)
         if persona is not None and persona.spec.model:
             self._remember_choice(provider_id, model)
 
-    def open_conversation(self, conversation_id: str) -> Conversation:
-        """打开一段保存过的会话，接着聊。
+    def open_conversation(self, conversation_id: str, chat: Chat | None = None) -> Conversation:
+        """打开一段保存过的会话，接着聊。chat：在哪一段里打开（它原来的那段会话就离开了），不给是你正看着的这一段。
 
         做的事情只有两件：换回这段会话当时用的模型，把它的对话历史交还给适配层。
         下一次请求会把这份历史一起发给模型，模型就"想起"了之前聊过什么。
         """
+        chat = chat or self.chat
         conversation = self.store.load(conversation_id)
         provider = find(conversation.provider)
         if provider is None and conversation.provider.startswith(ENDPOINT_PREFIX):
@@ -402,80 +560,93 @@ class App:
             except AgentError as exc:
                 self.warnings.append(t("这段会话是用 Agent「{name}」开始的，但它现在用不了（{reason}）。接着聊会用内置的提示词和全部工具。", name=conversation.agent, reason=exc))
         # 会失败的到这里都做完了（另一家的适配层在下面这一行建好），之后的几步只是在内存里换东西
-        same_provider = continues(self.agent.backend, provider, conversation.model)
+        same_provider = continues(chat.agent.backend, provider, conversation.model)
         # 同一家、提示词也没改过、前后都不是角色，就接着用现在的适配层；否则新建一个（带着现在的提示词）
-        reuse = same_provider and self.prompt_in_use == self.system_prompt and persona is None and self.persona is None
-        backend = self.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona, channel=conversation.channel)
+        reuse = same_provider and chat.prompt_in_use == self.system_prompt and persona is None and chat.persona is None
+        backend = chat.agent.backend if reuse else self._backend_for(conversation.provider, conversation.model, persona, channel=conversation.channel, chat=chat)
         switch_model(backend, provider, conversation.model)
         backend.restore(conversation.messages, conversation.dropped)
-        self.agent.backend = backend
-        self.prompt_in_use = self.system_prompt
-        self.persona = persona
-        self._fresh_browser()
-        self._fresh_desktop()
-        self.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
-        self.fresh_tools()  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
-        self.agent.usage.context_tokens = conversation.context_tokens
+        chat.agent.backend = backend
+        chat.prompt_in_use = self.system_prompt
+        chat.persona = persona
+        self._fresh_browser(chat)
+        self._fresh_desktop(chat)
+        chat.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
+        self.fresh_tools(chat)  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
+        chat.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation
 
     # ---- 工具 -------------------------------------------------------------
 
-    def fresh_tools(self) -> None:
-        """换上这段对话要用的工具：自己的工具，加上此刻已经连上的 MCP 服务器的工具。
+    def fresh_tools(self, chat: Chat | None = None) -> None:
+        """换上这段对话要用的工具：自己的工具，加上此刻已经连上的 MCP 服务器的工具。chat 不给是你正看着的这一段。
 
         MCP 的那部分是一张"快照"，这段对话从头到尾都用它（原因见 mcp/manager.py）。
         新对话的第一条消息发出之前调用（agent.on_start），打开一段旧会话时也调用一次。
+        快照里的工具发出的调用记在这一段的名下（chat.owner）："停止"只取消这一段自己的。
         """
-        shot = self.mcp.snapshot()
-        self.mcp.active = shot
-        self.agent.use_tools(self.conversation_tools(self.persona, shot.tools))
+        chat = chat or self.chat
+        shot = self.mcp.snapshot(chat.owner)
+        with self._viewing:
+            chat.mcp = shot
+            if chat is self.chat:
+                self.mcp.active = shot  # 信息栏和 MCP 一页照着你正看着的这一段画；后台那一段的快照只记在它自己身上
+        chat.agent.use_tools(self.conversation_tools(chat.persona, shot.tools, chat=chat))
 
-    def conversation_tools(self, persona: CustomAgent | None, mcp_tools: Sequence[Any] = (), channel: str | None = None) -> ToolRegistry:
+    def conversation_tools(self, persona: CustomAgent | None, mcp_tools: Sequence[Any] = (), channel: str | None = None, chat: Chat | None = None) -> ToolRegistry:
         """一段对话用的工具：自己的工具、浏览器、agent 工具（把任务交给子 Agent，一直都在，见 tools/agent.py）、MCP 的快照。
-        用一个 Agent 当角色的对话，只留它的 tools 放开的那些（见 agents/tools.py）。
+        用一个 Agent 当角色的对话，只留它的 tools 放开的那些（见 agents/tools.py）。chat 不给是你正看着的这一段。
 
         浏览器的工具和 MCP 一样算在"这段对话开始时拍的快照"里：设置里开着才带上（Claude 的浏览器工具包每次请求
         要多发六千多个 token 的说明书，没开的人不该为它付钱），开始以后再开、再关，说明书都不变（见 tools/browser.py）。
         打开一段用过浏览器的旧会话，也照样带上，历史里的那些调用才对得上。
 
-        channel：这段会话是在哪个聊天通道里开始的（不给就看当前这段）。是的话带上 send_file：在网页上接着聊一段 Telegram 里的会话，
+        channel：这段会话是在哪个聊天通道里开始的（不给就看 chat 那一段）。是的话带上 send_file：在网页上接着聊一段 Telegram 里的会话，
         工具清单和在 Telegram 里时一样（缓存照样命中），只是它发不出去（没有去处，见 tools/send.py）。普通的对话没有它。"""
-        channel = self.conversation.channel if channel is None else channel
-        delegate = self.delegator.tool_for(self.agent)
-        browser = make_browser_tools(lambda: self.chat_browser, lambda: self.browser.enabled) if self._wants_browser() else []
+        chat = chat or self.chat
+        channel = chat.conversation.channel if channel is None else channel
+        delegate = self.delegator.tool_for(chat.agent)
+        # 浏览器和电脑的 session 每次调用时现找：换一段对话时 chat 换上新的（见 _fresh_browser），工具还是这一套
+        browser = make_browser_tools(lambda: chat.browser, lambda: self.browser.enabled) if self._wants_browser(chat) else []
         # 操作整台电脑也一样：设置里开着才带上（工具包的说明书每次请求约 4500 个 token），用过它的旧会话也带上
-        desktop = make_computer_tools(lambda: self.chat_desktop, lambda: self.desktop.enabled) if self._wants_computer() else []
-        send = [make_send_tool(self.agent.permissions.editor, None)] if channel else []
-        tools = [*self.tools, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
+        desktop = make_computer_tools(lambda: chat.desktop, lambda: self.desktop.enabled) if self._wants_computer(chat) else []
+        send = [make_send_tool(self.permissions.editor, None)] if channel else []
+        tools = [*chat.tools, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
         return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)
 
-    def _wants_browser(self) -> bool:
+    def _wants_browser(self, chat: Chat) -> bool:
         if self.browser.enabled:
             return True
-        backend = self.agent.backend
+        backend = chat.agent.backend
         return browser_used_in(backend.export()) if backend is not None else False
 
-    def _wants_computer(self) -> bool:
+    def _wants_computer(self, chat: Chat) -> bool:
         if self.desktop.enabled:
             return True
-        backend = self.agent.backend
+        backend = chat.agent.backend
         return computer_used_in(backend.export()) if backend is not None else False
 
-    def _fresh_desktop(self) -> None:
+    def _fresh_desktop(self, chat: Chat) -> None:
         """换了一段对话："这段对话里截图不再问"不再算数，还按着的鼠标键松开，屏幕让出来。新的这一段用一个新的。"""
-        old, self.chat_desktop = self.chat_desktop, self.desktop.session(desktop_labels.CHAT, attended=True)
+        old, chat.desktop = chat.desktop, self.desktop.session(desktop_labels.CHAT, attended=True)
         old.close()
 
-    def _fresh_browser(self) -> None:
+    def _fresh_browser(self, chat: Chat) -> None:
         """换了一段对话：上一段的浏览器标签页关掉，"允许过的网站"也不再算数。新的这一段用一个新的。"""
-        old, self.chat_browser = self.chat_browser, self.browser.session("chat")
+        old, chat.browser = chat.browser, self.browser.session("chat")
         threading.Thread(target=old.close, daemon=True).start()  # 关标签页要和 Chrome 来回几次：不让换会话等它
 
-    def refresh_tools(self) -> None:
+    def close_chat(self, chat: Chat) -> None:
+        """一段对话不再用了（网页上一段在后台跑完、存好了盘，见 webui/sessions.py）：关掉它的浏览器标签页，屏幕让出来。"""
+        chat.desktop.close()
+        threading.Thread(target=chat.browser.close, daemon=True).start()  # 和 _fresh_browser 一样：不让别人等它
+
+    def refresh_tools(self, chat: Chat | None = None) -> None:
         """设置里开、关了浏览器（或者"操作整台电脑"）：这段对话还没开始的话，马上换上（信息栏里的工具清单跟着变）；开始了的不动（见 conversation_tools）。"""
-        if not self.agent.backend.export():
-            self.agent.use_tools(self.conversation_tools(self.persona))
+        chat = chat or self.chat
+        if not chat.agent.backend.export():
+            chat.agent.use_tools(self.conversation_tools(chat.persona, chat=chat))
 
     def persona_info(self) -> dict | None:
         """当前这段对话的角色（页面顶上显示它的名字）：名字、颜色；它现在用不了的话 missing 为真。普通的对话是 None。"""
@@ -515,34 +686,39 @@ class App:
         """程序退出前的收尾：关掉启动过的 MCP 服务器进程和浏览器，还按着的鼠标键松开。"""
         self.mcp.shutdown()
         self.browser.close()
-        self.chat_desktop.close()
+        for chat in self.chats():
+            chat.desktop.close()
 
-    def save_conversation(self, events: list) -> bool:
-        """把当前会话写到磁盘。events 是界面上显示过的内容。还没有任何对话内容时不保存。
+    def save_conversation(self, events: list, chat: Chat | None = None) -> bool:
+        """把一段会话写到磁盘（chat 不给是你正看着的这一段）。events 是界面上显示过的内容。还没有任何对话内容时不保存。
 
         存过盘的会话，历史空了也照样存：那是把第一条消息倒回去了（编辑第一条消息，见 rewind.py），
         磁盘上要跟着变，不然重新打开时，倒回去的那一轮又回来了。
+        模型记的是这一段的适配层此刻用的那个：几段对话同时进行时，设置里"现在用的模型"是你正看着的那一段的，不一定是这一段的。
         """
-        conversation = self.conversation
-        messages = self.agent.backend.export()
+        chat = chat or self.chat
+        conversation, backend = chat.conversation, chat.agent.backend
+        messages = backend.export()
         if not messages and not conversation.saved:
             conversation.title = ""  # 第一条消息就失败了：当它没发生过
             return False
         conversation.messages = messages
-        conversation.dropped = self.agent.backend.dropped()
+        conversation.dropped = backend.dropped()
         conversation.events = events
-        conversation.provider, conversation.model = self.settings.provider, self.settings.model
-        conversation.context_tokens = self.agent.usage.context_tokens
+        conversation.provider, conversation.model = backend.provider, backend.model
+        conversation.context_tokens = chat.agent.usage.context_tokens
         self.store.save(conversation)
         return True
 
-    def name_conversation(self, first_message: str, attachments: Sequence[Attachment] = ()) -> None:
+    def name_conversation(self, first_message: str, attachments: Sequence[Attachment] = (), chat: Chat | None = None) -> None:
         """新会话用用户的第一句话当标题。第一条消息只有附件、没有文字时，用第一个附件的文件名。"""
-        if not self.conversation.title:
-            self.conversation.title = make_title(first_message) or (make_title(attachments[0].name) if attachments else "")
+        conversation = (chat or self.chat).conversation
+        if not conversation.title:
+            conversation.title = make_title(first_message) or (make_title(attachments[0].name) if attachments else "")
 
     def retitle(
-        self, old_text: str, old_attachments: Sequence[dict], text: str, attachments: Sequence[Attachment], earlier: Sequence[dict] = ()
+        self, old_text: str, old_attachments: Sequence[dict], text: str, attachments: Sequence[Attachment], earlier: Sequence[dict] = (),
+        chat: Chat | None = None,
     ) -> None:
         """编辑了一条消息（见 rewind.py）：标题要是就是照着它原来的样子起的（你没改过名），跟着换成照新的样子起的。
         不然倒回去的那句话还留在会话列表里，也还搜得到。old_attachments 是原来那条消息的附件概要。
@@ -554,15 +730,16 @@ class App:
             first = summaries[0].get("name", "") if summaries and isinstance(summaries[0], dict) else ""
             return make_title(message) or make_title(first if isinstance(first, str) else "")
 
-        title = self.conversation.title
+        chat = chat or self.chat
+        title = chat.conversation.title
         if not title or title != auto(old_text, old_attachments):
             return
         for event in earlier:
             summaries = event.get("attachments") if isinstance(event.get("attachments"), list) else []
             if auto(event.get("text") if isinstance(event.get("text"), str) else "", summaries) == title:
                 return
-        self.conversation.title = ""
-        self.name_conversation(text, attachments)
+        chat.conversation.title = ""
+        self.name_conversation(text, attachments, chat=chat)
 
     def attachment_problem(self, attachments: Sequence[Attachment]) -> str:
         """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。
@@ -577,12 +754,14 @@ class App:
         return conversation_id == current.id and not current.saved and bool(current.title)
 
     def rename_conversation(self, conversation_id: str, title: str) -> None:
-        if self._is_unsaved_current(conversation_id):
-            self.conversation.title = make_title(title)  # 磁盘上还没有它：先改内存里的，下次存盘自然带上
+        """改名。这段会话正开着（你正看着的，或者网页上在后台的另一段）的话，它在内存里的标题也跟着改：下次存盘时不会改回去。"""
+        live = [chat.conversation for chat in self.chats() if chat.conversation.id == conversation_id]
+        if live and not live[0].saved and live[0].title:
+            live[0].title = make_title(title)  # 磁盘上还没有它：先改内存里的，下次存盘自然带上
             return
         self.store.rename(conversation_id, title)
-        if conversation_id == self.conversation.id:
-            self.conversation.title = make_title(title)
+        for conversation in live:
+            conversation.title = make_title(title)
 
     def delete_conversation(self, conversation_id: str) -> bool:
         """删除一段会话。返回 True 表示删的是当前这一段（这时会自动开始一段新的）。"""
@@ -596,18 +775,21 @@ class App:
         return True
 
     def conversation_summaries(self) -> list[dict]:
-        """会话列表：磁盘上保存的那些，加上刚开始、还没来得及保存的当前会话。"""
+        """会话列表：磁盘上保存的那些，加上刚开始、还没来得及保存的那几段（你正看着的，和网页上在后台跑着的），新的在前。"""
         items = self.store.summaries()
-        if self.conversation.title and not self.conversation.saved:
-            items.insert(0, self.conversation.summary())
+        fresh = [chat.conversation for chat in self.chats() if chat.conversation.title and not chat.conversation.saved]
+        for conversation in sorted(fresh, key=lambda item: item.updated_at):
+            items.insert(0, conversation.summary())
         return items
 
     def set_api_key(self, provider_id: str, key: str) -> None:
         """保存（或删除）一家的 API 密钥，并让它立即生效。只管内置的几家：自定义接口的密钥在它自己的设置里（见 save_endpoint）。"""
         provider = PROVIDERS[provider_id]
         save_api_key(self.config.env_file, provider.key_env, key)
-        if provider_id == self.agent.backend.provider:
-            self.agent.backend.client = self.client_factory(provider)  # 正在用这一家：换上带新 key 的连接
+        for chat in self.chats():
+            # 正在用这一家的那几段：换上带新 key 的连接（只是换掉一个属性，后台那一段正在等的这次请求照旧用原来的连接，下一次用新的）
+            if provider_id == chat.agent.backend.provider:
+                chat.agent.backend.client = self.client_factory(provider)
 
     def spending(self) -> dict:
         """今天、本月花了多少，预算是多少、超了没有（见 ledger.py、budget.py）。
@@ -668,24 +850,30 @@ class App:
 
     def delete_endpoint(self, provider_id: str) -> None:
         """删掉一个自定义接口。正在用它的话不删：先换一个模型（不然这段对话、下次启动就不知道该用谁了）。"""
-        if provider_id in (self.agent.backend.provider, self.settings.provider):
+        if provider_id in self.providers_in_use():
             raise EndpointError(t("正在用这个接口上的模型。先在换模型的面板里换一个，再删除它。"))
         self.endpoints.delete(provider_id)
 
+    def providers_in_use(self) -> set[str]:
+        """正在用的那几家：活着的每一段对话（网页上在后台跑着的也算）的，加上设置里选的那一家。"""
+        return {chat.agent.backend.provider for chat in self.chats()} | {self.settings.provider}
+
     def _endpoint_changed(self, provider_id: str) -> None:
-        """一个自定义接口改了。你正在用它的话：
+        """一个自定义接口改了。你正看着的这一段在用它的话：
 
           - 这段对话还没开始：整个换成新的（新的地址、密钥、能力，能不能用工具也马上按新的）；
           - 已经开始了：换上新的连接（地址、密钥可能变了）、新的名字、这个模型看不看得懂图和上下文多大。
             能不能用工具不换：工具说明书在一段对话里不变，从下一段对话开始按新的来。
+        网页上在后台跑着的那几段不动（它们正在一轮中间，换掉能力会让这一轮前后对不上）：跑完存了盘、下次打开时就是新的。
         """
-        backend = self.agent.backend
+        chat = self.chat
+        backend = chat.agent.backend
         provider = find(provider_id)
         if backend.provider != provider_id or provider is None:
             return
         if not backend.export():
-            self.agent.backend = self._backend_for(provider_id, backend.model, self.persona)
-            self.prompt_in_use = self.system_prompt
+            chat.agent.backend = self._backend_for(provider_id, backend.model, chat.persona)
+            chat.prompt_in_use = self.system_prompt
             self.refresh_tools()
             return
         backend.client = self.client_factory(provider)
@@ -719,39 +907,15 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     skills = SkillStore(config.data_dir)
     tools = build_registry(config, files, todos, shell, tasks, skills)
     system_prompt = build_system_prompt(config)
-
-    provider = find(settings.provider) or PROVIDERS[FALLBACK[0]]
-    prompt = build_system_prompt(config, web=config.web and provider.web)
-    backend = make_backend(provider, settings.model, config, tools, prompt, client_factory(provider))
     mcp = McpManager(McpConfig(config.mcp_file))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp, commands=commands)
-    agent = Agent(backend=backend, config=config, tools=tools, permissions=permissions, ui=ui)
-    # 每条消息发出之前看一眼：可用的 Skill 和模型上次看到的不一样，就把新的目录附在这条消息前面（见 skills/catalog.py）。
-    # 用一个 tools 里没有 Skill 的 Agent 当角色的对话，手里没有 skill 工具：不附（附了它也读不了，只会去调用一个不存在的工具）。
-    # 用不了工具的模型（自定义接口上的一些模型）也一样：工具一个都没发给它
-    skill_note = notifier(skills)
-    agent.notes.append(lambda history: skill_note(history) if agent.tools.get(SKILL_TOOL) is not None and agent.backend.tools_supported else "")
-    # 每调用一次模型记一笔账，价格按那一刻、用你在设置里填的（见 ledger.py）。终端和网页都记
+    # 每调用一次模型记一笔账（见 ledger.py 和 App._wire）。终端和网页都记
     ledger = Ledger(config.ledger_file)
 
     def prices() -> dict[str, dict]:
         return merged_prices(settings, endpoints)
 
-    agent.on_call = ledger.recorder(prices)
-    # 工具的结果先遮一遍密钥再交给模型（见 redact.py）：认 .env 里的、自定义接口的密钥，开没开每次现看设置。
-    # 定时任务、聊天通道、子 Agent 都用这同一个（见 _side_run 和 agents/runner.py）
-    agent.redact = Redactor(
-        config.env_file,
-        known=lambda: [("自定义接口的密钥", endpoint.api_key) for endpoint in endpoints.list() if endpoint.api_key],
-        enabled=lambda: settings.redact_secrets,
-    )
-    # 模型暂时用不了时改用的同一家的备用模型（见 fallback.py）：每次现读设置，你在设置里改了，下一次就按新的来
-    agent.fallbacks = lambda provider, model: fallback.candidates(settings, provider, model)
-    # 每一轮结束时的运行记录（见 trace/）：网页界面存进会话的事件里，终端界面留着给 /trace。界面没有这一项（测试用的界面）就不交
-    agent.on_trace = getattr(ui, "trace", None)
-    # 自定义 Agent（见 agents/）：主助手每条消息之前也看一眼有哪些 Agent 可以交给（只有手里有 agent 工具时才附）
     agents = AgentStore(config.agents_dir)
-    agent.notes.append(agent_notifier(agents, lambda: agent.tools if agent.backend.tools_supported else ToolRegistry([])))
     delegator = Delegator(config, agents, skills, mcp, ledger, prices, client_factory)
     store = ConversationStore(config.conversations_dir)
     browser = BrowserManager(config.browser_dir, settings)
@@ -761,16 +925,12 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     app = App(
         config=config,
         settings=settings,
-        agent=agent,
         todos=todos,
         tasks=tasks,
         tools=tools,
-        shell=shell,
         system_prompt=system_prompt,
-        prompt_in_use=system_prompt,
         client_factory=client_factory,
         store=store,
-        conversation=store.new(settings.provider, settings.model),
         media=MediaStore(config.media_dir),
         ledger=ledger,
         skills=skills,
@@ -778,22 +938,24 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         agents=agents,
         delegator=delegator,
         browser=browser,
-        chat_browser=browser.session("chat"),
         desktop=desktop,
-        chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
         hooks=Hooks(HookConfig(config.hooks_file), config.workspace),
         sandbox_layout=layout,
         endpoints=endpoints,
         changes=changes,
+        permissions=permissions,
+        # 工具的结果先遮一遍密钥再交给模型（见 redact.py）：认 .env 里的、自定义接口的密钥，开没开每次现看设置。
+        # 你的每段对话、定时任务、聊天通道、子 Agent 都用这同一个（见 _wire、_side_run 和 agents/runner.py）
+        redact=Redactor(
+            config.env_file,
+            known=lambda: [("自定义接口的密钥", endpoint.api_key) for endpoint in endpoints.list() if endpoint.api_key],
+            enabled=lambda: settings.redact_secrets,
+        ),
+        # 模型暂时用不了时改用的同一家的备用模型（见 fallback.py）：每次现读设置，你在设置里改了，下一次就按新的来
+        fallbacks=lambda provider, model: fallback.candidates(settings, provider, model),
     )
-    # 你的钩子：你的对话（网页和终端）用这一份。交给钩子的 session_id 是此刻正在看的这段会话
-    agent.hooks = HookRun(app.hooks, "chat", session=lambda: app.conversation.id, sandbox=lambda: app.shell.sandbox)
-    # 你撤回、重做了文件以后，这段会话的下一条消息前面附一段说明，模型才知道它记得的文件内容过时了（见 undo/notes.py）
-    agent.notes.append(lambda history: changes.notes.text(app.conversation.id))
-    # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
-    # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
-    agent.use_tools(app.conversation_tools(None))
-    agent.on_start = app.fresh_tools
+    # 一开始的那一段对话：它的 run_command 就是工具箱里的那一个（shell）。网页上同时进行的别的几段由 webui/sessions.py 另外建
+    app.chat = app.new_chat(ui, shell=shell)
     mcp.start()  # 每个启用的服务器在自己的后台线程里连接，这里不等
     return app
 
