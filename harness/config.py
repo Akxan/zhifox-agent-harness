@@ -40,6 +40,10 @@ ENABLE_COMPACTION = True
 # API 会悄悄丢掉对不上的思考内容，而不是拒绝整个请求。
 ENABLE_THINKING_DROP = True
 
+# 备用模型（见 fallback.py）：一个模型暂时用不了（过载、服务器出错、限流）时，这一轮接下来改用同一家的另一个。
+# 用哪几个、按什么顺序由你在设置里选，默认一个都没有（不换）。每一家最多选这么多个
+FALLBACK_MAX_MODELS = 3
+
 # 下面几项只对 GPT、Gemini、DeepSeek 生效（OpenAI 格式的适配层）。这几家的 API 不会替我们压缩历史，
 # 所以由智狐自己做：上一次请求占用的上下文超过了模型上限的一定比例，就在下一次请求之前，
 # 请同一个模型把较早的对话写成摘要，换掉原文。做法和理由见 providers/compaction.py。

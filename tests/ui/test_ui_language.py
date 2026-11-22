@@ -104,6 +104,10 @@ def _sweep(page) -> dict[str, list[str]]:
     steps.idle(page)
     look("自定义模型接口（编辑）", ["#endpoint-dialog"])
     steps.escape_closes(page, "endpoint-dialog")
+    # 备用模型：选了一个以后的那一行（序号、模型名、"往前挪""去掉"、"现在用的就是它"不在这里）
+    page.demo.api("/api/fallbacks", {"provider": "anthropic", "models": ["claude-sonnet-5-5"]})
+    page.wait("document.querySelector('#fallback-list .fallback-row')", what="备用模型的名单画出来")
+    look("设置 · 备用模型", ["#fallback-section"])
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")

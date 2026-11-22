@@ -43,6 +43,7 @@ from .base import (
     StreamUI,
     ToolCall,
     ToolResult,
+    Unavailable,
     Usage,
     brief,
     too_large,
@@ -198,6 +199,10 @@ class OpenAICompatBackend:
     def tool_names(self) -> list[tuple[str, bool]]:
         return [(tool.name, True) for tool in self._local_tools]
 
+    def can_switch_to(self, model: str) -> bool:
+        """同一家的模型都认同一套 OpenAI 格式的工具说明书，换哪个都行（备用模型，见 fallback.py）。"""
+        return True
+
     # ---- 调用模型 ---------------------------------------------------------
 
     def _request(self, messages: list[dict]) -> dict[str, Any]:
@@ -222,9 +227,10 @@ class OpenAICompatBackend:
             try:
                 return self._step(ui)
             except openai.APIError as exc:
-                # 自定义接口不认某个参数：退一步再请求一次（见开头的说明）。每样最多退一次，所以这个循环最多三圈
+                # 自定义接口不认某个参数：退一步再请求一次（见开头的说明）。每样最多退一次，所以这个循环最多三圈。
+                # 不退的话翻译成给人看的话；过载、限流这类"等一会儿多半就好"的抛成 Unavailable（见 failure），循环会试备用模型
                 if not self._degraded(exc, ui):
-                    raise ProviderError(self._explain(exc)) from exc
+                    raise failure(exc)(self._explain(exc)) from exc
 
     def _degraded(self, exc: openai.APIError, ui: StreamUI) -> bool:
         """服务器是因为不认 stream_options、用不了工具才拒绝的吗？是的话退一步（只对自定义接口），返回 True。"""
@@ -425,6 +431,19 @@ def _usage(raw: Any) -> Usage:
         output_tokens=completion,
         context_tokens=prompt + completion,
     )
+
+
+def failure(exc: openai.APIError) -> type[ProviderError]:
+    """这个错误算不算"这个模型暂时用不了"（Unavailable：可以换同一家的备用模型接着做，见 fallback.py）。
+
+    算的：请求太频繁（429）、服务器出错（5xx，SDK 已经重试过了）。429 里有一种不算：insufficient_quota，
+    账号的余额、额度用完了——那是整个账号的事，换哪个模型都一样。
+    """
+    if isinstance(exc, openai.RateLimitError):
+        return ProviderError if getattr(exc, "code", None) == "insufficient_quota" else Unavailable
+    if isinstance(exc, openai.APIStatusError) and exc.status_code >= 500:
+        return Unavailable
+    return ProviderError
 
 
 def _explain(exc: openai.APIError, label: str, model: str) -> str:

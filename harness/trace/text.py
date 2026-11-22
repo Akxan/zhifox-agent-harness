@@ -112,6 +112,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
         parts = [t("模型 {model}", model=span.get("model", "")), duration]
         if span.get("first") is not None:
             parts.append(t("首字 {time}", time=seconds(span["first"])))
+        if span.get("fallback"):
+            parts.append(t("备用模型（替 {model}）", model=span["fallback"]))
         if span.get("compaction"):
             parts.append(t("压缩历史"))
         if span.get("retries"):
@@ -122,6 +124,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t(STATUS[span["status"]]))
         if "cost" in span:
             parts.append(money(span["cost"]))
+        if span.get("note"):
+            parts.append(span["note"])  # 失败了、改用备用模型的那一次：为什么失败
     else:
         name = span.get("name", "")
         label = t(span["label"]) if span.get("label") else ""

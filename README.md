@@ -322,6 +322,7 @@ Each part of the harness has its own file or directory:
 | Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
 | Settings and pricing | [harness/settings.py](harness/settings.py), [harness/pricing.py](harness/pricing.py) | Remember the model you chose and the keys you entered; turn tokens into money |
 | Model catalog | [harness/model_catalog.py](harness/model_catalog.py), [harness/webui/models_api.py](harness/webui/models_api.py) | A model's name doesn't tell you what it can do or what it costs. One catalog, worked out by the program, lists each provider's key status (last 4 characters only), its models, what each can do, its price (from `pricing.py`) and what switching to it would do; the web UI's model switcher (`POST /api/model/catalog`) and the terminal's `/model` both just draw it |
+| Backup models | [harness/fallback.py](harness/fallback.py), [harness/webui/fallback_api.py](harness/webui/fallback_api.py), [harness/webui/page/scripts/fallback.js](harness/webui/page/scripts/fallback.js) | A model that is overloaded (529), failing (5xx) or rate-limiting you (429) stops the turn even after the SDK's own retries. If you picked backup models, the rest of that turn moves to the next one from the same provider; the conversation says so, and the next turn tries your model again (see [When a model is temporarily unavailable](#when-a-model-is-temporarily-unavailable-backup-models)) |
 | Spending record and budget | [harness/ledger.py](harness/ledger.py), [harness/budget.py](harness/budget.py) | The estimate in memory is gone after a restart. Every model call is written down with its price at that moment, so you can see what a day or a month cost; a monthly budget reminds you once when you pass it |
 | Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
 | Masking secrets | [harness/redact.py](harness/redact.py) | A command's output or a file can carry a key by accident, and once it is in the append-only history it's sent to the provider and saved for good. Results are masked the moment they're created, before the `tool_ended` recording point; known key formats, known values from the environment and `.env`, and random-looking values after `password=` / `token:` (see [Masking secrets in tool results](#masking-secrets-in-tool-results)) |
@@ -431,7 +432,8 @@ waited. Click to jump to that step's details below. **Copy as JSON** in the corn
 
 **How it works.** The loop ([harness/agent.py](harness/agent.py)) tells a recorder at a handful of moments, one line
 each, named after the moment: a turn begins and ends (`turn_began`, `turn_ended`), a request is sent and answered
-(`request_began`, `request_ended`), a tool call starts and has its result (`tool_began`, `tool_ended`), a question
+(`request_began`, `request_ended`), a request fails and is retried on a backup model (`request_failed`, see
+[backup models](#when-a-model-is-temporarily-unavailable-backup-models)), a tool call starts and has its result (`tool_began`, `tool_ended`), a question
 waits for you and you answer (`approval_asked`, `approval_decided`). The recorder lives in
 [harness/trace/](harness/trace/): it notes only moments (with `time.monotonic`, which never runs backwards) and numbers,
 and at the end of the turn turns them into a record. It also works out the totals (the time split, the total cost, the
@@ -492,6 +494,49 @@ rejects tools before any tool was used in the conversation, that conversation go
 request was never processed, so the history is unchanged). Both are written to `data/endpoints.json`, so the next
 conversation starts the right way. And switching between two models of one endpoint that differ in tool support starts
 a new conversation, because a conversation's tool list never changes.
+
+### When a model is temporarily unavailable: backup models
+
+Sometimes a request fails for a reason that has nothing to do with you: the provider's servers are overloaded (Anthropic
+answers 529 `overloaded_error`), something broke on their side (5xx), or you sent too many requests too quickly (429).
+The SDK already retries these twice with a back-off; if it still fails, the turn used to stop with an error. Errors a
+different model wouldn't fix (a wrong key, a malformed request, an OpenAI account whose quota has run out:
+`insufficient_quota`) still stop the turn as before.
+
+**What happens.** In **Settings → Backup models** you can list, in order, up to three other models **of the same
+provider** (for example Claude Opus 5.5 → Claude Sonnet 5.5 → Claude Fable 5.2). When a request fails in one of the ways
+above, the loop sends the very same request to the first backup it hasn't tried this turn, says so in the conversation
+("Opus 5.5 is temporarily unavailable; the rest of this turn will use Sonnet 5.5."), and stays on it for the rest of the
+turn. The next turn starts with your model again, which may have recovered by then, and the conversation keeps your
+model as its model. Nothing is configured by default: switching models changes both the quality of the answer and the
+price, so you decide whether to switch and to what. Scheduled tasks, chat channels and subagents follow the same setting.
+
+**Why only the same provider.** A model from another provider can't continue this conversation. Its history is in a
+different format (Claude's content blocks are not OpenAI-style messages), its system prompt differs (the "can search the
+web" line is only written for Claude), and so do its tools (Claude gets Anthropic's browser and computer tool sets, the
+others our own `browser_*` / `computer_*` stand-ins). Switching there halfway through a turn would mean throwing away the
+tool calls and results the turn has already made and quietly changing the prompt and tools, which the
+[append-only rule](#the-loop) forbids. Within one provider, `App.select_model` already lets you switch mid-conversation:
+the history, system prompt and tools stay exactly as they were and only the `model` field of the request changes.
+Whether a backup can take over follows the same rule as switching in the model switcher (`providers.continues`: same
+provider, and the same tool support, which matters only for custom endpoints), plus one more check: it must be able to
+use the tool sets this conversation was started with (`Backend.can_switch_to`). A custom endpoint's backups are other
+models on that same endpoint.
+
+**What about Claude's thinking signatures?** Claude's thinking blocks are signed, and the signature records which model
+wrote them. Changing the request's `model` is not an edit of the history, so a model switch never fails the request; a
+block the new model can't read is left out by the API before the model sees it, and isn't billed. ZhiFox keeps sending
+the history unchanged (stripping blocks yourself is what would break things). So when Opus 5.5 hands over to Sonnet 5.5,
+the steps on Sonnet run without Opus's earlier reasoning (Sonnet 5.5 doesn't read Opus 5.5's blocks), but the request
+succeeds; when the next turn goes back to Opus 5.5, it does read the blocks Sonnet 5.5 left (on the Claude API), so
+nothing is lost.
+
+**Where you see it.** The note in the conversation; in the [run trace](#reading-a-turn-the-run-trace) the failed request
+is marked as an error with the reason, and every request made on the backup is tagged "backup" with the model it stood in
+for; the [spending record](#cost) prices each request at the model that actually answered. The failed request left
+nothing in the history (both adapters append only once a reply is complete); text that had already streamed onto the
+page stays there, as with the existing retry when a tool call's arguments aren't valid JSON. The rules are in
+[harness/fallback.py](harness/fallback.py); the loop part is `Agent._request` in [harness/agent.py](harness/agent.py).
 
 ### When a conversation gets too long: compaction
 
@@ -2333,6 +2378,11 @@ saved into the same conversation file the channel is writing (see [harness/claim
 would do (continue, start fresh, or ask first) is worked out by the program in
 [harness/model_catalog.py](harness/model_catalog.py), by the same rule `App.select_model` follows when it actually
 switches; the page only draws the answer.
+
+**Backup models.** **Settings → Backup models** lists, in order, the models of the current provider to use for the rest
+of a turn when your model is temporarily unavailable (overloaded, server error, rate-limited). Pick one from the menu to
+add it, use the arrow to move it up, × to remove it; each change is saved at once. Empty means off, which is the default.
+See [When a model is temporarily unavailable](#when-a-model-is-temporarily-unavailable-backup-models).
 
 **Lifecycle.** Refreshing the page doesn't lose the current conversation. Closing the page leaves the program running;
 press Ctrl-C in the terminal to quit. If the assistant is in the middle of a reply, ZhiFox stops it and saves the turn

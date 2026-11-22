@@ -12,7 +12,8 @@
 "下一步做什么"每次都由模型决定，循环只负责照办并把结果告诉它。这就是 agent。
 
 循环在几个时刻告诉运行记录一声（self.trace，见 trace/）："记录点"。每个只占一行，名字说明是哪个时刻：
-发出一次请求（request_began）、模型答完这一次（request_ended）、开始一次工具调用（tool_began）、
+发出一次请求（request_began）、模型答完这一次（request_ended）、这次请求失败了、改用备用模型再试（request_failed）、
+开始一次工具调用（tool_began）、
 开始等你答复（approval_asked）、你答复了或者没问就放行了（approval_decided）、这次调用有结果了（tool_ended）、
 一轮开始和结束（turn_began、turn_ended）。以后要在这些时刻做别的事（比如钩子），也挂在这几处。
 
@@ -31,12 +32,21 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Protocol
 
+from . import fallback
 from .attachments import Attachment
 from .config import Config
 from .i18n import t
 from .permissions import Permissions
 from .pricing import usage_key
-from .providers.base import Backend, Step, StreamUI, ToolCall, ToolResult, Usage
+from .providers.base import (
+    Backend,
+    Step,
+    StreamUI,
+    ToolCall,
+    ToolResult,
+    Unavailable,
+    Usage,
+)
 from .redact import Redaction, Redactor, note, redact_data
 from .safe import clean_text
 from .tools import ToolError, ToolRegistry
@@ -100,6 +110,10 @@ class Agent:
         # 遮住工具结果里像密钥的东西（见 redact.py）。默认就开着（只认环境变量里的密钥和固定的格式）；
         # app.py 换成连着 .env、自定义接口的密钥和设置里那个开关的。None 是不遮
         self.redact: Callable[[str], Redaction] | None = Redactor()
+        # 备用模型（见 fallback.py）：给出（哪一家，你选的模型），交回这个模型暂时用不了时按顺序可以改用的同一家的模型。
+        # 循环不管这份名单从哪儿来（app.py 让它每次现读设置），只在一次请求遇到 Unavailable 时问它一声。None：不换
+        self.fallbacks: Callable[[str, str], list[str]] | None = None
+        self._primary = ""  # 这一轮开始时用的模型（你选的那个）；改用了备用模型的话，一轮结束时换回它
         # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
@@ -160,6 +174,7 @@ class Agent:
     def _finish_turn(self, start: int) -> None:
         """用户消息已经在 start 这个位置上了：跑循环，直到这一轮结束。"""
         ended = "error"
+        self._primary = self.backend.model
         try:
             self._loop(start)
             ended = self.outcome
@@ -172,6 +187,10 @@ class Agent:
                 self.backend.rollback(start)
             raise
         finally:
+            # 这一轮中途改用了备用模型的话，换回你选的那个：下一轮先试它（它可能已经好了）。
+            # 只改请求里的 model（自定义接口还有这个模型自己的能力），历史、系统提示词、工具一样都没动过（见 fallback.py）
+            if self.backend.model != self._primary:
+                fallback.use(self.backend, self._primary)
             self._end_trace(ended)
 
     def _end_trace(self, ended: str) -> None:
@@ -186,10 +205,9 @@ class Agent:
             logger.exception("运行记录没能交给界面")
 
     def _loop(self, start: int) -> None:
+        tried = {self.backend.model}  # 这一轮里试过、用不了的模型（换备用模型时不再选它们）
         for _ in range(self.config.max_steps):
-            self.trace.request_began(self.backend.provider, self.backend.model)  # 记录点：发出一次请求
-            # 调用一次模型；回复已经由 backend 追加进历史。界面外面包一层 watch：第一段输出到的时候记下"首字时间"
-            step = self.backend.step(self.trace.watch(self.ui))
+            step = self._request(tried)  # 调用一次模型；回复已经由 backend 追加进历史
             cost = self._record(step.usage)
             self.trace.request_ended(step, cost)  # 记录点：模型答完这一次
 
@@ -219,6 +237,38 @@ class Agent:
 
         self.outcome = "steps"
         self.ui.info(t("这一轮已经调用了 {n} 次模型，先停在这里。输入“继续”可以接着做。", n=self.config.max_steps))
+
+    def _request(self, tried: set[str]) -> Step:
+        """发出一次请求。这个模型暂时用不了（Unavailable：过载、服务器出错、限流）而你选了备用模型的话，
+        改用同一家的下一个再试，这一轮接下来都用它（见 fallback.py）。没有能换的，错误照常抛出去。
+
+        失败的那次请求什么都没留在历史里（两家的适配层都是收完整个回复才追加），所以换个模型重发的是一字不差的同一段历史、
+        同一份系统提示词和工具说明书，只有请求里的 model 不一样。已经显示出来的半截文字留在界面上，和 JSON 格式出错时的重试一样。
+        """
+        while True:
+            standing_in = self._primary if self.backend.model != self._primary else ""  # 用的是备用模型的话，它替的是哪个
+            self.trace.request_began(self.backend.provider, self.backend.model, fallback=standing_in)  # 记录点：发出一次请求
+            try:
+                # 界面外面包一层 watch：第一段输出到的时候记下"首字时间"
+                return self.backend.step(self.trace.watch(self.ui))
+            except Unavailable as exc:
+                replacement = self._backup(tried)
+                if replacement is None:
+                    raise
+                self.trace.request_failed(str(exc))  # 记录点：这次请求失败了，改用备用模型再试
+                failed = self.backend.model
+                fallback.use(self.backend, replacement)
+                tried.add(replacement)
+                self.ui.info(fallback.notice(failed, replacement))
+
+    def _backup(self, tried: set[str]) -> str | None:
+        """下一个可以改用的备用模型：你排的顺序里第一个这一轮还没试过、换过去工具说明书也照样认的。没有就是 None。"""
+        if self.fallbacks is None:
+            return None
+        for model in self.fallbacks(self.backend.provider, self._primary):
+            if model not in tried and fallback.usable(self.backend, model):
+                return model
+        return None
 
     def _record(self, usage: Usage) -> float | None:
         """记下一次调用的用量。返回账本算出来的钱（没有接账本、没有价格时是 None），运行记录照着写。"""

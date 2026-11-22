@@ -140,6 +140,7 @@ function openSettings() {
   renderSettings();
   endpointDeleting = '';  // "自定义模型接口"一节（见 endpoints.js）：上次打开时停在一半的删除确认不留着
   drawEndpoints(true);
+  renderFallbacks(true);  // "备用模型"一节（见 fallback.js）
   fillDataSettings();
   browserConfirming = false;
   drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）

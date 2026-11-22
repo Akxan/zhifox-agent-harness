@@ -68,6 +68,7 @@ STYLES = (
     "styles/agents.css",  # 自定义 Agent
     "styles/imports.css",  # 扩展 · 从其他工具导入（三页共用的那几块）
     "styles/settings.css",  # 设置面板
+    "styles/fallback.css",  # 设置 · 备用模型
     "styles/commands.css",  # 不用问的命令
     "styles/sandbox.css",  # 命令的沙箱
     "styles/redact.css",  # 遮住工具结果里的密钥
@@ -156,6 +157,7 @@ SCRIPTS = (
     "scripts/settings.js",  # 设置面板
     "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
     "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么
+    "scripts/fallback.js",  # 设置 · 备用模型（规矩在 harness/fallback.py）
     "scripts/models.js",  # 换模型：顶栏模型按钮弹出来的面板（目录由 harness/model_catalog.py 算）
     "scripts/browser.js",  # 浏览器
     "scripts/computer.js",  # 操作整台电脑

@@ -33,9 +33,10 @@ def chat(
     }
 
 
-def failure(status: int = 500, message: str = "server error") -> dict:
-    """一次失败的请求：服务器不发流式数据，直接返回这个状态码和出错说明。"""
-    return {"error": {"status": status, "message": message}}
+def failure(status: int = 500, message: str = "server error", code: str | None = None) -> dict:
+    """一次失败的请求：服务器不发流式数据，直接返回这个状态码和出错说明。
+    code：错误里的 code（比如 429 的 insufficient_quota：账号额度用完了，和"请求太频繁"不是一回事）。"""
+    return {"error": {"status": status, "message": message, "code": code}}
 
 
 def _chunks(scripted: dict) -> list[dict]:
@@ -168,7 +169,10 @@ class FakeOpenAI:
                 scripted = api.replies.pop(0)
                 if "error" in scripted:
                     problem = scripted["error"]
-                    self._json(problem["status"], {"error": {"message": problem["message"], "type": "server_error"}})
+                    error = {"message": problem["message"], "type": "server_error"}
+                    if problem.get("code"):
+                        error["code"] = problem["code"]
+                    self._json(problem["status"], {"error": error})
                     return
                 lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in _chunks(scripted)]
                 payload = "".join([*lines, "data: [DONE]\n\n"]).encode()

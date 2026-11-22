@@ -63,6 +63,12 @@ def failure(status: int, kind: str, message: str) -> dict:
     return {"status": status, "error": {"type": "error", "error": {"type": kind, "message": message}}}
 
 
+def stream_error(kind: str, message: str, after: int = 2) -> dict:
+    """回复发到一半，服务器发来一个错误事件（SSE 的 event: error，比如 overloaded_error），然后结束。
+    HTTP 的状态码是 200：真实的 API 在开始回答以后过载，就是这样告诉你的。after：错误之前先发几个正常的事件。"""
+    return {**reply(text("半截")), "stream_error": {"type": "error", "error": {"type": kind, "message": message}}, "error_after": after}
+
+
 def _events(scripted: dict) -> list[dict]:
     """把一条写好的回复拆成真实 API 会发出的事件序列。"""
     events: list[dict] = [
@@ -159,6 +165,17 @@ class FakeAPI:
                     self.send_header("content-length", str(len(payload)))
                     self.end_headers()
                     self.wfile.write(payload)
+                    return
+                if scripted.get("stream_error"):
+                    events = _events(scripted)[: scripted["error_after"]]
+                    payload = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events)
+                    payload += f"event: error\ndata: {json.dumps(scripted['stream_error'])}\n\n"
+                    data = payload.encode()
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.send_header("content-length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
                     return
                 if scripted.get("cut_after") is not None:
                     # 回复发到一半就断线：用分块传输发出前几个事件，不发结束标记，直接关连接
