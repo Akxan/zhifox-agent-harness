@@ -1,5 +1,6 @@
 """系统通知（page/scripts/notify.js）：页面在后台时，等你确认、一轮回复完了、出错了弹一个系统通知，点它回到那张卡片；
-标签页的标题前加标记、图标上加一个点，回到页面就清掉；刷新以后重放出来的不弹；设置里的开关和授权；三种语言下通知的文字。
+标签页的标题前加标记、图标上加一个点，回到页面就清掉；刷新以后重放出来的不弹；聊天通道、定时任务自己跑的那一轮不说"回复完了"；
+设置里的开关和授权；三种语言下通知的文字。
 
 通知和"页面在后台"都是假的（steps.fake_notifications）：不弹真的系统通知，也不真的把窗口藏起来。
 页面在眼前时"不弹"是当场决定的（不等什么），所以卡片、回复一出现，就能断定它没有弹。
@@ -7,12 +8,16 @@
 
 from __future__ import annotations
 
+import json
 import re
+import urllib.request
 from urllib.parse import unquote
 
 import pytest
+from fake_telegram import TOKEN
 
 from . import checks, steps
+from .pilot import until
 
 FAVICON = "document.querySelector('link[rel=icon]').getAttribute('href')"
 ALLOW = "#log .confirm:not(.done) .button.primary"
@@ -135,6 +140,76 @@ def test_error_in_background_notifies_once(page):
     shown = page.js("document.querySelector('#log .notice.error').textContent").strip()
     assert note["body"] and shown.startswith(note["body"].rstrip("…"))
     assert _title(page).startswith("● 出错了 · ")
+
+
+def _phone(page, path: str, data: dict | None = None) -> dict:
+    """演示里的假 Telegram（tests/fake_telegram.py）：/control/say 像主人在手机上发了一句，/control/log 是聊天里的样子。"""
+    until(lambda: page.demo.telegram, what="假 Telegram 的地址打印出来")
+    request = urllib.request.Request(page.demo.telegram + path, data=json.dumps(data).encode() if data is not None else None,
+                                     method="POST" if data is not None else "GET")
+    with urllib.request.urlopen(request, timeout=10) as answer:
+        return json.loads(answer.read() or b"{}")
+
+
+def test_chat_channel_turns_do_not_notify(page):
+    # 在聊天通道里跑的一轮不经过这个页面的事件流：它有自己的提醒（就在聊天里），页面不弹"回复完了"，标题也不标
+    steps.fake_notifications(page)
+    status, _ = page.demo.api("/api/channel/connect", {"platform": "telegram", "token": TOKEN})
+    assert status == 200
+    try:
+        status, paired = page.demo.api("/api/channel/pair", {"platform": "telegram"})
+        assert status == 200
+        _phone(page, "/control/say", {"text": paired["code"]})
+        steps.background(page)
+        _phone(page, "/control/say", {"text": "[ui:hello] 从手机上问一句"})
+        # 那一轮结束时存盘，会话列表里才有这一段：等到它出现，那一轮的事都已经发生过了
+        steps.open_nav(page)
+        page.wait("[...document.querySelectorAll('#conversation-rows .conv .conv-meta')].some((meta) => /telegram/i.test(meta.textContent))",
+                  timeout=30, what="会话列表里出现在 Telegram 里聊的那一段")
+        until(lambda: len(_phone(page, "/control/log")["messages"]) >= 2, timeout=30, what="机器人在聊天里回答了")
+        assert steps.notes(page) == []
+        assert not _title(page).startswith("●")
+    finally:
+        page.demo.api("/api/channel/remove", {"platform": "telegram"})
+
+
+def test_task_reminders_share_the_notifications_and_task_runs_do_not_say_replied(page):
+    steps.fake_notifications(page)
+    steps.background(page)
+    common = {"schedule": {"type": "daily", "time": "09:00"}, "enabled": False, "approval": "ask"}
+    status, reminder = page.demo.api("/api/task/save", {"title": "通知测试的提醒", "kind": "reminder", "prompt": "该看一眼了", **common})
+    assert status == 200, reminder
+    status, agent = page.demo.api("/api/task/save", {"title": "通知测试的任务", "kind": "agent", "prompt": "[ui:hello] 定时任务跑一下", **common})
+    assert status == 200, agent
+    try:
+        # 到点的提醒：和对话里的通知是同一个 systemNotify（同一个开关、同一次授权）
+        page.demo.api("/api/task/run", {"id": reminder["id"]})
+        page.wait("window.__notes.length === 1", what="提醒弹了通知")
+        [note] = steps.notes(page)
+        assert note["title"] == "提醒：通知测试的提醒" and note["body"] == "该看一眼了"
+        # 定时任务自己跑的那一轮（演示里它先要执行一条命令，见 demo_web.py 的 task_reply）：等你确认时弹的是任务自己的那句，
+        # 点了打开任务列表；标签页也标上"等你确认"。跑完了不弹"回复完了"：它的结果在任务列表里（列表只在"任务"标签开着时画）
+        steps.nav_tab(page, "tasks")
+        row = f"#task-list > li[data-id={json.dumps(agent['id'])}]"
+        page.demo.api("/api/task/run", {"id": agent["id"]})
+        page.wait("window.__notes.length === 2", timeout=20, what="任务等你确认的通知")
+        asked = steps.notes(page)[1]
+        assert asked["title"] == "定时任务“通知测试的任务”在等你确认"
+        assert asked["urgent"] and asked["tag"].startswith("harness-task-confirm-")
+        assert _title(page).startswith("● 等你确认 · ")
+        # 点这条通知：窗口切回来，焦点停在任务列表里的这个任务上
+        page.js("window.__notes[1].onclick({ preventDefault() {} })")
+        page.wait(f"document.activeElement.closest('{row}') && !document.title.startsWith('●')", what="回到任务列表里的这个任务")
+        steps.background(page)  # 又切走了：任务还在等，标签页上照样标着
+        assert _title(page).startswith("● 等你确认 · ")
+        page.click(f"{row} [data-role=allow]")
+        page.wait(f"document.querySelector('{row}:not(.running) .task-last')", timeout=30, what="任务跑完")
+        assert [item["title"] for item in steps.notes(page)] == ["提醒：通知测试的提醒", "定时任务“通知测试的任务”在等你确认"]
+        assert not _title(page).startswith("●")
+    finally:
+        page.demo.api("/api/task/dismiss", {"all": True})
+        for saved in (reminder, agent):
+            page.demo.api("/api/task/delete", {"id": saved["id"]})
 
 
 def test_switching_it_off_stops_notifications_but_not_the_tab_marker(page):
