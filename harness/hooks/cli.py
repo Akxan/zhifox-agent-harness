@@ -49,7 +49,9 @@ def run(args: argparse.Namespace, config: Config, out: IO[str] | None = None) ->
         if action == "list":
             return _list(store, out)
         if action == "add":
-            program = args.program[1:] if args.program[:1] == ["--"] else args.program  # -- 本身不是程序的一部分
+            # -- 后面的那一段由 cli.main 先切出来（见那里的说明）；没写 -- 的，照旧从位置参数里拿
+            dashed = getattr(args, "after_dashes", None)
+            program = dashed if dashed is not None else (args.program[1:] if args.program[:1] == ["--"] else args.program)
             if not program:
                 print(t("还没写要运行的程序：在 -- 后面写程序和参数，比如 -- python3 check.py"), file=sys.stderr)
                 return 2

@@ -322,7 +322,17 @@ def main(argv: list[str] | None = None) -> int:
     sandbox_cli.add_parser(commands)
     service_cli.add_parser(commands)
     eval_cli.add_parser(commands)
+    # "harness hooks add 名字 --event … -- 程序 参数"：-- 后面的原样交给那个命令。自己先在第一个 -- 处切开，再交给 argparse：
+    # Python 3.11 的 argparse 不认子命令里一个位置参数后面跟着的 --（3.12 起才认），钩子的命令在 3.11 上就加不进去（GitHub 的测试抓到的）
+    argv = list(sys.argv[1:] if argv is None else argv)
+    after: list[str] | None = None
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, after = argv[:cut], argv[cut + 1 :]
     args = parser.parse_args(argv)
+    args.after_dashes = after
+    if after is not None and not (args.command == "hooks" and getattr(args, "hooks_action", None) == "add"):
+        parser.error(t("只有 harness hooks add 认 -- 后面的内容"))
     if args.workspace is not None:
         workspace = args.workspace.expanduser().resolve()
         if not workspace.is_dir():
