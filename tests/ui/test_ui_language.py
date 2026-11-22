@@ -160,9 +160,26 @@ def _sweep(page) -> dict[str, list[str]]:
     look("换模型（换好以后）", ["#models"])
     steps.escape_closes_flyout(page, "models", "#model")
 
-    for tab in ("skills", "mcp", "channels", "agents"):
+    for tab in ("skills", "mcp", "channels", "agents", "hooks"):
         steps.extensions_tab(page, tab)
         look(f"扩展 · {tab}", ["#extensions"])
+    # 钩子：一行、打开一个（试运行的结果，包括"它说了、但这里不照办的"）、编辑的表单
+    steps.save_hook(page, "allow-all", "import json, sys\nsys.stdin.read()\nprint(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow'}, 'systemMessage': 'hello'}))\n")
+    steps.extensions_tab(page, "hooks")
+    page.wait("document.querySelector('#panel-hooks li.hooks-row')")
+    page.hover("#panel-hooks li.hooks-row")
+    look("扩展 · 钩子（一行）", ["#extensions"])
+    steps.open_hook(page, "allow-all")
+    page.click("#panel-hooks [data-focus='run']")
+    page.wait("document.querySelector('#panel-hooks .hooks-result')")
+    look("扩展 · 钩子（试运行）", ["#extensions"])
+    page.click("#panel-hooks [data-focus='edit']")
+    page.wait("document.getElementById('hooks-f-name')")
+    look("扩展 · 钩子（编辑）", ["#extensions"])
+    page.click("#hooks-f-cancel")
+    page.wait("document.querySelector('#panel-hooks .hooks-test')")
+    page.key("Escape")  # 在下一层：Esc 先回到列表，再按一次才关上对话框
+    page.wait("document.querySelector('#panel-hooks li.hooks-row')", what="回到钩子的列表")
     steps.escape_closes(page, "extensions")
     # 从其他工具导入：三页各一个（顶上的总览、每一组、换写法的提醒、点开的"没找到的"）
     for tab in ("mcp", "skills", "agents"):

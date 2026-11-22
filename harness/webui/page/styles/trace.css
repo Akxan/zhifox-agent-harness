@@ -1,7 +1,7 @@
 /* ---- 运行记录（脚本在 scripts/trace.js 和 trace-chart.js） ----------------------------------------
    这一块管两处：每一轮上的入口（回答下面那排按钮里的"运行记录"，或者这一轮最后单独的一行），
    和点开以后从右边滑出来的窗口（窄屏上从底下升起来）：合计、瀑布图、逐段的详情。
-   四种颜色在两套外观里都是同一个意思：模型 = 强调色，工具 = 青色，等你确认 = 琥珀色的斜线，别的零碎 = 灰。
+   五种颜色在两套外观里都是同一个意思：模型 = 强调色，工具 = 青色，你的钩子 = 品红（--hook），等你确认 = 琥珀色的斜线，别的零碎 = 灰。
    颜色之外都另有区别（图标、名字、斜线、虚线框），不靠颜色也分得清。
    会动的只有 transform 和 opacity：窗口滑进来、横条从左往右长出来；大面积滚动的地方不用 backdrop-filter。 */
 
@@ -49,6 +49,7 @@
 @keyframes trace-grow { from { opacity: 0; transform: scaleX(0); } }
 .seg-model i, .trace-split .seg-model { background: var(--accent); }
 .seg-tools i, .trace-split .seg-tools { background: var(--teal); }
+.seg-hooks i, .trace-split .seg-hooks { background: var(--hook); }
 .seg-waiting i, .trace-split .seg-waiting { background: repeating-linear-gradient(135deg, var(--warn-dot) 0 3px, color-mix(in srgb, var(--warn-dot) 30%, transparent) 3px 6px); }
 .seg-other i, .trace-split .seg-other { background: var(--line-3); }
 .trace-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
@@ -77,6 +78,7 @@
 .trace-lane-name .icon { width: 14px; height: 14px; color: var(--ink-3); }
 .kind-model .trace-lane-name .icon { color: var(--accent); }
 .kind-tool .trace-lane-name .icon { color: var(--teal); }
+.kind-hook .trace-lane-name .icon { color: var(--hook); }
 .trace-lane-title { flex: none; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .trace-lane-sub { min-width: 0; overflow: hidden; font: 11.5px/1.2 var(--mono); color: var(--ink-3); white-space: nowrap; text-overflow: ellipsis; }
 .trace-lane-time { font-size: 12px; color: var(--ink-3); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -92,6 +94,10 @@
 .trace-lane:not(.depth-0) .trace-bar { top: 11px; height: 10px; border-radius: 4px; }
 .kind-model .trace-bar { background: var(--accent); }
 .kind-tool .trace-bar { background: var(--teal); }
+/* 钩子的一段：细一点（它通常很短，也不是这一轮的主角），拦下的那一次描一道琥珀色的边 */
+.kind-hook .trace-bar { background: var(--hook); }
+.trace-lane.kind-hook .trace-bar { top: 11px; height: 10px; border-radius: 4px; }
+.trace-lane.kind-hook.is-blocked .trace-bar { box-shadow: 0 0 0 1.5px var(--warn-dot); }
 .trace-first { position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--size) * 1%); background: var(--sheet); opacity: .62; }
 .trace-wait { position: absolute; top: 0; bottom: 0; left: calc(var(--from) * 1%); width: calc(var(--size) * 1%); background: repeating-linear-gradient(135deg, var(--warn-dot) 0 3px, color-mix(in srgb, var(--warn-dot) 35%, var(--sheet)) 3px 6px); }
 .trace-lane.is-error .trace-bar { background: var(--err); }
@@ -116,6 +122,7 @@
 .trace-step-head .icon { width: 14px; height: 14px; color: var(--ink-3); }
 .trace-step.kind-model .trace-step-head .icon { color: var(--accent); }
 .trace-step.kind-tool .trace-step-head .icon { color: var(--teal); }
+.trace-step.kind-hook .trace-step-head .icon { color: var(--hook); }
 .trace-step-head b { min-width: 0; overflow: hidden; font-weight: 620; white-space: nowrap; text-overflow: ellipsis; }
 .trace-step-time { margin-left: auto; padding-left: 10px; font-size: 12.5px; font-weight: 620; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .trace-step-when, .trace-step-meta { margin: 3px 0 0; font-size: 12px; line-height: 1.55; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -124,6 +131,8 @@
 .trace-call .trace-raw { margin: 0; padding: 1px 6px; background: var(--sunken); border-radius: 5px; }
 .trace-detail { min-width: 0; font: 12px/1.5 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .trace-note { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--err); overflow-wrap: anywhere; }
+.trace-hook-note { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }  /* 钩子说的原因：是它自己写的话 */
+.trace-hook-note.bad { color: var(--err); }
 .trace-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 0; }
 .trace-tag { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 2px 8px; font-size: 11.5px; line-height: 1.5; color: var(--ink-2); background: var(--hover); border-radius: 999px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .trace-tag.tag-ok { color: var(--ok); background: var(--ok-soft); }
@@ -151,7 +160,7 @@
   .trace-lane-time { grid-column: 2; grid-row: 1; }
   .trace-track { grid-row: 2; height: 22px; }
   .trace-bar { top: 4px; }
-  .trace-lane:not(.depth-0) .trace-bar { top: 6px; }
+  .trace-lane:not(.depth-0) .trace-bar, .trace-lane.kind-hook .trace-bar { top: 6px; }
   .trace-step.depth-1 { margin-left: 16px; }
   .trace-step.depth-2, .trace-step.depth-3 { margin-left: 28px; }
 }

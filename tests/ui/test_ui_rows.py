@@ -34,6 +34,7 @@ ROWS = [
     Rows("Agent", "#panel-agents li.agents-row", ".skill-actions", ".skill-open"),
     Rows("聊天通道", "#panel-channels li.chan-row", ".chan-actions", ".chan-open", hover=".chan-main"),
     Rows("不用问的命令", "#commands-list > li.cmd-row", ".cmd-actions", ""),
+    Rows("钩子", "#panel-hooks li.hooks-row", ".hooks-actions", ".hooks-open"),
     Rows("沙箱的路径", "#sandbox-list > li.sandbox-row", ".sandbox-actions", ""),
     Rows("自定义模型接口", "#endpoints-list > li.endpoint-row", ".endpoint-actions", ".endpoint-open"),  # 演示里预先加好了一个
 ]
@@ -60,7 +61,7 @@ def _show(page, rows: Rows) -> None:
         steps.open_dialog(page, "#settings-open", "settings")
         page.js("document.getElementById('endpoints-section').scrollIntoView({ block: 'center' })")
     else:
-        tab = {"Skill": "skills", "MCP 服务器": "mcp", "Agent": "agents", "聊天通道": "channels"}[rows.name]
+        tab = {"Skill": "skills", "MCP 服务器": "mcp", "Agent": "agents", "聊天通道": "channels", "钩子": "hooks"}[rows.name]
         steps.extensions_tab(page, tab)
     page.wait(f"document.querySelector({rows.row!r})", what=f"{rows.name}的列表")
     steps.idle(page)
@@ -83,12 +84,13 @@ def _away(page) -> None:
 
 @pytest.fixture
 def stocked(page):
-    """每一种东西都至少有一行：加一条待办、接上一个（假的）Telegram。测试完把它们收掉。"""
+    """每一种东西都至少有一行：加一条待办、接上一个（假的）Telegram、存一个钩子。测试完把它们收掉（钩子由 reset 收）。"""
     steps.send(page, "[ui:todo] 加一条待办")
     steps.reply(page, "记下了")
     status, _ = page.demo.api("/api/channel/connect", {"platform": "telegram", "token": TOKEN})
     assert status == 200
     assert page.demo.api("/api/commands/add", {"command": "npm test"})[0] == 200
+    steps.save_hook(page, "fmt", "import sys\nsys.stdin.read()\n", event="PostToolUse", matcher="files")
     assert page.demo.api("/api/sandbox/add", {"path": "/srv/app", "write": False})[0] == 200
     yield page
     page.demo.api("/api/channel/remove", {"platform": "telegram"})

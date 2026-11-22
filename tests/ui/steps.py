@@ -7,6 +7,7 @@ pilot.py 只会"点、按、读"，不知道页面长什么样；这里知道。
 from __future__ import annotations
 
 import json
+import sys
 
 from .pilot import Page
 
@@ -146,7 +147,7 @@ def is_open(dialog: str) -> str:
 
 
 def extensions_tab(page: Page, tab: str) -> None:
-    """打开"扩展"窗口里的一页（skills、mcp、channels、agents），等它画好。"""
+    """打开"扩展"窗口里的一页（skills、mcp、channels、agents、hooks），等它画好。"""
     if not page.js(is_open("extensions")):
         open_dialog(page, "#extensions-open", "extensions")
     page.click(f"#tab-{tab}")
@@ -171,6 +172,31 @@ def close_extensions(page: Page) -> None:
     """点右上角的 × 关掉"扩展"窗口（导入页里按 Esc 是先回到上一层，不是关窗口）。"""
     page.click("#close-extensions")
     page.wait(f"!{is_open('extensions')}", what="扩展窗口关上")
+    idle(page)
+
+
+def save_hook(page: Page, name: str, script: str, extra: tuple[str, ...] = (), **hook) -> dict:
+    """存一个钩子（直接调接口，不经过表单）：script 是一小段 Python，写进演示的临时目录，用跑测试的这个 Python 运行
+    （sys.executable：Windows 上也有，不靠 shell 脚本），extra 是脚本后面再跟的参数。hook 里给的字段盖过默认的
+    （工具执行之前、对执行命令生效）。
+    演示服务器每个测试开始前删掉 hooks.json（见 conftest.py 的 reset），所以不用自己收拾。"""
+    folder = page.demo.root / "hook-scripts"
+    folder.mkdir(exist_ok=True)
+    path = folder / f"{name}.py"
+    path.write_text(script, encoding="utf-8")
+    body = {"event": "PreToolUse", "matcher": "shell", "command": sys.executable, "args": [str(path), *extra], "timeout": None,
+            "enabled": True, "onFailure": "continue", "runsIn": ["chat", "task", "channel"], **hook}
+    status, reply = page.demo.api("/api/hooks/save", {"original": None, "name": name, "hook": body})
+    assert status == 200, reply
+    return reply
+
+
+def open_hook(page: Page, name: str) -> None:
+    """在"扩展 · 钩子"里点开一个钩子，等它的详情（设置、试运行）画好。"""
+    extensions_tab(page, "hooks")
+    page.wait(f"document.querySelector('#panel-hooks li.hooks-row[data-name={json.dumps(name)}]')", what=f"钩子 {name} 出现在列表里")
+    page.click(f"#panel-hooks li.hooks-row[data-name={json.dumps(name)}] .hooks-open")
+    page.wait("document.querySelector('#panel-hooks .hooks-test')", what="钩子的详情打开")
     idle(page)
 
 

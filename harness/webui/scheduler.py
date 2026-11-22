@@ -354,6 +354,7 @@ class Scheduler:
         conversation = app.store.new(agent.backend.provider, agent.backend.model)  # 和这次运行用的模型一致，哪怕你刚刚换了
         conversation.title = f"{short(task['title'], TITLE_CHARS)} · {local_text(now)}"
         conversation.task = task["id"]
+        agent.hooks.session = lambda: conversation.id  # 交给你的钩子的 session_id：这次运行存成的那段会话
         self.store.update_run(task["id"], pending.run_id, status="running", started_at=now)
 
         ui.begin_turn(task["prompt"])  # 会话里显示的是你写的指令；发给模型的还带着一段说明（见 instruction）

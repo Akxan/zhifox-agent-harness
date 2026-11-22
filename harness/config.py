@@ -123,6 +123,18 @@ LEDGER_CHART_DAYS = 30
 TRACE_MAX_SPANS = 400
 TRACE_SUMMARY_CHARS = 120
 
+# 你的钩子（见 hooks/）：在固定的时刻（工具调用之前和之后、你发出一条消息时、一轮答完时）运行你配置的命令。
+# 钩子运行的时候这一轮在等它，所以默认的时限比 Claude Code 的（600 秒）短得多；每个钩子可以自己设，最长 HOOK_MAX_TIMEOUT
+HOOK_TIMEOUT = 30
+HOOK_MAX_TIMEOUT = 600
+HOOK_MAX = 50  # 最多配置这么多个钩子
+HOOK_OUTPUT_BYTES = 100_000  # 一个钩子的标准输出、标准错误各最多收这么多字节，再多的读出来扔掉（不让它卡住，也不让它吃光内存）
+# 钩子交给模型的话最多这么多字：接在工具结果后面的补充（PostToolUse）、附在你的消息里的说明（UserPromptSubmit）。
+# 每一次请求都要把它们重发一遍，太长就贵了，也会盖过真正的内容
+HOOK_NOTE_CHARS = 2000
+HOOK_REASON_CHARS = 1000  # 拦下的原因（交给模型或者给你看）最多这么多字
+HOOK_TEST_OUTPUT_CHARS = 4000  # 页面上"试运行"显示的输出最多这么多字
+
 # 聊天通道：在 Telegram 这类聊天软件里和智狐说话（见 channels/）。
 # 配对码：网页或命令行上显示一个 6 位数字，你从自己的账号发给机器人，这个账号就绑定成了"主人"，只有主人能用。
 PAIRING_SECONDS = 600  # 配对码多久过期
@@ -419,11 +431,15 @@ class Config:
         return self.data_dir / "commands.json"  # 你自己加的"不用问的命令"（见 commands/allowlist.py）
 
     @property
+    def hooks_file(self) -> Path:
+        return self.data_dir / "hooks.json"  # 你的钩子：在固定的时刻运行的命令（见 hooks/config.py）
+
+    @property
     def protected_files(self) -> list[Path]:
         """文件工具碰不了、沙箱里也碰不到的几个文件（见 app.py 的 build_app 和 sandbox/policy.py）：
-        .env 和 mcp.json、channels.json、commands.json、endpoints.json——里面是密钥，或者改了它就能让智狐运行别的东西、不再问你、
-        把请求发到别处。"""
-        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file]
+        .env 和 mcp.json、channels.json、commands.json、endpoints.json、hooks.json——里面是密钥，或者改了它就能让智狐运行别的东西、
+        不再问你、把请求发到别处、在固定的时刻运行任何命令（钩子，见 hooks/）。"""
+        return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file, self.hooks_file]
 
     @property
     def web_address_file(self) -> Path:

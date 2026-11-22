@@ -39,8 +39,9 @@ from .safe import to_json
 
 # 存着密钥的配置文件（相对数据文件夹的路径）：导出时把密钥换成占位符。
 # channels.json 里是聊天机器人的 token（见 channels/store.py），字段名就叫 token，配对码叫 secret，都会被换掉。
-# endpoints.json 里是自定义模型接口的密钥（见 endpoints/store.py），字段名是 api_key
-MASKED_FILES = ("mcp.json", "channels.json", "endpoints.json")
+# endpoints.json 里是自定义模型接口的密钥（见 endpoints/store.py），字段名是 api_key。
+# hooks.json 里钩子的参数可能带着令牌（--token xxx，见 hooks/config.py），按命令行参数的规矩遮住
+MASKED_FILES = ("mcp.json", "channels.json", "endpoints.json", "hooks.json")
 PLACEHOLDER = "<removed-from-backup>"  # 写成英文：它留在配置文件里，恢复以后谁来看都认得出
 NOTE = "README-backup.txt"
 # 整个不导出的文件夹（相对数据文件夹的路径）→ 原因（写进压缩包里的说明）

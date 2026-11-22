@@ -166,9 +166,9 @@ def model_span(start: int, end: int, status: str, stop: str, cost: float, **extr
 
 
 def assert_adds_up(record: dict, slack: int = 0) -> None:
-    """合计里的时间分配（模型、工具、等你、其他）加起来是这一轮的总时长。"""
+    """合计里的时间分配（模型、工具、钩子、等你、其他）加起来是这一轮的总时长。"""
     totals = record["totals"]
-    parts = totals["model"] + totals["tools"] + totals["waiting"] + totals["other"]
+    parts = totals["model"] + totals["tools"] + totals["hooks"] + totals["waiting"] + totals["other"]
     assert abs(parts - record["wall"]) <= slack, (parts, record["wall"])
 
 
@@ -212,10 +212,10 @@ def test_the_timeline_of_a_turn_to_the_millisecond(start, monkeypatch):
             model_span(3125, 3875, "done", "end_turn", costs[2], first=250),
         ],
         "totals": {
-            "model": 750 + 250 + 750, "tools": 125, "waiting": 2000, "other": 0,
+            "model": 750 + 250 + 750, "tools": 125, "hooks": 0, "waiting": 2000, "other": 0,
             "requests": 3, "tool_calls": 2, "errors": 0, "cost": round(sum(costs), 6), "unpriced": 0,
             "input": 300, "cache_read": 120, "cache_write": 30, "output": 60, "cache_hit": round(120 / 450, 4),
-            "server_tools": {}, "asked": 1, "allowed": 1, "refused": 0, "auto": 0,
+            "server_tools": {}, "asked": 1, "allowed": 1, "refused": 0, "auto": 0, "hook_runs": 0, "hooks_blocked": 0,
         },
     }  # fmt: skip
     assert_adds_up(record)
@@ -861,8 +861,37 @@ def test_the_record_format_matches_the_documentation():
     record = tracer.turn_ended("done")
     assert set(record) == {"version", "at", "wall", "ended", "spans", "totals", "again"}
     assert set(record["totals"]) == {
-        "model", "tools", "waiting", "other", "requests", "tool_calls", "errors", "cost", "unpriced",
+        "model", "tools", "hooks", "waiting", "other", "requests", "tool_calls", "errors", "cost", "unpriced",
         "input", "cache_read", "cache_write", "output", "cache_hit", "server_tools", "asked", "allowed", "refused", "auto",
+        "hook_runs", "hooks_blocked",
     }  # fmt: skip
     assert record["totals"]["cache_hit"] is None  # 没有输入：说不上命中了多少
     assert record["version"] == 1 and record["again"] is True and record["spans"] == []
+
+
+def test_hook_spans_match_the_documentation():
+    # __init__.py 里"一段钩子"的格式：工具前后跑的挂在那次调用下面，别的是这一轮里单独的一段；
+    # 钩子的时间不算进工具的时间；还在跑的时候停下了，按此刻收尾、标成 stopped
+    clock = Clock()
+    tracer = Tracer(timer=clock, wall=lambda: AT)
+    tracer.turn_began()
+    tracer.hook_began("UserPromptSubmit", "gate")
+    clock.advance(0.125)
+    tracer.hook_ended("ok", 0)
+    tracer.tool_began(ToolCall("t1", "todo_list", {}), None)
+    tracer.hook_began("PreToolUse", "no-rm")
+    clock.advance(0.25)
+    tracer.hook_ended("blocked", 2, "不许删\n第二行", 0)
+    tracer.tool_ended("被拦下了", True)
+    tracer.hook_began("Stop", "slow")
+    clock.advance(0.5)
+    record = tracer.turn_ended("stopped")
+    gate, tool, slow = record["spans"]
+    assert gate == {"kind": "hook", "start": 0, "end": 125, "event": "UserPromptSubmit", "name": "gate", "result": "ok", "exit": 0}
+    assert tool["children"] == [
+        {"kind": "hook", "start": 125, "end": 375, "event": "PreToolUse", "name": "no-rm", "result": "blocked", "exit": 2, "note": "不许删"}
+    ]
+    assert slow == {"kind": "hook", "start": 375, "end": 875, "event": "Stop", "name": "slow", "result": "stopped"}
+    totals = record["totals"]
+    assert (totals["hooks"], totals["tools"], totals["hook_runs"], totals["hooks_blocked"]) == (875, 0, 3, 1)
+    assert_adds_up(record)
