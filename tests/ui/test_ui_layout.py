@@ -40,6 +40,9 @@ def _surfaces(page):
         # 第一下 Esc 只收起问的那一块（焦点在它里面），第二下才关上设置窗口
         ("设置 · 遮住密钥（关掉之前）", lambda: _redact(page), ["#redact-section"],
          lambda: (page.key("Escape"), page.wait("document.getElementById('redact-confirm').hidden"), steps.escape_closes(page, "settings"))),
+        # 系统通知：被浏览器拦下时那一大段说明，允许了以后的"发一条试试"和系统设置在哪儿（窄屏上按钮挪到文字下面）
+        ("设置 · 系统通知（被浏览器拦下）", lambda: _notify(page, "denied"), ["#settings"], None),
+        ("设置 · 系统通知（浏览器允许了）", lambda: _notify(page, "granted"), ["#settings"], "settings"),
         # 自定义模型接口的编辑窗口（叠在设置上面）：很长的地址、模型名，每个模型的三个开关和三个数字
         ("自定义模型接口（编辑）", lambda: _endpoint_editor(page), ["#endpoint-dialog"], lambda: (steps.escape_closes(page, "endpoint-dialog"), steps.escape_closes(page, "settings"))),
         ("扩展 · Skill", lambda: steps.extensions_tab(page, "skills"), ["#extensions"], None),
@@ -83,6 +86,16 @@ def _redact(page) -> None:
     page.reach("#redact-enabled")
     page.click("#redact-enabled")
     page.wait("!document.getElementById('redact-confirm').hidden", what="关掉之前先问")
+
+
+def _notify(page, permission: str) -> None:
+    """设置里"系统通知"一节，浏览器的权限换成 permission（假的，见 steps.fake_notifications）。"""
+    if not page.js(steps.is_open("settings")):
+        steps.open_dialog(page, "#settings-open", "settings")
+    steps.fake_notifications(page, permission=permission)
+    kind = "warn" if permission == "denied" else "good"
+    page.wait(f"document.getElementById('notify-permission').classList.contains('{kind}')", what=f"系统通知：{permission} 的样子")
+    page.reach("#notify-permission")
 
 
 def _hooks(page) -> None:
