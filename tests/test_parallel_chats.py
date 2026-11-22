@@ -863,3 +863,34 @@ def test_every_open_tab_follows_the_switch_to_another_conversation(start):
     wait_new(other, "turn_end", second)
     assert s.browser.events[first:] == other.events[second:]
     assert texts(other.events[second:], "text") == ["甲做完了"]
+
+
+def test_a_switch_that_is_still_finishing_is_waited_for_instead_of_refused(start, monkeypatch):
+    # 点了"新对话"马上又点开一段会话：上一次换着看还没收尾（存盘、重放事件），这一次等它一小会儿，不回答"请先等"。
+    # 等的时间有上限（config.SWITCH_WAIT_SECONDS），一直拿不到才照旧回答忙：这样也不会因为等它而卡死
+    from harness import config as config_module
+
+    s = start({})
+    taken, done = threading.Event(), threading.Event()
+
+    def finishing(seconds: float) -> None:
+        def hold() -> None:
+            with s.web._switch:
+                taken.set()
+                done.wait(seconds)
+        taken.clear()
+        done.clear()
+        threading.Thread(target=hold, daemon=True).start()
+        assert taken.wait(5)
+
+    finishing(5)
+    threading.Timer(0.3, done.set).start()
+    assert s.web.new_conversation() == ""  # 等到上一次放开了，照常开好
+    assert s.web.sessions.viewed.chat.agent.messages == []
+
+    monkeypatch.setattr(config_module, "SWITCH_WAIT_SECONDS", 0.2)
+    finishing(5)
+    began = time.monotonic()
+    assert s.web.new_conversation() == s.web._busy()  # 一直拿不到：等够了上限照旧说忙
+    assert time.monotonic() - began >= 0.2
+    done.set()

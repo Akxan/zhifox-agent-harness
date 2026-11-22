@@ -25,7 +25,9 @@
 锁的顺序（只能从前往后拿，拿着后面的不去等前面的）：
   WebApp._switch（RLock）→ WebApp._publishing → Sessions._lock → 每段 WebUI 自己的锁
   - _switch：改动"哪几段活着、正看着哪一段"的操作一个一个来（打开、新对话、删除当前这一段、换到另一家……），
-    拿不到就回答"忙"，不等。各段的 Session.lock 只用"试一下"的方式拿（acquire(blocking=False)），所以拿着 _switch 不会卡在别人身上。
+    用 take_switch 拿：最多等 config.SWITCH_WAIT_SECONDS（连着点两下时上一下还在收尾），还拿不到就回答"忙"。只有网页请求的入口
+    （手里什么锁都没拿）这样等，所以不违反上面的顺序。各段的 Session.lock 只用"试一下"的方式拿（acquire(blocking=False)），
+    所以拿着 _switch 不会卡在别人身上。
   - _publishing：算状态快照、发出去要一口气做完（见 WebApp.publish_state）；换"正看着哪一段"也拿着它，快照里就不会是半截换过去的样子。
   - Sessions._lock：只保护名单、正看着的是谁、几段在跑、没看过的标记。拿着它只做几行赋值，不调用别的东西
     （除了 watching 里读一下那一段 WebUI 的日志）。
@@ -42,6 +44,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Self
 
+from .. import config
+
 if TYPE_CHECKING:
     from ..app import Chat
     from .ui import WebUI
@@ -52,6 +56,15 @@ CONFIRM = "confirm"  # 在等你确认（最显眼）
 ERROR = "error"  # 在后台跑完了、出了错（或者没存上盘），你还没看
 DONE = "done"  # 在后台跑完了，你还没看
 
+
+
+def take_switch(switch: threading.RLock) -> bool:
+    """拿"换着看"的那把锁（WebApp._switch）：等一小会儿（config.SWITCH_WAIT_SECONDS），还拿不到返回 False，调用的人回答"忙"。
+
+    你点出来的操作（新对话、打开、分叉、改名、删除、换模型……）用它：连着点两下时，上一下多半还在收尾（存盘、重放事件），
+    不该因此回答"请先等"。等有上限，所以就算哪里拿着它不放，也只是晚一点回答忙，不会卡死。
+    后台的回调（聊天通道刚存了盘）不用它，照旧只试一下：那边不该为了网页上的事等。"""
+    return switch.acquire(timeout=config.SWITCH_WAIT_SECONDS)
 
 @dataclass(eq=False)
 class Session:

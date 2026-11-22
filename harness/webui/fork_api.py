@@ -23,6 +23,7 @@ from .. import fork, rewind
 from ..conversations import FORK_POINTS, ConversationError
 from ..fork import ForkError
 from ..i18n import t
+from .sessions import take_switch
 from .ui import said
 
 if TYPE_CHECKING:
@@ -54,7 +55,7 @@ class ForkAPI:
         if not isinstance(conversation, str) or not isinstance(turn, int) or isinstance(turn, bool) or at not in FORK_POINTS:
             return 400, {"error": t("参数不正确")}
         web = self.web
-        if not web._switch.acquire(blocking=False):
+        if not take_switch(web._switch):
             return 409, {"error": web._busy()}
         try:
             viewed = web.sessions.viewed

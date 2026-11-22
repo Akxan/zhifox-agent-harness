@@ -29,6 +29,7 @@ from ..i18n import t
 from ..providers import find, has_key
 from ..search import MAX_QUERY_CHARS
 from . import reveal
+from .sessions import take_switch
 from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class ConversationActions(WebAppPart):
         agent：用哪个自定义 Agent 当角色（见 App.new_conversation）。它选的模型是另一家、那一家又还没有密钥的话，先说清楚。
         你正看着的那一段在跑的话，它留在后台接着跑，新的这一段另外建一个（见 sessions.py）。
         """
-        if not self._switch.acquire(blocking=False):
+        if not take_switch(self._switch):
             return self._busy()
         try:
             if agent:
@@ -102,7 +103,7 @@ class ConversationActions(WebAppPart):
         它正在后台跑着（或者没存上盘、还留在内存里）的话，换过去看它：事件从头重放出来，流式输出接着来。
         别的从磁盘读。你正看着的那一段在跑的话，它留在后台接着跑，打开的这一段另外建一个；没在跑的话直接换掉它的内容。
         """
-        if not self._switch.acquire(blocking=False):
+        if not take_switch(self._switch):
             return self._busy()
         try:
             current = self.sessions.viewed
@@ -158,7 +159,7 @@ class ConversationActions(WebAppPart):
     def rename_conversation(self, conversation_id: str, title: str) -> str:
         # 改名要读出会话文件、改掉标题、再写回去。如果这时正好有一轮对话结束、也在写同一个文件，
         # 两边会互相覆盖。所以正在跑一轮的那一段不让改；别的会话随时可以改（拿着 _switch，它这时也不会被打开、开始一轮）。
-        if not self._switch.acquire(blocking=False):
+        if not take_switch(self._switch):
             return self._busy()
         try:
             blocked = self._held_elsewhere(conversation_id)
@@ -178,7 +179,7 @@ class ConversationActions(WebAppPart):
         return ""
 
     def delete_conversation(self, conversation_id: str) -> str:
-        if not self._switch.acquire(blocking=False):
+        if not take_switch(self._switch):
             return self._busy()
         try:
             blocked = self._held_elsewhere(conversation_id)

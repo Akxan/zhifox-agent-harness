@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from ..i18n import t
-from .sessions import DONE, ERROR, Session
+from .sessions import DONE, ERROR, Session, take_switch
 from .ui import WebUI
 from .webapp_types import WebAppPart
 
@@ -84,7 +84,7 @@ class SessionActions(WebAppPart):
     def _viewed_idle(self) -> Iterator[bool]:
         """拿着 _switch 和你正看着的那一段的锁（都不等）：True 是它没在进行一轮、也没人在改它，这时谁也换不走"正看着哪一段"，
         self.app.agent、self.ui 这些就是它的。换模型、填密钥、改提示词、改自定义接口用它。"""
-        if not self._switch.acquire(blocking=False):
+        if not take_switch(self._switch):
             yield False
             return
         try:

@@ -97,7 +97,8 @@ class WebApp(
         self.sessions = Sessions(first)
         self._ids = ui.ids
         app.live = lambda: [session.chat for session in self.sessions.all()]  # App 也要知道有哪几段活着（删接口、换密钥、退出时）
-        # 改动"哪几段活着、正看着哪一段"的操作一个一个来（打开、新对话、删除、换模型……）。只用"试一下"的方式拿，拿不到回答"忙"
+        # 改动"哪几段活着、正看着哪一段"的操作一个一个来（打开、新对话、删除、换模型……）。用 sessions.take_switch 拿：
+        # 等一小会儿（上一个还在收尾），还拿不到回答"忙"
         self._switch = threading.RLock()
         # 以前的对话锁：现在是"没有任何一段在跑"（见 sessions.py 的 AllIdle）。改记忆、改 Skill 这些全局的操作拿它
         self._turn = AllIdle(self._switch, self.sessions)
