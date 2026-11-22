@@ -221,3 +221,39 @@ def test_with_reduced_motion_the_switcher_just_appears(page):
     # 入场动画一闪而过（减少动态效果时，所有动画都是 0.01 毫秒）
     durations = page.js("document.getElementById('models').getAnimations().map((a) => a.effect.getComputedTiming().duration)")
     assert all(duration <= 1 for duration in durations), durations
+
+
+# 记下页面取模型目录的每一次（发出去、拿到回答），看得出"新的目录已经回来了"
+WATCH_CATALOG = """(() => {
+  if (window.__catalog) return;
+  window.__catalog = { asked: 0, answered: 0 };
+  const real = window.fetch;
+  window.fetch = (...args) => {
+    const asking = String(args[0]).includes('/api/model/catalog');
+    if (asking) window.__catalog.asked += 1;
+    const answer = real(...args);
+    if (asking) answer.then((reply) => reply.clone().text()).finally(() => setTimeout(() => { window.__catalog.answered += 1; }, 50));
+    return answer;
+  };
+})()"""
+
+
+def test_a_click_is_not_lost_when_a_fresh_catalog_arrives_between_press_and_release(page):
+    # 面板一打开就先照上一次的目录画出来、再去取新的。新的在鼠标按下和松开之间回来、把列表整个重画的话，
+    # 按下的那一行已经不在了，浏览器就不算这是一次点击（慢的电脑上真的碰到过：点了 Sonnet，什么都没发生）
+    steps.open_models(page)
+    page.js(WATCH_CATALOG)
+    x, y = page.reach(ROW.format(model="claude-sonnet-5-5"))
+    page.mouse(x, y)
+    page.call("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1})
+    before = page.js("window.__catalog.answered")
+    # 改一下现在这个模型的价格：服务器发新的状态，开着的面板去取目录，取回来的和画着的不一样
+    status, reply = page.demo.api("/api/price", {"model": "claude-opus-5-5", "price": {"input": 7, "output": 21}})
+    assert status == 200, reply
+    page.wait(f"window.__catalog.answered > {before}", what="新的目录取回来了")
+    page.call("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1})
+    page.wait("['good', 'error'].some((kind) => document.getElementById('models-status').classList.contains(kind))", what="这一下点击算数了")
+    assert page.text("#models-status") == "已换成 claude-sonnet-5-5，对话接着进行。"
+    page.wait(f"{CURRENT} === 'claude-sonnet-5-5'", what="勾挪到新的那个上")
+    # 松开以后照样画上新的目录：Opus 那一行是新填的价格
+    page.wait(f"document.querySelector({ROW.format(model='claude-opus-5-5')!r}).textContent.includes('7')", what="新的价格画上了")
