@@ -143,8 +143,8 @@ def test_commands_are_added_edited_and_removed_in_place(page):
     page.type("npm test")
     page.click("#commands-add")
     page.wait("document.querySelector('#commands-list li.cmd-row .cmd-text') && document.querySelector('#commands-list li.cmd-row .cmd-text').textContent === 'npm test'", what="列表里出现这一条")
-    # 列表跟着状态走，"加好了"跟着接口的回答走：两个谁先到不一定（CI 的 macOS 上状态先到过），等它
-    page.wait("document.getElementById('commands-message').textContent.includes('加好了')", what="窗口里写着加好了")
+    # "加好了"是这次请求的回答，列表是另外推过来的状态：两样谁先到不一定（GitHub 的 macOS 上先到的是列表，那句话还是上一次的）
+    page.wait("document.getElementById('commands-message').textContent.includes('加好了')", what="加好了")
     assert page.js("document.getElementById('commands-new').value") == ""
     page.wait("document.getElementById('commands-state').textContent.includes('1')", what="设置里那一节写着有几条")
     try:
