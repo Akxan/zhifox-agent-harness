@@ -170,7 +170,7 @@ class ModelActions(WebAppPart):
 
 def route_model(handler: Handler, web: WebApp, body: dict) -> None:
     provider, model = body.get("provider"), body.get("model")
-    if find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
+    if not isinstance(provider, str) or find(provider) is None or not isinstance(model, str) or not 0 < len(model.strip()) <= 200:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
         handler._finish(web.select_model(provider, model.strip()))
@@ -189,7 +189,7 @@ def route_key(handler: Handler, web: WebApp, body: dict) -> None:
 
 def route_models(handler: Handler, web: WebApp, body: dict) -> None:
     provider = body.get("provider")
-    if find(provider) is None:
+    if not isinstance(provider, str) or find(provider) is None:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
         handler._finish(web.sync_models(provider))

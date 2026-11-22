@@ -762,8 +762,8 @@ class App:
         if not title or title != auto(old_text, old_attachments):
             return
         for event in earlier:
-            summaries = event.get("attachments") if isinstance(event.get("attachments"), list) else []
-            if auto(event.get("text") if isinstance(event.get("text"), str) else "", summaries) == title:
+            words, summaries = event.get("text"), event.get("attachments")
+            if auto(words if isinstance(words, str) else "", summaries if isinstance(summaries, list) else []) == title:
                 return
         chat.conversation.title = ""
         self.name_conversation(text, attachments, chat=chat)
@@ -838,7 +838,7 @@ class App:
             "today": self.ledger.day_total(today),
             "month": spent,
             "budget": amount,
-            "over": bool(amount) and spent >= amount,
+            "over": spent >= amount if amount else False,
             "alert": budget.marker(self.settings.budget_alert, month),
             "error": self.ledger.error,
         }
@@ -903,9 +903,13 @@ class App:
             chat.prompt_in_use = self.system_prompt
             self.refresh_tools()
             return
+        # 用到时才导入（见 providers/__init__.py 开头）
+        from .providers.openai_compat import OpenAICompatBackend
+
         backend.client = self.client_factory(provider)
-        backend.label = provider.label
-        backend.stream_usage = provider.endpoint.stream_usage if provider.endpoint is not None else True
+        if isinstance(backend, OpenAICompatBackend):  # 自定义接口一律是 OpenAI 格式的适配层（见 providers.make_backend）
+            backend.label = provider.label
+            backend.stream_usage = provider.endpoint.stream_usage if provider.endpoint is not None else True
         switch_model(backend, provider, backend.model)
 
 

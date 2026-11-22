@@ -31,6 +31,8 @@ from .ui import said
 from .webapp_types import WebAppPart
 
 if TYPE_CHECKING:
+    # 类里的注解写 rewind.Turn 不行：在 RewindActions 的类体里，rewind 是它的方法 rewind，不是这个模块
+    from ..rewind import Turn
     from .server import Handler
     from .webapp import WebApp
 
@@ -173,7 +175,7 @@ class RewindActions(WebAppPart):
                     self.claims.release(session.id, "web")
                 self.sessions.unlock(session)
 
-    def _undo_with_rewind(self, turn: rewind.Turn, force: bool) -> tuple[str, dict]:
+    def _undo_with_rewind(self, turn: Turn, force: bool) -> tuple[str, dict]:
         """倒回最后一轮之前，撤回它改的文件。返回（不能接着倒回去的原因，回答里另外带的东西）。调用的人拿着对话的锁。"""
         changes = self.app.changes
         set_id = changes.last_set(turn.events)
@@ -211,6 +213,7 @@ def route_turn(handler: Handler, web: WebApp, path: str, body: dict) -> None:
     if bad:
         handler._send_json(400, {"error": t("参数不正确")})
     else:
+        assert isinstance(conversation_id, str) and isinstance(turn_id, int)  # 给类型检查看的：上面的 bad 已经查过
         target = (conversation_id, turn_id)
         error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed, undo_files, undo_force)
         if error:

@@ -79,7 +79,8 @@ class McpActions(WebAppPart):
     def mcp_import(self, picks: list[tuple[str, str]]) -> tuple[str, list[str], list[str]]:
         """导入勾选的那些。配置的内容在这里重新从文件里读，页面只给了"哪个来源的哪个名字"。"""
         found = {source.id: source for source in mcp_imports.sources(self.app.config.workspace)}
-        added, skipped = [], []
+        added: list[str] = []
+        skipped: list[str] = []  # 有 t() 写的，也有 mcp_imports.apply 给的普通字符串
         for source_id in dict.fromkeys(source for source, _ in picks):
             source = found.get(source_id)
             names = [name for source, name in picks if source == source_id]

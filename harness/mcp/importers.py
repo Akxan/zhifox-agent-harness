@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -170,7 +171,7 @@ def check(name: str, value: Found) -> str:
     return ""
 
 
-def apply(config: McpConfig, servers: dict[str, Found | object], names: list[str]) -> tuple[list[str], list[str]]:
+def apply(config: McpConfig, servers: Mapping[str, Found | object], names: list[str]) -> tuple[list[str], list[str]]:
     """把 servers 里名字在 names 中的那些加进配置。返回（加进去的新名字，没加的原因）。
 
     servers 的值是 Found（从别的工具读出来、已经换好写法的）或者原样的配置（粘贴的）。

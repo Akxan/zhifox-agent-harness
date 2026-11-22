@@ -335,13 +335,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/channel/"):
             channels_api.route_channel(self, web, path.removeprefix("/api/channel/"), body)
         elif path == "/api/browser/shot":
-            content = web.browser.shot(body.get("id"))
-            if content is None:
+            shot = web.browser.shot(body.get("id"))
+            if shot is None:
                 self._send_json(409, {"error": t("这张截图的大图已经过期删掉了（只留 {days} 天），对话里还看得到小图。", days=BROWSER_SHOT_DAYS)})
                 return
             # 和 /api/media/file 一样：当成下载的文件、不按内容猜类型、万一被直接打开也什么都不运行
             headers = {"Content-Disposition": 'attachment; filename="screenshot.jpg"', "Content-Security-Policy": "default-src 'none'; sandbox"}
-            self._send(200, "image/jpeg", content, headers)
+            self._send(200, "image/jpeg", shot, headers)
         elif path.startswith("/api/browser/"):
             status, payload = web.browser.route(path.removeprefix("/api/browser/"), body)
             self._send_json(status, payload)
@@ -361,13 +361,13 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)
             self._send_json(status, payload)
         elif path == "/api/computer/shot":
-            content = web.computer.shot(body.get("id"))
-            if content is None:
+            shot = web.computer.shot(body.get("id"))
+            if shot is None:
                 self._send_json(409, {"error": t("这张截图的大图已经过期删掉了（只留 {days} 天），对话里还看得到小图。", days=DESKTOP_SHOT_DAYS)})
                 return
             # 和浏览器的截图、/api/media/file 一样：当成下载的文件、不按内容猜类型、万一被直接打开也什么都不运行
             headers = {"Content-Disposition": 'attachment; filename="screenshot.jpg"', "Content-Security-Policy": "default-src 'none'; sandbox"}
-            self._send(200, "image/jpeg", content, headers)
+            self._send(200, "image/jpeg", shot, headers)
         elif path.startswith("/api/computer/"):
             status, payload = web.computer.route(path.removeprefix("/api/computer/"), body)
             self._send_json(status, payload)

@@ -82,7 +82,9 @@ class ForkAPI:
             return 409, {"error": t("这段会话上一次没能保存（{error}）。分叉读的是存在磁盘上的样子，先解决保存的问题再试。", error=viewed.unsaved)}
         if not current.saved:
             return 409, {"error": t("这段对话还没有存盘：第一轮结束以后才能分叉。")}
-        text = event.get("text") if isinstance(event.get("text"), str) else ""
+        text = event.get("text")
+        if not isinstance(text, str):
+            text = ""
         session = viewed if idle else web._fresh_session()  # 正在跑的那一段留在后台，分叉出来的另外建一段（见文件开头）
         try:
             made = app.fork_conversation(current.id, index, at, expect=(mark, text), chat=session.chat)
