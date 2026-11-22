@@ -397,7 +397,9 @@ def _sheet_rows(package: _Package, path: str, shared: list[str], dates: set[int]
 def _column(reference: str) -> int:
     """单元格地址里的列：A → 0，Z → 25，AA → 26。"""
     number = 0
-    for letter in re.match(r"[A-Za-z]*", reference).group(0).upper():
+    letters = re.match(r"[A-Za-z]*", reference)
+    assert letters is not None  # * 连一个字母都没有也算对上（得到空串），所以一定有结果
+    for letter in letters.group(0).upper():
         number = number * 26 + ord(letter) - ord("A") + 1
     return max(number - 1, 0)
 

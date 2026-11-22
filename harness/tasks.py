@@ -40,7 +40,7 @@ import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .config import APP_NAME
 from .i18n import Message, fill, k, t
@@ -125,7 +125,7 @@ def check_schedule(value: object) -> dict:
     return {"type": "monthly", "day": day, "time": clock}
 
 
-def _is_int(value: object) -> bool:
+def _is_int(value: object) -> TypeGuard[int]:  # TypeGuard：返回真时 mypy 就知道它是 int，后面拿它比大小不用再查
     return isinstance(value, int) and not isinstance(value, bool)  # Python 里 True 也算 int，这里要排除
 
 
@@ -140,11 +140,12 @@ def _check_at(value: object) -> str:
     try:
         if match is None:
             raise ValueError
-        moment = datetime(*map(int, match.groups()))  # 2 月 30 日这种不存在的日子在这里报错
+        year, month, day, hour, minute = map(int, match.groups())  # _AT 正好五组：年、月、日、时、分
+        moment = datetime(year, month, day, hour, minute)  # 2 月 30 日这种不存在的日子在这里报错
         moment.timestamp()
     except (ValueError, OverflowError, OSError):
         raise TaskError(t("日期和时间要写成 2026-11-21T09:00 这样，而且得是真实存在的一天。")) from None
-    return value
+    return match.string  # 就是 value：交给 fullmatch 的那个字符串（对上了，说明它是字符串）
 
 
 def check_task(value: object) -> dict:
@@ -258,9 +259,10 @@ def count_due(schedule: dict, due: float, now: float, anchor: float | None = Non
         return min(MAX_COUNTED, int((now - due) // (schedule["minutes"] * 60)) + 1)
     count, moment = 1, due
     while count < MAX_COUNTED:
-        moment = next_after(schedule, moment, anchor)
-        if moment is None or moment > now:
+        following = next_after(schedule, moment, anchor)
+        if following is None or following > now:
             break
+        moment = following
         count += 1
     return count
 
@@ -425,8 +427,8 @@ class TaskStore:
         if not isinstance(data, dict):
             self._set_aside()
             return
-        tasks = data.get("tasks") if isinstance(data.get("tasks"), list) else []
-        reminders = data.get("reminders") if isinstance(data.get("reminders"), list) else []
+        tasks = saved_tasks if isinstance(saved_tasks := data.get("tasks"), list) else []
+        reminders = saved_reminders if isinstance(saved_reminders := data.get("reminders"), list) else []
         # 一个一个检查：文件可能被手动改过，坏掉的那一个丢掉，别的照常用，不至于一处写错就全没了
         self._tasks = [task for task in map(self._restore_task, tasks) if task is not None]
         self._reminders = [item for item in map(_restore_reminder, reminders) if item is not None]
@@ -458,7 +460,7 @@ class TaskStore:
         created, next_run, anchor = raw.get("created_at"), raw.get("next_run"), raw.get("anchor")
         if not _is_time(created) or not (next_run is None or _is_time(next_run)) or not (anchor is None or _is_time(anchor)):
             return None
-        runs = raw.get("runs") if isinstance(raw.get("runs"), list) else []
+        runs = saved_runs if isinstance(saved_runs := raw.get("runs"), list) else []
         return {
             "id": raw["id"],
             **checked,
@@ -488,7 +490,7 @@ class TaskStore:
                     run["error"] = t(run["error_key"], **run["error_values"])
         return tasks, reminders
 
-    def get(self, task_id: str) -> dict | None:
+    def get(self, task_id: object) -> dict | None:  # 什么都可以给（模型给的参数可能缺了、类型不对），找不到就是 None
         with self._lock:
             self._refresh()
             task = self._find(task_id)
@@ -692,7 +694,7 @@ def _brief(text: str, limit: int = 120) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _is_time(value: object) -> bool:
+def _is_time(value: object) -> TypeGuard[float]:  # 返回真时 mypy 就知道它是数，可以交给 float()
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 

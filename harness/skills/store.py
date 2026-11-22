@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import builtins
 import codecs
 import json
 import os
@@ -111,7 +112,7 @@ class SkillStore:
     def list(self) -> list[Skill]:
         """文件夹里的全部 Skill，按名字排好。以 . 开头的不列（装到一半的临时文件夹、访达生成的 .DS_Store）。"""
         state = self._state()
-        found = []
+        found: list[Skill] = []
         try:
             with os.scandir(self.root) as listing:
                 entries = sorted(listing, key=lambda entry: entry.name)
@@ -142,7 +143,8 @@ class SkillStore:
         self._fill(skill)
         return skill
 
-    def catalog(self) -> list[tuple[str, str]]:
+    # 这个类里有一个叫 list 的方法：在它后面写 list[...]，类型检查会以为说的是这个方法，所以写成 builtins.list
+    def catalog(self) -> builtins.list[tuple[str, str]]:
         """要告诉模型的那些：启用着、合格、没有标成"只在用户点名时用"的。[(名字, 做什么和什么时候用)]"""
         return [(skill.name, skill.meta.listing()) for skill in self.list() if skill.usable and not skill.meta.manual_only]
 

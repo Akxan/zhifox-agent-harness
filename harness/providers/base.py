@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..attachments import Attachment
-from ..i18n import t
+from ..i18n import Message, t
 from ..tools.base import ToolImage
 
 ERROR_CHARS = 300  # 厂商返回的出错说明最多显示这么多字
@@ -52,7 +52,7 @@ def brief(message: object) -> str:
     return text if len(text) <= ERROR_CHARS else text[: ERROR_CHARS - 1] + "…"
 
 
-def too_large(provider: str) -> str:
+def too_large(provider: str) -> Message:
     """请求超过了厂商规定的大小（HTTP 413）时给用户看的话。
 
     平时很难碰到，有了附件就容易了：对话历史每次都要整个重发，里面的图片和 PDF 也一样，

@@ -242,7 +242,7 @@ def compose(fields: Fields, base: str | None = None) -> str:
         front = parse(base) if base is not None else None
     except FrontmatterError:
         front = None
-    if front is None:
+    if front is None or base is None:  # base 是 None 时 front 一定也是 None；写出来，下面才知道 base 是 str
         head = ["---", *(line for line in lines.values() if line is not None), "---"]
         return "\n".join(head) + "\n\n" + body + "\n"
     old, _ = read(front, None)

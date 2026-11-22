@@ -1,4 +1,4 @@
-# 每次推送到 main、每个 pull request 都把测试和代码检查跑一遍。
+# 每次推送到 main、每个 pull request 都把测试、代码检查（ruff）和类型检查（mypy，下面的 types）跑一遍。
 # 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 README 的 Testing 一节）。
 # 页面测试（tests/ui/）用 runner 上预装的 Chrome（Ubuntu 是 google-chrome，macOS 在 /Applications 里，Windows 在 Program Files 里），无界面运行。
 # 三个系统都跑（CLAUDE.md 第 9 条）：Windows 上命令是 PowerShell、后台服务是任务计划程序、文件权限是 ACL，只在那里才有的测试在那里才跑。
@@ -60,6 +60,31 @@ jobs:
           path: ${{ runner.temp }}/ui-artifacts
           if-no-files-found: ignore
           retention-days: 7
+
+  # 类型检查（mypy，配置在 pyproject.toml 的 [tool.mypy]）。它读的是代码和类型说明，不运行任何东西，结果和在哪台机器上跑无关，
+  # 所以只开一台 ubuntu：用 --platform 换成三个系统的眼光各查一遍（系统相关的代码写成 sys.platform 的判断，mypy 才认得，
+  # Windows 才有的 msvcrt、只有 macOS / Linux 有的 killpg 都只在对应的那一遍里查）。
+  # 用 uv run --with 而不是 uvx：要在项目自己的环境里跑，才看得到 anthropic、openai 这些 SDK 自带的类型（见 pyproject.toml）
+  types:
+    name: mypy · linux, darwin, win32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"  # 和 [tool.mypy] 的 python_version 一样
+      - name: Install
+        run: uv sync --locked
+      - name: Type check
+        # 三遍都跑完再算结果：一遍出了错，另外两遍的错也一起看到
+        run: |
+          status=0
+          for platform in linux darwin win32; do
+            echo "::group::mypy --platform $platform"
+            uv run --with mypy==1.19.0 mypy --platform "$platform" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
   # 操作整台电脑：真的 Linux 后端（xdotool、ImageMagick）在一块虚拟的屏幕（Xvfb）上跑一遍（tests/test_desktop_x11.py）。
   # 别的地方这个测试会跳过；这里设了 ZHIFOX_REQUIRE_XVFB，缺了什么就算失败，不会悄悄地被跳过。只在 ubuntu 上跑：macOS 没有 Xvfb

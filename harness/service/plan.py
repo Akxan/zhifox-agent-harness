@@ -210,9 +210,10 @@ def from_arguments(arguments: object, workspace: object, environment: object) ->
     if "--port" in arguments[:-1]:
         value = arguments[arguments.index("--port") + 1]
         port = int(value) if value.isdigit() else None
+    folder: str = workspace  # 上面查过是字符串；命令行里写了 --workspace 的以它为准
     if "--workspace" in arguments[:-1]:
-        workspace = arguments[arguments.index("--workspace") + 1]
+        folder = arguments[arguments.index("--workspace") + 1]
     return Plan(
-        python=arguments[0], workspace=Path(workspace), data_dir=Path(data_dir), env_file=Path(env_file),
+        python=arguments[0], workspace=Path(folder), data_dir=Path(data_dir), env_file=Path(env_file),
         web="--web" in arguments, port=port, path=str(environment.get("PATH", "")), lang=str(environment.get("LANG", "")),
     )

@@ -38,6 +38,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import overload
 
 from .config import (
     REDACT_DATA_RUN,
@@ -242,6 +243,11 @@ def redact(text: str, known: Iterable[tuple[str, str]] = ()) -> Redaction:
     return Redaction("".join(out) if count else text, count, kinds)
 
 
+# 交进来的是什么样子，交回去的还是什么样子（字典还是字典）。写两遍是给类型检查看的：调用的人给的是一个字典时，它就知道拿回来的也是
+@overload
+def redact_data(value: dict, redactor: Callable[[str], Redaction]) -> tuple[dict, int]: ...
+@overload
+def redact_data(value: object, redactor: Callable[[str], Redaction]) -> tuple[object, int]: ...
 def redact_data(value: object, redactor: Callable[[str], Redaction]) -> tuple[object, int]:
     """一份数据（浏览器的标签页情况：标题、网址……）里的每一段文字都遮一遍。返回（遮好的数据，一共遮了几处）。
     网址里常带着令牌（?access_token=…），这份数据也会交给模型，所以和结果的文字一样要遮。"""
@@ -288,7 +294,9 @@ def _pem(text: str, kinds: Counter) -> str:
         if end >= 0:
             stop = end + len(f"-----END {begin.group(1)}-----")
         else:
-            stop = _PEM_BODY.match(text, begin.end()).end()
+            body = _PEM_BODY.match(text, begin.end())
+            assert body is not None  # 给类型检查看的：_PEM_BODY 整个是 (...)*，一个字都不匹配也算对得上，不会是 None
+            stop = body.end()
         out.append(text[last : begin.start()])
         out.append(mark("私钥"))
         kinds["私钥"] += 1
@@ -306,7 +314,11 @@ def _plain(text: str, known: list[tuple[str, str]], kinds: Counter) -> str:
             kinds[label] += text.count(value)
             text = text.replace(value, mark(label))
     for label, shape in KEY_SHAPES:
-        text = shape.sub(lambda match, label=label: _count(kinds, label), text)
+        # label=label 把这一轮的 label 定下来。写成函数而不是带默认值的 lambda：那种 lambda 的类型 mypy 推不出来
+        def counted(match: re.Match[str], label: str = label) -> str:
+            return _count(kinds, label)
+
+        text = shape.sub(counted, text)
     text = _ASSIGNED.sub(lambda match: _guess(match, kinds), text)
     text = _FLAG.sub(lambda match: _guess(match, kinds), text)
     text = _BEARER.sub(lambda match: match.group(1) + _count(kinds, "疑似令牌") if secretish(match.group(2)) else match.group(0), text)

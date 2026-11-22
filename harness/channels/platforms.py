@@ -33,7 +33,8 @@ def _token(env: str, placeholder: str) -> dict:
     return {"id": "token", "label": k("机器人的 token"), "secret": True, "env": env, "placeholder": placeholder}
 
 
-PLATFORMS = [
+# 一张给页面和命令行照着画的表，每一项的字段不全一样（准备好的平台才有 fields、step、pair），所以就是普通的字典
+PLATFORMS: list[dict] = [
     {
         "id": "telegram",
         "label": "Telegram",
@@ -163,16 +164,17 @@ def sdk_ready(platform: str) -> bool:
 
 def missing_sdk(platform: str) -> str:
     """SDK 没装时给人看的话（装了的话是空字符串）。网页、命令行、通道自己的状态都用这一句。"""
-    if sdk_ready(platform):
+    spec = sdk(platform)
+    if spec is None or sdk_ready(platform):  # 不要 SDK 的平台 sdk_ready 本来就是 True：先判断 None，后面用 spec 时 mypy 才知道它不是 None
         return ""
     if not FROM_SOURCE:
-        return t("{platform} 要用官方的 SDK（{package}），还没有装。运行 {command}，再重新启动智狐。", platform=label(platform), package=sdk(platform)["package"], command=install_command(platform))
+        return t("{platform} 要用官方的 SDK（{package}），还没有装。运行 {command}，再重新启动智狐。", platform=label(platform), package=spec["package"], command=install_command(platform))
     return t(
         "{platform} 要用官方的 SDK（{package}），还没有装。在智狐的文件夹里运行 {command}，再重新启动智狐。以后运行 uv sync 时也带上 --extra {extra}，不然它会被卸掉。",
         platform=label(platform),
-        package=sdk(platform)["package"],
+        package=spec["package"],
         command=install_command(platform),
-        extra=sdk(platform)["extra"],
+        extra=spec["extra"],
     )
 
 

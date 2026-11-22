@@ -137,7 +137,7 @@ def preview(found: list[Source], config: McpConfig) -> list[dict]:
 
 def _candidate(name: str, value: Found, existing: dict, taken: set[str]) -> dict:
     """一个可以导入的服务器在清单里的样子。target 是导入后用的名字（重名的话自动加上 -2、-3）。"""
-    item = {"name": name, "target": "", "transport": "", "summary": None, "problem": "", "duplicate": False, "notes": [described(note) for note in value.notes]}
+    item: dict[str, object] = {"name": name, "target": "", "transport": "", "summary": None, "problem": "", "duplicate": False, "notes": [described(note) for note in value.notes]}
     raw = value.entry
     try:
         refused = check(name, value)
@@ -153,8 +153,9 @@ def _candidate(name: str, value: Found, existing: dict, taken: set[str]) -> dict
         return item
     if any(same_server(entry, other) for other in existing.values() if other is not None):
         item["duplicate"] = True  # 和已经有的某一个连的是同一个服务器：默认不勾
-    item["target"] = unique_name(clean_name(name), taken)
-    taken.add(item["target"])
+    target = unique_name(clean_name(name), taken)
+    item["target"] = target
+    taken.add(target)
     return item
 
 
@@ -174,12 +175,13 @@ def apply(config: McpConfig, servers: dict[str, Found | object], names: list[str
 
     servers 的值是 Found（从别的工具读出来、已经换好写法的）或者原样的配置（粘贴的）。
     """
-    added, skipped = [], []
+    added: list[str] = []
+    skipped: list[str] = []  # 有 t() 写的，也有普通的字符串
     for name in names:
         if name not in servers:
             skipped.append(t("没有找到“{name}”。", name=name))
             continue
-        value = servers[name] if isinstance(servers[name], Found) else Found(servers[name])
+        value = given if isinstance(given := servers[name], Found) else Found(given)
         taken = set(config.servers())
         target = unique_name(clean_name(name), taken)
         try:
@@ -240,7 +242,7 @@ def parse_pasted(text: object) -> dict[str, object]:
     else:
         if transport_of(data):
             return {guess_name(data): data}
-    servers = {str(name): entry for name, entry in data.items() if isinstance(entry, dict)}
+    servers: dict[str, object] = {str(name): entry for name, entry in data.items() if isinstance(entry, dict)}
     if not servers:
         raise ConfigError(t("没有在粘贴的内容里找到 MCP 服务器的配置（应该有 command 或者 url）。"))
     return servers

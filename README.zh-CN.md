@@ -3066,7 +3066,16 @@ def make_dice_tool() -> Tool:
 ```bash
 uv run pytest          # 并行跑：有几个 CPU 核心就开几个进程（pytest-xdist），全部跑完一分钟左右
 uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
+uvx ruff@0.17.6 check harness tests                # 代码检查
+uv run --with mypy==1.19.0 mypy                    # 类型检查（配置在 pyproject.toml）
+uv run --with mypy==1.19.0 mypy --platform win32   # 同上，换成 Windows 的眼光查（还有 linux、darwin）
 ```
+
+这几条在 zsh、bash 和 PowerShell 里写法一样。两个检查工具都不是项目的依赖：`uvx` 和 `uv run --with` 临时拿一个钉死的版本来用一次。
+mypy 要在项目自己的环境里跑（所以是 `uv run --with`，不是 `uvx`），才看得到 Anthropic、OpenAI 的 SDK 自带的类型。
+各个系统不一样的代码用 `sys.platform` 判断，mypy 认得这种写法，所以在 Mac 上加 `--platform win32` 就能查只在 Windows 上走的分支，
+反过来也一样；CI 里三个系统都查。新写的代码要能通过；`# type: ignore` 必须写明是哪一种错，并在同一行写明为什么。
+`harness/webui/` 和 `harness/app.py` 暂时不查（pyproject.toml 里的 `ignore_errors`）。
 
 测试不需要 API 密钥，也不花钱。默认是并行跑的（[pyproject.toml](pyproject.toml) 里的 `addopts`）：每个进程各有自己的
 假服务器和临时目录，页面测试在每个进程里各开自己的演示服务器和 Chrome，彼此不共用任何东西。[tests/fake_api.py](tests/fake_api.py) 和 [tests/fake_openai.py](tests/fake_openai.py)
@@ -3235,7 +3244,8 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 `--script 名字` 让没写暗号的对话也按那段剧本回答；README 里的截图用的是 `--script readme`，问的是中文就答中文，否则答英文。
 
 每次推送到 GitHub、每个 pull request，都会在 Ubuntu、macOS 和 Windows 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
-（[.github/workflows/tests.yml](.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome；
+（[.github/workflows/tests.yml](.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome，
+类型检查（mypy）则按三个系统各查一遍；
 在 Ubuntu 上还会装好 Xvfb、`xdotool` 和 ImageMagick，让操作电脑的集成测试对着虚拟屏幕跑一遍，还有 bubblewrap，
 让沙箱在 Linux 上真的后端也在那里测一遍。结果就是页面顶上的 Tests 徽章。
 

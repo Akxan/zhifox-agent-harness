@@ -56,8 +56,10 @@ class Installer:
     def install(self, stage_id: object, picks: object) -> list[dict]:
         """装你勾选的那几个。picks 是 [{"key", "name", "replace"}]：name 可以改（同名时改个名字），
         replace 为真表示替换掉已有的同名 Skill。返回每一个的结果 [{"key", "name", "ok", "error"}]。"""
+        if not isinstance(stage_id, str):  # 页面给的编号不是一段文字：和找不到一样，说它过期了（先判断，下面才知道它是 str）
+            raise SkillError(t("这份预览已经过期了，请重新获取一次。"))
         with self._lock:
-            stage = self._stages.get(stage_id) if isinstance(stage_id, str) else None
+            stage = self._stages.get(stage_id)
             if stage is not None and time.monotonic() - stage.created > STAGE_SECONDS:
                 del self._stages[stage_id]  # 放得太久了：网上的那一份可能早就变了，重新获取一次再装
                 stage = None

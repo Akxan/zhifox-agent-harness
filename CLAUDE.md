@@ -92,7 +92,7 @@
      都各有一个小模块按系统分开写，别处只调用它。新加的功能要用到这类东西时，复用它们，不要自己判断 `sys.platform`。
      这些模块是：`filelock`（文件锁：fcntl / msvcrt）、`pathnames`（Windows 的路径花招、比较用的 `key`、目录联接）、`winacl`（icacls 设 ACL）、
      `winjob`（作业对象：停下时连孙进程一起结束）、`console`（管道输出用 UTF-8）、`exits`（SIGTERM 之外还有 SIGBREAK）、`machine`（mac / windows / linux）、
-     `tools/shell`（`command_line`、`kill_tree`、`system32`）、`browser/chrome`（`_launch_windows`）、`service/windows` 加 `service/supervise`、
+     `tools/shell`（`command_line`、`kill_tree`、`system32`、`NO_WINDOW`）、`browser/chrome`（`_launch_windows`）、`service/windows` 加 `service/supervise`、
      `webui/reveal`（在文件管理器里显示）；页面是 `platform.js`：`forKeys` / `commandHeld` 看浏览器所在的系统（快捷键），`byServer` / `showLabel` 看助手程序所在的电脑
      （"访达""文件资源管理器""文件管理器"）。页面里不要再写"`ON_MAC` 就写访达"这种判断。
    - **Windows 上的几条规矩**（2026-11-22 合并 Windows 支持时定下的）：
@@ -132,6 +132,7 @@ uv sync                          # 安装依赖
 uv run pytest -q                 # 跑全部测试（默认并行，一分钟左右），不需要 API key，不花钱
 uv run pytest -q -n 0            # 一个一个跑（调试、看 print 的输出）
 uvx ruff check harness tests     # 代码检查（可以加 --fix，不要加 --unsafe-fixes）
+uv run --with mypy==1.19.0 mypy  # 类型检查（配置在 pyproject.toml）；加 --platform win32 / linux 换成那个系统的眼光查，CI 三个都查
 uv run harness                   # 终端界面
 uv run harness --web             # 网页界面
 ```
@@ -453,6 +454,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   价格只在 `pricing.transcribe_cost` 里算（按分钟估，有的模型其实按 token 计费）。现在只有 Telegram 收语音，别的平台回答"暂时只有 Telegram 支持"。
 - **本机的 Python 是 3.11，CI 在三个系统上各跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
   拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
+- **新代码要过类型检查（mypy）**，三个系统都要过（`--platform win32`、`linux`、`darwin`，CI 的 types 一项）。版本钉在 `mypy==1.19.0`，
+  不进项目依赖；用 `uv run --with` 而不是 `uvx`：要在项目自己的环境里跑才看得到 SDK 自带的类型。规矩：
+  - 先改成正确的类型（判断 None、窄化、标注、`TYPE_CHECKING` 下的导入、Protocol），不用 `Any`、`cast` 糊过去。
+  - 真是 mypy 看不懂的才写 `# type: ignore[错误码]`，同一行写明为什么（配置里开着 ignore-without-code 和 warn_unused_ignores，
+    没写错误码的、用不着了的都会报错）；只在某个系统上才需要的写成 `[错误码, unused-ignore]`。
+  - 系统相关的代码用 `sys.platform == "win32"` 判断，不用 `os.name`：mypy 只认前者。测试里会换掉的 `WINDOWS` 常量照旧留着，
+    管写法、路径、说法；真去调用某个系统才有的东西（msvcrt、fcntl、killpg、posix_spawn、CREATE_NO_WINDOW……）的地方另外写成
+    sys.platform 的判断（两者在真机上是一回事，所以行为不变）。creationflags 用 `tools/shell.NO_WINDOW`。
+  - t() 给的是 Message（str 的子类）：和普通字符串放在一起时把容器标成 `list[str]`，不要 `str(t(...))`（会丢掉原文，换语言时没法重译）。
+  - `harness/webui/` 和 `harness/app.py` 暂时不查（pyproject 里 `ignore_errors`）：网页里同时进行几段对话的改动合并以后收紧，把那一段删掉。
 - **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
   （`install.from_source`：包的上一层有写着 harness-assistant 的 pyproject.toml，而且不叫 site-packages），别处不要再判断。
   从仓库里运行时 `data/` 和 `.env` 在仓库里，一字不变；装成工具时都在 `install.user_dir`（macOS 的 Application Support、

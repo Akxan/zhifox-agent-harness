@@ -131,6 +131,7 @@ def _parse_one(item: object) -> Attachment:
         raise AttachmentError(t("附件的格式不正确。"))
     data = item.get("data")
     content = _decode(name, data)
+    assert isinstance(data, str)  # 给类型检查看的：不是字符串的，_decode 已经拒绝了
 
     if kind == "pdf":
         if len(content) > MAX_PDF_BYTES:

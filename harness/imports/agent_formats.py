@@ -275,7 +275,7 @@ def _codex(text: str, stem: str, tool: str) -> Converted:
         return Converted(text, problem=t("没有 developer_instructions：Codex 的 Agent 把设定写在这一项里。"))
     name = _name("codex", data, stem, changes)
     model = _model(data.get("model"), changes)
-    features = data.get("features") if isinstance(data.get("features"), dict) else {}
+    features = given if isinstance(given := data.get("features"), dict) else {}
     tools = None
     if features.get("shell_tool") is False:
         tools = [name for name in _EVERYDAY if name != "Bash"]

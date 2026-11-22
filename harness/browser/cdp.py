@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -252,12 +253,12 @@ class Connection:
                 entry = self._pending.get(request_id)
             if entry is None:
                 return  # 等它的人已经超时走了
-            method, pending = entry
+            asked, pending = entry  # 当初问的是哪个方法（不叫 method：下面的 method 是事件的名字，可能根本不是字符串）
             error = message.get("error")
             if isinstance(error, dict):
                 code = error.get("code")
                 code = code if isinstance(code, int) and not isinstance(code, bool) else 0
-                pending.settle(error=CDPError(method, str(error.get("message", "")), code))
+                pending.settle(error=CDPError(asked, str(error.get("message", "")), code))
             else:
                 result = message.get("result")
                 pending.settle(result=result if isinstance(result, dict) else {})
@@ -314,7 +315,7 @@ class Expectation:
 def _cancel_read(fd: int) -> None:
     """Windows 上，读线程正卡在这根管道的 ReadFile 里时，直接关掉它会一直等下去（关闭要等那次读完）。
     先用 CancelIoEx 叫停那次读（Chromium 自己在同一个地方也是这么做的），读线程收到错误就退出了。macOS、Linux 上不用。"""
-    if os.name != "nt":
+    if sys.platform != "win32":  # 和 os.name != "nt" 一样；写成 sys.platform，mypy 才知道下面 Windows 才有的名字只在 Windows 上用
         return
     import ctypes
     import msvcrt

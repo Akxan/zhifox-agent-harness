@@ -27,6 +27,8 @@ from oscmd import mark_then_sleep, mark_then_wait_for
 from sample_files import JPEG_BYTES
 from test_webui import Browser
 
+import harness.channels.router as router_module
+import harness.channels.session as session_module
 import harness.webui.reveal as reveal_module
 from harness import log
 from harness.app import build_app
@@ -1096,6 +1098,47 @@ def test_the_web_and_the_chat_race_for_the_same_confirmation(bot):
     assert visible_end(s.edit_of(second)) == ("已在网页上允许" if web_won else "已允许")
     s.wait_reply(start, "完")
     assert len(s.api.requests) == 3  # 每条命令只执行了一次
+    s.idle()
+
+
+def test_a_word_answer_after_the_web_already_answered_in_between_is_told_so(bot, monkeypatch):
+    """聊天里回"允许"，router 刚看完"有一个可以答复的确认请求"，网页上就答掉了它（session.waiting 变成 None）。
+    以前 router 接着又读了一遍 session.waiting 去拿编号，读到 None 就出错，这条消息什么回答都没有（mypy 找出来的）；
+    现在用的是第一次拿到的那一个，告诉你已经处理过了。"""
+    s = bot(run("toolu_a", "echo a"), reply(text("完")))
+    start = s.say("做一件事")
+    ask = s.asked(start)
+    confirm_id = int(s.tg.buttons(ask)[0]["callback_data"].removeprefix("ok:"))
+    original = router_module._answerable
+
+    def web_answers_in_between(found_session):
+        found = original(found_session)
+        assert found_session.answer(confirm_id, True, "web")  # 网页上正好在这时点了允许（和 /api/channel/confirm 走的是同一个方法）
+        until(lambda: found_session.waiting is None, what="确认请求结束")
+        return found
+
+    monkeypatch.setattr(router_module, "_answerable", web_answers_in_between)
+    s.say("允许")
+    s.wait_reply(start, "这个确认请求已经处理过了")
+    assert visible_end(s.edit_of(ask)) == "已在网页上允许"
+    s.wait_reply(start, "完")
+    s.idle()
+
+
+def test_a_turn_still_starts_when_its_model_endpoint_disappears_right_after_the_checks(bot, monkeypatch):
+    """开始一轮之前查过这一家还在（_prepare），紧接着它就找不到了（自定义接口正好在网页上被删掉）。
+    后面算名字时已经想到了"找不到"（用它的编号），可写日志的那一行又用了 provider.label，读到 None 就出错，
+    这一轮没开始、也没有回答（mypy 找出来的）。现在日志也用算好的名字。"""
+    s = bot(reply(text("好了")))
+    original = session_module.Session._prepare
+
+    def prepare_then_gone(self):
+        problem = original(self)
+        monkeypatch.setattr(session_module, "find", lambda provider_id: None)  # 查完以后，这一家马上就找不到了
+        return problem
+
+    monkeypatch.setattr(session_module.Session, "_prepare", prepare_then_gone)
+    s.wait_reply(s.say("你好"), "好了")
     s.idle()
 
 

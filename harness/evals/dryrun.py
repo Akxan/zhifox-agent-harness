@@ -52,8 +52,8 @@ def _fake(name: str) -> ModuleType:
         if not path.is_file():
             raise DryRunUnavailable(t("演习要用仓库里的 {path}，这里找不到。请在智狐的仓库里运行（git clone 下来的那个文件夹）。", path=path))
         spec = importlib.util.spec_from_file_location(f"_zhifox_eval_{name}", path)
+        assert spec is not None and spec.loader is not None  # 是 .py 文件、上面查过它在：总认得出该怎么读
         module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
         spec.loader.exec_module(module)
         _loaded[name] = module
         return module
@@ -116,6 +116,7 @@ class DryDriver:
 
         replies = script(task, self.null)
         servers: list[Any] = []
+        client: anthropic.Anthropic | openai.OpenAI
         if (find(provider) or PROVIDERS["anthropic"]).kind == "anthropic":  # 自定义接口也是 OpenAI 格式（见 harness/endpoints/）
             server = _fake("fake_api").FakeAPI(_anthropic_replies(replies)).start()
             client = anthropic.Anthropic(api_key="dry-run", base_url=server.base_url, max_retries=0)

@@ -206,7 +206,7 @@ def check(config: Config, credentials: dict) -> dict:
     if len(secret) < 8:
         raise ChannelError(t("App Secret 太短了，看看是不是没复制全。"))
     data = OpenAPI(app_id, secret, config.feishu_api).call("GET", "/open-apis/bot/v3/info")
-    bot = data.get("bot") if isinstance(data.get("bot"), dict) else {}
+    bot = me if isinstance(me := data.get("bot"), dict) else {}
     if not bot.get("open_id"):
         raise ChannelError(t("这个飞书应用还没有机器人：在“添加应用能力”里加上机器人，再发布一个版本。"))
     name = str(bot.get("app_name") or app_id)
@@ -383,7 +383,7 @@ class FeishuChannel(PushChannel):
 
     def _on_event(self, kind: str, data: dict) -> dict | None:
         deliver = self._deliver
-        event = data.get("event") if isinstance(data.get("event"), dict) else {}
+        event = found if isinstance(found := data.get("event"), dict) else {}
         if deliver is None or self._stopping.is_set():
             return None
         try:
@@ -407,9 +407,9 @@ class FeishuChannel(PushChannel):
             deliver(inbound)
 
     def _message(self, event: dict) -> Inbound | None:
-        sender = event.get("sender") if isinstance(event.get("sender"), dict) else {}
-        message = event.get("message") if isinstance(event.get("message"), dict) else {}
-        ids = sender.get("sender_id") if isinstance(sender.get("sender_id"), dict) else {}
+        sender = who if isinstance(who := event.get("sender"), dict) else {}
+        message = body if isinstance(body := event.get("message"), dict) else {}
+        ids = given if isinstance(given := sender.get("sender_id"), dict) else {}
         user, message_id = str(ids.get("open_id") or ""), str(message.get("message_id") or "")
         if sender.get("sender_type") != "user" or not user or not self._first_time(message_id):
             return None
@@ -447,10 +447,10 @@ class FeishuChannel(PushChannel):
         )
 
     def _press(self, event: dict, said: list[tuple[str, bool]]) -> Press | None:
-        operator = event.get("operator") if isinstance(event.get("operator"), dict) else {}
-        action = event.get("action") if isinstance(event.get("action"), dict) else {}
-        context = event.get("context") if isinstance(event.get("context"), dict) else {}
-        value = action.get("value") if isinstance(action.get("value"), dict) else {}
+        operator = who if isinstance(who := event.get("operator"), dict) else {}
+        action = clicked if isinstance(clicked := event.get("action"), dict) else {}
+        context = where if isinstance(where := event.get("context"), dict) else {}
+        value = given if isinstance(given := action.get("value"), dict) else {}
         user = str(operator.get("open_id") or "")
         return Press(
             platform=self.platform,

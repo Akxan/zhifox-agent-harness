@@ -127,7 +127,9 @@ class CommandList:
             self._entries, self._words = [], []
             return
         raw = saved.get("commands") if isinstance(saved, dict) else None
-        entries, words, skipped = [], [], []
+        entries: list[str] = []
+        words: list[list[str]] = []
+        skipped: list[str] = []
         for item in raw if isinstance(raw, list) else []:
             try:
                 found = check_entry(item)

@@ -51,7 +51,7 @@ def classify(command: object, places: Places, listed: Iterable[Sequence[str]] = 
     if WINDOWS:
         return Verdict(False, reason="Windows 上的命令是 PowerShell，这里看不准它的写法，每条都问（见开头的说明）")
     try:
-        found = stages(command)  # type: ignore[arg-type]
+        found = stages(command)
         if len(found) == 1:
             words = found[0]
             for entry in listed:

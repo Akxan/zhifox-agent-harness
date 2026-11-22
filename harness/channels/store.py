@@ -139,7 +139,7 @@ def _normalize(raw: Any) -> dict:
             entry["owner"] = {"id": _text(owner.get("id")), "name": _text(owner.get("name")), "paired_at": _number(owner.get("paired_at"))}
         code = item.get("pairing")
         if isinstance(code, dict) and pairing.valid(code.get("secret")):
-            hinted = code.get("hinted") if isinstance(code.get("hinted"), list) else []
+            hinted = shown if isinstance(shown := code.get("hinted"), list) else []
             entry["pairing"] = {
                 "secret": code["secret"],
                 "expires": _number(code.get("expires")),

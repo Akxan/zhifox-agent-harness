@@ -92,7 +92,7 @@ def turns(events: Sequence[Any]) -> list[Turn]:
     found = []
     for position, event in enumerate(events):
         if isinstance(event, dict) and event.get("type") == "user":
-            found.append(Turn(position, mark_of(event), event.get("text") if isinstance(event.get("text"), str) else ""))
+            found.append(Turn(position, mark_of(event), text if isinstance(text := event.get("text"), str) else ""))
     return found
 
 

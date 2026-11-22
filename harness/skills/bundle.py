@@ -48,7 +48,7 @@ def clean_path(name: object) -> str:
     # 绝对路径、../、反斜杠、控制字符，以及在 Windows 上解开会变成别的东西的名字：a.md:x（数据流）、SKILL.md.（尾巴上的点
     # 会被去掉，和 SKILL.md 撞名）、CON、nul.txt（设备）、PROGRA~1（短名字）、* ? < > " |。不管现在是什么系统都不收：
     # 同一个压缩包、同一个 Skill 文件夹，换到 Windows 上也得是安全的（见 pathnames.archive_trick，从备份恢复也用它）
-    if archive_trick(name, MAX_DEPTH + 1):
+    if not isinstance(name, str) or archive_trick(name, MAX_DEPTH + 1):  # 不是字符串的 archive_trick 也不收；先写出来，下面才知道是 str
         raise SkillError(t("里面有不安全的文件路径：{path}。为了安全，什么都没有安装。", path=str(name)[:200]))
     return name
 
@@ -133,7 +133,7 @@ def from_upload(items: object) -> Files:
         path = item.get("path")
         if isinstance(path, str) and _JUNK.search(path):
             continue
-        clean_path(path)
+        path = clean_path(path)  # 原样交回同一个字符串，只是检查过了
         try:
             content = base64.b64decode(item["data"], validate=True)
         except (binascii.Error, ValueError):
@@ -233,5 +233,11 @@ def candidates(files: Files) -> list[Candidate]:
         else:
             name, original, meta, problems = examine(text, folder)
         listing = sorted(((path, len(value[0])) for path, value in own.items()), key=lambda item: (item[0] != SKILL_FILE, item[0]))
-        found.append(Candidate(key=root, name=name, original=original, meta=meta, problems=problems, listing=listing, load=lambda own=own: own))
+
+        # 交回这一个 Skill 自己的文件。默认值在这一圈就取好了（和原来的 lambda own=own: own 一样），
+        # 写成带类型的 def，是因为类型检查推不出带默认值的 lambda
+        def load(own: Files = own) -> Files:
+            return own
+
+        found.append(Candidate(key=root, name=name, original=original, meta=meta, problems=problems, listing=listing, load=load))
     return found

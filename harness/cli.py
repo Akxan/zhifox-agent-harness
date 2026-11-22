@@ -162,7 +162,8 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
     found = rewind.effects(ui.turn_events)
     if found:
         lines = "\n".join(f"    {line}" for line in rewind.shown_effects(found))
-        warning = t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)
+        # 终端里只打印一次、不用重译，所以后面接上一句时直接拼成普通字符串
+        warning: str = t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)
         for kind in rewind.operated(ui.turn_events):  # 操作过整台电脑、在浏览器里点过输入过：再单独说一句
             warning = f"{warning}\n{t(OPERATED[kind])}"
         if not ui.agree(warning):

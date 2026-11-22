@@ -50,7 +50,6 @@ from ..agent import UI, Agent
 from ..config import AGENT_MAX_DEPTH, AGENT_MAX_RESULT_CHARS, AGENT_MAX_STEPS, Config
 from ..display import describe_call
 from ..i18n import Message, fill
-from ..ledger import Ledger
 from ..mcp import McpManager
 from ..mcp.bridge import PREFIX as MCP_PREFIX
 from ..mcp.bridge import McpTool
@@ -80,6 +79,18 @@ class ParentUI(UI, Protocol):
     def subagent(self, step: str, **data: Any) -> None: ...  # 子 Agent 的一步进展：start、activity、tool_call、tool_result、auto、note、done
     def check_stop(self) -> None: ...  # 用户点了"停止"的话抛出 KeyboardInterrupt
     def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]: ...  # 点"停止"时也调用它；返回的函数用来取消登记
+
+
+def _caller_ui(parent: Agent) -> ParentUI:
+    """叫子 Agent 的那一方（parent）的界面。Agent 身上只写着它是一个 UI（agent.py 的循环只用得到那几样）；
+    能叫子 Agent 的界面都还有上面这三样，只是类型检查从 Agent 身上看不出来。"""
+    return parent.ui  # type: ignore[return-value]  # 见上面：终端、网页、RunUI、SubUI、评测的记录员都有这三样
+
+
+class Bookkeeper(Protocol):
+    """Delegator 记账只用这一个方法：Ledger 有它，评测的替身（evals/runner.py 的 _Spend）也有，同名同参数。"""
+
+    def recorder(self, prices: Callable[[], dict[str, dict]], source: str = ...) -> Callable[[str, str, Usage, datetime], float | None]: ...
 
 
 class SubUI:
@@ -166,7 +177,7 @@ class Delegator:
         store: AgentStore,
         skills: SkillStore,
         mcp: McpManager,
-        ledger: Ledger,
+        ledger: Bookkeeper,
         prices: Callable[[], dict[str, dict]],
         client_factory: ClientFactory,
     ):
@@ -205,7 +216,8 @@ class Delegator:
         prompt = subagent_prompt(self.config, agent, web)
         backend = make_backend(provider, model, sub_config, ToolRegistry([]), prompt, self.client_factory(provider))
         run_id = secrets.token_hex(4)
-        ui = SubUI(parent.ui, run_id, agent.name)
+        caller = _caller_ui(parent)
+        ui = SubUI(caller, run_id, agent.name)
         sub = Agent(backend=backend, config=sub_config, tools=ToolRegistry([]), permissions=parent.permissions, ui=ui, clock=parent.clock)
         # 运行记录：和叫它的那一方读同一个表（timer），它的每一段才画得在同一条时间轴上（做完挂到那一方的这次调用下面，见 finally）
         sub.trace = Tracer(timer=parent.trace.timer, wall=parent.trace.wall)
@@ -229,12 +241,12 @@ class Delegator:
             sub.hooks.stop()
             self.mcp.cancel_running(owner)
 
-        within = parent.ui.run if isinstance(parent.ui, SubUI) else ""
-        parent.ui.subagent(
+        within = caller.run if isinstance(caller, SubUI) else ""
+        caller.subagent(
             "start", run=run_id, agent=agent.name, color=agent.spec.color, model=model, provider=provider_id, task=task,
             depth=depth + 1, within=within,
         )
-        forget = parent.ui.on_stop(stop)
+        forget = caller.on_stop(stop)
         try:
             sub.run_turn(task)
         except KeyboardInterrupt:
@@ -314,7 +326,7 @@ class Delegator:
     def _done(self, parent: Agent, sub: Agent, ui: SubUI, status: str, answer: str = "", error: str | Message = "") -> None:
         # sources：回答引用的网页（[{"n", "url", "title", "site"}]，见 citations.py），卡片在回答下面列出来。没有就不带
         extra = {"sources": ui.sources.sources} if answer and ui.sources.sources else {}
-        parent.ui.subagent(
+        _caller_ui(parent).subagent(
             "done", run=ui.run, agent=ui.name, status=status, answer=answer, error=error,
             cost=self._cost(sub), steps=sub.usage.requests, calls=sum(ui.calls.values()), **extra,
         )

@@ -43,6 +43,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import TypeVar
 
 from .config import LEDGER_DETAIL_DAYS
 from .pricing import OFFPEAK, estimate, usage_key
@@ -99,7 +100,7 @@ def _parse(line: str) -> tuple[Key, Tally, bool] | None:
         return None
     if cost is not None and (isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0):
         return None
-    tally = Tally(*counts, cost=float(cost or 0))
+    tally = Tally(**dict(zip(COUNTS, counts)), cost=float(cost or 0))  # 按名字给：mypy 数不清 *counts 有几个，以为可能占到 cost 的位置
     return (day, provider, model, source, cost is not None), tally, "at" in row
 
 
@@ -292,18 +293,19 @@ class Ledger:
             error, skipped = self.error, self.skipped
         start = (today - timedelta(days=chart_days - 1)).isoformat()
         end, month = today.isoformat(), f"{today:%Y-%m}"
-        chart = {(today - timedelta(days=back)).isoformat(): [Tally(), 0] for back in range(chart_days - 1, -1, -1)}
+        chart = {(today - timedelta(days=back)).isoformat(): Tally() for back in range(chart_days - 1, -1, -1)}
+        unpriced = dict.fromkeys(chart, 0)  # 每天没有价格的调用次数（和 chart 同样几天、同样的顺序）
         months: dict[str, Tally] = {}
         for (day, _, _, _, priced), tally in items:
             if day in chart:
-                chart[day][0].add(tally)
+                chart[day].add(tally)
                 if not priced:
-                    chart[day][1] += tally.requests
+                    unpriced[day] += tally.requests
             months.setdefault(day[:7], Tally()).add(tally)
         return {
             "today": end,
             "first": min((key[0] for key, _ in items), default=None),
-            "days": [{"day": day, **tally.as_dict(), "unpriced": unpriced} for day, (tally, unpriced) in chart.items()],
+            "days": [{"day": day, **tally.as_dict(), "unpriced": unpriced[day]} for day, tally in chart.items()],
             "months": [{"month": name, **months[name].as_dict()} for name in sorted(months, reverse=True)],
             "periods": {
                 "month": _breakdown(item for item in items if item[0][0][:7] == month),
@@ -313,6 +315,9 @@ class Ledger:
             "error": error,
             "skipped": skipped,
         }
+
+
+_Group = TypeVar("_Group")  # _breakdown 里分组的键：（提供方, 模型）或者来源
 
 
 def _breakdown(items: Iterable[tuple[Key, Tally]]) -> dict:
@@ -326,7 +331,7 @@ def _breakdown(items: Iterable[tuple[Key, Tally]]) -> dict:
         (models if priced else unpriced).setdefault((provider, model), Tally()).add(tally)
         sources.setdefault(source, Tally()).add(tally)
 
-    def ranked(groups: dict, name: Callable[[object], dict]) -> list[dict]:
+    def ranked(groups: dict[_Group, Tally], name: Callable[[_Group], dict]) -> list[dict]:
         order = sorted(groups.items(), key=lambda pair: (-pair[1].cost, -pair[1].requests, str(pair[0])))
         return [{**name(group), **tally.as_dict()} for group, tally in order]
 

@@ -51,7 +51,7 @@ from . import results
 from .compare import compare_lines
 from .dryrun import DryDriver, DryRunUnavailable
 from .estimate import Estimate, estimate_run
-from .runner import CaseResult, Options, RealDriver, Target, run_all
+from .runner import CaseResult, Driver, Options, RealDriver, Target, run_all
 from .spec import Task, TaskFileError, load_tasks, select
 from .text import money, percent, seconds, table
 
@@ -145,7 +145,7 @@ def _load(args: argparse.Namespace) -> list[Task]:
 
 def _tasks(args: argparse.Namespace, out: IO[str]) -> int:
     tasks = _load(args)
-    rows = [[t("编号"), t("分组标签"), t("检查"), t("评测任务")]]
+    rows: list[list[str]] = [[t("编号"), t("分组标签"), t("检查"), t("评测任务")]]
     for task in tasks:
         extra = t("，{n} 项要模型评分", n=task.judged) if task.judged else ""
         needs = f" [{', '.join(task.requires)}]" if task.requires else ""
@@ -227,13 +227,14 @@ def _run(args: argparse.Namespace, config: Config, root: Path, out: IO[str], ask
     use_custom(endpoints)
     saved = _settings_of(config)
     target = _target(args, saved, config)
-    prices = {**(saved.get("prices") if isinstance(saved.get("prices"), dict) else {}), **endpoints.prices()}
+    prices = {**(saved_prices if isinstance(saved_prices := saved.get("prices"), dict) else {}), **endpoints.prices()}
     template, prompt_label, prompt_text = _prompt(args, config)
     mode = "" if args.real else "null" if args.null else "dry"
     judge_model = args.judge_model if args.judge else None
     if judge_model and resolve_model(judge_model)[0].partition("/")[0] != "anthropic":
         raise TaskFileError(t("评分员只能用 Claude 的模型：{model}", model=judge_model))
 
+    driver: Driver
     if mode:
         driver = DryDriver(null=mode == "null")
         ledger = None
@@ -323,7 +324,7 @@ def _confirm(found: Estimate, args: argparse.Namespace, out: IO[str], ask: Calla
 def estimate_lines(found: Estimate) -> list[str]:
     """估算给人看的样子：算法、几个数，以及"这会花真钱"。"""
     n = len(found.lines)
-    lines = [t("预计花费：{model}，{n} 个任务 × {repeat} 遍", model=found.target.label, n=n, repeat=found.repeat)]
+    lines: list[str] = [t("预计花费：{model}，{n} 个任务 × {repeat} 遍", model=found.target.label, n=n, repeat=found.repeat)]
     assumed = n - found.measured
     if assumed:
         lines.append("  " + t(
@@ -351,7 +352,7 @@ def _case_lines(row: dict) -> list[str]:
     name = f"{row['task']} #{row['rep'] + 1}"
     status = row.get("status")
     if status != "ok":
-        return [f"{STATUS_MARKS.get(status, '!')} {name}  {status}: {row.get('error', '')}"]
+        return [f"{STATUS_MARKS.get(status or '', '!')} {name}  {status}: {row.get('error', '')}"]  # 没有 status 的查不到，和别的认不出的一样画 !
     mark = "✓" if row.get("passed") else "✗"
     cost = money(row.get("cost")) if row.get("cost") is not None else t("没有价格")
     line = f"{mark} {name}  {row.get('checks_passed', 0)}/{row.get('checks', 0)}  {cost}  {seconds(row.get('seconds'))}"
@@ -398,7 +399,7 @@ def _list(root: Path, out: IO[str]) -> int:
     if not runs:
         print(t("还没有评测过。先试试不花钱的演习：harness eval run"), file=out)
         return 0
-    rows = [[t("编号"), t("评测方式"), t("模型"), t("通过"), t("花费"), t("状态")]]
+    rows: list[list[str]] = [[t("编号"), t("评测方式"), t("模型"), t("通过"), t("花费"), t("状态")]]
     for item in runs:
         summary = results.summary_of(item.rows)
         meta = item.meta

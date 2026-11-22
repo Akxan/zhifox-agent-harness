@@ -117,7 +117,7 @@ def busy_lines(data_dir: Path) -> list[str]:
             t("已经有一个{name}在运行，用的是同一个数据目录：{path}", name=APP_NAME, path=data_dir),
             t("是在终端里或者 systemd 里开着的 harness serve（进程 {pid}）。先把它停下：在它的终端里按 Ctrl-C，或者 systemctl stop。", pid=found.pid),
         ]
-    lines = [t("已经有一个{name}的网页界面在运行，用的是同一个数据目录：{path}", name=APP_NAME, path=data_dir)]
+    lines: list[str] = [t("已经有一个{name}的网页界面在运行，用的是同一个数据目录：{path}", name=APP_NAME, path=data_dir)]
     if found is not None:
         lines.append(t("占着它的是进程 {pid}。", pid=found.pid))
     lines.append(t("两个一起运行会互相覆盖对方保存的会话。请直接用已经打开的那个页面，或者先到它的终端里按 Ctrl-C 把它关掉。"))

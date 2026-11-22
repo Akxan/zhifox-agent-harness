@@ -36,6 +36,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from .. import log
@@ -147,7 +148,7 @@ class BotAPI:
             return payload.get("result")
         code = int(payload.get("error_code") or 0)
         description = self._redact(str(payload.get("description") or ""))
-        parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+        parameters = given if isinstance(given := payload.get("parameters"), dict) else {}
         retry_after = float(parameters.get("retry_after") or 0)
         raise TelegramError(_explain(code, description), code, retry_after, description)
 
@@ -287,7 +288,7 @@ class TelegramChannel(Channel):
                     break
                 if exc.code in (401, 404):
                     self._set_status("error", str(exc))
-                    wait = CHANNEL_RETRY_SECONDS  # token 不对，重试也没用；换了 token 会换一个新的通道
+                    wait: float = CHANNEL_RETRY_SECONDS  # token 不对，重试也没用；换了 token 会换一个新的通道
                 elif exc.code == 429:
                     wait = max(1.0, exc.retry_after)
                 else:
@@ -321,23 +322,24 @@ class TelegramChannel(Channel):
         """把 Telegram 的一条 update 变成 Inbound 或 Press。不认识的返回 None。"""
         query = update.get("callback_query")
         if isinstance(query, dict):
-            sender = query.get("from") if isinstance(query.get("from"), dict) else {}
-            message = query.get("message") if isinstance(query.get("message"), dict) else {}
-            chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+            # 点按钮的人、按钮所在的那条消息。名字和下面收消息时的 sender、message 分开：那边的 sender 可能是 None
+            presser = who if isinstance(who := query.get("from"), dict) else {}
+            card = said if isinstance(said := query.get("message"), dict) else {}
+            chat = room if isinstance(room := card.get("chat"), dict) else {}
             query_id = str(query.get("id", ""))
             return Press(
                 platform=self.platform,
                 chat=str(chat.get("id", "")),
-                user=str(sender.get("id", "")),
-                name=_person(sender),
+                user=str(presser.get("id", "")),
+                name=_person(presser),
                 data=str(query.get("data") or ""),
                 answer=lambda text, problem=False: self._answer_press(query_id, text),
             )
         message = update.get("message")
         if not isinstance(message, dict):
             return None
-        sender = message.get("from") if isinstance(message.get("from"), dict) else None
-        chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+        sender = who if isinstance(who := message.get("from"), dict) else None
+        chat = room if isinstance(room := message.get("chat"), dict) else {}
         if sender is None or sender.get("is_bot"):
             return None  # 频道里转发来的、别的机器人发的：不理
         inbound = Inbound(
@@ -359,8 +361,8 @@ class TelegramChannel(Channel):
                         media_type="image/jpeg",
                         size=biggest.get("file_size"),
                         kind="photo",
-                        fetch=lambda file=biggest["file_id"]: self.api.download(file),
-                        thumb=(lambda file=preview["file_id"]: self.api.download(file, CHANNEL_THUMB_BYTES)) if len(sizes) > 1 else None,
+                        fetch=partial(self.api.download, biggest["file_id"]),  # partial 当场绑住这一张的编号，用到时才下载
+                        thumb=partial(self.api.download, preview["file_id"], CHANNEL_THUMB_BYTES) if len(sizes) > 1 else None,
                     )
                 )
         document = message.get("document")
@@ -371,7 +373,7 @@ class TelegramChannel(Channel):
                     media_type=str(document.get("mime_type") or "application/octet-stream"),
                     size=document.get("file_size"),
                     kind="document",
-                    fetch=lambda file=document["file_id"]: self.api.download(file),
+                    fetch=partial(self.api.download, document["file_id"]),
                 )
             )
         inbound.audio = _audio(message, self.api)
@@ -529,7 +531,7 @@ def _audio(message: dict, api: BotAPI) -> InboundAudio | None:
             size=max(0, _number(item.get("file_size"))) or None,
             duration=max(0, _number(item.get("duration"))),
             kind=kind,
-            fetch=lambda file=item["file_id"]: api.download(file, VOICE_MAX_BYTES),
+            fetch=partial(api.download, item["file_id"], VOICE_MAX_BYTES),
         )
     return None
 

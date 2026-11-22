@@ -135,7 +135,7 @@ def _link(source: dict) -> str:
 
 def listing(sources: list[dict], markdown: bool = False) -> str:
     """一段回答的来源写成几行字："资料来源：\n1. 标题 — 网站"。markdown：标题写成链接（聊天通道会把它排成能点的样子）。"""
-    lines = [t("资料来源：")]
+    lines: list[str] = [t("资料来源：")]  # 第一行是 t() 译好的（Message），后面是普通的字符串
     for source in sources:
         title = _link(source) if markdown else source["title"]
         lines.append(f"{source['n']}. {title} — {source['site']}" if source["site"] and source["site"] != source["title"] else f"{source['n']}. {title}")

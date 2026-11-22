@@ -52,6 +52,7 @@ import re
 import time
 import urllib.parse
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from .. import log
@@ -308,7 +309,7 @@ class SlackChannel(PushChannel):
                 else:
                     make = self._event(kind, envelope.get("payload"))
                     if make is not None and not self._stopping.is_set():
-                        self._hand_off(lambda make=make: self._deliver(make, deliver))
+                        self._hand_off(partial(self._deliver, make, deliver))  # partial 当场绑住这一个信封的 make（下一个信封会换掉它）
             ws.close(1000)
             return True
         except ConnectionClosed as exc:
@@ -331,7 +332,7 @@ class SlackChannel(PushChannel):
         if kind == "events_api" and payload.get("type") == "event_callback":
             if not self._first_time(str(payload.get("event_id") or "")):
                 return None  # Slack 没等到回执、又推了一遍的（envelope 可能换了，event_id 不变）
-            event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+            event = found if isinstance(found := payload.get("event"), dict) else {}
             return lambda: self._message(event)
         if kind == "interactive" and payload.get("type") == "block_actions":
             return lambda: self._press(payload)
@@ -371,7 +372,7 @@ class SlackChannel(PushChannel):
                     media_type=mime,
                     size=item.get("size") if isinstance(item.get("size"), int) else None,
                     kind="photo" if mime.startswith("image/") else "document",
-                    fetch=lambda url=url, mime=mime: self._download(url, mime),
+                    fetch=partial(self._download, url, mime),  # 当场绑住这一个文件的（循环变量会变）
                 )
             )
         if not inbound.text and not inbound.files:
@@ -379,10 +380,10 @@ class SlackChannel(PushChannel):
         return inbound
 
     def _press(self, payload: dict) -> Press | None:
-        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+        actions = given if isinstance(given := payload.get("actions"), list) else []
         action = actions[0] if actions and isinstance(actions[0], dict) else {}
-        user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
-        channel = payload.get("channel") if isinstance(payload.get("channel"), dict) else {}
+        user = person if isinstance(person := payload.get("user"), dict) else {}
+        channel = room if isinstance(room := payload.get("channel"), dict) else {}
         chat, user_id = str(channel.get("id") or ""), str(user.get("id") or "")
         return Press(
             platform=self.platform,
@@ -419,7 +420,7 @@ class SlackChannel(PushChannel):
         if user not in self._names:
             try:
                 info = self.api.call("users.info", query={"user": user}).get("user") or {}
-                profile = info.get("profile") if isinstance(info.get("profile"), dict) else {}
+                profile = found if isinstance(found := info.get("profile"), dict) else {}
                 self._names[user] = str(profile.get("display_name") or info.get("real_name") or info.get("name") or user)
             except SlackError:
                 return user
@@ -494,7 +495,7 @@ class SlackChannel(PushChannel):
         groups = [sections[index : index + SECTIONS_PER_MESSAGE] for index in range(0, len(sections), SECTIONS_PER_MESSAGE)] or [[]]
         for index, group in enumerate(groups[:-1]):
             self._post(chat, title, (head if index == 0 else []) + group)
-        blocks = (head if len(groups) == 1 else []) + groups[-1]
+        blocks: list[dict] = (head if len(groups) == 1 else []) + groups[-1]  # Block Kit 的块，各种块的字段不一样
         if prompt.where:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": markup.slack_escape(prompt.where)}]})
         actions = {"type": "actions", "block_id": f"confirm-{prompt.id}", "elements": [

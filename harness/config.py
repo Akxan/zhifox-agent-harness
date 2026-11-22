@@ -603,5 +603,6 @@ def load_config(workspace: Path | None = None) -> Config:
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
         telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
         transcribe_api=(os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
-        **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},
+        # 只有 API_BASES 里那几个字段（都是字符串）。mypy 看不出一个字典里有哪些键，会拿它去对 Config 的每一个参数，所以这一行要 ignore
+        **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},  # type: ignore[arg-type]  # 见上一行
     )

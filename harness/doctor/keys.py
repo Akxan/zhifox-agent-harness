@@ -147,7 +147,7 @@ def _addresses() -> Check:
     label = t("各家的接口地址")  # 不用"接口地址"：那一句在自定义接口的表单上，是另一个意思
     if bad:
         detail = t("{names} 是明文的 http://，又不在这台电脑或者内网里：密钥和对话会以明文发过去", names=t("、").join(bad))
-        fix = [t("改成 https:// 的地址，或者去掉它：{run}", run=fixes.unset(name)) for name in bad]
+        fix: list[str] = [t("改成 https:// 的地址，或者去掉它：{run}", run=fixes.unset(name)) for name in bad]
         return Check("addresses", label, PROBLEM, t("{detail}（{changed}）", detail=detail, changed=t("、").join(changed)), fix, facts)
     if not changed:
         return Check("addresses", label, OK, t("都是各家官方的地址"), facts=facts)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import stat
+from functools import partial
 from pathlib import Path
 
 from .. import pathnames
@@ -79,7 +80,9 @@ def discover(workspace: Path, env: Env | None = None) -> list[tuple[str, Candida
                 result.append((group, Candidate(key=key, name=entry.name, original="", problems=[exc.args[0]], tool=tool, tool_id=tool_id)))
                 continue
             name, original, meta, problems = examine(text, entry.name)
-            candidate = Candidate(key=key, name=name, original=original, meta=meta, problems=problems, listing=walk(real), load=lambda real=real: read_folder(real), tool=tool, tool_id=tool_id)
+            # partial 和原来的 lambda real=real: read_folder(real) 一样（这一圈的 real 现在就取好，安装时才读），类型检查也推得出来
+            load = partial(read_folder, real)
+            candidate = Candidate(key=key, name=name, original=original, meta=meta, problems=problems, listing=walk(real), load=load, tool=tool, tool_id=tool_id)
             result.append((group, candidate))
     return result
 

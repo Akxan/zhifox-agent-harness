@@ -224,6 +224,7 @@ def lines(found: Catalog) -> list[tuple[str, str]]:
     """终端 /model 要打印的几行：（文字，样式）。样式是 plain 或 info（暗一点的说明）。"""
     out: list[tuple[str, str]] = []
     for group in found.groups:
+        status: str  # 终端里直接打印，不用重译：t() 给的 Message 和 strip() 以后的普通字符串都行
         if group.custom:
             status = t("自定义接口 · {where}", where=t(WHERE[group.where]))
         else:
@@ -235,6 +236,7 @@ def lines(found: Catalog) -> list[tuple[str, str]]:
             out.append(("    " + t("还没有模型列表：在网页界面的换模型面板里点“同步模型列表”。"), "info"))
         for model in group.models:
             mark = "✓" if model.current else " "
+            price: str
             if model.free:
                 price = model.free
             else:

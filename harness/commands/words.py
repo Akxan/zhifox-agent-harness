@@ -47,7 +47,7 @@ def _strange(char: str) -> bool:
     return category[0] in "CZ"  # C：控制、格式（零宽、方向标记）、私用、代理；Z：各种空白和行、段分隔符
 
 
-def stages(command: str) -> list[list[str]]:
+def stages(command: object) -> list[list[str]]:  # 什么都可以给：不是字符串的也在下面当作看不懂
     """把命令拆成一段一段（用 | 连起来的），每一段是一串词。看不懂就抛出 Unclear。"""
     if not isinstance(command, str) or not command.strip():
         raise Unclear("命令是空的")

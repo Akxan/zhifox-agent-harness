@@ -53,9 +53,10 @@ class Message(str):
         message.nested = nested or {}
         return message
 
-    def __getnewargs__(self) -> tuple[str, str, dict[str, Any], dict[str, Message]]:
-        # copy.deepcopy 和 pickle 重建它时要给 __new__ 的参数。不写的话只给文字，少了 key 和 values，会出错
-        # （一个用 t() 生成的名字存进 channels.json 时就是这样：store 读出来要 deepcopy）
+    # copy.deepcopy 和 pickle 重建它时要给 __new__ 的参数。不写的话只给文字，少了 key 和 values，会出错
+    # （一个用 t() 生成的名字存进 channels.json 时就是这样：store 读出来要 deepcopy）。
+    # str 的这个方法只交回一样（文字），这里要多交回三样：mypy 认为子类不该改它的返回类型，所以 ignore
+    def __getnewargs__(self) -> tuple[str, str, dict[str, Any], dict[str, Message]]:  # type: ignore[override]  # 见上面
         return str(self), self.key, self.values, self.nested
 
 

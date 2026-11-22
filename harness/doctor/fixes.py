@@ -138,9 +138,9 @@ def find_program(name: str) -> str:
     return command("which", name)
 
 
-def add_key(key_env: str, env_file: Path) -> list[Message]:
+def add_key(key_env: str, env_file: Path) -> list[str]:
     """还没有某一家的密钥：两种填法（和第一次启动时终端里的说明一样，见 cli.SETUP_HELP）。"""
-    lines = [t("最省事的：运行 {command} --web，在右上角的“设置”里填。", command=COMMAND)]
+    lines: list[str] = [t("最省事的：运行 {command} --web，在右上角的“设置”里填。", command=COMMAND)]
     example = PROJECT_ROOT / ".env.example"
     if not env_file.exists() and example.is_file():
         lines.append(t("或者先建好 .env：{run}", run=run(copy(example, env_file))))
@@ -156,7 +156,7 @@ def install_uv() -> Message:
     return run("curl -LsSf https://astral.sh/uv/install.sh | sh")
 
 
-def install_chrome() -> list[Message]:
+def install_chrome() -> list[str]:
     """找不到 Chrome：装一个，或者告诉智狐它在哪儿。"""
     system = machine.system()
     if system == machine.MAC:

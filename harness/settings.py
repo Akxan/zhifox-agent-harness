@@ -150,7 +150,7 @@ class Settings:
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
-        data = {
+        data: dict[str, object] = {  # 各项的类型不一样（文字、表、数、开关），下面还会再放几项
             "provider": self.provider,
             "model": self.model,
             "models": self.models,
@@ -205,7 +205,7 @@ def computer_settings(saved: object) -> dict:
     """
     saved = saved if isinstance(saved, dict) else {}
     blocked: list[str] = []
-    for name in saved.get("blocked") if isinstance(saved.get("blocked"), list) else []:
+    for name in names if isinstance(names := saved.get("blocked"), list) else []:
         if isinstance(name, str) and name.strip() and name.strip() not in blocked and len(blocked) < MAX_BLOCKED_APPS:
             blocked.append(" ".join(name.split())[:MAX_APP_NAME_CHARS])
     return {"enabled": saved.get("enabled") is True, "unattended": saved.get("unattended") is True, "blocked": blocked}
@@ -225,7 +225,7 @@ def sandbox_settings(saved: object) -> dict:
     level = saved.get("level")
     paths: list[dict] = []
     seen: set[str] = set()
-    for item in saved.get("paths") if isinstance(saved.get("paths"), list) else []:
+    for item in listed if isinstance(listed := saved.get("paths"), list) else []:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
             continue
         path = item["path"].strip()

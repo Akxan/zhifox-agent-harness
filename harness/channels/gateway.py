@@ -186,7 +186,7 @@ class Gateway:
                     if kind == "READY":
                         self.session_id = str(data.get("session_id") or "")
                         self.resume_url = str(data.get("resume_gateway_url") or "")
-                        self.user = data.get("user") if isinstance(data.get("user"), dict) else {}
+                        self.user = me if isinstance(me := data.get("user"), dict) else {}
                         ready = True
                         self.set_status("online", "")
                     elif kind == "RESUMED":

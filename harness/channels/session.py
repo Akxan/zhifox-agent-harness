@@ -211,7 +211,7 @@ class Session:
             provider, model = found.label if found is not None else agent.backend.provider, agent.backend.model
         else:
             provider, model = app.provider.label, app.settings.model
-        lines = [
+        lines: list[str] = [  # 有一行是 t() 再接上一段文字（得到普通的 str），所以不是 list[Message]
             t("模型：{model}", model=f"{provider} · {model}"),
             t("确认方式：{mode}", mode=t(MODES[router.store.get(self.platform)["approval"]])),
             t("会话：{title}", title=conversation.title if conversation is not None and conversation.title else t("新对话")),
@@ -334,7 +334,7 @@ class Session:
             if not conversation.title:
                 conversation.title = make_title(text) or (make_title(attachments[0].name) if attachments else "")
             agent.permissions.mode = self.router.store.get(self.platform)["approval"]  # 你可能刚在页面上换过
-            logger.info("%s: 开始一轮（%s · %s）", self.key, provider.label, agent.backend.model)
+            logger.info("%s: 开始一轮（%s · %s）", self.key, label, agent.backend.model)  # label：上面算好的，这一家找不到时是它的编号
             done = threading.Event()
             if self.router.capabilities(self.platform).typing:
                 threading.Thread(target=self._typing, args=(done,), daemon=True).start()

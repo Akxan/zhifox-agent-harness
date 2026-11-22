@@ -156,7 +156,7 @@ class ChannelHub:
                     self.router.detach(platform)
                 if wanted and platform not in self._running:
                     channel = self.factories[platform](self.config, self.store)
-                    channel.on_status = self._changed  # type: ignore[attr-defined]
+                    channel.on_status = self._changed
                     self.router.attach(platform, channel)
                     channel.start(self.router.deliver)
                     self.router.set_commands(platform)

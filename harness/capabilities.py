@@ -788,7 +788,7 @@ def _others(context: _Context) -> list[Capability]:
 
 
 def _notes(context: _Context) -> list[str]:
-    notes = []
+    notes: list[str] = []
     persona = context.persona
     if persona is not None and persona.spec.tools is not None:
         if persona.spec.tools:

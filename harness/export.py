@@ -307,11 +307,11 @@ def write_archive(data_dir: Path, out: IO[bytes], moment: datetime, secrets: Ite
             info = zipfile.ZipInfo.from_file(data_dir / relative, relative, strict_timestamps=False)
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, content)
-        for name, content in ((NOTE, readme(work, data_dir, moment)), (MANIFEST, to_json(manifest(work, moment), readable=True, indent=2) + "\n")):
+        for name, text in ((NOTE, readme(work, data_dir, moment)), (MANIFEST, to_json(manifest(work, moment), readable=True, indent=2) + "\n")):
             info = zipfile.ZipInfo(name, moment.timetuple()[:6])
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o600 << 16  # 解压出来也只有自己的账号能读，和数据文件夹里别的文件一样
-            archive.writestr(info, content.encode())
+            archive.writestr(info, text.encode())
     return work
 
 

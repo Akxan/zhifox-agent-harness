@@ -15,7 +15,8 @@ import anthropic
 try:  # anthropic 的 SDK 用这个库收发网络请求。回复收到一半断线时，抛出来的是它的错误，不是 SDK 自己的
     import httpx2 as transport
 except ImportError:  # 旧一些的 SDK 用的是它的前身
-    import httpx as transport
+    # 同一个名字导入两次（两个库只是新旧名字，用法一样），mypy 不允许，只好在这一行 ignore
+    import httpx as transport  # type: ignore[no-redef]  # 见上一行
 
 from ..attachments import Attachment, wrap_text
 from ..citations import from_citations
