@@ -391,12 +391,22 @@ async function fetchItem(item) {
   }
   const key = item.shot ? 'shot:' + item.shot : item.id;  // 截图的大图另有接口：浏览器的、电脑的各一个（见那两节）
   if (fetched.has(key)) return fetched.get(key);
+  const path = item.shot ? (item.source === 'computer' ? '/api/computer/shot' : '/api/browser/shot') : '/api/media/file';
+  const got = await fetchFile(path, item.shot || item.id, item.download || item.name);
+  fetched.set(key, got);
+  while (fetched.size > 6) fetched.delete(fetched.keys().next().value);  // 只留最近的几个，大图很占内存
+  return got;
+}
+
+// 向助手程序要一个文件的内容（多媒体库里的附件、一张截图的大图），只给编号：{blob, name}。不留在上面的 fetched 里
+// （分叉时把附件放回输入框也用它，见 fork.js）。name 是助手程序没给文件名时用的
+async function fetchFile(path, id, name) {
   let response;
   try {
-    response = await fetch(item.shot ? (item.source === 'computer' ? '/api/computer/shot' : '/api/browser/shot') : '/api/media/file', {
+    response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Harness-Token': token },
-      body: JSON.stringify({ id: item.shot || item.id }),
+      body: JSON.stringify({ id }),
     });
   } catch (_) {
     throw new Error(t('连接不上助手程序'));
@@ -408,13 +418,9 @@ async function fetchItem(item) {
   }
   const blob = await response.blob();
   // 文件名以助手程序给的为准（比如旧会话里的 Word 下载下来是 .docx.txt）
-  let name = item.download || item.name;
   const given = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') || '');
   if (given) { try { name = decodeURIComponent(given[1]); } catch (_) { /* 编码不对就用原来的名字 */ } }
-  const got = { blob, name };
-  fetched.set(key, got);
-  while (fetched.size > 6) fetched.delete(fetched.keys().next().value);  // 只留最近的几个，大图很占内存
-  return got;
+  return { blob, name };
 }
 
 function blobFrom(base64, type) {

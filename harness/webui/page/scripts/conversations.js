@@ -240,6 +240,7 @@ function conversationRow(item) {
   } else {
     // 定时任务跑出来的会话标一下，免得以为是自己聊的；用 Agent 开始的，前面是那个 Agent 的名字（带着它的颜色）
     const meta = open.appendChild(el('span', 'conv-meta'));
+    if (item.forked) meta.appendChild(forkMark());  // 从别的会话分叉出来的：前面一个小小的分叉图标（见 fork.js）
     if (item.agent) meta.appendChild(el('span', 'persona-badge', item.agent)).dataset.color = (agentByName(item.agent) || {}).color || '';
     const origin = item.task ? t('定时任务') + ' · ' : item.channel ? channelLabel(item.channel) + ' · ' : '';  // 在聊天通道里聊的，标着是哪个平台
     meta.appendChild(document.createTextNode(origin + item.model + ' · ' + timeLabel(item.updated_at)));

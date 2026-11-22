@@ -3,7 +3,8 @@
 每段会话是 data/conversations/ 下的一个 JSON 文件，里面有三样东西：
 
   基本信息   标题、用的是哪家的哪个模型、创建和更新时间（定时任务运行出来的，还记着是哪个任务；
-             在 Telegram 这类聊天通道里聊的，记着是哪个通道；用一个自定义 Agent 当角色开始的，记着是哪个 Agent）
+             在 Telegram 这类聊天通道里聊的，记着是哪个通道；用一个自定义 Agent 当角色开始的，记着是哪个 Agent；
+             从另一段会话的某一轮分叉出来的，记着是从哪儿来的，见 fork.py）
   messages   发给模型的对话历史。格式因厂商而异，这里原样保存，读回来就能接着聊
   events     界面上显示过的内容，用来把页面重新画出来
 
@@ -60,6 +61,10 @@ class Conversation:
     # 用哪个自定义 Agent 当角色开始的（Agent 的名字，见 agents/）；普通的会话是空字符串。
     # 一段会话的角色从头到尾不变：想换一个，就用它开始一段新对话（见 App.new_conversation）
     agent: str = ""
+    # 从哪一段会话的哪一轮分叉出来的（见 fork.py）：{"id": 原会话的编号, "turn": 第几轮（从 1 数）,
+    # "at": "reply" 在回答上分叉（带着这一轮）/ "message" 在你的消息上分叉（截到这一轮之前）, "title": 当时原会话的标题,
+    # "changes": 这几轮里有没有改过文件（改动的记录没有跟过来，要撤回得回原会话，见 fork.py 开头）}。不是分叉出来的是 None
+    forked_from: dict | None = None
 
     def summary(self) -> dict:
         """会话列表里要显示的那几项，不含正文。"""
@@ -76,6 +81,8 @@ class Conversation:
             summary["channel"] = self.channel  # 页面据此给它标上"Telegram"
         if self.agent:
             summary["agent"] = self.agent  # 页面据此给它标上是哪个 Agent
+        if self.forked_from:
+            summary["forked"] = True  # 页面据此给它标上一个"分叉"的小图标
         return summary
 
 
@@ -84,6 +91,22 @@ def make_title(text: str) -> str:
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     title = " ".join(first_line.split())
     return title if len(title) <= TITLE_LIMIT else title[: TITLE_LIMIT - 1] + "…"
+
+
+FORK_POINTS = ("reply", "message")  # 在回答上分叉、在你的消息上分叉（见 fork.py）
+
+
+def origin_of(value: object) -> dict | None:
+    """会话文件里记着的"从哪儿分叉来的"，整理成能放心用的样子。文件可能被手动改过：不合格的当作没有，
+    不因为它把整段会话当成坏了的（这一项只是给人看的来路，少了它照样能接着聊）。"""
+    if not isinstance(value, dict):
+        return None
+    source, turn, at, title = value.get("id"), value.get("turn"), value.get("at"), value.get("title", "")
+    if not isinstance(source, str) or not _ID_PATTERN.fullmatch(source) or at not in FORK_POINTS:
+        return None
+    if not isinstance(turn, int) or isinstance(turn, bool) or not 0 < turn < 1_000_000 or not isinstance(title, str):
+        return None
+    return {"id": source, "turn": turn, "at": at, "title": title[:TITLE_LIMIT], "changes": value.get("changes") is True}
 
 
 class ConversationStore:
@@ -148,6 +171,13 @@ class ConversationStore:
             self._load()
             return conversation_id in self._summaries
 
+    def title_of(self, conversation_id: str) -> str | None:
+        """一段保存过的会话现在的标题（列表里显示的那个）；不在了（删掉了）是 None。分叉出来的会话顶上写着原会话的标题，照着它（见 fork.py）。"""
+        with self._lock:
+            self._load()
+            summary = self._summaries.get(conversation_id)
+            return summary["title"] if summary is not None else None
+
     def load(self, conversation_id: str) -> Conversation:
         with self._lock:
             self._load()
@@ -185,6 +215,8 @@ class ConversationStore:
             data["channel"] = conversation.channel
         if conversation.agent:
             data["agent"] = conversation.agent
+        if conversation.forked_from:
+            data["forked_from"] = conversation.forked_from
         # 会话是私人的内容：目录和文件都只有自己的账号能读（和保存密钥的 .env 一样）
         private_dir(self.directory)
         # write_file 先写临时文件再替换，程序中途崩溃不会留下半个文件；
@@ -283,6 +315,7 @@ class ConversationStore:
                 task=data.get("task") if isinstance(data.get("task"), str) else "",
                 channel=data.get("channel")[:40] if isinstance(data.get("channel"), str) else "",
                 agent=data.get("agent") if isinstance(data.get("agent"), str) else "",
+                forked_from=origin_of(data.get("forked_from")),
             )
         except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:
             # RecursionError：嵌套了上千层的 JSON。不接住的话，一个这样的文件就能让整个程序启动不了

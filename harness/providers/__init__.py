@@ -236,6 +236,17 @@ def continues(backend: Any, provider: Provider, model: str) -> bool:
     return caps(provider, model).tools == getattr(backend, "tools_supported", True)
 
 
+def saved_before(provider: Provider, saved: list, dropped: int, mark: int) -> list | None:
+    """一段保存下来的历史（Backend.export 的样子，压缩掉了 dropped 条）在 mark 这个位置之前的那一截：mark 必须是
+    一轮的开头、而且还在历史里（和 Backend.turn_at 同一个规矩），或者正好是末尾。不是的返回 None。
+    不用为此建一个适配层：保存的会话不一定是现在用的这一家（见 fork.py）。历史的格式只看是哪一类接口（make_backend 也这样分）。"""
+    if provider.kind == "anthropic":
+        from .claude import AnthropicBackend as backend  # 用到时才导入（见文件开头）
+    else:
+        from .openai_compat import OpenAICompatBackend as backend
+    return backend.saved_before(saved, dropped, mark)
+
+
 def switch_model(backend: Any, provider: Provider, model: str) -> None:
     """同一家之内换模型（continues 为真时）：换上模型名；自定义接口还要换上这个模型自己的能力（看不看得懂图、上下文多大）。"""
     from .openai_compat import OpenAICompatBackend  # 用到时才导入（见文件开头）

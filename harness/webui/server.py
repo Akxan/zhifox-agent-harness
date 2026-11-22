@@ -46,6 +46,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/ 和 conversations_api.py）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话（见 conversations_api.py）
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
+  POST /api/fork       从某一轮分叉成一段新对话、换过去（原来那段一字不动，见 fork_api.py 和 ../fork.py）
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py 和 memory_api.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
@@ -334,6 +335,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/sandbox/"):
             status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
+        elif path == "/api/fork":
+            status, payload = web.fork.route(body)
             self._send_json(status, payload)
         elif path.startswith("/api/changes/"):
             status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)
