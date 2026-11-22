@@ -45,6 +45,7 @@ NAMES = [
     ".mcp-name", ".media-name", ".media-conv", ".agents-face", "#persona-name", ".chan-name", "#memory-name",
     "#task-detail-title", "#task-detail-sub", ".skill-desc", "#reminders .reminder b", "#viewer-name",
     ".cmd-text",  # 你自己加的"不用问的命令"
+    ".endpoint-name", ".endpoint-model-name", ".models-label",  # 自定义模型接口的名字、模型名（你起的、服务器给的）
     ".caps-server",  # 信息栏"智狐能做的事"里 MCP 服务器的名字（你起的）
 ]
 # 在任何语言下都照原样写的几个词：标志的名字，以及语言选单里每种语言用它自己的文字写的名字

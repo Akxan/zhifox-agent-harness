@@ -26,7 +26,8 @@ function renderSettings() {
   const current = state.providers.find((provider) => provider.id === state.provider);
   $('settings-model-name').textContent = (current ? current.label + ' · ' : '') + state.model;
 
-  $('keys').replaceChildren(...state.providers.map((provider) => {
+  // 自定义模型接口不在这里：它们的密钥是可选的，有自己的一节（endpoints.js）
+  $('keys').replaceChildren(...state.providers.filter((provider) => !provider.custom).map((provider) => {
     const row = el('div', 'key-row');
     const head = row.appendChild(el('div', 'key-head'));
     head.appendChild(el('strong', null, provider.label));
@@ -137,6 +138,8 @@ function openSettings() {
   $('price').replaceChildren();
   say('');
   renderSettings();
+  endpointDeleting = '';  // "自定义模型接口"一节（见 endpoints.js）：上次打开时停在一半的删除确认不留着
+  drawEndpoints(true);
   fillDataSettings();
   browserConfirming = false;
   drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）

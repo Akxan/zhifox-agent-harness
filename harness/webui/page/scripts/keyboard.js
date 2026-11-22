@@ -30,7 +30,7 @@ document.addEventListener('keydown', (key) => {
     // ⌘F / Ctrl+F：搜索会话（"查找"大家最熟的就是这个键）；⌘K / Ctrl+K 也照样能用。
     // 搜的是所有会话，当前这一段也在里面，比浏览器自带的"在页面里查找"管用。但浏览器那个不该就此没了：
     // 光标已经在搜索框里时再按一次 ⌘F，或者开着对话框的时候，就不拦，交给浏览器
-    const dialogOpen = settings.open || approvalDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open || taskEditor.open || taskDetail.open || promptDialog.open || spendDialog.open || commandsDialog.open || traceDialog.open;
+    const dialogOpen = settings.open || approvalDialog.open || viewer.open || memoryDialog.open || extensionsDialog.open || taskEditor.open || taskDetail.open || promptDialog.open || spendDialog.open || commandsDialog.open || traceDialog.open || endpointDialog.open;
     if (letter === 'f' && (dialogOpen || document.activeElement === search || document.activeElement === $('media-search'))) return;
     key.preventDefault();
     if (dialogOpen) return;

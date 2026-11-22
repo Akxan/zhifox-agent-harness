@@ -69,22 +69,56 @@ def _chunks(scripted: dict) -> list[dict]:
 
 
 class FakeOpenAI:
-    def __init__(self, replies: list[dict], models: list[str] | None = None):
+    """replies 是按顺序回放的回复，models 是 /models 列出的模型名。
+
+    下面几个选项模拟"照着 OpenAI 格式做、但没做全"的服务器（自定义模型接口，见 harness/endpoints/）：
+      listing=False         没有 /models（回答 404），模型名要自己填
+      tools=False           请求里带着 tools 就回答 400（Ollama 对用不了工具的模型就是这样说的）
+      stream_options=False  请求里带着 stream_options 就回答 400（老版本的 llama.cpp、一些网关）
+      images=False          用户消息里有图片就回答 400
+      ollama={模型名: {...}} 像 Ollama 那样多回答 /api/version 和 /api/show（{...} 是 /api/show 的回答）
+      lmstudio=[...]        像 LM Studio 那样多回答 /api/v0/models（[...] 是它的 data）
+      redirect="地址"        /models 回答 307，转到这个地址（智狐不该跟过去）
+      listing_extra={模型名: {...}}  /models 里每个模型多带的字段（vLLM 的 max_model_len 这类）
+    每个请求的请求头都记在 headers 里（测别的几家的密钥有没有被带过来）。
+    """
+
+    def __init__(
+        self,
+        replies: list[dict],
+        models: list[str] | None = None,
+        *,
+        listing: bool = True,
+        tools: bool = True,
+        stream_options: bool = True,
+        images: bool = True,
+        ollama: dict[str, dict] | None = None,
+        lmstudio: list[dict] | None = None,
+        redirect: str = "",
+        listing_extra: dict[str, dict] | None = None,
+    ):
         self.replies = list(replies)
         self.models = models or ["test-model"]
         self.requests: list[dict] = []
         self.keys: list[str] = []  # 每个请求带来的 API key
+        self.headers: list[dict[str, str]] = []  # 每个请求的请求头（名字都是小写）
+        self.paths: list[str] = []  # 每个请求的路径
+        self.listing, self.tools, self.stream_options, self.images = listing, tools, stream_options, images
+        self.ollama, self.lmstudio, self.redirect = ollama, lmstudio, redirect
+        self.listing_extra = listing_extra or {}
 
     def start(self) -> FakeOpenAI:
         api = self
 
         class Handler(BaseHTTPRequestHandler):
             def _key_ok(self) -> bool:
+                api.headers.append({name.lower(): value for name, value in self.headers.items()})
+                api.paths.append(self.path)
                 key = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 api.keys.append(key)
                 if not key.startswith("bad-key"):
                     return True
-                self._json(401, {"error": {"message": "Incorrect API key provided", "type": "invalid_request_error"}})
+                self._json(401, {"error": {"message": f"Incorrect API key provided: {key}", "type": "invalid_request_error"}})
                 return False
 
             def _json(self, status: int, payload: dict) -> None:
@@ -95,15 +129,38 @@ class FakeOpenAI:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def do_GET(self) -> None:  # 模型列表
-                if self._key_ok():
-                    data = [{"id": name, "object": "model", "created": 0, "owned_by": "test"} for name in api.models]
-                    self._json(200, {"object": "list", "data": data})
+            def _missing(self) -> None:
+                self._json(404, {"error": {"message": f"404 page not found: {self.path}", "type": "not_found"}})
+
+            def do_GET(self) -> None:  # 模型列表（还有 Ollama、LM Studio 自己的几个地址）
+                if not self._key_ok():
+                    return
+                if self.path == "/api/version":
+                    return self._json(200, {"version": "0.12.0"}) if api.ollama is not None else self._missing()
+                if self.path == "/api/v0/models":
+                    return self._json(200, {"object": "list", "data": api.lmstudio}) if api.lmstudio is not None else self._missing()
+                if api.redirect:
+                    self.send_response(307)
+                    self.send_header("location", api.redirect)
+                    self.send_header("content-length", "0")
+                    self.end_headers()
+                    return
+                if not api.listing:
+                    return self._missing()
+                data = [{"id": name, "object": "model", "created": 0, "owned_by": "test", **api.listing_extra.get(name, {})} for name in api.models]
+                self._json(200, {"object": "list", "data": data})
 
             def do_POST(self) -> None:  # 对话
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 if not self._key_ok():
                     return
+                if self.path == "/api/show":
+                    shown = (api.ollama or {}).get(body.get("model"))
+                    return self._json(200, shown) if shown is not None else self._missing()
+                refusal = api._refusal(body)
+                if refusal:
+                    api.requests.append(body)
+                    return self._json(400, {"error": {"message": refusal, "type": "invalid_request_error"}})
                 api.requests.append(body)
                 if not api.replies:
                     self._json(500, {"error": {"message": "no scripted reply left", "type": "server_error"}})
@@ -128,6 +185,19 @@ class FakeOpenAI:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
         return self
+
+    def _refusal(self, body: dict) -> str:
+        """这个请求会不会被拒绝（模拟没做全的服务器，见 __init__ 的说明）。拒绝的话返回出错说明。"""
+        if not self.stream_options and "stream_options" in body:
+            return "json: unknown field \"stream_options\""
+        if not self.tools and body.get("tools"):
+            return f"registry.ollama.ai/library/{body.get('model')} does not support tools"
+        if not self.images:
+            for message in body.get("messages", []):
+                content = message.get("content")
+                if isinstance(content, list) and any(part.get("type") == "image_url" for part in content if isinstance(part, dict)):
+                    return "image input is not supported by this model"
+        return ""
 
     def stop(self) -> None:
         self.server.shutdown()

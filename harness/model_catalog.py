@@ -9,9 +9,13 @@
   - 每个模型能做什么：按 Provider 上的标记（vision、pdf、web）算。联网搜索还要看 config.web（可以整个关掉）。
     一个都没有的写"只认文字"，免得你以为它也看得懂图片。分时段计价的（DeepSeek）另外标一句。
   - 多少钱：pricing.price_of，你在设置里填的优先，其次是内置的；都没有就是 None，页面写"没有价格"。
-  - 换过去会怎样（switch）：和 App.select_model 是同一条规矩——同一家之内接着聊；换到另一家，历史的格式不通用，
-    开始新的一段。这段对话已经聊过的话，页面先在原地问一声（旧的这段已经存好了，随时可以回去接着聊）。
+  - 换过去会怎样（switch）：和 App.select_model 是同一条规矩（providers.continues）——同一家之内接着聊；换到另一家，
+    历史的格式不通用，开始新的一段。这段对话已经聊过的话，页面先在原地问一声（旧的这段已经存好了，随时可以回去接着聊）。
     比较的是这段对话的适配层用的是哪一家（agent.backend.provider），和 select_model 一样。
+  - 自定义接口（Ollama、LM Studio、公司的网关……，见 endpoints/）各是一组，排在内置的几家后面。能力按模型算，
+    多两个标签："能用工具"或"不能用工具"、"本地"（本机和内网的接口：对话不出你的网络）。价格是 0 的写"本地，不计费"
+    （外面的网关写"不计费"）。同一个接口上，能不能用工具不一样的两个模型之间换，也要开始新的一段（工具说明书在一段对话里不变），
+    所以 switch 也可以写在模型上（Model.switch），页面先看它，没有再看这一组的。
 
 格式（catalog 返回 Catalog，里面给人看的话是 t() 译好的 Message，webui/models_api.py 再换成页面能就地重译的样子）：
 
@@ -26,7 +30,8 @@
 
   Group（一家）
     id, label        编号（anthropic……）和给人看的名字
-    has_key          有没有密钥；key_hint 只有最后 4 位（"…abcd"），从不带密钥本身
+    has_key          有没有密钥；key_hint 只有最后 4 位（"…abcd"），从不带密钥本身。自定义接口的密钥是可选的，has_key 总是真
+    custom           是不是自定义接口；where 是它在哪儿：local 这台电脑 / lan 你的内网 / remote 外面（内置的几家是空的）
     synced           模型列表是不是同步来的（False：没同步过，Claude 用的是内置的几个，别家是空的）
     switch           换到这一家的模型会怎样：continue 同一家，对话接着进行 / fresh 另一家，这段还没聊，直接开始新的 /
                      leave 另一家，这段聊过了：开始新的一段之前先问一声
@@ -38,6 +43,8 @@
     tags             [Message, …]：能做什么（能联网、看得懂图片、能读 PDF / 只认文字、分时段计价）
     price            {input, output, cache_read, cache_write}，美元 / 每百万 token；没有价格是 None
     offpeak          闲时价（分时段计价的模型），格式和 price 一样；不分时段的是 None
+    free             价格是 0 时代替数字写的那句话（"本地，不计费" / "不计费"）；不是 0 的是 None
+    switch           只有和这一组不一样时才有（见上面的说明）；None 表示照这一组的
 """
 
 from __future__ import annotations
@@ -47,19 +54,33 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .i18n import Message, k, t
-from .pricing import price_of
-from .providers import CLAUDE_MODELS, PROVIDERS, Provider, has_key
-from .settings import key_hint
+from .providers import (
+    CLAUDE_MODELS,
+    Caps,
+    Provider,
+    caps,
+    continues,
+    every,
+    has_key,
+    hint,
+)
 
 # 换到这一家会怎样（见开头的说明）
 CONTINUE, FRESH, LEAVE = "continue", "fresh", "leave"
 
-# 每个模型能做什么，按 Provider 上的标记。顺序就是页面上的顺序
+# 每个模型能做什么，按 Provider 上的标记（自定义接口按模型）。顺序就是页面上的顺序
 WEB = k("能联网")
 VISION = k("看得懂图片")
 PDF = k("能读 PDF")
 TEXT_ONLY = k("只认文字")
+TOOLS = k("能用工具")  # 只有自定义接口上的模型写这两个：内置的几家都能用工具，不用说
+NO_TOOLS = k("不能用工具")
+LOCAL = k("本地")  # 本机和内网的接口：对话不出你的网络
 OFFPEAK = k("分时段计价")
+FREE_LOCAL = k("本地，不计费")
+FREE = k("不计费")
+# 自定义接口在哪儿（endpoints/urls.py 的 where_is）
+WHERE = {"local": k("这台电脑"), "lan": k("内网"), "remote": k("外面的服务器")}
 
 
 @dataclass
@@ -69,6 +90,8 @@ class Model:
     tags: list[Message]
     price: dict[str, float] | None
     offpeak: dict[str, float] | None
+    free: Message | None = None
+    switch: str | None = None
 
 
 @dataclass
@@ -80,6 +103,8 @@ class Group:
     synced: bool
     switch: str
     models: list[Model] = field(default_factory=list)
+    custom: bool = False
+    where: str = ""
 
 
 @dataclass
@@ -97,9 +122,13 @@ class Catalog:
     groups: list[Group]
 
 
-def models_of(settings: Any, provider_id: str) -> list[str]:
-    """一家可以选择的模型：同步到的列表；Claude 在同步之前先用内置的几个；现在用的那个总在最前面（不在列表里的话）。"""
-    models = list(settings.models.get(provider_id) or (CLAUDE_MODELS if provider_id == "anthropic" else []))
+def models_of(settings: Any, provider_id: str, provider: Provider | None = None) -> list[str]:
+    """一家可以选择的模型：同步到的列表；Claude 在同步之前先用内置的几个；现在用的那个总在最前面（不在列表里的话）。
+    自定义接口的列表在它自己的设置里（endpoints.json），不在 settings.models 里。"""
+    if provider is not None and provider.endpoint is not None:
+        models = [model.id for model in provider.endpoint.models]
+    else:
+        models = list(settings.models.get(provider_id) or (CLAUDE_MODELS if provider_id == "anthropic" else []))
     if provider_id == settings.provider and settings.model not in models:
         models.insert(0, settings.model)
     return models
@@ -107,18 +136,29 @@ def models_of(settings: Any, provider_id: str) -> list[str]:
 
 def tags_of(provider: Provider, model: str, web: bool, offpeak: bool) -> list[Message]:
     """一个模型能做什么，给人看的几个词。web：这次运行开没开联网搜索（config.web）。"""
+    found: Caps = caps(provider, model)
     tags = []
     if web and provider.web:
         tags.append(t(WEB))
-    if provider.vision:
+    if found.vision:
         tags.append(t(VISION))
-    if provider.pdf:
+    if found.pdf:
         tags.append(t(PDF))
-    if not provider.vision and not provider.pdf:
+    if not found.vision and not found.pdf:
         tags.append(t(TEXT_ONLY))
+    if provider.endpoint is not None:
+        tags.append(t(TOOLS if found.tools else NO_TOOLS))
+        if provider.endpoint.local:
+            tags.append(t(LOCAL))
     if offpeak:
         tags.append(t(OFFPEAK))
     return tags
+
+
+def _switch(backend: Any, provider: Provider, model: str, started: bool) -> str:
+    if continues(backend, provider, model):
+        return CONTINUE
+    return LEAVE if started else FRESH
 
 
 def catalog(app: Any) -> Catalog:
@@ -126,16 +166,17 @@ def catalog(app: Any) -> Catalog:
     settings, backend = app.settings, app.agent.backend
     started = bool(backend.export())
     groups = []
-    for provider in PROVIDERS.values():
-        if provider.id == backend.provider:
-            switch = CONTINUE
-        else:
-            switch = LEAVE if started else FRESH
+    for provider in every():
+        switch = CONTINUE if provider.id == backend.provider else LEAVE if started else FRESH
         models = []
-        for name in models_of(settings, provider.id):
-            price = price_of(name, settings.prices)
-            cheaper = price_of(name, settings.prices, offpeak=True)
+        for name in models_of(settings, provider.id, provider):
+            price = app.price_of(provider.id, name)
+            cheaper = app.price_of(provider.id, name, offpeak=True)
             offpeak = cheaper if cheaper != price else None
+            own = _switch(backend, provider, name, started)
+            free = None
+            if price is not None and provider.endpoint is not None and not any(price.values()):
+                free = t(FREE_LOCAL if provider.endpoint.local else FREE)
             models.append(
                 Model(
                     id=name,
@@ -143,6 +184,8 @@ def catalog(app: Any) -> Catalog:
                     tags=tags_of(provider, name, app.config.web, offpeak is not None),
                     price=price,
                     offpeak=offpeak,
+                    free=free,
+                    switch=own if own != switch else None,
                 )
             )
         groups.append(
@@ -150,10 +193,12 @@ def catalog(app: Any) -> Catalog:
                 id=provider.id,
                 label=provider.label,
                 has_key=has_key(provider),
-                key_hint=key_hint(provider.key_env),
-                synced=bool(settings.models.get(provider.id)),
+                key_hint=hint(provider),
+                synced=bool(provider.endpoint.models) if provider.endpoint is not None else bool(settings.models.get(provider.id)),
                 switch=switch,
                 models=models,
+                custom=provider.endpoint is not None,
+                where=provider.endpoint.where if provider.endpoint is not None else "",
             )
         )
     persona = None
@@ -179,7 +224,10 @@ def lines(found: Catalog) -> list[tuple[str, str]]:
     """终端 /model 要打印的几行：（文字，样式）。样式是 plain 或 info（暗一点的说明）。"""
     out: list[tuple[str, str]] = []
     for group in found.groups:
-        status = t("已设置密钥 {hint}", hint=group.key_hint).strip() if group.has_key else t("未设置密钥")
+        if group.custom:
+            status = t("自定义接口 · {where}", where=t(WHERE[group.where]))
+        else:
+            status = t("已设置密钥 {hint}", hint=group.key_hint).strip() if group.has_key else t("未设置密钥")
         out.append((f"{group.label}  [{status}]", "plain"))
         if not group.has_key:
             continue
@@ -187,7 +235,10 @@ def lines(found: Catalog) -> list[tuple[str, str]]:
             out.append(("    " + t("还没有模型列表：在网页界面的换模型面板里点“同步模型列表”。"), "info"))
         for model in group.models:
             mark = "✓" if model.current else " "
-            price = f"{money(model.price['input'])} / {money(model.price['output'])}" if model.price else t("没有价格")
+            if model.free:
+                price = model.free
+            else:
+                price = f"{money(model.price['input'])} / {money(model.price['output'])}" if model.price else t("没有价格")
             out.append((f"  {mark} {model.id}  ·  {' · '.join(model.tags)}  ·  {price}", "plain"))
     out.append((t("价格是美元 / 每百万 token（输入 / 输出）。"), "info"))
     if found.persona is not None:

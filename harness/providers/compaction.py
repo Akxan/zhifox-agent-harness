@@ -84,14 +84,15 @@ TOOL_IMAGES_NOTE = "（上面的工具结果里的图片，按顺序排列，不
 _ATTACHMENT_NAME = re.compile(r'<attachment name="([^"]*)"')
 
 
-def context_window(model: str) -> int:
-    """一个模型一次最多能读多少 token。不认识的模型按保守的默认值算（见 config.py）。"""
-    return CONTEXT_WINDOWS.get(model, DEFAULT_CONTEXT_WINDOW)
+def context_window(model: str, window: int | None = None) -> int:
+    """一个模型一次最多能读多少 token。window 是这个模型自己说的（自定义接口上的模型，见 endpoints/spec.py），
+    给了就用它；不给的按 config 里的表，不认识的模型按保守的默认值算（见 config.py）。"""
+    return window or CONTEXT_WINDOWS.get(model, DEFAULT_CONTEXT_WINDOW)
 
 
-def is_due(context_tokens: int, model: str) -> bool:
+def is_due(context_tokens: int, model: str, window: int | None = None) -> bool:
     """上一次请求占用的上下文已经大到该压缩了吗。context_tokens 是 0 表示还不知道（还没请求过），不算。"""
-    return ENABLE_OPENAI_COMPACTION and context_tokens > 0 and context_tokens >= COMPACTION_THRESHOLD * context_window(model)
+    return ENABLE_OPENAI_COMPACTION and context_tokens > 0 and context_tokens >= COMPACTION_THRESHOLD * context_window(model, window)
 
 
 def is_summary(message: dict) -> bool:

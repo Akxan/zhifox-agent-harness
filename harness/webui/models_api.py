@@ -31,6 +31,8 @@ def page_state(app: Any) -> dict:
                 "key_hint": group.key_hint,  # 只有最后 4 位
                 "synced": group.synced,
                 "switch": group.switch,
+                "custom": group.custom,  # 自定义接口（见 harness/endpoints/）
+                "where": group.where,  # 它在哪儿：local / lan / remote；内置的几家是空的
                 "models": [
                     {
                         "id": model.id,
@@ -38,6 +40,8 @@ def page_state(app: Any) -> dict:
                         "tags": [said(tag) for tag in model.tags],
                         "price": model.price,
                         "offpeak": model.offpeak,
+                        "free": said(model.free) if model.free else None,  # 价格是 0 时写的那句话
+                        "switch": model.switch,  # 和这一组不一样时才有
                     }
                     for model in group.models
                 ],

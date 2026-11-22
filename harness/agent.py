@@ -218,7 +218,7 @@ class Agent:
         now = self.clock()  # 只看一次钟：本次运行的估算和账本按同一个时刻算价格
         self.usage.add(usage)
         # 按模型分开记。价格分时段的模型（DeepSeek），闲时的用量另记一份，算钱时按闲时价（见 pricing.usage_key）
-        self.usage_by_model.setdefault(usage_key(self.backend.model, now), Usage()).add(usage)
+        self.usage_by_model.setdefault(usage_key(self.backend.model, now, self.backend.provider), Usage()).add(usage)
         cost = None
         if self.on_call is not None:  # 先记账再通知界面：界面刷新时，"今天""本月"已经包括这一次了
             cost = self.on_call(self.backend.provider, self.backend.model, usage, now)

@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 
 from .. import pathnames
 from ..i18n import Message, t
-from ..providers import CLAUDE_MODELS, PROVIDERS
+from ..providers import CLAUDE_MODELS, every, find
 from ..skills.frontmatter import (
     Frontmatter,
     FrontmatterError,
@@ -116,8 +116,11 @@ def resolve_model(value: str) -> tuple[str, Message | None, Message | None]:
         if guess is None:
             return "", t("model 要写成“提供方/模型”（比如 anthropic/claude-sonnet-5-5），或者写 inherit。"), None
         provider, model = guess, text
-    if provider not in PROVIDERS:
-        return "", t("model 里的 {provider} 不是智狐认识的模型提供方。可以用：{known}。", provider=provider, known="、".join(PROVIDERS)), None
+    # 自定义接口（custom-ollama 这样的，见 harness/endpoints/）也认：写成 custom-ollama/qwen3:8b。模型名里可以再有 /（vLLM 的 meta-llama/…），
+    # 因为只按第一个 / 分开
+    if find(provider) is None:
+        known = "、".join(item.id for item in every())
+        return "", t("model 里的 {provider} 不是智狐认识的模型提供方。可以用：{known}。", provider=provider, known=known), None
     if not model.strip() or any(char.isspace() for char in model):
         return "", t("model 里的模型名不对：不能是空的，也不能有空格。"), None
     if provider == "anthropic" and model not in CLAUDE_MODELS:

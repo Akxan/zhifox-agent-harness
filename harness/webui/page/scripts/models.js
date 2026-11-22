@@ -8,6 +8,9 @@
 // 新对话。这段对话已经聊过的话，先在面板里问一声（现在这段已经存好了，随时可以回来接着聊）。"会怎样"也是程序说的：
 // 目录里每一家的 switch（continue 接着聊 / fresh 这段还没聊、直接换 / leave 先问一声）。
 // 用 Agent 开始的对话，换模型不换角色（底下写一句）；系统提示词和工具在一段对话里不变，这由程序保证（见 App.select_model）。
+// 自定义模型接口（Ollama、LM Studio、公司的网关……，见 endpoints.js）各是一组，排在内置的几家后面：头上写它在哪儿
+// （这台电脑 / 内网 / 外面的服务器），旁边一个"编辑接口"；不花钱的模型写"本地，不计费"。同一个接口上能不能用工具不一样的
+// 两个模型之间换，也要开始新的一段：这时模型自己带着 switch（程序算的），先看它，没有再看这一组的。
 //
 // 键盘：↑↓ 在模型之间移动（Home / End 到头尾），回车换过去，直接打字就是搜索（模型多的时候搜索框一直在顶上），
 // Esc 收起来、焦点回到按钮上（正在问"要不要开始新对话"时，Esc 先收起这一问）；开着的时候 Tab 只在面板里转。
@@ -150,7 +153,19 @@ function modelsGroup(group, models, query) {
   const name = head.appendChild(el('span', 'models-label', group.label));
   name.id = 'models-g-' + group.id;
   const key = head.appendChild(el('span', 'models-key' + (group.has_key ? ' set' : '')));
-  if (group.has_key) retext(key, k('已设置 {hint}'), { hint: group.key_hint || '' });
+  if (group.custom) {
+    // 自定义接口：密钥是可选的，写它在哪儿（对话会不会出你的网络）
+    key.className = 'models-key models-where ' + group.where;
+    retext(key, ENDPOINT_WHERE[group.where] || ENDPOINT_WHERE.remote);
+    const edit = head.appendChild(el('button', 'icon-button small models-edit'));
+    edit.type = 'button';
+    edit.setAttribute('role', 'menuitem');
+    edit.dataset.modelsFocus = 'edit:' + group.id;
+    edit.title = t('编辑接口：{name}', { name: group.label });
+    edit.setAttribute('aria-label', edit.title);
+    edit.appendChild(icon('edit'));
+    edit.addEventListener('click', () => { modelsFlyout.close(false); openSettingsEndpoint(group.id); });
+  } else if (group.has_key) retext(key, k('已设置 {hint}'), { hint: group.key_hint || '' });
   else retext(key, k('未设置'));
   if (!group.has_key) {
     // 没有密钥：打开设置里填这一家密钥的那一行（见 settings.js 的 openSettingsKeys）
@@ -209,7 +224,12 @@ function modelsItem(group, model) {
   const tags = words.appendChild(el('span', 'models-tags'));
   for (const tag of model.tags || []) tags.appendChild(modelsText(el('span'), tag));
   const price = item.appendChild(el('span', 'models-price'));
-  if (model.price) {
+  if (model.free) {
+    // 价格是 0（本机、内网的模型默认就是）：写一句话，不写 $0 / $0
+    price.classList.add('free');
+    modelsText(price, model.free);
+    price.title = t('不花钱的模型照样记下用了多少 token，费用算 0。可以在设置里改。');
+  } else if (model.price) {
     price.append(el('b', null, usd(model.price.input)), el('i', null, '/'), el('b', null, usd(model.price.output)));
     let title = t('输入 {input}、输出 {output}（美元 / 每百万 token）', { input: usd(model.price.input), output: usd(model.price.output) });
     if (model.offpeak) title += '\n' + t('闲时：输入 {input}、输出 {output}', { input: usd(model.offpeak.input), output: usd(model.offpeak.output) });
@@ -246,7 +266,8 @@ async function chooseModel(group, model) {
   if (modelsSwitching) return;
   if (model.current) { modelsFlyout.close(true); return; }  // 选的就是现在用的：收起来就好
   const asked = modelsAsking && modelsAsking.provider === group.id && modelsAsking.model === model.id;
-  if (group.switch === 'leave' && !asked) { askBeforeLeaving(group, model); return; }
+  const switching = model.switch || group.switch;  // 模型自己带着的优先（见开头的说明）
+  if (switching === 'leave' && !asked) { askBeforeLeaving(group, model); return; }
   stopAsking(false);
   modelsSwitching = group.id + '/' + model.id;
   modelsSay(k('正在换成 {model}……'), { model: model.id });
@@ -255,7 +276,7 @@ async function chooseModel(group, model) {
   modelsSwitching = '';
   if (modelsFlyout.isOpen()) drawModels();  // 收起那一行的"正在换"（没换成的话目录没变，下面不会重画）
   if (result.ok) {
-    modelsSay(group.switch === 'continue' ? k('已换成 {model}，对话接着进行。') : k('已换成 {provider} · {model}，开始了一段新对话。'),
+    modelsSay(switching === 'continue' ? k('已换成 {model}，对话接着进行。') : k('已换成 {provider} · {model}，开始了一段新对话。'),
               { provider: group.label, model: model.id }, 'good');
   } else {
     modelsSay(result.error, null, 'error');
@@ -269,7 +290,12 @@ async function chooseModel(group, model) {
 // 换到另一家、这段对话已经聊过：在面板底下问一声，"换过去"拿着焦点（回车就是确认，Esc 收起这一问）
 function askBeforeLeaving(group, model) {
   modelsAsking = { provider: group.id, model: model.id, label: group.label };
-  retext($('models-confirm-text'), k('换到 {provider} 会开始一段新对话。现在这段已经保存，随时可以回来接着聊。'), { provider: group.label });
+  if (modelsCatalog && group.id === modelsCatalog.provider) {
+    // 同一个自定义接口上，能不能用工具不一样的两个模型（见开头的说明）
+    retext($('models-confirm-text'), k('{model} 能不能用工具和现在的模型不一样，换过去会开始一段新对话。现在这段已经保存，随时可以回来接着聊。'), { model: model.id });
+  } else {
+    retext($('models-confirm-text'), k('换到 {provider} 会开始一段新对话。现在这段已经保存，随时可以回来接着聊。'), { provider: group.label });
+  }
   $('models-confirm').hidden = false;
   modelsSay('');
   drawModels();

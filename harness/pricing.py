@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from .endpoints.spec import PREFIX as CUSTOM
 from .providers.base import Usage
 
 # 单位：美元 / 每百万 token。
@@ -55,8 +56,20 @@ def is_offpeak(moment: datetime) -> bool:
     return not (1 <= utc.hour < 4 or 6 <= utc.hour < 10)
 
 
-def usage_key(model: str, moment: datetime) -> str:
-    """记用量时用的名字：价格分时段的模型，闲时的用量记在"模型名@offpeak"下面，算钱时按闲时价。"""
+def price_key(model: str, provider: str = "") -> str:
+    """在价格表里找这个模型用的名字：内置的几家就是模型名，自定义接口的是"接口/模型名"（见 usage_key 的说明）。"""
+    return f"{provider}/{model}" if provider.startswith(CUSTOM) else model
+
+
+def usage_key(model: str, moment: datetime, provider: str = "") -> str:
+    """记用量时用的名字：价格分时段的模型，闲时的用量记在"模型名@offpeak"下面，算钱时按闲时价。
+
+    自定义接口（provider 以 custom- 开头，见 endpoints/）上的模型记在"接口/模型名"下面：本机的 vLLM 上也可能有个
+    deepseek-v4-pro，它不花钱，不能按 DeepSeek 的价格算，也不能把 DeepSeek 的价格改成 0。它们的价格在
+    endpoints.json 里，由 EndpointStore.prices 按同样的名字交出来，和你填的价格合在一起（见 App.prices）。
+    """
+    if provider.startswith(CUSTOM):
+        return price_key(model, provider)
     price = BUILTIN_PRICES.get(ALIASES.get(model, model))
     if price and "offpeak" in price and is_offpeak(moment):
         return model + OFFPEAK

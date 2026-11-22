@@ -41,10 +41,11 @@ from ..config import (
     PROJECT_ROOT,
     Config,
 )
+from ..endpoints import EndpointStore
 from ..i18n import k, t
 from ..ledger import Ledger
 from ..prompt import DEFAULT_TEMPLATE, load_template
-from ..providers import PROVIDERS, has_key
+from ..providers import PROVIDERS, find, has_key, use_custom
 from . import results
 from .compare import compare_lines
 from .dryrun import DryDriver, DryRunUnavailable
@@ -159,11 +160,19 @@ def _settings_of(config: Config) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _endpoints_of(config: Config) -> bytes:
+    """你的 endpoints.json 原样的内容（只读）：每一遍抄进它自己的数据目录（见 runner.Options.endpoints）。没有、读不了就是空的。"""
+    try:
+        return config.endpoints_file.read_bytes()
+    except OSError:
+        return b""
+
+
 def _target(args: argparse.Namespace, saved: dict, config: Config) -> Target:
     if not args.model:
         provider = saved.get("provider") or config.default_provider
         model = saved.get("model") or config.default_model
-        return Target(provider if provider in PROVIDERS else "anthropic", model)
+        return Target(provider if find(provider) is not None else "anthropic", model)
     chosen, problem, _warning = resolve_model(args.model)
     if problem or not chosen:
         raise TaskFileError(t("--model 写得不对：{problem}", problem=problem or args.model))
@@ -204,9 +213,13 @@ def _run(args: argparse.Namespace, config: Config, root: Path, out: IO[str], ask
     tasks = _load(args)
     if not 1 <= args.repeat <= EVAL_MAX_REPEAT:
         raise TaskFileError(t("--repeat 要在 1 到 {n} 之间", n=EVAL_MAX_REPEAT))
+    # 你加的自定义模型接口（data/endpoints.json，见 harness/endpoints/）：交给 providers 的登记表，--model custom-ollama/qwen3:8b 才认得；
+    # 它的价格（本机、内网的默认不花钱）也合进估算用的价格表
+    endpoints = EndpointStore(config.endpoints_file)
+    use_custom(endpoints)
     saved = _settings_of(config)
     target = _target(args, saved, config)
-    prices = saved.get("prices") if isinstance(saved.get("prices"), dict) else {}
+    prices = {**(saved.get("prices") if isinstance(saved.get("prices"), dict) else {}), **endpoints.prices()}
     template, prompt_label, prompt_text = _prompt(args, config)
     mode = "" if args.real else "null" if args.null else "dry"
     judge_model = args.judge_model if args.judge else None
@@ -246,7 +259,10 @@ def _run(args: argparse.Namespace, config: Config, root: Path, out: IO[str], ask
         "status": "running",
     }
     stored = results.Run.create(root, meta, prompt_text)
-    options = Options(effort=meta["effort"], template=template, settings=saved, judge_model=judge_model, keep=args.keep, ledger=ledger)
+    options = Options(
+        effort=meta["effort"], template=template, settings=saved, judge_model=judge_model, keep=args.keep, ledger=ledger,
+        endpoints=_endpoints_of(config),
+    )
     print(t("开始评测（{mode}）：{model}，{n} 个任务 × {repeat} 遍，提示词：{prompt}", mode=t(MODES[mode]), model=target.label, n=len(tasks), repeat=args.repeat, prompt=prompt_label), file=out)
 
     def record(result: CaseResult) -> None:
@@ -266,7 +282,7 @@ def _real_problem(target: Target, judge_model: str | None) -> str:
     """真的运行之前要满足的：不在 CI 里、有密钥。返回不满足的原因，满足就是空的。"""
     if os.environ.get("CI"):
         return t("在 CI 里不做真的评测（会花钱）。测试和 CI 只跑演习：harness eval run")
-    provider = PROVIDERS.get(target.provider)
+    provider = find(target.provider)
     if provider is None:
         return t("不认识这个模型提供方：{provider}", provider=target.provider)
     if not has_key(provider):
@@ -317,7 +333,7 @@ def estimate_lines(found: Estimate) -> list[str]:
         lines.append(t("大约 {low}，最多 {high}（缓存一点都没命中、每一步都用满假定的用量时）", low=money(found.low), high=money(found.high)))
     else:
         lines.append(t("这个模型没有价格，算不出要花多少钱（可以在网页界面的设置里填上它的价格）。上面的 token 数照样会用掉。"))
-    provider = PROVIDERS.get(found.target.provider)
+    provider = find(found.target.provider)
     lines.append(t("这会向 {provider} 的 API 真的发请求，花真的钱（记进花费账本，来源是 eval）。", provider=provider.label if provider else found.target.provider))
     return lines
 
