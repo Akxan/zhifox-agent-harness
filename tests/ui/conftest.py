@@ -115,12 +115,21 @@ class Demo:
     def reset(self) -> None:
         """把测试会改动的服务器设置恢复原样，换到一段新对话。"""
         self.api("/api/stop")
+        # 刚点了停止，上一个测试的那一轮可能还在收尾：换模型这类会改动对话的操作这时会被拒绝（409，"请先等当前这一轮对话结束"），
+        # 和下面的"新对话"一样等它结束。别的错误照样算失败
         for path, data in (
             ("/api/language", {"language": "zh"}),
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
         ):
-            status, reply = self.api(path, data)
+            answers: list = []
+
+            def done(path=path, data=data, answers=answers) -> bool:
+                answers.append(self.api(path, data))
+                return answers[-1][0] != 409
+
+            until(done, timeout=15, what=f"{path}（等上一轮收尾）")
+            status, reply = answers[-1]
             assert status == 200, f"{path} 失败：{reply}"
         # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
         # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）
