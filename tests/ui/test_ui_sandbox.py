@@ -144,7 +144,7 @@ def test_extra_paths_are_added_edited_revealed_and_removed_in_place(page):
     page.key("Enter")
     page.wait("document.querySelectorAll('#sandbox-list li.sandbox-row').length === 1", what="加好了")
     first = _saved(page)["paths"][0]
-    assert first["write"] is False and first["path"].endswith("/.zhifox-ui-test-tools") and not first["path"].startswith("~")
+    assert first["write"] is False and first["path"].replace("\\", "/").endswith("/.zhifox-ui-test-tools") and not first["path"].startswith("~")
     assert page.exists("#sandbox-list .sandbox-missing")
     folder = str(page.demo.root)
     page.click("#sandbox-new")
@@ -299,7 +299,7 @@ def test_nothing_spills_out_at_phone_width(page, code):
     if code != "zh":
         steps.language(page, code)
     page.demo.api("/api/sandbox/level", {"level": "workspace"})
-    page.demo.api("/api/sandbox/add", {"path": "/srv/a-rather-long-folder-name/with/several/levels/of/nesting/that-goes-on-and-on-and-on", "write": True})
+    page.demo.api("/api/sandbox/add", {"path": steps.native_path("/srv/a-rather-long-folder-name/with/several/levels/of/nesting/that-goes-on-and-on-and-on"), "write": True})
     _settings(page)
     assert checks.overflow(page, ["#sandbox-section"]) == []
     page.click("#sandbox-paths-open")

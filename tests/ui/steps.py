@@ -20,8 +20,13 @@ NARROW_NAV = "matchMedia('(max-width: 960px)').matches"  # 和页面里的 overl
 NARROW_SIDE = "matchMedia('(max-width: 1180px)').matches"  # 信息栏也一样
 
 
-# 页面测试里加进沙箱的那条"额外允许的路径"：要是这台电脑上的绝对路径（Windows 上 /srv/app 不算绝对路径，会被拒绝）
-SANDBOX_EXTRA = r"C:\srv\app" if os.name == "nt" else "/srv/app"
+def native_path(posix: str) -> str:
+    """一个 / 开头的路径，写成这台电脑上的绝对路径：Windows 上 /srv/app 不算绝对路径（会被拒绝），写成 C:\\srv\\app。"""
+    return "C:" + posix.replace("/", "\\") if os.name == "nt" else posix
+
+
+# 页面测试里加进沙箱的那条"额外允许的路径"
+SANDBOX_EXTRA = native_path("/srv/app")
 
 def idle(page: Page, timeout: float = 5) -> None:
     page.wait(IDLE, timeout, "动画播完")
