@@ -10,7 +10,8 @@
      "searches": 0, "cost": 0.0000542, "offpeak": true}
 
   day      本地日期。"今天""本月"都按你电脑上的日期算
-  source   是谁调用的：chat 是你在对话，task 是定时任务（定时任务记账时传进来，见 Ledger.recorder）
+  source   是谁调用的：chat 是你在对话，task 是定时任务（定时任务记账时传进来，见 Ledger.recorder），
+           voice 是把聊天里的语音转成文字（见 voice/ 和 Ledger.record_audio：它按分钟算钱，token 都是 0，多记一个 seconds）
   cost     这一次的估算金额（美元）。价格按调用的那一刻算：DeepSeek 是高峰还是闲时就看那一刻
            （见 pricing.usage_key），以后你改了价格，记下的旧账不跟着变。
            没有价格的模型写 null：token 数照记，金额不算进去，页面上单独列出来
@@ -194,6 +195,25 @@ class Ledger:
             except OSError as exc:
                 self.error = str(exc) or type(exc).__name__
             self._maybe_compact(day)
+        return row["cost"]
+
+    def record_audio(self, provider: str, model: str, seconds: float, cost: float, moment: datetime, source: str = "voice") -> float:
+        """记下一次语音转文字（见 voice/）。它不按 token 算钱，按语音的长短：金额由调用的人用 pricing.transcribe_cost 算好交进来。
+
+        写成和别的调用一样的一行（requests 是 1，token 都是 0），多一个 seconds（这段语音有多少秒，只是给人看的，
+        读账本时不用它）：今天、本月、按模型、按来源的汇总都照常算进去。写不进文件和 record 一样只记下原因。
+        """
+        tally = Tally(requests=1, cost=max(0.0, float(cost)))
+        group: Key = (moment.date().isoformat(), clean_text(provider), clean_text(model), clean_text(source), True)
+        row = {"at": moment.isoformat(timespec="seconds"), **_row(group, tally), "seconds": round(max(0.0, float(seconds)), 1)}
+        with self._lock:
+            self._add(group, tally, detail=True)
+            try:
+                self._append(to_json(row) + "\n")
+                self.error = ""
+            except OSError as exc:
+                self.error = str(exc) or type(exc).__name__
+            self._maybe_compact(moment.date())
         return row["cost"]
 
     def _append(self, line: str) -> None:

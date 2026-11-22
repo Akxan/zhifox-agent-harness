@@ -90,6 +90,19 @@ class InboundFile:
 
 
 @dataclass
+class InboundAudio:
+    """聊天里发来的一段语音（按住说话录的）或者一个音频文件。模型听不了声音：要先转成文字（见 ../voice/），
+    转出来的文字才当作你说的话。内容和文件一样，等到真要用的时候才下载（fetch）。暂时只有 Telegram 会给。"""
+
+    name: str  # 文件名（带扩展名：上传去转文字时，服务器靠它认格式）
+    media_type: str  # 平台说的类型，比如 audio/ogg
+    size: int | None  # 平台说的大小（字节）；不知道是 None
+    duration: int  # 平台说的时长（秒）；不知道是 0
+    kind: str  # voice（语音消息）或 audio（音频文件）
+    fetch: Callable[[], bytes]
+
+
+@dataclass
 class Inbound:
     """聊天里来了一条消息。"""
 
@@ -101,6 +114,7 @@ class Inbound:
     files: list[InboundFile] = field(default_factory=list)
     private: bool = True  # 是不是一对一的私聊。群聊里的消息一律不理（群里的每个人都能看到、都能发）
     unsupported: str = ""  # 发来的是处理不了的东西（语音、视频、贴纸……）时，写着是哪一种
+    audio: InboundAudio | None = None  # 发来的是一段语音或者音频（只有 Telegram 会给，见 ../voice/）
 
 
 @dataclass

@@ -96,6 +96,8 @@ def _sweep(page) -> dict[str, list[str]]:
 
     steps.open_dialog(page, "#settings-open", "settings")
     look("设置", ["#settings"])
+    steps.voice_local(page)  # 语音转文字：选了"你自己运行的兼容服务"以后多出来的那几格和说明
+    look("设置 · 语音转文字（你自己运行的服务）", ["#voice-section"])
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")

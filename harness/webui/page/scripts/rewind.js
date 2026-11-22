@@ -163,7 +163,8 @@ function openTurnEdit() {
   const nodes = lastUserNodes();
   if (!info || !info.ok || busy || !nodes || turnEdit) return Boolean(turnEdit);
   closeTurnConfirm(false);
-  const text = nodes.bubble ? nodes.bubble.textContent : '';
+  // 语音转出来的消息前面有一个"语音转文字"的小标记（见 voice.js）：只拿原文
+  const text = nodes.bubble ? (nodes.bubble.dataset.text !== undefined ? nodes.bubble.dataset.text : nodes.bubble.textContent) : '';
   const shown = nodes.row ? ((rowItems.get(nodes.row) || {}).shown || []) : [];
   const box = el('div', 'turn-editor');
   box.setAttribute('role', 'group');

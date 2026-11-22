@@ -28,6 +28,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -111,6 +112,16 @@ class Demo:
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read() or b"{}")
 
+    def _when_free(self, path: str, data: dict, timeout: float = 15) -> tuple[int, dict]:
+        """调用一个接口。刚点了停止，这一轮可能还在收尾：换模型这类要拿对话锁的会回答"请先等当前这一轮对话结束"（409），
+        等它结束再试。返回最后一次的（状态码，回答）。"""
+        deadline = time.monotonic() + timeout
+        while True:
+            status, reply = self.api(path, data)
+            if status != 409 or time.monotonic() > deadline:
+                return status, reply
+            time.sleep(0.05)
+
     def reset(self) -> None:
         """把测试会改动的服务器设置恢复原样，换到一段新对话。"""
         self.api("/api/stop")
@@ -118,8 +129,9 @@ class Demo:
             ("/api/language", {"language": "zh"}),
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
+            ("/api/voice/settings", {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": ""}),  # 语音转文字（test_ui_voice.py 会改）
         ):
-            status, reply = self.api(path, data)
+            status, reply = self._when_free(path, data)
             assert status == 200, f"{path} 失败：{reply}"
         # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
         # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）

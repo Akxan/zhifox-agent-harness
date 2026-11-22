@@ -116,6 +116,7 @@ __STYLES__
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v10M7.5 9.5L12 14l4.5-4.5M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
   <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 4.5h6v3H9zM9 6H6.5a1.5 1.5 0 0 0-1.5 1.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H15M8.5 12h7M8.5 15.5h4.5"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3.5a2.75 2.75 0 0 1 2.75 2.75v5.5a2.75 2.75 0 0 1-5.5 0v-5.5A2.75 2.75 0 0 1 12 3.5zM6.25 11.25a5.75 5.75 0 0 0 11.5 0M12 17v3.5M9 20.5h6"/></symbol>
   <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M4.5 4.5h15A1.5 1.5 0 0 1 21 6v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5V6a1.5 1.5 0 0 1 1.5-1.5zM8.5 20h7M12 16v4"/></symbol>
   <symbol id="i-browser" viewBox="0 0 24 24"><path d="M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4zM3 8.5h18M6 6.3h.01M8.5 6.3h.01M11.5 11.5l6 2.2-2.6 1-1 2.6z"/></symbol>
   <symbol id="i-ban" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM6 6l12 12"/></symbol>
@@ -488,6 +489,46 @@ __STYLES__
       </div>
       <p id="computer-models" class="hint"></p>
       <p id="computer-cost" class="hint"></p>
+    </section>
+    <!-- 语音转文字（scripts/voice.js）：聊天里发来的语音先转成文字。用哪一种、模型、价格都由助手程序在状态里给（state.voice） -->
+    <section id="voice-section">
+      <h3><span data-i18n>语音转文字</span> <small id="voice-state"></small></h3>
+      <div id="voice-card" class="browser-card voice-card">
+        <div class="browser-top">
+          <span class="browser-glyph" aria-hidden="true"><svg class="icon"><use href="#i-mic"/></svg></span>
+          <div class="browser-words">
+            <b data-i18n>在聊天里发语音</b>
+            <p data-i18n>在 Telegram 里按住说一句话，智狐先把它转成文字、回给你看一眼，再当作你说的话来回答。</p>
+          </div>
+        </div>
+        <div class="voice-fields">
+          <label class="voice-field"><span class="voice-label" data-i18n>用哪一种</span>
+            <select id="voice-provider" class="field">
+              <option value="auto" data-i18n>自动：有 OpenAI 的密钥就用它</option>
+              <option value="openai">OpenAI</option>
+              <option value="local" data-i18n>你自己运行的兼容服务</option>
+              <option value="off" data-i18n>关闭</option>
+            </select>
+          </label>
+          <label id="voice-model-row" class="voice-field"><span class="voice-label" data-i18n>模型</span>
+            <select id="voice-model" class="field"></select>
+          </label>
+          <div id="voice-local" class="voice-local" hidden>
+            <label class="voice-field"><span class="voice-label" data-i18n>地址</span>
+              <input id="voice-url" class="field" type="url" spellcheck="false" autocomplete="off" maxlength="500" placeholder="http://127.0.0.1:8000/v1" aria-describedby="voice-local-note" data-keep="voice-url">
+            </label>
+            <label class="voice-field"><span class="voice-label" data-i18n>模型名</span>
+              <input id="voice-local-model" class="field" type="text" spellcheck="false" autocomplete="off" maxlength="100" data-keep="voice-local-model">
+            </label>
+            <div class="voice-local-foot">
+              <p id="voice-local-note" class="voice-local-note"></p>
+              <button id="voice-local-save" class="button" type="button" data-i18n>保存</button>
+            </div>
+          </div>
+        </div>
+        <div id="voice-status" class="voice-status" role="status"></div>
+      </div>
+      <p id="voice-cost" class="hint"></p>
     </section>
     <section id="service-section" hidden>
       <h3 data-i18n>后台运行</h3>

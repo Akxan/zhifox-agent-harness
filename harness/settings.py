@@ -2,7 +2,8 @@
 
 两样东西存在两个地方：
 
-  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关。不含任何密钥。
+  data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关、
+                       语音转文字用哪一种（见 voice/settings.py）。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -18,6 +19,8 @@ from pathlib import Path
 from . import i18n
 from .budget import valid_budget
 from .safe import private_dir, to_json, write_file
+from .voice.settings import DEFAULTS as VOICE_DEFAULTS
+from .voice.settings import voice_settings
 
 
 class Settings:
@@ -49,6 +52,8 @@ class Settings:
         self.browser: dict = browser_settings(saved.get("browser"))
         # 操作整台电脑（见 desktop/）：开没开、定时任务和聊天通道能不能用、哪些程序不许碰。默认关着，打开要你在设置里确认一次
         self.computer: dict = computer_settings(saved.get("computer"))
+        # 语音转文字（见 voice/）：用哪一种、哪个模型、本机服务的地址。默认"自动"：有 OpenAI 的密钥就用它
+        self.voice: dict = voice_settings(saved.get("voice"))
 
     def save(self) -> None:
         with self._lock:
@@ -108,6 +113,12 @@ class Settings:
             self.computer = computer_settings({**self.computer, **changes})
             self._write()
 
+    def set_voice(self, changes: dict) -> None:
+        """改语音转文字的设置（只改给了的那几项，见 voice/settings.py 的 voice_settings；不合格的值调用的人先查过）。"""
+        with self._lock:
+            self.voice = voice_settings({**self.voice, **changes})
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -127,6 +138,8 @@ class Settings:
             data["browser"] = self.browser
         if self.computer != COMPUTER_DEFAULTS:
             data["computer"] = self.computer
+        if self.voice != VOICE_DEFAULTS:
+            data["voice"] = self.voice
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 

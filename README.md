@@ -79,7 +79,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   default), catch up once after ZhiFox was closed, and record what each one cost.
 - 📱 **Chat channels: talk to it from Telegram, Discord, Slack, Feishu, DingTalk or QQ.** Connect your own bot in a
   four-step wizard (or from the command line) and chat with ZhiFox from your phone, photos and files included, both
-  ways: ask for a screenshot or a report and it arrives in the chat as a photo or a file (after you approve it). No
+  ways: ask for a screenshot or a report and it arrives in the chat as a photo or a file (after you approve it). On
+  Telegram you can also just hold to talk: the voice message is transcribed first and answered like typed text. No
   public URL or open port: ZhiFox long-polls Telegram and keeps an outgoing WebSocket open to the others (a
   hand-written RFC 6455 client; Feishu and DingTalk use their official SDKs, installed only if you want them). Only the
   account you pair with a 6-digit code is served, and every command or file change it wants to make arrives in the chat
@@ -259,6 +260,7 @@ Each part of the harness has its own file or directory:
 | Scheduled tasks | [harness/tasks.py](harness/tasks.py), [harness/webui/scheduler.py](harness/webui/scheduler.py), [harness/tools/tasks.py](harness/tools/tasks.py) | A model only acts when you write to it. Tasks let it act at a set time: the schedules and their storage, the runner that works alongside your conversation and pauses for approval, and the tools that set one up from a sentence |
 | System prompt | [harness/prompt.py](harness/prompt.py) | A model doesn't know who it is or what environment it is running in. The built-in prompt can be replaced by your own, and the line about web search is only given to providers that have it |
 | Chat channels | [harness/channels/](harness/channels/) | You can only reach the assistant at the computer it runs on. A channel connects it to a chat app (Telegram, Discord, Slack, Feishu, DingTalk, QQ): one small client per platform, pairing so only you are served, one conversation per chat that runs beside the web chat, and approvals with buttons or by reply, and `send_file` ([tools/send.py](harness/tools/send.py)) to send photos and files back into the chat (see [Chat channels](#chat-channels-talking-to-zhifox-from-your-chat-app)) |
+| Voice to text | [harness/voice/](harness/voice/), [harness/webui/voice_api.py](harness/webui/voice_api.py) | Models read text, but on a phone it's quicker to speak. A voice message from a chat (Telegram for now) is sent to a speech-to-text service first: OpenAI's transcription API or a compatible one you run yourself. The settings and their checks, the client, and the whole chat-side process (limits, download, transcribe, record the cost) (see [Voice messages](#voice-messages-telegram)) |
 | WebSocket and HTTP | [harness/net/](harness/net/) | Discord, Slack and QQ push messages over a WebSocket the bot opens itself. A small RFC 6455 client on `socket` + `ssl` (masking, fragments, ping/pong, the close handshake, size limits, timeouts, HTTP proxies) and a JSON-over-HTTPS helper that keeps tokens out of errors and redirects, plus a `multipart/form-data` encoder for uploading files ([multipart.py](harness/net/multipart.py)) |
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
@@ -858,6 +860,42 @@ each finished paragraph goes back to the chat; a command or file change first ar
    ("zip it first", "make a smaller copy"). The first message of a chat conversation (the `<channel>` note) also tells
    the model to send files rather than paths, which a phone can't open; the system prompt is untouched, because every
    conversation shares it.
+
+#### Voice messages (Telegram)
+
+Holding the microphone button in Telegram sends a voice message (an OGG/Opus file with its length); an audio file
+(MP3, M4A…) arrives the same way. None of the models ZhiFox uses takes sound in a chat request, so the channel turns
+it into text first ([harness/voice/](harness/voice/)):
+
+```text
+voice message ──► checks (switched on? at most 10 minutes? a format the service takes?) ──► download from Telegram
+      ──► POST <service>/audio/transcriptions (multipart: file, model, response_format=json) ──► {"text": …, "usage": {"seconds": …}}
+      ──► the chat gets "(Voice to text) …"  ──► the turn starts with "（语音转文字）…" as your message
+```
+
+- **Which service.** **Settings → Voice to text** picks one: *Automatic* (the default: OpenAI when an OpenAI API key is
+  set, otherwise off), *OpenAI* (`POST https://api.openai.com/v1/audio/transcriptions`, model `gpt-transcribe`, which
+  [OpenAI's speech-to-text guide](https://developers.openai.com/api/docs/guides/speech-to-text) recommends; the older
+  `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` and `whisper-1` can be chosen too, until OpenAI retires them on
+  2027-02-26), *a compatible service you run yourself* (anything that speaks the same API, for example a
+  faster-whisper server; its address and model name are set in the page) or *Off*. Without a usable one, the chat
+  replies with how to turn it on.
+- **Keys and addresses.** The OpenAI key comes from `.env` and is only ever sent to OpenAI's address, which can only be
+  changed by environment variable (`OPENAI_BASE_URL`), like the chat platforms' API bases. The address of your own
+  service can be set in the page because no key is ever sent there, only your audio; plain `http://` is allowed for
+  this computer only (`localhost`, `127.0.0.1`, `::1`), anything else must be `https://`, and the address may not carry
+  a user name or password. The key never reaches the browser (the page only learns whether one is set), the logs or an
+  error message.
+- **What the model sees.** The transcript, prefixed with "（语音转文字）" (written for the model, so it stays in
+  Chinese like the rest of the prompts), so it knows the words were heard, not typed, and may contain mistakes. A
+  caption on the voice message is appended. In the web page the same message shows a small *Voice to text* tag with
+  the length of the recording; editing that message later gives you only the text.
+- **Cost.** Transcription is billed by length (see [Cost](#cost)). Every transcription is one line in the spending
+  record with source `voice`; your own service is recorded at $0. Messages longer than 10 minutes
+  (`VOICE_MAX_SECONDS`) or bigger than 20 MB (`VOICE_MAX_BYTES`, Telegram's download limit for bots; OpenAI takes up
+  to 25 MB) are refused before anything is downloaded or sent, so they cost nothing.
+- **Only Telegram for now.** Discord, Slack, Feishu, DingTalk and QQ deliver voice differently (as attachments with
+  their own formats, or not at all to bots); there a voice message gets "voice to text only works on Telegram for now".
 
 #### Six platforms, three ways in
 
@@ -2101,7 +2139,9 @@ Setting up each platform (the wizard and `harness channels setup <platform>` pri
   for events. As the bot's admin you can chat with it right away, without publishing it or using the sandbox.
 
 After that, just message your bot. Photos and files go through the same checks as attachments in the page (Word, Excel
-and PowerPoint become text; voice messages and videos aren't supported yet). It works the other way too: ask for a
+and PowerPoint become text; videos aren't supported yet). On Telegram, voice messages and audio files are transcribed
+first and answered like text (see [Voice messages](#voice-messages-telegram)): turn it on in **Settings → Voice to
+text**. It works the other way too: ask for a
 screenshot, a chart or the report it just wrote, and after you approve the card (file, size, where it goes) it arrives
 in the chat as a photo or a file (except on QQ; see the limits in [Six platforms, three ways in](#six-platforms-three-ways-in)).
 In the chat (on Slack, write
@@ -2512,8 +2552,8 @@ unprivileged user for the service.
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, and the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`). No keys |
-| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost). Entries older than 90 days are merged into one line per day, model and source |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), and voice to text (`"voice": {"provider", "model", "url", "local_model"}`, written only once you change it). No keys |
+| `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost), and one per transcribed voice message (source `voice`, no tokens, with its length in `seconds`). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/channels.json` | Chat channels, per platform: the credentials (bot token, or app ID and secret; the secrets are secrets), the bot's name, the paired owner's account id and name, the approval mode, an active pairing code, which conversation each chat continues, and how far Telegram's messages have been read. Readable by your account only; the assistant's file tool can't open it; masked in exports |
 | `data/browser/profile/` | The profile of ZhiFox's own Chrome: cookies and logins of any site you signed in to there, its cache and history. Readable by your account only. **Settings → Browser → Clear** deletes it |
@@ -2643,6 +2683,13 @@ What the program does to keep cost under control:
   screenshots are resent on every turn (cached); ZhiFox never removes them from the history, because on the current
   Claude models that would invalidate the model's earlier thinking. Start a new conversation for a new job. Settings
   shows the estimate for your screen.
+- **Voice messages.** Transcribing a voice message from Telegram is billed per minute of audio, not per token, and
+  recorded in the spending record as source "voice" (the seconds are taken from OpenAI's reply when it gives them,
+  otherwise from Telegram). Prices from [OpenAI's pricing page](https://developers.openai.com/api/docs/pricing)
+  (Transcription, estimated cost), checked on 2026-11-22: `gpt-transcribe` (the default) $0.0045 per minute,
+  `gpt-4o-mini-transcribe` $0.003, `gpt-4o-transcribe` $0.006, `whisper-1` $0.006. A one-minute voice note on the default
+  model is under half a cent. Voice messages longer than 10 minutes aren't transcribed. A compatible service you run
+  yourself costs nothing.
 - **Subagents.** Handing a task to a subagent costs its own model calls (at most 25 per task), recorded as source
   "subagent" and shown on its card. In exchange, the pages it reads stay in its history, not in the main conversation,
   so the main conversation's later turns don't keep paying for them.
@@ -2682,6 +2729,7 @@ Set these in `.env`. All of them are optional:
 | `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
 | `HARNESS_DATA_DIR` | The project's `data/` | Where memory, to-dos, settings and other data are stored |
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Where voice messages are sent for transcription with your OpenAI key (and where OpenAI's SDK sends chat requests). Only `https://`, or plain `http://` to this computer |
 | `HARNESS_CHROME` | Found automatically | Full path of the Chrome (or Chromium, Edge, Brave) to use for browser use. A path entered in **Settings → Browser** takes precedence |
 
 ## Build your own tool
@@ -2771,7 +2819,9 @@ endpoints and their refusals, the confirmation, the event stream after a rewind 
 the media library) and [tests/test_rewind_cli.py](tests/test_rewind_cli.py) (`/retry` and `/edit`).
 Chat channels are tested against a local fake of each platform, while the test code plays your phone:
 [tests/fake_telegram.py](tests/fake_telegram.py) (a Bot API that checks the HTML and the length of every message the
-way Telegram does), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a
+way Telegram does, and serves voice messages and audio files), [tests/fake_transcribe.py](tests/fake_transcribe.py)
+(OpenAI's transcription endpoint: checks the form fields, the file name and the key, and can answer any error; voice
+to text is tested in [tests/test_voice.py](tests/test_voice.py) and never calls the real API), [tests/fake_discord.py](tests/fake_discord.py) and [tests/fake_qq.py](tests/fake_qq.py) (REST plus a
 gateway that can ask to reconnect, invalidate the session, stop acknowledging heartbeats or close with any code),
 [tests/fake_slack.py](tests/fake_slack.py) (the Web API plus Socket Mode, re-sending envelopes that weren't acked), and
 [tests/fake_feishu.py](tests/fake_feishu.py) / [tests/fake_dingtalk.py](tests/fake_dingtalk.py) (the HTTP APIs plus a
@@ -3069,6 +3119,8 @@ more often a bug in a task or a check than a fact about the model.
 - The background service (`harness service`) is tested against a fake `launchctl` and `systemctl` only; the tests never
   install a real one. On macOS, a project inside Documents, Desktop or Downloads may need a privacy permission first.
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
+- Voice to text has only been tested against a local fake of OpenAI's transcription endpoint, never the real API; in
+  particular, OpenAI's docs list the OGG container but don't mention the Opus codec Telegram voice notes use.
 - The evals (`harness eval`) have only been run as dry runs against the local fake servers; no real run has been done
   yet, so the starter tasks' scores and the cost estimate haven't been checked against a real model. The served model
   isn't checked against the one asked for (a server-side fallback after a refusal shows up only as a note in the trace).
@@ -3094,7 +3146,7 @@ more often a bug in a task or a check than a fact about the model.
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
   only comments, strings, numbers and keywords of common languages. The terminal shows the Markdown source as is.
 - Scheduled tasks and chat channels run only while the web UI or `harness serve` is running; tasks at most three at once.
-  Chat channels take text, photos and files (no voice or video yet) and can send photos and files back, except on QQ,
+  Chat channels take text, photos and files (no video yet; voice messages only on Telegram, transcribed first) and can send photos and files back, except on QQ,
   which only takes media from a public URL; WhatsApp and WeCom aren't supported yet because
   they need a public URL. Discord, Slack, Feishu, DingTalk and QQ were built from their official documentation and
   are tested only against local fakes so far, not yet with real bots. Two runs (or a run and your

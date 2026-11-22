@@ -391,7 +391,7 @@ def test_a_rich_text_message_brings_its_text_and_pictures(bot):
     s.idle()
 
 
-@pytest.mark.parametrize(("msgtype", "words"), [("audio", "还处理不了语音"), ("video", "还处理不了视频")])
+@pytest.mark.parametrize(("msgtype", "words"), [("audio", "还处理不了语音：语音转文字暂时只支持 Telegram"), ("video", "还处理不了视频")])
 def test_things_it_cannot_handle_get_an_explanation(bot, msgtype, words):
     s = bot()
     s.wait_reply(s.say(msgtype=msgtype), words)

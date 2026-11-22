@@ -142,6 +142,8 @@ function openSettings() {
   drawBrowserSettings(true);  // 窗口还没打开：直接画（renderBrowser 只在窗口开着时画这一节）
   showComputerConfirm(false);
   drawComputerSettings(true);
+  voicePicked = '';
+  drawVoiceSettings(true);  // "语音转文字"一节（见 voice.js）
   renderService();  // "后台运行"一节（见 service.js）
   settings.showModal();
 }

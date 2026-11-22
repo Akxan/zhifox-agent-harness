@@ -37,6 +37,7 @@ from ..i18n import k, message_of, t
 from ..permissions import MODES
 from ..providers import PROVIDERS, has_key
 from ..tasks import retell
+from ..voice import VoiceError, listen
 from .base import ChannelError, Inbound, Prompt
 from .outbound import Outlet
 from .platforms import LABELS
@@ -59,6 +60,10 @@ UNSUPPORTED = {
     "contact": k("联系人"),
     "poll": k("投票"),
 }
+
+
+# 语音和音频：Telegram 会交给语音转文字（见 ../voice/），别的平台还没接，收到时说"暂时只支持 Telegram"
+VOICE_KINDS = {"voice", "audio"}
 
 
 # 没问你就放行了一步时，聊天里发的那一行（为什么不问，见 permissions.Permissions.allowance）
@@ -279,7 +284,11 @@ class Session:
         say = lambda text: self.router.say(self.platform, self.chat, text)
         if inbound.unsupported:
             kind = UNSUPPORTED.get(inbound.unsupported, inbound.unsupported)
-            say(t("还处理不了{kind}。可以发文字、图片或者文件（PDF、Word、Excel、文本……）。", kind=t(kind)))
+            if inbound.unsupported in VOICE_KINDS:
+                # 语音转文字（见 ../voice/）暂时只接了 Telegram：别的平台收到语音时说清楚，免得以为是坏了
+                say(t("还处理不了{kind}：语音转文字暂时只支持 Telegram。可以发文字、图片或者文件（PDF、Word、Excel、文本……）。", kind=t(kind)))
+            else:
+                say(t("还处理不了{kind}。可以发文字、图片或者文件（PDF、Word、Excel、文本……）。", kind=t(kind)))
             return
         try:
             attachments = self._attachments(inbound)
@@ -287,7 +296,7 @@ class Session:
             say(t("这个文件用不了：{error}", error=message_of(exc)))
             return
         text = inbound.text.strip()
-        if not text and not attachments:
+        if not text and not attachments and inbound.audio is None:
             return
         try:
             problem = self._prepare()
@@ -307,6 +316,17 @@ class Session:
             if problem:
                 say(problem)
                 return
+            # 一段语音：先转成文字（检查、下载、转、记账都在 voice/listen.py）。放在准备好会话之后：
+            # 模型那边没有密钥这类"这一轮开始不了"的情况已经说过了，不会白花转文字的钱
+            voice, sent = None, text
+            if inbound.audio is not None:
+                heard = self._hear(inbound)
+                if heard is None:
+                    return
+                voice = heard.seconds
+                text = "\n\n".join(part for part in (heard.text, text) if part)  # 语音附带的说明（caption）接在后面
+                # 模型拿到的这一份开头写明是听写出来的（写给模型看，所以是中文、不翻译）：里面可能有听错的字
+                sent = "（语音转文字）" + text
             if not conversation.title:
                 conversation.title = make_title(text) or (make_title(attachments[0].name) if attachments else "")
             agent.permissions.mode = self.router.store.get(self.platform)["approval"]  # 你可能刚在页面上换过
@@ -315,11 +335,11 @@ class Session:
             if self.router.capabilities(self.platform).typing:
                 threading.Thread(target=self._typing, args=(done,), daemon=True).start()
             # 记下这一轮从历史的哪个位置开始：网页上打开这段会话时，最后一轮能编辑、重新生成（见 rewind.py）
-            self.ui.begin_turn(text, attachments, mark=agent.backend.mark())
+            self.ui.begin_turn(text, attachments, mark=agent.backend.mark(), voice=voice)
             if self._stop_asked:
                 self.ui.request_stop()  # 准备的时候就被 /stop 了：begin_turn 刚把旗子放下，再立起来
             try:
-                run_turn(agent, self.ui, text, attachments)
+                run_turn(agent, self.ui, sent, attachments)
             finally:
                 done.set()
                 self.ui.end_turn()
@@ -329,6 +349,27 @@ class Session:
         finally:
             self.router.claims.release(conversation.id, self.key)
             self.router.saved(conversation.id)
+
+    def _hear(self, inbound: Inbound):
+        """把这条消息里的语音转成文字（见 ../voice/）。转好了先在聊天里回一句"（语音转文字）……"，让你看看听得对不对；
+        转不了（没打开、太长、服务出错了）说清楚为什么，返回 None：这一轮不开始。"""
+        say = lambda text: self.router.say(self.platform, self.chat, text)
+        audio = inbound.audio
+        assert audio is not None
+        self.router.typing(self.platform, self.chat)  # 转一段长的要好几秒：先让对方看到"正在输入"
+        try:
+            heard = listen(self.router.app, audio)
+        except VoiceError as exc:
+            say(message_of(exc))
+            return None
+        finally:
+            self.router.changed()  # 记了一笔账：页面上的"今天花了多少"跟着变
+        if not heard.text:
+            say(t("没有听出这段语音里说了什么。可以再说一遍，或者打字发过来。"))
+            return None
+        logger.info("%s: 转好了一段 %.0f 秒的语音", self.key, heard.seconds or 0)
+        say(t("（语音转文字）{words}", words=heard.text))
+        return heard
 
     def _close_browser(self) -> None:
         """一轮结束：关掉这个聊天自己开的浏览器标签页（和定时任务的一次运行一样，见 App._side_run 的 close）。

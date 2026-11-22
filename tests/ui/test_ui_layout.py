@@ -27,7 +27,9 @@ def _surfaces(page):
         ("多媒体", lambda: steps.nav_tab(page, "media"), ["#nav"], None),
         ("信息栏", lambda: (steps.close_nav(page), steps.open_side(page)), ["#side"], None),
         ("信息栏 · 智狐能做的事（全部点开）", lambda: steps.expand_capabilities(page), ["#side"], None),
-        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], "settings"),
+        ("设置", lambda: (steps.close_side(page), steps.open_dialog(page, "#settings-open", "settings")), ["#settings"], None),
+        # 语音转文字：选了"你自己运行的兼容服务"以后多出来的地址、模型名和那一行说明（左边一列名字，窄屏上改成上下两行）
+        ("设置 · 语音转文字（你自己运行的服务）", lambda: steps.voice_local(page), ["#settings"], "settings"),
         # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
         ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),

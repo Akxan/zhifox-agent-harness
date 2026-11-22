@@ -235,9 +235,10 @@ class WebUI:
 
     # ---- 一轮对话的开始和结束（server.py 使用）-----------------------------
 
-    def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = (), mark: int | None = None) -> None:
+    def begin_turn(self, user_text: str, attachments: Sequence[Attachment] = (), mark: int | None = None, voice: float | None = None) -> None:
         """一轮开始：显示用户的消息。mark 是这一轮开始时适配层的位置（Backend.mark），记在 user 事件上、跟着存进会话文件，
-        以后要编辑这条消息、重新生成回答时，从这里倒回去（见 rewind.py）。不给就不记，这一轮倒不回去。"""
+        以后要编辑这条消息、重新生成回答时，从这里倒回去（见 rewind.py）。不给就不记，这一轮倒不回去。
+        voice：这条消息是聊天里的一段语音转出来的（见 voice/），值是语音有多少秒。页面在消息上标一个"语音转文字"。"""
         with self._changed:
             self._stop_requested = False
             self._drop_stale_states()
@@ -247,6 +248,8 @@ class WebUI:
         extra = {"attachments": [item.summary() for item in attachments], "at": round(time.time(), 3)} if attachments else {}
         if mark is not None:
             extra["mark"] = mark
+        if voice is not None:
+            extra["voice"] = round(max(0.0, voice), 1)
         self.publish("user", text=user_text, **extra)
         self.publish("turn_start")
 
