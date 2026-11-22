@@ -4,29 +4,9 @@ from __future__ import annotations
 
 from . import checks, steps
 
-# WCAG 的对比度：正文至少 4.5:1
-CONTRAST = r"""
-((selectors) => {
-  const parse = (color) => (color.match(/[\d.]+/g) || []).map(Number);
-  const luminance = ([r, g, b]) => {
-    const linear = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
-  };
-  const backdrop = (node) => {
-    for (let at = node; at; at = at.parentElement) {
-      const [r, g, b, a = 1] = parse(getComputedStyle(at).backgroundColor);
-      if (a > 0.9) return [r, g, b];
-    }
-    return [255, 255, 255];
-  };
-  return selectors.map((selector) => {
-    const node = document.querySelector(selector);
-    if (!node) return [selector, null];
-    const ink = luminance(parse(getComputedStyle(node).color)), paper = luminance(backdrop(node));
-    return [selector, Math.round(((Math.max(ink, paper) + 0.05) / (Math.min(ink, paper) + 0.05)) * 100) / 100];
-  });
-})
-"""
+# WCAG 的对比度：正文至少 4.5:1。脚本在 checks.py（几个页面测试共用），这里留一个名字给还从这里导入它的测试
+CONTRAST = checks.CONTRAST
+# 要查对比度的几样文字（见 checks.contrast）
 TEXT = ["#hero-lead", ".conv-title", ".conv-meta", "#title", ".keys", "#foot-cost"]
 
 
@@ -53,7 +33,7 @@ def test_light_by_default_dark_and_follow_system(page):
     page.wait("document.body.classList.contains('ready')")
     assert page.js("document.documentElement.dataset.theme") == "light"
     light_bg = page.js("getComputedStyle(document.body).backgroundColor")
-    for selector, ratio in page.js(f"({CONTRAST})({TEXT!r})"):
+    for selector, ratio in checks.contrast(page, TEXT):
         assert ratio is None or ratio >= 4.5, f"浅色下 {selector} 的对比度只有 {ratio}"
 
     page.click("#theme")
@@ -63,7 +43,7 @@ def test_light_by_default_dark_and_follow_system(page):
     page.wait("document.documentElement.dataset.theme === 'dark'", what="换成深色")
     steps.idle(page)
     assert page.js("getComputedStyle(document.body).backgroundColor") != light_bg
-    for selector, ratio in page.js(f"({CONTRAST})({TEXT!r})"):
+    for selector, ratio in checks.contrast(page, TEXT):
         assert ratio is None or ratio >= 4.5, f"深色下 {selector} 的对比度只有 {ratio}"
     # Esc 收起面板，焦点回到外观按钮上
     page.key("Escape")
@@ -168,11 +148,17 @@ def test_the_checks_themselves_catch_planted_problems(page):
         "  const words = stage.appendChild(document.createElement('button'));"
         "  words.id = 'planted-words'; words.textContent = '忘了翻译'; words.title = '这个也忘了';"
         "  stage.appendChild(document.createElement('select')).id = 'planted-select';"
+        "  const card = stage.appendChild(document.createElement('div'));"
+        "  card.id = 'planted-card'; card.style.cssText = 'display:flex;width:120px;border:1px solid';"
+        "  const badge = card.appendChild(document.createElement('span'));"
+        "  badge.id = 'planted-badge'; badge.style.cssText = 'flex:none;width:200px;border:1px solid'; badge.textContent = 'ok';"
         "})()"
     )
     leaks = checks.overflow(page, [".stage"])
     assert any("planted-leak" in item and "冲出了边框" in item for item in leaks)
     assert any("planted-cut" in item and "没有省略号" in item for item in leaks)
+    assert not any("planted-badge" in item for item in leaks)  # 字在小框里放得下：overflow 看不出来
+    assert any("planted-badge" in item for item in checks.sticking_out(page, ["#planted-card"]))  # 小框伸出了卡片
     assert checks.row_trio(page, ".planted-row")
     assert any("planted-select" in item for item in checks.native_selects(page))
     found = checks.untranslated(page, [".stage"])

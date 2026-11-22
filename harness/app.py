@@ -73,6 +73,7 @@ from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
 from .tools.skill import TOOL_NAME as SKILL_TOOL
 from .tools.todo import TodoStore
+from .undo.changes import FileChanges
 
 # 设置里选的那一家不在了（自定义接口被删掉了、设置文件被改坏了）时，退回到这一家的这个模型
 FALLBACK = ("anthropic", "claude-opus-5-5")
@@ -119,6 +120,7 @@ class App:
     chat_desktop: DesktopSession  # 你正在看的这段对话的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
     sandbox_layout: Layout  # 命令的沙箱要用的几个地方（见 sandbox/）：每次运行的 Sandbox 都照着它建
     endpoints: EndpointStore  # 自定义模型接口（data/endpoints.json，见 endpoints/）。providers.find / every 也看得到它们
+    changes: FileChanges  # 每一轮文件工具改了哪些文件，和撤回、重做（见 undo/）。只有你的对话记账，定时任务和聊天通道不记
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 当前这段对话的适配层用的是哪一版提示词。和 system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -735,6 +737,8 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     store = ConversationStore(config.conversations_dir)
     browser = BrowserManager(config.browser_dir, settings)
     desktop = DesktopManager(config.desktop_dir, settings)
+    changes = FileChanges(config.undo_dir, files, private=[config.data_dir])
+    changes.prune()  # 过期的留底（只留 UNDO_KEEP_DAYS 天）启动时删掉
     app = App(
         config=config,
         settings=settings,
@@ -760,7 +764,10 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         chat_desktop=desktop.session(desktop_labels.CHAT, attended=True),
         sandbox_layout=layout,
         endpoints=endpoints,
+        changes=changes,
     )
+    # 你撤回、重做了文件以后，这段会话的下一条消息前面附一段说明，模型才知道它记得的文件内容过时了（见 undo/notes.py）
+    agent.notes.append(lambda history: changes.notes.text(app.conversation.id))
     # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
     # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
     agent.use_tools(app.conversation_tools(None))

@@ -9,7 +9,9 @@
   GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py）
   POST /api/confirm    用户对一个确认请求点了"允许"或"拒绝"
-  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）
+  POST /api/turn/edit、retry   编辑最后一条消息、重新生成最后一个回答（倒回最后一轮再跑一遍，见 rewind.py）。
+                       带上 undo_files 的话，倒回去之前先撤回这一轮改的文件（见 undo/）
+  POST /api/changes/diff、undo、redo   "改了 N 个文件"那一行：看一个文件改了什么、撤回、重做（见 changes_api.py）
   POST /api/stop       用户点了"停止"
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话
@@ -134,11 +136,15 @@ from ..settings import valid_api_key
 from ..tasks import TaskError, TaskRefused
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
+from ..tools.shell import TOOL_NAME as SHELL_TOOL
+from ..undo.journal import Journal, recording
+from ..undo.restore import sets_in as rewind_sets
 from . import lifecycle, models_api
 from . import manifest as web_manifest
 from .agents_api import AgentsAPI
 from .browser_api import BrowserAPI
 from .capabilities_api import page_state as capabilities_state
+from .changes_api import ChangesAPI, issues
 from .commands_api import CommandsAPI
 from .computer_api import ComputerAPI
 from .endpoints_api import EndpointsAPI
@@ -234,6 +240,7 @@ class WebApp:
         self.commands = CommandsAPI(self, lambda path: reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
+        self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -437,7 +444,11 @@ class WebApp:
     def _run_turn(self, text: str, attachments: list[Attachment], again: int | None = None) -> None:
         """跑一轮。again：重新生成时，这一轮开始的位置（见 rewind）。那条用户消息已经在页面上了，不再显示一遍；
         它还在历史里的话原样留着，只重跑模型的那部分（Agent.retry_turn），不在的话（上一次在模型答出第一步之前就失败了）
-        用同样的文字和附件再发一次。"""
+        用同样的文字和附件再发一次。
+
+        这一轮里文件工具改的文件记在一本账上（见 undo/journal.py），一轮结束时合上，页面上这一轮末尾多一行"改了 N 个文件"。"""
+        journal = self.app.changes.start()
+        start = None  # 用户消息放在历史的哪个位置（这一轮发了新的用户消息才有）：附上的"文件撤回过"的说明有没有留住，看它
         try:
             self._discard_ok = ""  # 接着聊了：之前那句"再点一次就放弃"不再算数
             self.app.name_conversation(text, attachments)  # 新会话用第一句话当标题（没写字的话用第一个附件的名字）
@@ -449,13 +460,16 @@ class WebApp:
             else:
                 self.ui.begin_again()
             self.publish_state()  # 让新会话马上出现在列表里
-            if again is not None and backend.turn_at(again):
-                retry_turn(self.app.agent, self.ui, again)
-            else:
-                run_turn(self.app.agent, self.ui, text, attachments, again=again is not None)
+            with recording(journal):
+                if again is not None and backend.turn_at(again):
+                    retry_turn(self.app.agent, self.ui, again)
+                else:
+                    start = backend.mark()
+                    run_turn(self.app.agent, self.ui, text, attachments, again=again is not None)
         finally:
             try:
                 self.ui.end_stream()
+                self._finish_changes(journal, start)
                 self._save()  # 每一轮结束都存一次盘，所以最多只会丢失正在进行的这一轮
                 self.publish_state()
             finally:
@@ -470,6 +484,23 @@ class WebApp:
                     self.ui.end_turn()
                     self._turn.release()
 
+    def _finish_changes(self, journal: Journal, start: int | None) -> None:
+        """一轮结束：合上记账的本子，这一轮改了文件的话发一个 file_changes 事件（页面上那一行"改了 N 个文件"，见 undo/）。
+        这一轮的消息前面附过"文件撤回过"的说明、而且那条消息留在了历史里，这段说明就不用再说了（见 undo/notes.py）。"""
+        try:
+            _, events = self.ui.last_turn_events()
+            ran = any(
+                (event.get("type") == "tool_call" or (event.get("type") == "subagent" and event.get("step") == "tool_call")) and event.get("name") == SHELL_TOOL
+                for event in events
+            )
+            summary = self.app.changes.finish(journal, commands=ran)
+            if summary is not None:
+                self.ui.publish("file_changes", **summary)
+            if start is not None:
+                self.app.changes.notes.settle(self.app.conversation.id, sent=self.app.agent.backend.turn_at(start))
+        except Exception as exc:  # noqa: BLE001 —— 这是在一轮收尾时调用的：出了什么错都不能耽误后面的存盘
+            self.ui.error(t("没能记下这一轮改了哪些文件（{error}），这一轮的改动没法一键撤回。", error=str(exc) or type(exc).__name__))
+
     # ---- 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）-------------------
 
     def _rewind_state(self) -> dict | None:
@@ -482,6 +513,7 @@ class WebApp:
           effects  这一轮做过的、可能改动了东西的事（每件一行）。不是空的，倒回去之前在原地问你一次
           more     太多了没列出来的还有几项（"……还有几项"那一句由页面自己写）
           operated 这些事里有没有操作过整台电脑（"computer"）、在浏览器里点过输入过（"browser"）：页面为它们单独写一句"撤不回来"
+          files    这一轮文件工具改的文件里还有几个没撤回（见 undo/）。不是 0 的话，确认卡片上可以勾"同时撤回这一轮改的文件"
         """
         start, events = self.ui.last_turn_events()
         turn = rewind.last_turn(events, start)
@@ -497,6 +529,7 @@ class WebApp:
             "effects": effects,
             "more": more,
             "operated": rewind.operated(turn.events),
+            "files": self.app.changes.applied(self.app.changes.last_set(turn.events), turn.events),
         }
 
     def _rewind_problem(self, turn: rewind.Turn) -> str:
@@ -519,13 +552,19 @@ class WebApp:
             return t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。")
         return t("这一轮在对话历史里找不到了，倒不回去。可以接着发一条新消息。")
 
-    def rewind(self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False) -> tuple[str, dict]:
+    def rewind(
+        self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False, undo_files: bool = False, undo_force: bool = False
+    ) -> tuple[str, dict]:
         """编辑最后一条消息（action 是 edit，text 是改过的文字，keep 是留下第几个附件，None 是全部）、
         重新生成最后一个回答（retry）。返回（不能做的原因，回答里另外带的东西）；做成了返回空字符串，新的一轮在后台开始。
 
         target 是页面看到的那一轮：（会话的编号，它的 user 事件的编号）。和现在的最后一轮对不上（另一个标签页刚倒回过、
         已经换了一段会话、聊天通道刚聊过一轮），就不做。
         这一轮做过可能改动了东西的事、而你还没有确认（confirmed），也不做，回答里带上 effects，页面在原地问你。
+
+        undo_files：倒回去之前先撤回这一轮文件工具改的文件（确认卡片上勾了"同时撤回这一轮改的文件"，见 undo/）。
+        有要你确认的（这一轮之后文件又被改过……）、又没有 undo_force，就先不做，回答里带上 undo（asks、blocked），页面在卡片上问你。
+        一起撤回的不记 file_undo 事件、不告诉模型：这一轮马上就从对话里去掉了，它改文件的记录也跟着去掉。
 
         和发消息一样拿着对话的锁、认领这段会话（见 claims.py），新的一轮跑完才放开。倒回去以后马上存一次盘：
         会话文件里的 messages 和 events 一起截断，搜索和多媒体的索引跟着更新（ConversationStore.save → _remember），
@@ -569,9 +608,15 @@ class WebApp:
                 problem = self.app.attachment_problem(attachments)  # 换过模型的话，现在这个可能看不了图片
                 if problem:
                     return problem, {}
+            if undo_files:
+                problem, extra = self._undo_with_rewind(turn, undo_force)
+                if problem:
+                    return problem, extra
             if action == "edit":
                 self.app.retitle(turn.text, turn.attachments, text, attachments, earlier=self.ui.user_events()[:-1])
             backend.rollback(mark + 1 if kept else mark)
+            # 这一轮从对话里去掉了：撤回过它改的文件、还没来得及告诉模型的那几句也不用说了（模型本来就不知道它改过）
+            self.app.changes.notes.drop(self.app.conversation.id, rewind_sets(turn.events))
             self.ui.rewind(keep_user=action == "retry")
             self._save()
             self.publish_state()  # 重放到这里结束：之后新的一轮照常播放入场动画
@@ -582,6 +627,27 @@ class WebApp:
             if not started:
                 self.claims.release(self.app.conversation.id, "web")
                 self._turn.release()
+
+    def _undo_with_rewind(self, turn: rewind.Turn, force: bool) -> tuple[str, dict]:
+        """倒回最后一轮之前，撤回它改的文件。返回（不能接着倒回去的原因，回答里另外带的东西）。调用的人拿着对话的锁。"""
+        changes = self.app.changes
+        set_id = changes.last_set(turn.events)
+        if not set_id or not changes.applied(set_id, turn.events):
+            return "", {}  # 这一轮没改文件，或者已经都撤回了
+        result = changes.act("undo", set_id, self.ui.export_events(), None, force)
+        details = {"undo": issues(result)}
+        failed = any("failed" in item["reasons"] for item in result.blocked)
+        if result.event is None:
+            if force and not failed:
+                return "", {}  # 你点了"仍然撤回"：做不了的跳过；一个都做不了（不能碰的文件、留底坏了……）也照样倒回去
+            return result.error, details
+        if failed:
+            # 有的写不进去（被别的程序占着、没有权限）：已经撤回的照实记下来，这一轮先不倒回去，免得改动的记录跟着没了
+            self.ui.publish("file_undo", **result.event)
+            self._save()
+            self.publish_state()
+            return t("有的文件没能撤回，这一轮没有倒回去。看一眼那一行的说明再试。"), details
+        return "", {}
 
     def _save(self) -> None:
         """把当前会话存盘。存不上就在页面上说明原因；内容还在内存里，下一轮结束时会再存一次。"""
@@ -1287,7 +1353,9 @@ class Handler(BaseHTTPRequestHandler):
             action, confirmed = path.removeprefix("/api/turn/"), body.get("confirmed", False)
             conversation_id, turn_id = body.get("conversation"), body.get("turn")
             text, keep = body.get("text", ""), body.get("keep")
+            undo_files, undo_force = body.get("undo_files", False), body.get("undo_force", False)
             bad = not isinstance(conversation_id, str) or not isinstance(turn_id, int) or isinstance(turn_id, bool) or not isinstance(confirmed, bool)
+            bad = bad or not isinstance(undo_files, bool) or not isinstance(undo_force, bool)
             if action == "edit":
                 bad = bad or not isinstance(text, str) or len(text) > MAX_MESSAGE_CHARS
                 indexes = keep if isinstance(keep, list) else []
@@ -1298,7 +1366,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": t("参数不正确")})
             else:
                 target = (conversation_id, turn_id)
-                error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed)
+                error, extra = web.rewind(action, target, text.strip() if action == "edit" else "", keep if action == "edit" else None, confirmed, undo_files, undo_force)
                 if error:
                     self._send_json(409, {"error": error, **extra})
                 else:
@@ -1551,6 +1619,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/sandbox/"):
             status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
+        elif path.startswith("/api/changes/"):
+            status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)
             self._send_json(status, payload)
         elif path == "/api/computer/shot":
             content = web.computer.shot(body.get("id"))

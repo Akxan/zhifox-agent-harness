@@ -36,6 +36,7 @@ from .settings import Settings
 from .tools.todo import format_todos
 from .trace import text as trace_text
 from .ui import TerminalUI
+from .undo.terminal import TerminalChanges
 
 SETUP_HELP = k("""\
 还没有设置 {label} 的 API 密钥，助手需要它才能调用模型。有两种办法：
@@ -59,6 +60,7 @@ HELP = k("""\
 /auto    查看或更改"要不要每次都问我"：/auto ask 每次都问，/auto readonly 只读的命令不用问，/auto edits 改工作目录里的文件不用问，/auto all 全部自动允许
 /retry   重新生成最后一个回答（只去掉这一轮里模型写的、做的，你的消息原样再发一次）
 /edit    改最后一条消息再发：上一条会填在输入行里，改完按回车；也可以直接写 /edit 新的文字
+/undo    撤回最近一轮改的文件（文件工具做的改动；命令改动的文件没法自动撤回），先列出来问你
 /exit    退出""")
 
 COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto"}
@@ -112,15 +114,16 @@ class LastTurn:
     text: str
 
 
-def ask_turn(app: App, ui: TerminalUI, text: str, again: bool = False) -> LastTurn:
-    """跑一轮新的对话，返回记下的这一轮。again：这是 /retry 把上一次没答出来的那一轮整条再发一次（运行记录上标出来）。"""
+def ask_turn(app: App, ui: TerminalUI, text: str, changes: TerminalChanges, again: bool = False) -> LastTurn:
+    """跑一轮新的对话，返回记下的这一轮。这一轮文件工具改的文件记下来，/undo 能撤回（见 undo/terminal.py）。
+    again：这是 /retry 把上一次没答出来的那一轮整条再发一次（运行记录上标出来）。"""
     mark = app.agent.backend.mark()
     ui.turn_events = []
-    run_turn(app.agent, ui, text, again=again)
+    changes.record(lambda: run_turn(app.agent, ui, text, again=again), sends_message=True)
     return LastTurn(mark, text)
 
 
-def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: LastTurn | None) -> LastTurn | None:
+def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: LastTurn | None, changes: TerminalChanges) -> LastTurn | None:
     """/retry：重新生成最后一个回答；/edit：改最后一条消息再发。返回之后的最后一轮（没做成就是原来那一轮）。
 
     和网页界面一样只能倒最后一轮（原因见 rewind.py 开头）；这一轮做过可能改动了电脑的事，先问一次：
@@ -154,11 +157,11 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
             return last
     if command == "/retry" and present:
         ui.turn_events = []
-        retry_turn(app.agent, ui, last.mark)
+        changes.record(lambda: retry_turn(app.agent, ui, last.mark), sends_message=False)
         return last
     # 编辑：连那条消息一起倒回去；再试一次（上一次没答出第一步就失败了，消息已经撤回）：本来就不在历史里，什么都不用去掉
     backend.rollback(last.mark)
-    return ask_turn(app, ui, text, again=command == "/retry")
+    return ask_turn(app, ui, text, changes, again=command == "/retry")
 
 
 # "智狐能做的事"里每一项的状态，在终端里的说法（网页上的样子见 page/scripts/capabilities.js）
@@ -260,6 +263,7 @@ def run_terminal(config: Config) -> int:
     ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
 
     last: LastTurn | None = None  # 最后一轮（/retry、/edit 用）
+    changes = TerminalChanges(app, ui)  # 每一轮改了哪些文件（/undo 用）
     try:
         while True:
             text = ui.read_input()
@@ -271,18 +275,22 @@ def run_terminal(config: Config) -> int:
             name, _, argument = text.partition(" ")
             if text == "/retry" or name == "/edit":  # /edit 可以带上新的文字
                 try:
-                    last = rewind_last(name, argument.strip(), app, ui, last)
+                    last = rewind_last(name, argument.strip(), app, ui, last, changes)
                 finally:
                     app.chat_desktop.release()  # 重新跑的那一轮也一样：结束时松开还按着的鼠标键，屏幕让出来
+                continue
+            if text == "/undo":
+                changes.undo()
                 continue
             if text in COMMANDS or text.startswith("/auto "):  # /auto 可以带参数
                 if not handle_command(text, app, ui):
                     break
                 if text == "/new":
                     last = None
+                    changes = TerminalChanges(app, ui)  # 新的一段对话：/undo 只管这一段改的
                 continue
             try:
-                last = ask_turn(app, ui, text)
+                last = ask_turn(app, ui, text, changes)
             finally:
                 app.chat_desktop.release()  # 这一轮结束：还按着的鼠标键松开，屏幕让出来（和网页界面一样）
     finally:

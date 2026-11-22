@@ -1,0 +1,100 @@
+/* ---- 每一轮末尾的"改了 N 个文件"、改动的预览、撤回和重做（脚本在 scripts/file-changes.js） ----------
+   收着是一行：图标、"改了 3 个文件"、+12 −4、右边一个"撤回"。点开是每个文件一行（新建 / 修改 / 覆盖、文件名、加减几行、"撤回"），
+   点文件名在下面展开一行一行的预览。按钮一直摆着（不是悬停才出现），所以不会挤动文字，触屏上也点得到。
+   整轮都撤回了，边框换成虚线、图标淡下去：一眼看得出"这一轮的改动已经不在了"。 */
+.changes { font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: border-color .2s ease; }
+.changes.undone { background: none; border-style: dashed; border-color: var(--line-2); }
+.changes-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 6px; }
+.changes-toggle { display: flex; align-items: center; gap: 9px; flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 0 10px 0 12px; text-align: left; background: none; border: 0; border-radius: 12px; }
+.changes-toggle:hover { background: var(--hover); }
+.changes-icon { color: var(--accent); transition: color .2s ease; }
+.changes.undone .changes-icon { color: var(--ink-3); }
+.changes-title { flex: 0 1 auto; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.changes.undone .changes-title { font-weight: 500; color: var(--ink-2); }
+.changes-total, .changes-lines { display: inline-flex; flex: none; gap: 6px; font: 12px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+.changes-plus { color: var(--ok); }
+.changes-minus { color: var(--err); }
+.changes-toggle .chev { flex: none; margin-left: auto; color: var(--ink-3); }
+.changes.open > .changes-head .chev, .changes-file.open .changes-name .chev { transform: rotate(90deg); }
+
+/* 几个按钮：比普通的按钮矮一点，图标和字一起；正在请求时淡一些、点不了。正在进行一轮时也淡一些（点了会说为什么） */
+.changes-all, .changes-act, .changes-foot-all, .changes-log-redo { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+.changes-all .icon, .changes-act .icon, .changes-foot-all .icon, .changes-log-redo .icon { width: 14px; height: 14px; transition: transform .3s var(--ease); }
+.changes-all:hover .icon, .changes-act:hover .icon, .changes-foot-all:hover .icon, .changes-log-redo:hover .icon { transform: rotate(-24deg); }
+[data-action="redo"]:hover .icon { transform: rotate(24deg); }
+.changes.pending .changes-all, .changes.pending .changes-act, .changes.pending .changes-foot-all, .changes.pending .changes-warn-actions .button { opacity: .55; pointer-events: none; }
+body.busy .changes-all, body.busy .changes-act, body.busy .changes-foot-all, body.busy .changes-log-redo { opacity: .55; }
+
+.changes-body { padding: 4px 12px 12px; border-top: 1px solid var(--line); }
+.changes-files { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 4px 0 0; list-style: none; }
+.changes-file { min-width: 0; }
+/* 一个文件一行。窄的时候折成两行：文件名占满第一行，后面几样换到下一行，按钮靠右 */
+.changes-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 2px; min-width: 0; min-height: 34px; }
+.changes-kind { flex: none; padding: 1px 7px; font-size: 11px; font-weight: 600; line-height: 1.6; letter-spacing: .02em; white-space: nowrap; border-radius: 6px; }
+.changes-kind.created { color: var(--ok); background: var(--ok-soft); }
+.changes-kind.modified { color: var(--accent); background: var(--accent-soft); }
+.changes-kind.overwritten { color: var(--warn); background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.changes-name { display: flex; align-items: center; gap: 6px; flex: 1 1 160px; min-width: 0; margin-left: -2px; padding: 4px 6px; font: 12.5px/1.4 var(--mono); text-align: left; color: var(--ink); background: none; border: 0; border-radius: 7px; }
+.changes-name:hover { background: var(--hover); }
+.changes-name .chev { width: 12px; height: 12px; color: var(--ink-3); }
+.changes-path { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.changes-tag { flex: 0 1 auto; min-width: 0; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.changes-tag.warn { color: var(--warn); }
+.changes-state { flex: none; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.changes-act { margin-left: auto; }
+.changes-file.undone .changes-path { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line-3); }
+.changes-file.undone .changes-lines, .changes-file.undone .changes-kind { opacity: .55; }
+
+/* 说明：只有文件工具的改动；这一轮还执行过命令时醒目一点 */
+.changes-note { display: flex; align-items: flex-start; gap: 7px; min-width: 0; margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+.changes-note span { min-width: 0; overflow-wrap: anywhere; }
+.changes-note.warn { color: var(--warn); }
+.changes-note .icon { width: 14px; height: 14px; margin-top: 2px; }
+.changes-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+/* 一个文件改了什么：两列行号、一个 +/−、这一行的字。长的行在框里折行，不会把对话撑宽 */
+.changes-diff { margin: 2px 0 8px; }
+.changes-diff-caption { margin: 4px 0 6px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.changes-diff-note { margin: 6px 0; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.changes-diff-note.error { color: var(--err); }
+.changes-code { max-height: 360px; overflow: auto; padding: 6px 0; font: 12px/1.55 var(--mono); background: var(--sunken); border-radius: 9px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.changes-line { display: grid; grid-template-columns: 3.4em 3.4em 1.4em minmax(0, 1fr); align-items: start; padding-right: 10px; }
+.changes-line.add { background: var(--ok-soft); }
+.changes-line.del { background: var(--err-soft); }
+.changes-no { padding-right: 8px; text-align: right; color: var(--ink-3); font-variant-numeric: tabular-nums; user-select: none; }
+.changes-sign { text-align: center; color: var(--ink-3); user-select: none; }
+.changes-line.add .changes-sign { color: var(--ok); }
+.changes-line.del .changes-sign { color: var(--err); }
+.changes-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.changes-hunk { margin: 4px 0; padding: 2px 12px; font: 11.5px/1.5 var(--sans); color: var(--ink-3); background: var(--hover); }
+.changes-hunk:first-child { margin-top: 0; }
+
+/* 撤回、重做之前要你确认的：原地一块，一个文件一项，写着为什么 */
+.changes-warn { margin-top: 10px; padding: 12px 14px; background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 12px; }
+.changes-warn-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13.5px; font-weight: 600; color: var(--warn); }
+.changes-warn-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding: 0; list-style: none; }
+.changes-warn-list li { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.changes-warn-path { font: 600 12.5px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.changes-warn-why { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.changes-warn-skip { font-size: 12px; font-weight: 600; color: var(--err); }
+.changes-warn-list li.blocked .changes-warn-path { color: var(--ink-2); }
+.changes-warn-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.changes-warn-actions .button { height: 32px; padding: 0 14px; font-size: 13px; }
+
+/* 撤回、重做发生的那一刻留下的一行（和"已中断"这类提示一样轻），后面跟一个"重做" */
+.changes-log { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; font-size: 12.5px; color: var(--ink-3); }
+.changes-log > .icon { width: 14px; height: 14px; }
+.changes-log-text { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 倒回最后一轮的确认卡片上的"同时撤回这一轮改的文件"（卡片本身在 chat.css） */
+.turn-confirm-undo { display: flex; align-items: flex-start; gap: 8px; min-width: 0; margin: 0 0 4px; font-size: 13.5px; line-height: 1.5; color: var(--ink); cursor: pointer; }
+.turn-confirm-undo input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+.turn-confirm-undo span { min-width: 0; overflow-wrap: anywhere; }
+.turn-confirm-hint { margin: 0 0 12px 24px; font-size: 12px; line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.turn-confirm-issues { margin: 0 0 12px; }
+.turn-confirm-issues .changes-warn-list { margin-bottom: 0; }
+
+@media (max-width: 560px) {
+  .changes-line { grid-template-columns: 2.6em 2.6em 1.2em minmax(0, 1fr); }
+  .changes-body { padding: 4px 10px 10px; }
+}

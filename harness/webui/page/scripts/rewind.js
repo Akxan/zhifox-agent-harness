@@ -7,10 +7,12 @@
 //   编辑：消息原地变成一个输入框，附件留着（可以去掉几个）。Enter 发送，Shift+Enter 换行。Esc 和"取消"按
 //         "有没保存的修改"的规矩：改过了先提醒一次，再来一次才放弃。输入框是空的时候按 ↑ 也能打开它。
 //   确认：这一轮执行过命令、改过文件……倒回去的只是对话，那些事不会撤销。所以先在原地列出来、说清楚，再点一次才做。
+//         这一轮用文件工具改过文件的话，卡片上多一个"同时撤回这一轮改的 N 个文件"（默认不勾，见 file-changes.js）：
+//         勾了的话先撤回再倒回去；文件在这一轮之后又被改过，先在卡片上说清楚，按钮换成"仍然撤回并……"，再点一次才做。
 // 改到一半时对话变了（另一个标签页倒回过、开始了新的一轮），改了的文字放回下面的输入框，不会丢。
 
 let turnEdit = null;     // 打开着的编辑框：{box, bubble, row, text, field, shown, removed, note, foot, turn, armed, confirming, sending}
-let turnConfirm = null;  // 打开着的"重新生成之前确认一下"：{card, turn}
+let turnConfirm = null;  // 打开着的"重新生成之前确认一下"：{card, turn, undo, issues, yes, force}
 let turnSeq = 0;         // 给确认卡片的标题编号（aria-labelledby 要一个 id）
 
 const rewindInfo = () => (state && state.rewind && typeof state.rewind === 'object' ? state.rewind : null);
@@ -34,10 +36,11 @@ function lastUserNodes() {
 }
 
 // 最后一个回答：最后一条用户消息之后、末尾那几行提示（"已中断"之类）之前的最后一块。这一轮是以出错收尾的，就没有。
-// 开着的确认卡片也不算（它摆在最后）
+// 开着的确认卡片、"改了 N 个文件"那一行、撤回过文件的那几行也不算（它们摆在回答后面）
 function lastReplyAfter(anchor) {
   let node = log.lastElementChild;
-  const skip = (item) => item.classList.contains('turn-confirm') || (item.classList.contains('notice') && !item.classList.contains('error'));
+  const skip = (item) => item.classList.contains('turn-confirm') || item.classList.contains('changes') || item.classList.contains('changes-log')
+    || (item.classList.contains('notice') && !item.classList.contains('error'));
   while (node && node !== anchor && skip(node)) node = node.previousElementSibling;
   return node && node !== anchor && node.classList.contains('assistant') ? node : null;
 }
@@ -86,7 +89,8 @@ function explainTurn() {
   toast(busy ? t(BUSY_HINT) : rewindReason(info));
 }
 
-// 一张"倒回去之前确认一下"的卡片：这一轮做过的、可能改动了电脑的事，一行一件。go 是确认以后做的事，back 是不做了
+// 一张"倒回去之前确认一下"的卡片：这一轮做过的、可能改动了电脑的事，一行一件。go 是确认以后做的事，back 是不做了。
+// 这一轮改过文件（info.files 个还没撤回）的话，多一个"同时撤回"的勾选框。返回 {card, yes, undo（勾选框）, issues（撤回前要确认的说明放这里）, label}
 function confirmCard(info, goLabel, go, back) {
   const card = el('div', 'turn-confirm');
   card.setAttribute('role', 'group');
@@ -99,19 +103,68 @@ function confirmCard(info, goLabel, go, back) {
   const list = card.appendChild(el('ul', 'turn-confirm-list'));
   for (const line of effectsOf(info)) list.appendChild(el('li', null, line));
   if (Number(info.more) > 0) list.appendChild(tel('li', 'more', k('……还有 {n} 项'), { n: Number(info.more) }));
+  let undo = null;
+  if (Number(info.files) > 0) {
+    const choice = card.appendChild(el('label', 'turn-confirm-undo'));
+    undo = choice.appendChild(el('input'));
+    undo.type = 'checkbox';
+    choice.appendChild(tel('span', null, k('同时撤回这一轮改的 {n} 个文件'), { n: Number(info.files) }));
+    card.appendChild(tel('p', 'turn-confirm-hint', k('恢复成这一轮之前的样子，这一轮新建的文件删掉。只管文件工具改的；命令改动的文件没法自动撤回。')));
+  }
+  const issues = card.appendChild(el('div', 'turn-confirm-issues'));
+  issues.hidden = true;
   const actions = card.appendChild(el('div', 'turn-confirm-actions'));
   const yes = actions.appendChild(tel('button', 'button primary', goLabel));
   const no = actions.appendChild(tel('button', 'button', k('取消')));
   yes.type = no.type = 'button';
   yes.addEventListener('click', go);
   no.addEventListener('click', back);
+  const control = { card, yes, undo, issues, label: goLabel, force: false };
+  // 撤回之前要确认的说明出来以后又改了主意（不勾了）：说明收起来，按钮换回原来的字
+  if (undo) undo.addEventListener('change', () => { if (control.force) resetTurnUndo(control); });
   card.addEventListener('keydown', (key) => {
     if (key.key === 'Escape' && !key.isComposing) { key.preventDefault(); key.stopPropagation(); back(); }
   });
   head.id = 'turn-confirm-head-' + (++turnSeq);
   card.setAttribute('aria-labelledby', head.id);
-  return { card, yes };
+  return control;
 }
+
+// 勾了"同时撤回"，助手程序说有的文件要先确认（这一轮之后又被改过……）：说明摆在卡片里，按钮换成"仍然撤回并……"，再点一次才做
+function showTurnUndo(control, undo, forceLabel) {
+  const asks = Array.isArray(undo.asks) ? undo.asks : [], blocked = Array.isArray(undo.blocked) ? undo.blocked : [];
+  const list = el('ul', 'changes-warn-list');
+  for (const [items, skipped] of [[asks, false], [blocked, true]]) {
+    for (const item of items) {
+      const li = list.appendChild(el('li', skipped ? 'blocked' : ''));
+      li.appendChild(el('span', 'changes-warn-path', String(item.path || '')));
+      for (const why of Array.isArray(item.why) ? item.why : []) li.appendChild(why && why.key ? tel('span', 'changes-warn-why', why.key, why.values) : el('span', 'changes-warn-why', String((why && why.text) || '')));
+      if (skipped) li.appendChild(tel('span', 'changes-warn-skip', k('不撤回这一个')));
+    }
+  }
+  const head = el('p', 'changes-warn-head');
+  head.append(icon('alert'), tel('span', null, k('撤回之前先确认一下')));
+  control.issues.replaceChildren(head, list);
+  control.issues.hidden = false;
+  control.force = true;
+  retext(control.yes, forceLabel);
+  control.yes.focus({ preventScroll: true });
+  play(control.issues, [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 200);
+  announce(control.issues.textContent);
+}
+
+function resetTurnUndo(control) {
+  control.force = false;
+  control.issues.hidden = true;
+  control.issues.replaceChildren();
+  retext(control.yes, control.label);
+}
+
+// 卡片上勾了"同时撤回"没有，和要不要"仍然撤回"：倒回去的请求里带上
+const turnUndoFields = (control) => ({
+  undo_files: Boolean(control && control.undo && control.undo.checked),
+  undo_force: Boolean(control && control.undo && control.undo.checked && control.force),
+});
 
 // ---- 重新生成 ----
 
@@ -121,21 +174,25 @@ async function retryTurn(confirmed) {
   if (effectsOf(info).length && !confirmed) { openTurnConfirm(info); return; }
   if (sending) return;
   sending = true;
-  const result = await call('/api/turn/retry', { conversation: state.conversation, turn: info.turn, confirmed: Boolean(confirmed) });
+  const control = confirmed ? turnConfirm : null;
+  const result = await call('/api/turn/retry', { conversation: state.conversation, turn: info.turn, confirmed: Boolean(confirmed), ...turnUndoFields(control) });
   sending = false;
   if (result.ok) { closeTurnConfirm(false); setStick(true); return; }
   if (Array.isArray(result.data.effects) && !confirmed) {  // 页面看到的晚了一步：这一轮其实做过要先问的事
     openTurnConfirm({ ...info, effects: result.data.effects, more: result.data.more, operated: result.data.operated });
     return;
   }
+  if (result.data.undo && control && control === turnConfirm && !control.force) { showTurnUndo(control, result.data.undo, k('仍然撤回并重新生成')); return; }
   toast(result.error);
 }
 
 function openTurnConfirm(info) {
   closeTurnConfirm(false);
-  const { card, yes } = confirmCard(info, k('仍然重新生成'), () => retryTurn(true), () => closeTurnConfirm(true));
+  const control = confirmCard(info, k('仍然重新生成'), () => retryTurn(true), () => closeTurnConfirm(true));
+  const { card, yes } = control;
   log.appendChild(card);
-  turnConfirm = { card, turn: info.turn };
+  control.turn = info.turn;
+  turnConfirm = control;
   play(card, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], 240);
   setStick(true);
   follow();
@@ -309,13 +366,15 @@ async function submitTurnEdit(confirmed) {
   edit.field.disabled = edit.save.disabled = edit.cancel.disabled = true;
   if (edit.confirming) edit.confirming.card.querySelectorAll('button').forEach((button) => { button.disabled = true; });
   else turnEditNote(k('正在发送……'));
-  const result = await call('/api/turn/edit', { conversation: state.conversation, turn: edit.turn, text, keep, confirmed: Boolean(confirmed) });
+  const control = confirmed ? edit.confirming : null;
+  const result = await call('/api/turn/edit', { conversation: state.conversation, turn: edit.turn, text, keep, confirmed: Boolean(confirmed), ...turnUndoFields(control) });
   if (result.ok) { setStick(true); return; }  // 编辑框随着重画（reset）一起没了，不用这里收
   edit.sending = false;
   if (turnEdit !== edit) return;
   edit.field.disabled = edit.save.disabled = edit.cancel.disabled = false;
   if (edit.confirming) edit.confirming.card.querySelectorAll('button').forEach((button) => { button.disabled = false; });
   if (Array.isArray(result.data.effects) && !confirmed) { confirmTurnEdit({ ...info, effects: result.data.effects, more: result.data.more, operated: result.data.operated }); return; }
+  if (result.data.undo && control && control === edit.confirming && !control.force) { showTurnUndo(control, result.data.undo, k('仍然撤回并发送')); return; }
   if (edit.confirming) backToTurnEdit();
   turnEditNote(result.error, 'error');
   edit.field.focus({ preventScroll: true });
@@ -324,11 +383,12 @@ async function submitTurnEdit(confirmed) {
 // 确认就放在编辑框里，替掉下面那一排按钮
 function confirmTurnEdit(info) {
   if (!turnEdit) return;
-  const { card, yes } = confirmCard(info, k('仍然发送'), () => submitTurnEdit(true), backToTurnEdit);
+  const control = confirmCard(info, k('仍然发送'), () => submitTurnEdit(true), backToTurnEdit);
+  const { card, yes } = control;
   turnEdit.foot.hidden = true;
   turnEdit.field.disabled = true;
   turnEdit.box.appendChild(card);
-  turnEdit.confirming = { card };
+  turnEdit.confirming = control;
   play(card, [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], 200);
   yes.focus({ preventScroll: true });
   card.scrollIntoView({ block: 'nearest', behavior: calm() ? 'auto' : 'smooth' });
