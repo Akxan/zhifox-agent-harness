@@ -47,7 +47,8 @@ SYSTEM_LINKS = ("/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32")
 SYMPTOMS = (
     "Read-only file system", "No such file or directory", "Permission denied", "Operation not permitted",
     "Could not resolve host", "Temporary failure in name resolution", "Name or service not known", "Network is unreachable",
-    "Couldn't connect to server", "Connection refused",  # 沙箱有自己的一个空的 localhost：连本机的服务是"拒绝连接"
+    "Couldn't connect to server", "Could not connect to server", "Failed to connect",  # curl 新旧版本的两种说法
+    "Connection refused",  # 沙箱有自己的一个空的 localhost：连本机的服务是"拒绝连接"
 )
 
 

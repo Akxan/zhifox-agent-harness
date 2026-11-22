@@ -49,7 +49,10 @@ SYSTEM_READ = (
     "/opt/homebrew", "/opt/local", "/nix", "/dev",
 )
 # 在沙箱里被挡住时，命令的输出里常见的几句话（见 Sandbox.explain）
-SYMPTOMS = ("Operation not permitted", "Could not resolve host", "Couldn't connect to server", "nodename nor servname", "Network is unreachable")
+SYMPTOMS = (
+    "Operation not permitted", "Could not resolve host", "nodename nor servname", "Network is unreachable",
+    "Couldn't connect to server", "Could not connect to server", "Failed to connect",  # curl 新旧版本的两种说法
+)
 
 _BASE = """\
 (version 1)
