@@ -712,7 +712,7 @@ def test_the_prompt_option_changes_what_the_model_is_told(make_config, tmp_path)
     code, _ = cli(config, "run", "--tasks", "language-english", "--prompt", str(prompt))
     assert code == 0
     run = results.find_run(config.data_dir / "evals", "latest")
-    assert run.meta["prompt"] == str(prompt) and (run.folder / "prompt.md").read_text() == prompt.read_text(encoding="utf-8")
+    assert run.meta["prompt"] == str(prompt) and (run.folder / "prompt.md").read_text(encoding="utf-8") == prompt.read_text(encoding="utf-8")
     builtin = cli(config, "run", "--tasks", "language-english", "--prompt", "builtin")
     assert builtin[0] == 0 and results.find_run(config.data_dir / "evals", "latest").meta["prompt_sha"] != run.meta["prompt_sha"]
 

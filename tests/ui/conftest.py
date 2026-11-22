@@ -113,6 +113,11 @@ class Demo:
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read() or b"{}")
 
+    def _not_busy(self, path: str, data: dict) -> tuple[int, dict] | None:
+        """调用一次；回答是 409（这一轮还没结束）时返回 None，让 until 过一会儿再试。"""
+        answer = self.api(path, data)
+        return None if answer[0] == 409 else answer
+
     def reset(self) -> None:
         """把测试会改动的服务器设置恢复原样，换到一段新对话。"""
         self.api("/api/stop")
@@ -121,7 +126,8 @@ class Demo:
             ("/api/approval", {"mode": "ask"}),
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
         ):
-            status, reply = self.api(path, data)
+            # 刚点了停止，上一个测试的那一轮可能还在收尾（慢的机器上，比如 CI 的 Windows），换模型这类要等它结束（409）：等一等再试
+            status, reply = until(lambda path=path, data=data: self._not_busy(path, data), timeout=15, what=f"{path} 不再说正忙")
             assert status == 200, f"{path} 失败：{reply}"
         # 你自己加的"不用问的命令"：测试加了忘了删（或者测试失败在半路），后面的测试会看到一条多出来的。
         # 清单的文件删掉就回到一条都没有（程序每次判断前会看一眼文件，见 commands/allowlist.py）
