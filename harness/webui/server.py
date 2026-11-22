@@ -55,6 +55,7 @@
   POST /api/budget     用户填写或清除了每月预算（见 budget.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py）
+  POST /api/restore/info、upload、discard、apply、reveal   从备份恢复：上传（请求体是压缩包原样的字节）、预览、确认、在访达中显示自动备份（见 restore_api.py）
   POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
@@ -155,6 +156,8 @@ from .computer_api import ComputerAPI
 from .endpoints_api import EndpointsAPI
 from .hooks_api import HooksAPI
 from .page import assemble as assemble_page
+from .restore_api import UPLOAD_PATH as RESTORE_UPLOAD
+from .restore_api import RestoreAPI
 from .sandbox_api import SandboxAPI
 from .scheduler import Scheduler
 from .skills_api import MAX_UPLOAD_BODY_BYTES, SkillsAPI
@@ -276,6 +279,7 @@ class WebApp:
         self.sandbox = SandboxAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
         self.endpoints = EndpointsAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"自定义模型接口"一节的接口
         self.changes = ChangesAPI(self)  # "改了 N 个文件"那一行：预览、撤回、重做（见 changes_api.py）
+        self.restore = RestoreAPI(self, lambda path: reveal_in_file_manager(path))  # 设置里"从备份恢复…"的接口
         # 定时任务：到时间了自己跑一轮，或者弹出一条提醒。任务不拿 self._turn：它们和你的对话、和彼此同时进行，
         # 各用各的界面和 shell（见 scheduler.py）
         self.tasks = Scheduler(self)
@@ -1352,6 +1356,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         # 只有发消息（带附件）和上传 Skill（压缩包、文件夹）的请求体上限放宽了
         path = urlsplit(self.path).path
+        if path == RESTORE_UPLOAD:  # 备份的压缩包：请求体是原样的字节，不是 JSON，边读边写进临时文件（上限也在那边，见 restore_api.py）
+            self._send_json(*self.server.web.restore.upload(self.headers, self.rfile))
+            return
         limit = {"/api/message": MAX_MESSAGE_BODY_BYTES, "/api/skill/upload": MAX_UPLOAD_BODY_BYTES}.get(path, MAX_BODY_BYTES)
         body = self._read_json(limit)
         if body is None:
@@ -1646,6 +1653,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":
             self._send_export()
+        elif path.startswith("/api/restore/"):
+            status, payload = web.restore.route(path.removeprefix("/api/restore/"), body, self.server)
+            self._send_json(status, payload)
         elif path == "/api/fallbacks":
             status, payload = fallback_api.save(web.app, body)
             if status == 200:

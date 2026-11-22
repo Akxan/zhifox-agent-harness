@@ -359,6 +359,24 @@ SERVICE_POLL_SECONDS = 0.5
 SERVICE_STOP_SLACK_SECONDS = 5
 
 
+# ---- 从备份恢复（见 restore.py）------------------------------------------------------------
+# 备份的压缩包是不可信的输入（可能是故意做坏的），下面几个上限挡住压缩炸弹和塞满磁盘的东西。
+# 多媒体库可能有几个 GB，所以比 Skill 的上传（约 20 MB）宽得多；页面在上传之前就照着第一个数拦下太大的文件
+RESTORE_MAX_UPLOAD_BYTES = 4_000_000_000  # 网页上传的压缩包最大这么大（终端的 harness restore 直接读文件，不受它限制，只看下面几个）
+RESTORE_MAX_TOTAL_BYTES = 8_000_000_000  # 解开之后一共最多这么大（压缩包里写的大小；解的时候再按实际读到的核对一遍）
+RESTORE_MAX_FILE_BYTES = 2_000_000_000  # 单个文件解开之后最大这么大
+RESTORE_MAX_FILES = 200_000  # 压缩包里最多这么多项（包括文件夹）
+RESTORE_MAX_DEPTH = 32  # 路径最多这么多层
+RESTORE_DISCARD_BYTES = 16_000_000  # 上传太大被拒绝时，最多读掉这么多再回答（和 server.py 的 MAX_DISCARD_BYTES 一个道理）
+RESTORE_STAGE_SECONDS = 3600  # 上传好、还没确认的备份留这么久（秒），过了就删掉，要再传一次
+# 恢复之前，先把现在的数据导出一份放在数据目录里的这个文件夹里（data/restore-backups/）。导出时不带它：
+# 每一份都是整个数据文件夹，带进去就会越套越大。最多留这么多份，更早的删掉
+RESTORE_BACKUPS_DIR = "restore-backups"
+RESTORE_KEEP_BACKUPS = 5
+# 恢复时要停下定时任务、聊天通道、MCP 服务器，最多等它们这么多秒收尾存盘（和退出时一样）
+RESTORE_STOP_SECONDS = 5
+
+
 # ---- 语音转文字（聊天里发来的语音，见 voice/）----------------------------------------------
 # 按分钟计费（价格见 pricing.TRANSCRIBE_PRICES），所以太长的不转：说一声上限是多少，一分钱都不花
 VOICE_MAX_SECONDS = 600

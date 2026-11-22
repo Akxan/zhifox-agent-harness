@@ -9,6 +9,7 @@
     harness sandbox ...           命令的沙箱：状态、哪一档、额外允许的路径、试一下（见 sandbox/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
     harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
+    harness restore 备份.zip       从备份恢复：先看预览，输入 yes 才恢复（见 restore_cli.py）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -21,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import capabilities, console, i18n, model_catalog, rewind
+from . import capabilities, console, i18n, model_catalog, restore_cli, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -323,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     sandbox_cli.add_parser(commands)
     service_cli.add_parser(commands)
     eval_cli.add_parser(commands)
+    restore_cli.add_parser(commands)
     # "harness hooks add 名字 --event … -- 程序 参数"：-- 后面的原样交给那个命令。自己先在第一个 -- 处切开，再交给 argparse：
     # Python 3.11 的 argparse 不认子命令里一个位置参数后面跟着的 --（3.12 起才认），钩子的命令在 3.11 上就加不进去（GitHub 的测试抓到的）
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -356,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
         return service_cli.run(args, config)
     if args.command == "eval":
         return eval_cli.run(args, config)
+    if args.command == "restore":
+        return restore_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

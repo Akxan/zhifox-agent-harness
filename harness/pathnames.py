@@ -100,6 +100,34 @@ def name_trick(name: str) -> str | None:
     return None
 
 
+def archive_trick(name: object, max_parts: int = 64) -> str | None:
+    """压缩包里一项的名字（或者页面上传的文件夹里的一个相对路径）能不能解开到一个文件夹里。不能的话返回原因，能的话返回 None。
+
+    这样的名字是从外面来的，一律当作不可信：../../.bashrc、/etc/hosts、C:\\x 会写到文件夹外面去（zip slip）；
+    a.md:x、CON、PROGRA~1 在 Windows 上解开就成了别的东西（见 name_trick）。不管现在是什么系统都按最严的看：
+    同一个压缩包换到 Windows 上解开也得是安全的。分隔符只认 /（zip 的规矩），反斜杠一律不收。
+    Skill 的安装（skills/bundle.py）和从备份恢复（restore.py）都用它。原因是写给程序看的中文，调用的人给用户看时另写一句。
+    """
+    if not isinstance(name, str) or not 0 < len(name) <= 1000:
+        return "名字是空的或者太长"
+    if "\\" in name or any(ord(char) < 32 or ord(char) == 127 for char in name):
+        return f"{name!r} 里有反斜杠或控制字符"  # 反斜杠在 Windows 上是路径的分隔符
+    if name.startswith("/") or re.match(r"[A-Za-z]:", name):
+        return f"{name} 是绝对路径"  # 包括 C: 这样的盘符
+    parts = name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return f"{name} 里有空的一段、. 或 .."
+    if len(parts) > max_parts:
+        return f"{name} 的层数太多"
+    if any(len(part.encode("utf-8", "surrogatepass")) > MAX_NAME for part in parts):
+        return f"{name} 里有一段名字太长"
+    for part in parts:
+        reason = name_trick(part)
+        if reason:
+            return reason
+    return None
+
+
 def trick(raw: str, windows: bool | None = None) -> str | None:
     """模型或页面直接给的一个路径用没用 Windows 的花招（见文件开头）。用了返回原因，没用返回 None。不在 Windows 上永远是 None。"""
     if not _windows(windows):

@@ -606,12 +606,13 @@ __STYLES__
       <div id="service-card" class="service-card"></div>
     </section>
     <section>
-      <h3 data-i18n>导出全部数据</h3>
+      <h3 data-i18n>备份和恢复</h3>
       <div class="row">
         <button id="export-run" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>导出全部数据</span></button>
+        <button id="restore-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n>从备份恢复…</span></button>
         <span id="export-size" class="export-size"></span>
       </div>
-      <p class="hint" data-i18n>会话、记忆、待办、设置、花费记录……整个数据文件夹打成一个 zip，下载到你的电脑。不含 API 密钥；MCP 配置里的密钥会换成占位符。恢复时先退出智狐，再把压缩包解压到数据文件夹里。</p>
+      <p class="hint" data-i18n>会话、记忆、待办、设置、花费记录……整个数据文件夹打成一个 zip，下载到你的电脑。不含 API 密钥；MCP 配置里的密钥会换成占位符。恢复时先给你看备份里有什么，你确认了才恢复；现在填好的密钥会留着。</p>
     </section>
   </div>
   <div id="settings-message" class="settings-message" role="status"></div>
@@ -810,6 +811,19 @@ __STYLES__
     <p class="approval-commands"><span data-i18n>选“自动允许只读命令”时，你自己加的命令也不用问。</span><button id="approval-commands" class="link" type="button" data-i18n>管理不用问的命令</button></p>
     <p class="hint" data-i18n>不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
   </div>
+</dialog>
+
+<dialog id="restore-dialog" class="settings restore-dialog" aria-labelledby="restore-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="restore-title" data-i18n>从备份恢复</h2>
+      <p class="memory-sub" data-i18n>选一个“导出全部数据”存下的压缩包。先给你看里面有什么，你确认了才恢复。</p>
+    </div>
+    <button id="close-restore" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="restore-body" class="settings-body restore-body"></div>
+  <div class="memory-foot restore-foot"><p id="restore-message" class="memory-message" role="status"></p><div id="restore-actions" class="restore-actions"></div></div>
+  <input id="restore-file" type="file" accept=".zip,application/zip" hidden>
 </dialog>
 
 <dialog id="commands-dialog" class="settings commands-dialog" aria-labelledby="commands-title">

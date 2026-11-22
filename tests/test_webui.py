@@ -207,7 +207,7 @@ def serve(make_config, monkeypatch):
         browser = Browser(url)
         browser.wait_synced()  # 等"浏览器"连上、把已有的事件收完再开始，之后发生的每个事件它都会原样收到
         return SimpleNamespace(
-            api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser, revealed=revealed
+            api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser, revealed=revealed, server=server
         )
 
     yield serve

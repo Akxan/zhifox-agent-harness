@@ -43,3 +43,8 @@ class Claims:
     def holder(self, conversation_id: str) -> str | None:
         with self._changed:
             return self._held.get(conversation_id)
+
+    def held(self) -> dict[str, str]:
+        """现在谁拿着哪些会话（会话编号 → 谁）。从备份恢复之前看一眼：聊天里正在进行的一轮，不能换掉它底下的数据（见 webui/restore_api.py）。"""
+        with self._changed:
+            return dict(self._held)
