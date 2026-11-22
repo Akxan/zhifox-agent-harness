@@ -254,6 +254,46 @@ Not supported on Windows yet:
   ends it without that.
 - The background service stops when you sign out (it runs as you, with no stored password).
 
+## Troubleshooting: `harness doctor`
+
+When something doesn't work, run the self-check first. It shows on one screen how ZhiFox is set up on this computer,
+and it's the quickest way to tell us what's different on yours, especially on Windows, which is tested on GitHub's
+runners but not yet on a real desktop. In the project folder:
+
+```bash
+# macOS and Linux (zsh, bash)
+uv run harness doctor                       # a table to read
+uv run harness doctor --json > doctor.json  # for scripts, or to attach when you ask someone for help
+echo $?                                     # 1 if anything is a problem, 0 otherwise
+```
+
+```powershell
+# Windows (PowerShell)
+uv run harness doctor
+uv run harness doctor --json | Out-File -Encoding utf8 doctor.json
+$LASTEXITCODE
+```
+
+In the terminal UI, type `/doctor`. Each line is in one of three states: **OK**, **Problem**, or **Not used** (a feature
+you haven't set up isn't a problem). Every problem comes with a fix written for your shell: zsh on macOS, bash on Linux,
+PowerShell on Windows. A data folder others can read, for example, gets `chmod 700 '…/data'` on macOS and Linux, and on
+Windows the same `icacls '…\data' /inheritance:r /grant:r '*S-1-5-21-…:(OI)(CI)F' …` command ZhiFox uses itself.
+
+| Section | What it looks at |
+|---|---|
+| Environment | Python's version and path (and whether it's the project's `.venv`), ZhiFox's version and git commit, the system, whether `uv` is on the PATH |
+| Folders | The working folder is writable; `data/` and `.env` can be read by your account only: 700 and 600 on macOS and Linux (and owned by you, not by root after a `sudo` run), the access list on Windows (read with `icacls /save`, never changed) |
+| In use | Whether another ZhiFox holds the data folder (the web UI, `harness serve`, the background service, `channels pair`) and its process ID |
+| API keys | Which providers have a key and where it comes from (`.env`, an environment variable, the Anthropic login); an empty variable hiding the key in `.env`; a variable that overrides a different key in `.env`; the selected model; custom endpoints |
+| This computer | Chrome found or not; whether the command sandbox works here (and what wants it: the chat, a task, a channel); computer use: the backend and, on macOS, the Screen Recording and Accessibility permissions (preflight checks only, nothing pops up); the background service: installed, running, crashed, or missing keys that are set only in your shell |
+| Extensions | MCP servers, chat channels, hooks and scheduled tasks: how many and how many are on; MCP servers and hooks whose program isn't installed (`npx`, `uvx`…); channels not filled in, not paired, or missing their SDK; a tasks file that can't be read |
+| Network | Proxies and changed API addresses (scheme, host and port only), a plain `http://` address outside your network; web search on or off |
+
+It only looks. It changes no files, permissions or settings, starts nothing (no MCP server, no Chrome, no screenshot),
+and sends nothing over the network. Keys are reported as present or missing, never the key or its last characters, and
+the `--json` output has no keys, tokens or tokenized addresses. It does contain your paths, which usually include your
+user name.
+
 ## Architecture
 
 A model does one thing: it reads text and writes the next piece of text. It doesn't remember your last conversation,
@@ -386,6 +426,7 @@ Each part of the harness has its own file or directory:
 | Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
 | Masking secrets | [harness/redact.py](harness/redact.py) | A command's output or a file can carry a key by accident, and once it is in the append-only history it's sent to the provider and saved for good. Results are masked the moment they're created, before the `tool_ended` recording point; known key formats, known values from the environment and `.env`, and random-looking values after `password=` / `token:` (see [Masking secrets in tool results](#masking-secrets-in-tool-results)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
+| Self-check | [harness/doctor/](harness/doctor/) | Most problems aren't in the code but on the computer: a key set only in your shell, a data folder others can read, an MCP server that needs `npx` on a machine without Node.js. `harness doctor` looks at all of it on one screen, read-only, with each fix written for your shell (see [Troubleshooting](#troubleshooting-harness-doctor)) |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
@@ -2935,6 +2976,7 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
 | `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
 | `/undo` | Undo the files the latest turn changed with the file tool: lists them (and anything that changed since) and asks before writing. Redo and undoing single files are in the web UI |
+| `/doctor` | Run the self-check: Python, folder permissions, which providers have keys, the browser, the sandbox, the background service… what's OK, what's a problem and how to fix it (the same as `uv run harness doctor`, see [Troubleshooting](#troubleshooting-harness-doctor)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
@@ -3583,6 +3625,11 @@ The background service is in [tests/test_service.py](tests/test_service.py): the
 against a fake, installing twice, refusing a busy data folder, status parsing, `open` and the logs, plus one real
 `serve --service launchd` process writing its own log file. No test ever runs the real `launchctl` or `systemctl`, or
 opens a browser: `tests/conftest.py` makes them fail.
+The self-check is in [tests/test_doctor.py](tests/test_doctor.py): when each line is OK, a problem or not used; a made-up
+key in a temporary `.env` (plus a bot token, an endpoint key, MCP and hook secrets and a proxy password) appearing
+nowhere in the table or the JSON, not even its last 4 characters; a service that can't be checked; the fixes for zsh,
+bash and PowerShell (with `machine.system` swapped and a fake `icacls`); the exit code; and a snapshot showing it changed
+nothing on disk. The real `icacls /save` read is tested only on Windows ([tests/test_winacl.py](tests/test_winacl.py)).
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
 Importing from other tools is in [tests/test_imports.py](tests/test_imports.py): a fixture file for every supported

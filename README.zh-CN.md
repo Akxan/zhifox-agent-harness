@@ -185,6 +185,43 @@ Windows 上暂时还不支持的：
   以及 `uv run harness service stop`，都会好好地停下；直接关掉终端窗口不会。
 - 后台服务在你注销时会停下（它以你的身份运行，不保存密码）。
 
+### 出了问题：先运行 harness doctor
+
+哪里不对劲的时候，先运行自检。它把智狐在这台电脑上的情况放在一屏里；想告诉我们你的电脑上有什么不一样，这也是最快的办法，
+Windows 上尤其如此（Windows 只在 GitHub 的测试机上跑过，还没在真的桌面电脑上用过）。在智狐的文件夹里：
+
+```bash
+# macOS 和 Linux（zsh、bash）
+uv run harness doctor                       # 给人看的表格
+uv run harness doctor --json > doctor.json  # 给程序看，或者找人帮你看时当附件发过去
+echo $?                                     # 有一项有问题是 1，都没问题是 0
+```
+
+```powershell
+# Windows（PowerShell）
+uv run harness doctor
+uv run harness doctor --json | Out-File -Encoding utf8 doctor.json
+$LASTEXITCODE
+```
+
+终端界面里输入 `/doctor` 也一样。每一行是三种状态之一：**好**、**有问题**、**没用上**（没配置的功能不算问题）。
+有问题的都跟着一句怎么修，按你的 shell 写：macOS 上是 zsh 的，Linux 上是 bash 的，Windows 上是 PowerShell 的。
+比如数据目录别人也能读：macOS、Linux 上给的是 `chmod 700 '…/data'`，Windows 上给的是智狐自己收紧权限时用的那条
+`icacls '…\data' /inheritance:r /grant:r '*S-1-5-21-…:(OI)(CI)F' …`。
+
+| 一节 | 看什么 |
+|---|---|
+| 环境 | Python 的版本和路径（是不是项目里的 `.venv`）、智狐的版本和 git 提交、系统、PATH 里有没有 `uv` |
+| 目录 | 工作目录能不能写；`data/` 和 `.env` 是不是只有你自己的账号能读：macOS、Linux 上看 700 和 600（还要属于你，用 `sudo` 运行过一次的话会变成 root 的），Windows 上看访问控制列表（用 `icacls /save` 读，从不改） |
+| 占用 | 数据目录现在是不是被另一个智狐占着（网页界面、`harness serve`、后台服务、`channels pair`），进程编号是多少 |
+| 密钥 | 哪几家有密钥、从哪儿来（`.env`、环境变量、Anthropic 的登录信息）；环境变量设成了空的、把 `.env` 里的密钥盖住了；环境变量里的和 `.env` 里的不一样；现在选的模型；自定义接口 |
+| 这台电脑上能不能用 | 找不找得到 Chrome；命令的沙箱在这台电脑上能不能用（以及谁要用它：对话、哪个定时任务、哪个聊天通道）；操作整台电脑：后端，以及 macOS 上"录屏与系统录音""辅助功能"两项权限（只做不弹窗的预检）；后台服务：装没装、在不在跑、是不是出错退出了、有没有只在终端里设置的密钥 |
+| 扩展 | MCP 服务器、聊天通道、钩子、定时任务各有几个、开着几个；要运行的程序没装的 MCP 服务器和钩子（`npx`、`uvx`……）；没填全、没配对、缺 SDK 的聊天通道；读不出来的任务文件 |
+| 网络 | 代理和改过的接口地址（只写协议、主机和端口）、指向外面的明文 `http://` 地址；联网搜索开没开 |
+
+它只看不改：不改任何文件、权限和设置，不启动任何东西（MCP 服务器、Chrome、截图都不碰），也不发任何网络请求。
+密钥只说有没有，不写出密钥，连最后几位也不写；`--json` 的结果里没有密钥、口令和带口令的网址，但有你的路径（路径里一般有你的用户名）。
+
 ### 网页界面
 
 ```bash
@@ -626,6 +663,7 @@ uv run harness
 | `/retry` | 重新生成最后一个回答：你的消息原样再发一次 |
 | `/edit` | 改最后一条消息：它会填在输入行里，改完按回车；也可以直接写 `/edit 新的文字`。和 `/retry` 一样，这一轮执行过命令、改过文件的话先问你 |
 | `/undo` | 撤回最近一轮用文件工具改的文件：先列出来（后来又被改过的另外标出来），问你一句再写。重做、挑着撤回几个文件在网页界面上做 |
+| `/doctor` | 自检：Python、目录的权限、哪几家有密钥、浏览器、沙箱、后台服务……哪些好、哪些有问题、怎么修（和 `uv run harness doctor` 一样，见[出了问题：先运行 harness doctor](#出了问题先运行-harness-doctor)） |
 | `/exit` | 退出（也可以用 `/quit`，或者按 Ctrl-D） |
 
 模型回复到一半时按 Ctrl-C 可以打断它。
@@ -709,6 +747,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
 | 遮住密钥 | [harness/redact.py](harness/redact.py) | 命令的输出、文件里可能一不小心带着一把密钥，进了只追加的历史就会发给厂商、永远存着。结果一产生就遮，在 `tool_ended` 记录点之前：认各家密钥的格式、环境变量和 `.env` 里已知的值、`password=` `token:` 后面随机的一串（见[遮住工具结果里的密钥](#遮住工具结果里的密钥)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
+| 自检 | [harness/doctor/](harness/doctor/) | 多数问题不在代码里，在这台电脑上：密钥只设在终端里、数据目录别人也能读、MCP 服务器要 `npx` 而这台电脑没装 Node.js。`harness doctor` 只看不改，一屏看完，修法按你的 shell 写（见[出了问题：先运行 harness doctor](#出了问题先运行-harness-doctor)） |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
@@ -2886,6 +2925,10 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 怪路径的引号、对着假的 `launchctl` 和 `systemctl` 发出的每一条命令、装两次、数据目录被占着时不装、读状态、`open` 和日志，
 还有一个真的 `serve --service launchd` 进程自己写日志文件。没有任何测试会运行真的 `launchctl`、`systemctl`，或者打开浏览器：
 `tests/conftest.py` 让它们一调用就失败。
+自检在 [tests/test_doctor.py](tests/test_doctor.py)：每一行什么时候是好、有问题、没用上；临时的 `.env` 里放一个编造的密钥
+（再加上机器人的 token、自定义接口的密钥、MCP 和钩子里的密钥、代理的密码），表格和 JSON 里都找不到它，连最后 4 位也找不到；
+后台服务查不了的时候不崩；zsh、bash、PowerShell 三种修法（换掉 `machine.system`，用假的 `icacls`）；退出码；
+跑之前、跑之后给磁盘拍个快照，证明它什么都没改。真的 `icacls /save` 只在 Windows 上测（[tests/test_winacl.py](tests/test_winacl.py)）。
 Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 从其他工具导入在 [tests/test_imports.py](tests/test_imports.py)：假的家目录里给每一个支持的来源放一份文件（JSON、带注释的 JSONC、
 Codex 的 TOML、Goose 和 Continue 的 YAML、frontmatter 各不相同的 Markdown Agent、Kiro 和 Codex 的 Agent 文件），测每种写法怎么换、
