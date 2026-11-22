@@ -177,6 +177,9 @@ def isolated_environment(monkeypatch, tmp_path):
         monkeypatch.setenv(name, "")
     # 调用 load_config() 的测试（命令行）不能读到项目里真正的 .env：换成临时目录里一个不存在的文件
     monkeypatch.setenv("HARNESS_ENV_FILE", str(tmp_path / "no-such.env"))
+    # 数据目录也一样：没设的话 load_config() 用的是仓库里真正的 data/（用户的会话、设置），测试里换个语言就写进去了。
+    # 每个测试默认一个临时的（还不存在，用到才建）；要看"默认在哪儿"的测试自己 delenv
+    monkeypatch.setenv("HARNESS_DATA_DIR", str(tmp_path / "harness-data"))
     monkeypatch.delenv("TELEGRAM_API_BASE", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)  # 语音转文字的接口地址（见 Config.transcribe_api）
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")

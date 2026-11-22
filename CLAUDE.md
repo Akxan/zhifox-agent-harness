@@ -119,6 +119,8 @@
 - **`data/` 是用户的私人数据**（会话、记忆、待办、设置）。不要提交。测试和试运行不要写进这个目录，
   改用临时目录：测试里用 `tmp_path`；想在浏览器里试，运行 `uv run python tests/demo_web.py`
   （假模型、临时目录、编造的密钥，不花钱）。
+  测试里 conftest 给每个测试设好了临时的 `HARNESS_DATA_DIR` 和 `HARNESS_ENV_FILE`（`load_config()` 默认就是仓库里真正的 `data/` 和 `.env`），
+  要看"默认在哪儿"的测试自己 `delenv`，只算路径、不写东西。
   注意：只设置 `HARNESS_DATA_DIR` 再运行 `uv run harness` 是不够的，那样用的仍然是真正的 `.env` 和真正的 API，
   发消息会花钱，在页面上保存密钥会改写真正的 `.env`。
 - 提交之前确认这两样仍被 `.gitignore` 排除，并扫一遍待提交的文件里有没有 key。
