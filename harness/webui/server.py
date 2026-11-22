@@ -110,6 +110,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import secrets
@@ -126,7 +127,13 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import export, i18n, instance, media
 from ..app import App, build_app
-from ..config import APP_NAME, BROWSER_SHOT_DAYS, DESKTOP_SHOT_DAYS, Config
+from ..config import (
+    APP_NAME,
+    BROWSER_SHOT_DAYS,
+    DESKTOP_SHOT_DAYS,
+    PAGE_GZIP_LEVEL,
+    Config,
+)
 from ..exits import EXIT_SIGNALS
 from ..i18n import t
 from ..providers import has_key
@@ -448,12 +455,16 @@ class Handler(BaseHTTPRequestHandler):
             "__MARKDOWN__": MARKDOWN,
         }
         page = re.sub("__NONCE__|__TOKEN__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
-        self._send(
-            200,
-            "text/html; charset=utf-8",
-            page.encode(),
-            {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"},
-        )
+        headers = {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Vary": "Accept-Encoding"}
+        body = page.encode()
+        # 浏览器说收 gzip 的话压缩一下：一百多万字节变成三分之一左右，远程打开（手机、隧道）时快得多。
+        # 页面里有口令。压缩以后的长度会随内容变，有一类攻击（BREACH）就是往同一个回答里塞进自己选的文字、
+        # 看长度的变化一点点猜出秘密；它要求回答里回显请求带来的东西。这一页只填 nonce、口令、翻译表和 Markdown 渲染器，
+        # 一个字都不回显请求（地址、请求头、表单），所以不受影响。以后要是往页面里填请求带来的内容，先想好这一条
+        if accepts_gzip(self.headers.get("Accept-Encoding", "")):
+            body = gzip.compress(body, PAGE_GZIP_LEVEL)
+            headers["Content-Encoding"] = "gzip"
+        self._send(200, "text/html; charset=utf-8", body, headers)
 
     def _send_manifest(self) -> None:
         """网页应用的清单（见 manifest.py）。里面的地址带着口令，所以和页面一样不进缓存。"""
@@ -577,6 +588,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+
+def accepts_gzip(header: str) -> bool:
+    """Accept-Encoding 里有没有 gzip（或者 *），并且没写 q=0。"gzip, deflate, br"、"gzip;q=0.5" 都算；"gzip;q=0" 不算。"""
+    accepted = False
+    for item in header.split(","):
+        name, _, params = item.strip().partition(";")
+        name = name.strip().lower()
+        if name not in ("gzip", "x-gzip", "*"):
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            key, _, value = param.strip().partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0  # 写坏了的当成不要
+        if name in ("gzip", "x-gzip"):
+            return quality > 0  # 明说了 gzip 的，以它为准
+        accepted = quality > 0
+    return accepted
 
 
 def create_server(app: App, ui: WebUI, port: int | None = None, token: str | None = None, service: str | None = None) -> tuple[Server, str]:

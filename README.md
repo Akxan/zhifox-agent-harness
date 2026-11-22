@@ -1065,6 +1065,13 @@ last; and all the script parts are placed inside one function and share one scop
 (`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
 fails if a file is missing from it or listed twice.
 
+The assembled page is a little over a megabyte. When the browser says it accepts gzip, the server compresses it to about
+a third (`PAGE_GZIP_LEVEL` in [config.py](harness/config.py), around a dozen milliseconds per load), which matters when you
+open ZhiFox from a phone or another computer through a tunnel. The page holds the web token, and compression attacks
+such as BREACH guess secrets from how the compressed size changes when attacker-chosen text is reflected into the same
+response. This page reflects nothing from the request (only the nonce, the token, the translations and the Markdown
+renderer are filled in), so they don't apply; the comment in `_send_page` says to revisit this if that ever changes.
+
 The app icon is the one thing the browser fetches on its own, outside the page's script: when it decides whether the
 page can be installed and when it makes a shortcut, it reads a web app manifest and downloads the icons listed there.
 So these are real addresses, `/manifest.webmanifest` and `/icons/<name>`

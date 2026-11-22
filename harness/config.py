@@ -346,6 +346,10 @@ SERVICE_RESTART_SECONDS = 10
 SERVICE_LOG = Path("logs") / "service.log"
 # 后台服务没有终端可以打印网页的地址（里面有口令），就写在数据目录里的这个文件里（见 serve.py），harness service open 读它
 WEB_ADDRESS = ".web-address"
+# 网页本身（一个自给自足的页面，一百多万字节）发给浏览器之前用 gzip 压缩到大约三分之一（见 webui/server.py 的 _send_page）。
+# 1 最快、压得最少，9 最慢；每打开一次页面就压一次（页面里有一次性的 nonce，压好的不能留着下次用），
+# 4 在本机上大约十几毫秒，从手机、从别的电脑远程打开时省下的传输时间多得多
+PAGE_GZIP_LEVEL = 4
 # 后台服务的网页口令存在这里，重启前后不变，开着的页面刷新一下就能接着用（见 webui/token.py）
 WEB_TOKEN = ".web-token"
 # 数据目录里的用户设置（模型、界面语言……，见 settings.py）。Windows 上的 supervise.py 没有 Config，也照这个名字找界面语言
