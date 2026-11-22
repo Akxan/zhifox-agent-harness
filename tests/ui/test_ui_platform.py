@@ -20,7 +20,7 @@ import pytest
 from fake_telegram import TOKEN
 
 from . import checks, steps
-from .conftest import Demo, finish_page, show_demo
+from .conftest import Demo, finish_page, server_log, show_demo
 
 # 浏览器报的系统：navigator.platform，和用户代理里括号中的那一段
 BROWSERS = {
@@ -55,7 +55,7 @@ def demos(tmp_path_factory, browser, artifacts):
     yield demo
     for system, server in started.items():
         server.stop()
-        (artifacts / f"demo-server-{system}.log").write_text("".join(server.output), encoding="utf-8")
+        (artifacts / server_log(f"demo-server-{system}")).write_text("".join(server.output), encoding="utf-8")
 
 
 @pytest.fixture

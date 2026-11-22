@@ -46,6 +46,8 @@ def send(page: Page, text: str) -> None:
     """在输入框里打字，按回车发出去，等这条消息出现在对话里。"""
     page.click("#input")
     page.type(text)
+    # 字真的进了输入框再按回车：点的那一下没落在输入框上（比如它正好挪走了），在这里就说清楚，不用等 20 秒再猜
+    page.wait(f"document.getElementById('input').value.includes({json.dumps(text)})", 5, "打的字进了输入框")
     page.key("Enter")
     page.wait(f"[...document.querySelectorAll('#log .msg.user')].some((node) => node.textContent === {json.dumps(text)})", 20, "发出的消息出现在对话里")  # 慢的机器（CI 的 Windows）上 10 秒偶尔不够
 

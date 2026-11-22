@@ -229,12 +229,26 @@ def _channel_saved(page) -> dict:
     return json.loads((page.demo.root / "data" / "channels.json").read_text(encoding="utf-8"))["platforms"]["telegram"]
 
 
+def _step_four(page) -> None:
+    """打开 Telegram 的向导，翻到第 4 步（确认方式和沙箱）。
+
+    刚打开的时候向导会接连重画几次：生成配对码的回答、状态里的配对码、通道连上了。重画换掉的是整个向导，
+    鼠标按下和松开之间正好赶上一次的话，按下去的那个按钮已经不在了，这一下就丢了（GitHub 的 Windows 机器上真出过）。
+    所以等它安静下来（配对码出来了、通道连上了）再点，和人看清楚了再点一样"""
+    page.click("#panel-channels li.chan-row[data-platform='telegram'] .chan-open")
+    page.wait(
+        "document.querySelector('#panel-channels .chan-code') && document.querySelector('#panel-channels .chan-title .chan-dot.online')",
+        20,
+        "向导打开、配对码出来了、通道连上了",
+    )
+    page.click("#panel-channels [data-focus='step:4']")
+    page.wait("document.querySelector('#panel-channels .chan-modes')", what="翻到第 4 步")
+
+
 def test_a_channel_keeps_its_own_sandbox(telegram):
     page = telegram
     steps.extensions_tab(page, "channels")
-    page.click("#panel-channels li.chan-row[data-platform='telegram'] .chan-open")
-    page.wait("document.querySelector('#panel-channels .chan-stepper')", what="向导打开")
-    page.click("#panel-channels [data-focus='step:4']")
+    _step_four(page)
     page.wait("document.getElementById('chan-sandbox')", what="第 4 步有沙箱这一项")
     assert page.js("document.getElementById('chan-sandbox').value") == "default"
     _choose(page, "#chan-sandbox", "workspace")
@@ -251,9 +265,7 @@ def test_a_channel_keeps_its_own_sandbox(telegram):
     steps.close_extensions(page)
     steps.language(page, "en")
     steps.extensions_tab(page, "channels")
-    page.click("#panel-channels li.chan-row[data-platform='telegram'] .chan-open")
-    page.wait("document.querySelector('#panel-channels .chan-stepper')")
-    page.click("#panel-channels [data-focus='step:4']")
+    _step_four(page)
     page.wait("document.getElementById('chan-sandbox')")
     assert checks.untranslated(page, ["#extensions"]) == []
     steps.close_extensions(page)
@@ -264,8 +276,7 @@ def test_the_unsaved_warning_survives_a_redraw(telegram):
     # 再点"返回"也就悄悄放弃了修改（GitHub 的 macOS 机器上真出过：提醒出现前状态先到，测试一直等不到它）
     page = telegram
     steps.extensions_tab(page, "channels")
-    page.click("#panel-channels li.chan-row[data-platform='telegram'] .chan-open")
-    page.click("#panel-channels [data-focus='step:4']")
+    _step_four(page)
     page.click("#panel-channels .chan-mode[data-mode='edits']")
     page.wait("document.querySelector('#panel-channels .chan-mode[data-mode=\"edits\"]').getAttribute('aria-checked') === 'true'")
     page.click("#panel-channels .chan-back")

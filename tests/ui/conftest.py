@@ -173,6 +173,13 @@ def artifacts(tmp_path_factory) -> Path:
     return folder
 
 
+def server_log(name: str) -> str:
+    """演示服务器的输出存成哪个文件。测试分在几个进程里跑，每个进程有自己的演示服务器：文件名带上是哪个进程（gw0、gw1……），
+    不然后结束的那个会盖掉先结束的，失败的测试用的那个服务器说了什么就看不到了"""
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    return f"{name}-{worker}.log" if worker else f"{name}.log"
+
+
 @pytest.fixture(scope="session")
 def browser(tmp_path_factory):
     executable = chrome.find_chrome()
@@ -191,7 +198,7 @@ def demo(tmp_path_factory, browser, artifacts):
     server = Demo(tmp_path_factory.mktemp("ui-demo"))
     yield server
     server.stop()
-    (artifacts / "demo-server.log").write_text("".join(server.output), encoding="utf-8")
+    (artifacts / server_log("demo-server")).write_text("".join(server.output), encoding="utf-8")
 
 
 @pytest.fixture(scope="session")
@@ -201,7 +208,7 @@ def no_sandbox_demo(tmp_path_factory, browser, artifacts):
     server = Demo(tmp_path_factory.mktemp("ui-demo-no-sandbox"), extra=("--no-sandbox",))
     yield server
     server.stop()
-    (artifacts / "demo-server-no-sandbox.log").write_text("".join(server.output), encoding="utf-8")
+    (artifacts / server_log("demo-server-no-sandbox")).write_text("".join(server.output), encoding="utf-8")
 
 
 def _safe(name: str) -> str:
