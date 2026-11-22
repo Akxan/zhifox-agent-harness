@@ -26,8 +26,8 @@ jobs:
       run:
         shell: bash  # 下面的几行是 bash 的写法；Windows 的 runner 上是 Git 带的 bash（测试里的命令照样在 PowerShell 里跑）
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Install
@@ -54,7 +54,7 @@ jobs:
         run: uvx ruff@0.17.6 check harness tests
       - name: Upload page test artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-artifacts-${{ matrix.os }}-py${{ matrix.python }}
           path: ${{ runner.temp }}/ui-artifacts
@@ -69,8 +69,8 @@ jobs:
     name: mypy · linux, darwin, win32
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.11"  # 和 [tool.mypy] 的 python_version 一样
       - name: Install
@@ -92,8 +92,8 @@ jobs:
     name: computer use · Xvfb · ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
       - name: Install Xvfb, xdotool, ImageMagick
@@ -111,8 +111,8 @@ jobs:
     name: sandbox · bubblewrap · ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
       - name: Install bubblewrap
