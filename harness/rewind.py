@@ -83,12 +83,17 @@ def last_turn(events: Sequence[dict], start: int = 0) -> Turn | None:
     for index in range(len(events) - 1, -1, -1):
         event = events[index]
         if isinstance(event, dict) and event.get("type") == "user":
-            mark = event.get("mark")
-            valid = isinstance(mark, int) and not isinstance(mark, bool) and mark >= 0
             text = event.get("text") if isinstance(event.get("text"), str) else ""
             number = event.get("id") if isinstance(event.get("id"), int) else None
-            return Turn(start + index, mark if valid else None, number, text, from_saved(event.get("attachments")), list(events[index:]))
+            return Turn(start + index, mark_of(event), number, text, from_saved(event.get("attachments")), list(events[index:]))
     return None
+
+
+def mark_of(event: dict) -> int | None:
+    """一个 user 事件上记着的位置（这一轮开始时的 Backend.mark）；没记、或者文件被改坏了的是 None。
+    倒回最后一轮和从某一轮分叉（fork.py）都按它认。"""
+    mark = event.get("mark")
+    return mark if isinstance(mark, int) and not isinstance(mark, bool) and mark >= 0 else None
 
 
 # ---- 这一轮做过什么 -------------------------------------------------------------

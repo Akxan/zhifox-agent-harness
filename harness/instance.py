@@ -18,6 +18,7 @@ kind 有这几种：
   serve     harness serve（在终端里、或者 systemd 的系统服务里开的）
   service   harness service install 装的后台服务（launchd、systemd 的用户服务，或者 Windows 任务计划程序里的任务）
   channels  harness channels pair（智狐没开着的时候，命令行自己临时连上平台收配对码）
+  restore   harness restore（从备份恢复：恢复完才放开，这期间谁也开不了智狐，见 restore_cli.py）
 """
 
 from __future__ import annotations
@@ -29,11 +30,12 @@ from pathlib import Path
 from typing import IO
 
 from . import filelock
-from .config import APP_NAME
+from .config import APP_NAME, COMMAND
 from .i18n import t
+from .safe import private_dir
 
 LOCK_NAME = ".lock"
-KINDS = ("web", "serve", "service", "channels")
+KINDS = ("web", "serve", "service", "channels", "restore")
 
 
 @dataclass(frozen=True)
@@ -45,8 +47,12 @@ class Holder:
 
 
 def claim(data_dir: Path, kind: str = "web") -> IO | None:
-    """占住数据目录。占到了返回锁文件（要一直留着不关，关掉就放开了），已经被别人占了返回 None。"""
-    data_dir.mkdir(parents=True, exist_ok=True)
+    """占住数据目录。占到了返回锁文件（要一直留着不关，关掉就放开了），已经被别人占了返回 None。
+
+    数据目录还没有的话，在这里建好，和别处一样只有你的账号能进（safe.private_dir）：网页界面、harness serve 启动时
+    第一个碰数据目录的就是这里。装成工具时（见 install.py）它是一个全新的文件夹，沿途还可能要建 ~/.local/share 这样的上级。"""
+    if not data_dir.is_dir():
+        private_dir(data_dir)
     handle = open(data_dir / LOCK_NAME, "a+")  # noqa: SIM115 —— 故意不用 with：这个文件要开着直到程序退出
     try:
         filelock.lock(handle, wait=False)
@@ -94,12 +100,17 @@ def busy_lines(data_dir: Path) -> list[str]:
     if found is not None and found.kind == "service":
         return [
             t("{name}正在作为后台服务运行（进程 {pid}），用的是同一个数据目录：{path}", name=APP_NAME, pid=found.pid, path=data_dir),
-            t("打开它的网页：uv run harness service open。想在这里另开一个，先停下服务：uv run harness service stop。"),
+            t("打开它的网页：{command} service open。想在这里另开一个，先停下服务：{command} service stop。", command=COMMAND),
         ]
     if found is not None and found.kind == "channels":
         return [
             t("harness channels pair 正在等配对码（进程 {pid}），占着这个数据目录：{path}", pid=found.pid, path=data_dir),
             t("配对成功或者在它那里按 Ctrl-C 之后，再启动。"),
+        ]
+    if found is not None and found.kind == "restore":
+        return [
+            t("harness restore 正在从备份恢复（进程 {pid}），占着这个数据目录：{path}", pid=found.pid, path=data_dir),
+            t("等它恢复完再启动。"),
         ]
     if found is not None and found.kind == "serve":
         return [

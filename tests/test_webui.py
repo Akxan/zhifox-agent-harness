@@ -208,7 +208,7 @@ def serve(make_config, monkeypatch):
         browser = Browser(url)
         browser.wait_synced()  # 等"浏览器"连上、把已有的事件收完再开始，之后发生的每个事件它都会原样收到
         return SimpleNamespace(
-            api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser, revealed=revealed
+            api=api, other_api=other_api, app=app, ui=ui, url=url, config=config, browser=browser, revealed=revealed, server=server
         )
 
     yield serve
@@ -286,6 +286,42 @@ def test_page_is_served_with_a_strict_content_policy(serve):
     assert "__MARKDOWN__" not in page["text"]
     assert f'<script nonce="{nonce}">// 回复里的 Markdown' in page["text"]
 
+
+
+def test_the_page_is_gzipped_only_when_the_browser_accepts_it(serve):
+    import gzip
+    import http.client
+
+    from harness.webui.server import accepts_gzip
+
+    s = serve()
+
+    def fetch(encoding: str | None) -> tuple[dict, bytes]:
+        connection = http.client.HTTPConnection(*s.browser.host.split(":"))
+        headers = {"Accept-Encoding": encoding} if encoding is not None else {}
+        connection.request("GET", f"/?token={s.browser.token}", headers=headers)
+        answer = connection.getresponse()
+        body = answer.read()
+        connection.close()
+        assert answer.status == 200
+        assert answer.getheader("Content-Length") == str(len(body))
+        return {name.lower(): value for name, value in answer.getheaders()}, body
+
+    plain_headers, plain = fetch(None)
+    assert "content-encoding" not in plain_headers and plain.startswith(b"<!doctype html>")
+    zipped_headers, zipped = fetch("gzip, deflate, br")
+    assert zipped_headers["content-encoding"] == "gzip" and zipped_headers["vary"] == "Accept-Encoding"
+    page = gzip.decompress(zipped)
+    assert len(zipped) < len(page) / 2  # 压得下来，不然就不值得压
+    nonce = zipped_headers["content-security-policy"].split("script-src 'nonce-")[1].split("'")[0]
+    assert f'<script nonce="{nonce}">'.encode() in page  # 解开以后还是同一个页面，nonce 和安全策略对得上
+    assert "content-encoding" not in fetch("gzip;q=0")[0]  # 明说不要的不压
+    for header, expected in [
+        ("gzip", True), ("GZIP;q=0.5", True), ("x-gzip", True), ("*", True), ("br, *;q=0.1", True),
+        ("", False), ("identity", False), ("br, deflate", False), ("gzip;q=0", False), ("*;q=0", False),
+        ("gzip;q=0, *", False), ("gzip;q=abc", False),
+    ]:
+        assert accepts_gzip(header) is expected, header
 
 def test_bad_requests_are_rejected(serve):
     s = serve()

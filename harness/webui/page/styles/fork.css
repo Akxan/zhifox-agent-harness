@@ -1,0 +1,31 @@
+/* ---- 从某一轮分叉（脚本在 scripts/fork.js） -----------------------------------------
+   每一轮结束以后有两个"分叉"：回答下面那排按钮里紧挨着"复制"的一个（在回答上分叉），你的消息左边悬停才出现的一个
+   （在你的消息上分叉，和"编辑"同一个位置：浮在空白里、不占位置，不会把文字挤动；最后一条消息有"编辑"时排在它左边）。
+   分不了的那几轮图标淡一些（.turn-off，和编辑、重新生成同一个样子，见 chat.css）。
+   分叉出来的会话顶上一行"从哪儿分叉来的"，会话栏里一个小图标 */
+
+.fork-msg { position: absolute; right: calc(100% + 6px); bottom: 1px; opacity: 0; transition: opacity .15s ease, transform .15s var(--ease); }
+.msg.user:hover > .fork-msg, .msg-atts:hover > .fork-msg, .fork-msg:focus-visible { opacity: 1; }
+.msg-atts > .fork-msg { bottom: 4px; }
+/* 最后一条消息左边已经有"编辑"（26px 宽）：排在它左边，中间隔 2px */
+.msg.user:has(> .turn-edit-open) > .fork-msg, .msg-atts:has(> .turn-edit-open) > .fork-msg { right: calc(100% + 34px); }
+/* 悬停时两根枝杈稍稍张开一点：只动 transform */
+.fork-open .icon { transition: transform .25s var(--ease); }
+.fork-open:hover:not(.turn-off) .icon { transform: scaleX(1.14); }
+
+/* 顶上那一行：从「原会话」第 3 轮……分叉出来 · 打开原会话。文字长了就换行，不冲出去 */
+.fork-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 22px; padding: 9px 10px 9px 12px; font-size: 13px; line-height: 1.5; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.fork-origin-icon { color: var(--accent); }
+.fork-origin-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.fork-origin-open { display: inline-flex; align-items: center; gap: 2px; height: 26px; flex: none; padding: 0 6px 0 11px; font-size: 12.5px; font-weight: 500; white-space: nowrap; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; transition: transform .15s var(--ease); }
+.fork-origin-open .icon { width: 14px; height: 14px; transition: transform .2s var(--ease); }
+.fork-origin-open:hover .icon { transform: translateX(2px); }
+.fork-origin-open:active { transform: scale(.96); }
+.fork-origin-gone { flex: none; font-size: 12.5px; color: var(--ink-3); }
+.fork-origin-note { flex-basis: 100%; min-width: 0; margin: 0; padding-left: 26px; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+/* 空白页（在第一条消息上分叉，新的一段还什么都没有）：贴着输入框上面 */
+.main.fresh .fork-origin { margin: 0 0 14px; }
+
+/* 会话栏：分叉出来的那几段，第二行开头一个小小的分叉图标 */
+.conv-fork { display: inline-flex; margin-right: 5px; vertical-align: -2px; color: var(--accent); }
+.conv-fork .icon { width: 12px; height: 12px; }

@@ -98,6 +98,15 @@ class SessionActions:
         self.sessions.unlock(session)
         return False
 
+    def _busy_everywhere(self) -> str:
+        """_turn（"没有一段在跑"）拿不到的原因：说清楚是哪几段在跑。"""
+        running = [session.chat.conversation.title or t("新对话") for session in self.sessions.all() if session.running]
+        if len(running) > 1:
+            return t("「{title}」等 {n} 段对话正在进行。等它们结束，或者在会话栏上停下它们，再试。", title=running[0], n=len(running))
+        if running:
+            return t("「{title}」正在进行一轮对话。等它结束，或者先停下它，再试。", title=running[0])
+        return self._busy()
+
     def _too_many(self) -> str:
         return t("已经有 {n} 段对话在同时进行，这是上限。等其中一段结束，或者先在会话栏上停下一段，再发。", n=self._parallel_limit())
 

@@ -63,6 +63,7 @@ from .. import instance
 from ..config import (
     APP_NAME,
     APP_NAME_LATIN,
+    COMMAND,
     SERVICE_POLL_SECONDS,
     SERVICE_STOP_REQUEST,
     SERVICE_STOP_SECONDS,
@@ -93,8 +94,8 @@ EXITS = {
     1: k("看护它的 supervise.py 自己出错退出了：看日志里最后的错误"),
     0x41306: k("任务计划程序把它结束了（0x41306：schtasks /End，或者在“任务计划程序”里点了“结束”）"),
     0xC000013A: k("Windows 结束了它（0xC000013A：退出登录，或者关机）"),
-    0x80070002: k("找不到要运行的程序（0x80070002）：先运行 uv sync，再运行一次 uv run harness service install"),
-    0x8007010B: k("工作目录不在了（0x8007010B）：再运行一次 uv run harness service install"),
+    0x80070002: k("找不到要运行的程序（0x80070002）：先运行 {repair}，再运行一次 {command} service install"),
+    0x8007010B: k("工作目录不在了（0x8007010B）：再运行一次 {command} service install"),
     0x800710E0: k("Windows 拒绝开它（0x800710E0）：多半是你还没有登录"),
 }
 
@@ -232,7 +233,7 @@ class TaskScheduler:
             '<?xml version="1.0" encoding="UTF-16"?>',
             f'<Task version="1.2" xmlns="{NAMESPACE}">',
             "  <RegistrationInfo>",
-            f"    <Description>{escape(f'{APP_NAME_LATIN} ({APP_NAME}): uv run harness service status')}</Description>",
+            f"    <Description>{escape(f'{APP_NAME_LATIN} ({APP_NAME}): {COMMAND} service status')}</Description>",
             f"    <Documentation>{escape(DOCUMENTATION)}</Documentation>",
             "  </RegistrationInfo>",
             "  <Triggers>",

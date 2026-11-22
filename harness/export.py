@@ -4,7 +4,9 @@
 媒体库……以后新加的功能，只要把数据放在这个文件夹里，就会自动跟着导出，不用改这里。
 
 不导出的，以及做了处理的：
-  - 密钥。API key 在 .env 里，本来就不在数据文件夹里；万一被放了进来（叫 .env、.env.xxx 或者 xxx.env），跳过。
+  - 密钥。API key 在 .env 里。从仓库里运行时它本来就不在数据文件夹里；装成工具时（见 install.py）它就在数据文件夹里，
+    和别的文件放在一起。不管在不在，按名字（叫 .env、.env.xxx 或者 xxx.env）和按路径（Config.env_file，HARNESS_ENV_FILE
+    换到哪儿都认得，见 plan 的 secrets）都跳过。
   - MCP 的配置（mcp.json）照样导出，但里面的密钥换成占位符 PLACEHOLDER：启动 MCP 服务器用的环境变量（env）、
     请求头（headers）里的每一个值，名字像密钥的字段（key、token、secret、password……）的值，命令行参数里
     跟在 --token 这类开关后面的值，以及网址里的密码、长得像密钥的字符串（sk-…、ghp_…）。名字（比如
@@ -15,8 +17,14 @@
     拿到它就能冒充你登录那些网站，和密钥一样不该被带出去；剩下的只是缓存，恢复以后重新登录就行。截图（browser/shots）照样导出。
   - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock、*.lock）、写到一半的临时文件（*.tmp）。
 
-压缩包的最外层就是数据文件夹里的内容，另外多一个 README-backup.txt：导出的时间、怎么恢复、哪些文件做了处理。
-恢复的办法：先退出智狐，再把压缩包解压到数据文件夹里（两份 README 里也写着）。
+  - 恢复之前自动留的备份（restore-backups/，见 restore.py）不导出：每一份都是整个数据文件夹，带进去会越套越大。
+
+压缩包的最外层就是数据文件夹里的内容，另外多两个文件：README-backup.txt 写给人看（导出的时间、怎么恢复、哪些文件做了处理），
+backup-manifest.json 写给程序看（格式的版本、导出的时间、哪些文件遮了密钥，见 manifest）。
+
+恢复（restore.py）只认 PARTS 里列的这些东西（白名单），别的名字一律拒绝，所以这两处写在一起：
+以后新加的功能在数据文件夹里放了新的文件或文件夹，导出不用改，但要在 PARTS 里加一行，不然它的备份恢复不了
+（tests/test_restore.py 会拿演示的数据目录对一遍）。恢复的办法：设置里的"从备份恢复…"，或者 harness restore（两份 README 里也写着）。
 
 压缩包写在系统的临时文件里，不放在内存里，数据文件夹再大也不怕；由 server.py 发给浏览器，发完就删。
 """
@@ -34,7 +42,14 @@ from pathlib import Path
 from typing import IO, Any
 
 from . import pathnames
-from .config import APP_NAME
+from .config import (
+    APP_NAME,
+    APP_NAME_LATIN,
+    RESTORE_BACKUPS_DIR,
+    SERVICE_STOP_REQUEST,
+    WEB_ADDRESS,
+    WEB_TOKEN,
+)
 from .i18n import k, t
 from .redact import mask_shapes
 from .safe import to_json
@@ -46,8 +61,15 @@ from .safe import to_json
 MASKED_FILES = ("mcp.json", "channels.json", "endpoints.json", "hooks.json")
 PLACEHOLDER = "<removed-from-backup>"  # 写成英文：它留在配置文件里，恢复以后谁来看都认得出
 NOTE = "README-backup.txt"
+MANIFEST = "backup-manifest.json"  # 写给程序看的说明（见 manifest）。恢复时读它，不写进数据文件夹
+MANIFEST_FORMAT = 1  # 压缩包的格式：以后改了布局（不是加一种东西，是同一样东西换了放法）就加一，恢复时不认识的拒绝
 # 整个不导出的文件夹（相对数据文件夹的路径）→ 原因（写进压缩包里的说明）
-LEFT_OUT_FOLDERS = {"browser/profile": k("浏览器的配置文件夹：里面是登录过的网站的 cookie，和密钥一样不导出")}
+LEFT_OUT_FOLDERS = {
+    "browser/profile": k("浏览器的配置文件夹：里面是登录过的网站的 cookie，和密钥一样不导出"),
+    RESTORE_BACKUPS_DIR: k("恢复之前自动留的备份：每一份都是整个数据文件夹，带进去会越套越大"),
+}
+# 正在恢复时用的临时文件夹（见 restore.py）：写到一半的东西，不导出，也不提
+STAGING_PREFIX = ".restore-"
 # 本来就压缩过的格式，再压一遍只是白费时间：原样存进去
 STORED = {".zip", ".gz", ".xz", ".bz2", ".7z", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".avif",
           ".pdf", ".mp3", ".m4a", ".mp4", ".mov", ".webm", ".docx", ".xlsx", ".pptx"}
@@ -60,6 +82,68 @@ SECRET_GROUPS = {"env", "environment", "headers"}
 _AUTH_HEADER = re.compile(r"\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)  # "Bearer xxx"：留下前面那个词
 _URL_PASSWORD = re.compile(r"(://[^/\s:@]+:)[^/\s@]+@")  # https://用户:密码@host
 _URL_SECRET = re.compile(r"([?&][^=&#\s]*(?:key|token|secret|passw|auth|sig)[^=&#\s]*=)[^&#\s]+", re.IGNORECASE)
+
+
+# ---- 备份里有哪些东西（恢复的白名单）-----------------------------------------------
+
+
+@dataclass(frozen=True)
+class Part:
+    """数据文件夹里的一样东西。导出时照常放进压缩包；恢复（restore.py）只认这些，别的名字一律拒绝。
+
+    path 是相对数据文件夹的路径：一个文件，或者以 / 结尾的一个文件夹（里面的文件只查名字安不安全）。
+    label 和 unit 是给人看的（预览里一行一样东西：名字，加上几个）；label 是空的就不单独列一行（skills.json 只是 Skill 的开关）。
+    count：单个 JSON 文件里，哪个字段的长度是"有几个"（todos.json 的 items）。文件夹数文件的个数，by 是 folder 的数子文件夹。
+    by：合并的时候按什么比。file 一个个文件（会话按编号、记忆按文件名、多媒体按内容）；folder 一整个子文件夹（一个 Skill
+    是一个文件夹，不拆开和现在的拼在一起）；单个文件整个算一样（现在有就留着现在的）。
+    restore 为假的认，但不写回去：日志是这台电脑上正开着的程序自己写的。
+    """
+
+    id: str
+    path: str
+    label: str = ""
+    unit: str = ""
+    count: str = ""
+    by: str = "file"
+    restore: bool = True
+
+    @property
+    def folder(self) -> bool:
+        return self.path.endswith("/")
+
+
+PARTS = (
+    Part("conversations", "conversations/", k("会话"), k("{n} 段会话")),
+    Part("memories", "memories/", k("记忆"), k("{n} 条记忆")),
+    Part("todos", "todos.json", k("待办"), k("{n} 条待办"), count="items"),
+    Part("tasks", "tasks.json", k("定时任务"), k("{n} 个定时任务"), count="tasks"),
+    Part("settings", "settings.json", k("设置")),
+    Part("prompt", "prompt.md", k("改过的提示词")),
+    Part("ledger", "ledger.jsonl", k("花费账本")),
+    Part("skills", "skills/", k("Skill"), k("{n} 个 Skill"), by="folder"),
+    Part("skill_state", "skills.json"),
+    Part("agents", "agents/", k("Agent"), k("{n} 个 Agent")),
+    Part("mcp", "mcp.json", k("MCP 服务器"), k("{n} 个 MCP 服务器"), count="mcpServers"),
+    Part("channels", "channels.json", k("聊天通道"), k("{n} 个聊天通道"), count="platforms"),
+    Part("endpoints", "endpoints.json", k("自定义模型接口"), k("{n} 个自定义模型接口"), count="endpoints"),
+    Part("hooks", "hooks.json", k("钩子"), k("{n} 个钩子"), count="hooks"),
+    Part("commands", "commands.json", k("不用问的命令"), k("{n} 条命令"), count="commands"),
+    Part("media", "media/", k("多媒体库"), k("{n} 个文件")),
+    Part("backups", "backups/", k("改文件之前留的底"), k("{n} 个文件")),
+    Part("browser_shots", "browser/shots/", k("浏览器的截图"), k("{n} 张截图")),
+    Part("desktop_shots", "desktop/shots/", k("电脑的截图"), k("{n} 张截图")),
+    Part("evals", "evals/", k("评测结果"), k("{n} 个文件")),
+    Part("history", "input_history", k("终端里输入过的话")),
+    Part("logs", "logs/", k("后台服务的日志"), restore=False),
+)
+
+
+def part_of(name: str) -> Part | None:
+    """压缩包里的一项（相对数据文件夹的路径，分隔符是 /）属于哪一样东西。不属于任何一样返回 None。"""
+    for part in PARTS:
+        if (name.startswith(part.path) and len(name) > len(part.path)) if part.folder else name == part.path:
+            return part
+    return None
 
 
 # ---- 把密钥换成占位符 ------------------------------------------------------------
@@ -130,14 +214,15 @@ class Plan:
         return len(self.files) + len(self.masked)
 
 
-def _is_secret_file(name: str) -> bool:
+def is_secret_file(name: str) -> bool:
     return name == ".env" or name.startswith(".env.") or name.endswith(".env")
 
 
 def _is_scratch(relative: str, name: str) -> bool:
     """程序运行时自己用的东西：锁、写到一半的临时文件、上一次导出时放进去的说明（解压回来以后就在数据文件夹里）。"""
-    # .web-address、.web-token：网页的口令（serve --web 写的地址，后台服务存着的口令，见 webui/token.py），不带出去
-    return relative in (".lock", NOTE, ".web-address", ".web-token") or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
+    # .web-address、.web-token：网页的口令（serve --web 写的地址，后台服务存着的口令，见 webui/token.py），不带出去。
+    # .service-stop：Windows 上请后台服务停下的那个文件（见 service/supervise.py），只在那一会儿有
+    return relative in (".lock", NOTE, MANIFEST, WEB_ADDRESS, WEB_TOKEN, SERVICE_STOP_REQUEST) or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
 
 
 def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
@@ -155,7 +240,9 @@ def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
         folders[:] = sorted(name for name in folders if not pathnames.is_link(here / name))
         for name in list(folders):
             relative = (here / name).relative_to(data_dir).as_posix()
-            if relative in LEFT_OUT_FOLDERS:
+            if here == data_dir and name.startswith(STAGING_PREFIX):
+                folders.remove(name)  # 正在恢复时的临时文件夹
+            elif relative in LEFT_OUT_FOLDERS:
                 folders.remove(name)
                 result.skipped.append((relative + "/", t(LEFT_OUT_FOLDERS[relative])))
         for name in sorted(names):
@@ -163,7 +250,7 @@ def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:
             relative = path.relative_to(data_dir).as_posix()
             if _is_scratch(relative, name):
                 continue
-            if _is_secret_file(name) or os.path.realpath(path) in blocked:
+            if is_secret_file(name) or os.path.realpath(path) in blocked:
                 result.skipped.append((relative, t("存着密钥的文件")))
             elif pathnames.is_link(path):
                 result.skipped.append((relative, t("符号链接，可能指向数据文件夹外面")))
@@ -220,11 +307,50 @@ def write_archive(data_dir: Path, out: IO[bytes], moment: datetime, secrets: Ite
             info = zipfile.ZipInfo.from_file(data_dir / relative, relative, strict_timestamps=False)
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, content)
-        note = zipfile.ZipInfo(NOTE, moment.timetuple()[:6])
-        note.compress_type = zipfile.ZIP_DEFLATED
-        note.external_attr = 0o600 << 16  # 解压出来也只有自己的账号能读，和数据文件夹里别的文件一样
-        archive.writestr(note, readme(work, data_dir, moment).encode())
+        for name, content in ((NOTE, readme(work, data_dir, moment)), (MANIFEST, to_json(manifest(work, moment), readable=True, indent=2) + "\n")):
+            info = zipfile.ZipInfo(name, moment.timetuple()[:6])
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16  # 解压出来也只有自己的账号能读，和数据文件夹里别的文件一样
+            archive.writestr(info, content.encode())
     return work
+
+
+def manifest(work: Plan, moment: datetime) -> dict:
+    """压缩包里写给程序看的那份说明（backup-manifest.json）。恢复时用 read_manifest 读回来：
+
+      format     压缩包的格式（MANIFEST_FORMAT）
+      app        ZhiFox（认出这是谁的备份）
+      exported_at  导出的时刻，带着时区（2026-11-22T15:30:00+08:00）
+      files、bytes  一共几个文件、多大（压缩之前）
+      masked     哪些文件里的密钥换成了 PLACEHOLDER（恢复以后要重新填的就在这几个文件里）
+      left_out   没有导出的（名字，文件夹以 / 结尾）：浏览器的配置文件夹、存着密钥的文件……
+    """
+    return {
+        "format": MANIFEST_FORMAT,
+        "app": APP_NAME_LATIN,
+        "exported_at": moment.astimezone().isoformat(timespec="seconds"),
+        "files": work.count,
+        "bytes": work.size,
+        "masked": sorted(work.masked),
+        "left_out": [name for name, _ in work.skipped],
+    }
+
+
+def read_manifest(raw: bytes) -> dict | None:
+    """读回 manifest 写的那份说明。读不懂、不是智狐写的返回 None；format 比这个版本认识的新，原样交回去，由调用的人拒绝。
+    只留认识的字段、类型对的值：压缩包是从外面来的，里面写什么都有可能。"""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict) or data.get("app") != APP_NAME_LATIN or not isinstance(data.get("format"), int) or isinstance(data.get("format"), bool):
+        return None
+    try:
+        moment = datetime.fromisoformat(data["exported_at"]) if isinstance(data.get("exported_at"), str) else None
+    except ValueError:
+        moment = None
+    names = lambda value: [item for item in value if isinstance(item, str)][:1000] if isinstance(value, list) else []
+    return {"format": data["format"], "exported_at": moment, "masked": names(data.get("masked")), "left_out": names(data.get("left_out"))}
 
 
 def readme(work: Plan, data_dir: Path, moment: datetime) -> str:
@@ -236,11 +362,11 @@ def readme(work: Plan, data_dir: Path, moment: datetime) -> str:
         t("共 {n} 个文件。", n=work.count),
         "",
         t("怎么恢复："),
-        t("1. 先退出{name}（在它的终端里按 Ctrl-C）。", name=APP_NAME),
-        t("2. 把这个压缩包解压到数据文件夹里，覆盖同名的文件。想完全回到备份时的样子，先把现在的数据文件夹改个名字放到一边，再解压到一个新建的空文件夹里，用它当数据文件夹。"),
-        t("3. 重新启动{name}。", name=APP_NAME),
+        t("1. 在{name}的网页上打开“设置”，点“从备份恢复…”，选这个压缩包。先给你看里面有什么，你确认了才恢复；恢复之前会把现在的数据自动备份一份。", name=APP_NAME),
+        t("2. 没有网页的时候（服务器上），先退出{name}，再运行 uv run harness restore 这个压缩包。", name=APP_NAME),
+        t("3. 不要直接解压到数据文件夹里：密钥换成了占位符的那几个文件会把你现在填好的密钥盖掉。上面两种办法都会保留现在的密钥。"),
         "",
-        t("这份备份不含 API 密钥：它们保存在 .env 文件里，不在数据文件夹里。"),
+        t("这份备份不含 API 密钥：它们保存在 .env 文件里，这个文件从不导出。"),
     ]
     if work.masked:
         lines += ["", t("下面这些文件里的密钥换成了 {placeholder}，恢复以后要重新填写：", placeholder=PLACEHOLDER)]

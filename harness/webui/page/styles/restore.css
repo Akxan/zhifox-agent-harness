@@ -1,0 +1,115 @@
+/* ---- 设置 · 从备份恢复 -------------------------------------------------------------
+   scripts/restore.js 画的那个窗口：选文件（一块可以把压缩包拖进来的地方）、上传的进度条、预览（两种方式是两张卡片，
+   下面一行一样东西会怎样、哪些密钥要重新填）、正在恢复、恢复好了。
+   动的只有 transform 和 opacity：进度条是 scaleX，拖进来时那一圈光是 opacity，转圈是 rotate。
+   文字一律不冲出去：文件名一行省略（悬停看全名），路径和 JSON 里的位置折行。 */
+.settings.restore-dialog { width: min(640px, calc(100vw - 32px)); }
+.restore-body { padding-bottom: 16px; }
+.restore-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.restore-actions:empty { display: none; }
+.restore-dialog.working .restore-foot { min-height: 0; }
+
+/* 选文件：一块虚线框起来的地方，拖进来的时候亮起一圈 */
+.restore-drop { position: relative; isolation: isolate; display: grid; justify-items: center; gap: 8px; padding: 30px 20px 24px; text-align: center; background: var(--surface); border: 1.5px dashed var(--line-2); border-radius: 18px; }
+.restore-drop::before { content: ""; position: absolute; inset: -1.5px; z-index: -1; border-radius: inherit; background: radial-gradient(120% 90% at 50% 0%, var(--accent-soft), transparent 70%); opacity: 0; transition: opacity .25s var(--ease); pointer-events: none; }
+.restore-drop.over { border-color: var(--accent); }
+.restore-drop.over::before { opacity: 1; }
+.restore-drop.over .restore-glyph { transform: translateY(-3px) scale(1.06); }
+.restore-glyph { display: grid; place-items: center; width: 48px; height: 48px; color: var(--accent); background: var(--accent-soft); border-radius: 15px; transition: transform .3s var(--spring); }
+.restore-glyph .icon { width: 22px; height: 22px; }
+.restore-glyph.good { color: var(--ok); background: var(--ok-soft); }
+.restore-drop-title { margin-top: 4px; font: 600 17px/1.3 var(--serif); }
+.restore-drop-sub { max-width: 420px; margin: 0 0 6px; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.restore-drop .button { display: inline-flex; align-items: center; gap: 7px; }
+.restore-drop .button .icon { width: 14px; height: 14px; }
+
+.restore-points { display: grid; gap: 6px; margin: 14px 2px 0; padding: 0; list-style: none; }
+.restore-points li { display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.restore-points li span { min-width: 0; overflow-wrap: anywhere; }
+.restore-points .icon { flex: none; width: 13px; height: 13px; margin-top: 3px; color: var(--ok); }
+
+/* 一行带图标的说明：提醒是琥珀色，出错是红色，平常的是灰的 */
+.restore-note { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 0; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); background: var(--hover); border-radius: 12px; }
+.restore-note span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.restore-note .icon { flex: none; width: 14px; height: 14px; margin-top: 3px; color: var(--ink-3); }
+.restore-note.warn { color: var(--warn); background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.restore-note.warn .icon { color: var(--warn); }
+.restore-note.bad { color: var(--err); background: var(--err-soft); box-shadow: inset 0 0 0 1px var(--err-line); }
+.restore-note.bad .icon { color: var(--err); }
+
+/* 选好的那个文件：名字一行（太长省略），下面是大小、导出的时间、几个文件 */
+.restore-file { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.restore-file-glyph { flex: none; display: grid; place-items: center; width: 38px; height: 38px; color: var(--ink-2); background: var(--hover); border-radius: 12px; }
+.restore-file-glyph .icon { width: 18px; height: 18px; }
+.restore-file-words { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.restore-file-name { min-width: 0; font: 500 13.5px/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.restore-file-facts { min-width: 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* 上传的进度：一根细条，长度用 scaleX 变（不改宽度，不重新排版） */
+.restore-bar { height: 6px; margin: 16px 2px 0; overflow: hidden; background: var(--hover); border-radius: 6px; }
+.restore-bar i { display: block; height: 100%; background: var(--aurora-solid); border-radius: inherit; transform-origin: left; transition: transform .2s linear; }
+.restore-progress { margin: 8px 2px 0; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* 两种方式：两张并排的卡片，窄屏上上下排 */
+.restore-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; }
+.restore-mode { position: relative; display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 12px 14px; cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s ease, transform .15s var(--ease); }
+.restore-mode:hover { border-color: var(--line-3); }
+.restore-mode:active { transform: scale(.985); }
+.restore-mode.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.restore-mode input { flex: none; margin: 3px 0 0; accent-color: var(--ink); }
+.restore-mode-words { display: grid; gap: 3px; min-width: 0; }
+.restore-mode-words b { font-size: 13.5px; font-weight: 600; }
+.restore-mode-words small { font-size: 12px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; }
+.restore-mode:has(input:disabled) { cursor: default; }
+.restore-mode:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.settings h3.restore-heading { margin: 20px 0 8px; }
+
+/* 每一样东西会怎样：左边一个小记号（换成、加进来、清空、留着），名字，后面那句话 */
+.restore-steps { display: grid; gap: 1px; margin: 0; padding: 0; overflow: hidden; list-style: none; background: var(--line); border: 1px solid var(--line); border-radius: 14px; }
+.restore-step { display: grid; grid-template-columns: 24px minmax(0, 9em) minmax(0, 1fr); align-items: baseline; gap: 4px 10px; padding: 9px 12px; font-size: 13px; background: var(--surface); }
+.restore-step-mark { align-self: center; display: grid; place-items: center; width: 22px; height: 22px; color: var(--ink-3); background: var(--hover); border-radius: 7px; }
+.restore-step-mark .icon { width: 12px; height: 12px; }
+.restore-step.replace .restore-step-mark { color: var(--accent); background: var(--accent-soft); }
+.restore-step.add .restore-step-mark, .restore-step.merge .restore-step-mark { color: var(--ok); background: var(--ok-soft); }
+.restore-step.clear .restore-step-mark { color: var(--warn); background: var(--warn-soft); }
+.restore-step-name { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.restore-step-what { min-width: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.restore-step.clear .restore-step-what { color: var(--warn); }
+.restore-empty { padding: 12px; font-size: 13px; color: var(--ink-3); background: var(--surface); }
+
+/* 密钥：一个配置文件一张，里面是要重新填的那几处（JSON 里的位置，折行） */
+.restore-keys { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.restore-key { padding: 11px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.restore-key.broken { border-color: var(--err-line); }
+.restore-key-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px; min-width: 0; }
+.restore-key-head .icon { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
+.restore-key.new .restore-key-head .icon, .restore-key-head:has(+ .restore-key-lines .restore-key-paths) .icon { color: var(--warn); }
+.restore-key.broken .restore-key-head .icon { color: var(--err); }
+.restore-key-file { font: 500 12.5px var(--mono); overflow-wrap: anywhere; }
+.restore-key-home { min-width: 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.restore-key-lines p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); overflow-wrap: anywhere; }
+.restore-key-paths { display: grid; gap: 3px; margin: 5px 0 0; padding: 0 0 0 23px; list-style: none; }
+.restore-key-paths code { font: 12px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+
+/* 正在恢复：一个慢慢转的圈 */
+.restore-working, .restore-done { display: grid; justify-items: center; gap: 8px; padding: 28px 16px 14px; text-align: center; }
+.restore-working b, .restore-done-title { font: 600 18px/1.3 var(--serif); }
+.restore-working p, .restore-done p { max-width: 440px; margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-3); overflow-wrap: anywhere; }
+.restore-spinner { display: grid; place-items: center; width: 48px; height: 48px; color: var(--accent); background: var(--accent-soft); border-radius: 15px; }
+.restore-spinner .icon { width: 22px; height: 22px; animation: spin 1.1s linear infinite; }
+.restore-done .restore-glyph { animation: pop .45s var(--spring); }
+
+/* 恢复之前的数据在哪儿：一行，右边是"在访达中显示"（按钮一直留着位置，不挤动文字） */
+.restore-saved { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 14px 0 0; padding: 10px 8px 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.restore-saved-words { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.restore-saved-words b { font-size: 13px; font-weight: 600; }
+.restore-saved-path { min-width: 0; font: 12px/1.5 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.restore-saved .icon-button { flex: none; }
+
+@media (max-width: 560px) {
+  .restore-modes { grid-template-columns: minmax(0, 1fr); }
+  .restore-step { grid-template-columns: 24px minmax(0, 1fr); }
+  .restore-step-what { grid-column: 2; }
+  .restore-drop { padding: 24px 14px 20px; }
+}

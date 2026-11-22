@@ -49,6 +49,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/new        用户点了"新对话"（带上 agent 的话，用这个自定义 Agent 当角色开始，见 agents/ 和 conversations_api.py）
   POST /api/conversation/open、rename、delete   打开、重命名、删除一段保存过的会话（见 conversations_api.py）
   POST /api/conversation/reveal                 在系统的文件管理器里显示一段会话的文件
+  POST /api/fork       从某一轮分叉成一段新对话、换过去（原来那段一字不动，见 fork_api.py 和 ../fork.py）
   POST /api/memory/read、save、delete           查看、修改（内容和名字）、删除一条记忆（data/memories/ 下的一个文件，见 memories.py 和 memory_api.py）
   POST /api/memory/reveal                       在系统的文件管理器里打开记忆文件夹
   POST /api/memory/show                         在系统的文件管理器里显示一条记忆的文件
@@ -88,6 +89,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/budget     用户填写或清除了每月预算（见 budget.py 和 settings_api.py）
   POST /api/export/info  导出之前看一眼：数据文件夹有多大、多少个文件
   POST /api/export     导出全部数据：回答的是一个 zip 文件，不是 JSON（见 export.py 和这个文件的 _send_export）
+  POST /api/restore/info、upload、discard、apply、reveal   从备份恢复：上传（请求体是压缩包原样的字节）、预览、确认、在访达中显示自动备份（见 restore_api.py）
   POST /api/channel/connect、pair、cancel、approval、sandbox、enable、unbind、remove   聊天通道（Telegram……）的设置（见 channels/hub.py 和 channels_api.py）
   POST /api/channel/confirm、stop               答复聊天里等你批准的操作、停下聊天里正在进行的一轮
   POST /api/browser/settings、stop、reveal、clear  浏览器：开关和设置、停下并关掉、在访达中显示配置文件夹、清除它（见 browser_api.py）
@@ -112,6 +114,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import secrets
@@ -128,7 +131,13 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .. import export, i18n, instance, media
 from ..app import App, build_app
-from ..config import APP_NAME, BROWSER_SHOT_DAYS, DESKTOP_SHOT_DAYS, Config
+from ..config import (
+    APP_NAME,
+    BROWSER_SHOT_DAYS,
+    DESKTOP_SHOT_DAYS,
+    PAGE_GZIP_LEVEL,
+    Config,
+)
 from ..exits import EXIT_SIGNALS
 from ..i18n import t
 from ..providers import has_key
@@ -152,6 +161,7 @@ from . import (
 )
 from . import manifest as web_manifest
 from .page import assemble as assemble_page
+from .restore_api import UPLOAD_PATH as RESTORE_UPLOAD
 from .skills_api import MAX_UPLOAD_BODY_BYTES
 from .ui import WebUI, latest_state_only
 from .webapp import WebApp
@@ -206,6 +216,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         # 只有发消息（带附件）和上传 Skill（压缩包、文件夹）的请求体上限放宽了
         path = urlsplit(self.path).path
+        if path == RESTORE_UPLOAD:  # 备份的压缩包：请求体是原样的字节，不是 JSON，边读边写进临时文件（上限也在那边，见 restore_api.py）
+            self._send_json(*self.server.web.restore.upload(self.headers, self.rfile))
+            return
         limit = {"/api/message": MAX_MESSAGE_BODY_BYTES, "/api/skill/upload": MAX_UPLOAD_BODY_BYTES}.get(path, MAX_BODY_BYTES)
         body = self._read_json(limit)
         if body is None:
@@ -307,6 +320,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":
             self._send_export()
+        elif path.startswith("/api/restore/"):
+            status, payload = web.restore.route(path.removeprefix("/api/restore/"), body, self.server)
+            self._send_json(status, payload)
         elif path == "/api/fallbacks":
             status, payload = fallback_api.save(web.app, body)
             if status == 200:
@@ -337,6 +353,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/sandbox/"):
             status, payload = web.sandbox.route(path.removeprefix("/api/sandbox/"), body)
+            self._send_json(status, payload)
+        elif path == "/api/fork":
+            status, payload = web.fork.route(body)
             self._send_json(status, payload)
         elif path.startswith("/api/changes/"):
             status, payload = web.changes.route(path.removeprefix("/api/changes/"), body)
@@ -447,12 +466,16 @@ class Handler(BaseHTTPRequestHandler):
             "__MARKDOWN__": MARKDOWN,
         }
         page = re.sub("__NONCE__|__TOKEN__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
-        self._send(
-            200,
-            "text/html; charset=utf-8",
-            page.encode(),
-            {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"},
-        )
+        headers = {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Vary": "Accept-Encoding"}
+        body = page.encode()
+        # 浏览器说收 gzip 的话压缩一下：一百多万字节变成三分之一左右，远程打开（手机、隧道）时快得多。
+        # 页面里有口令。压缩以后的长度会随内容变，有一类攻击（BREACH）就是往同一个回答里塞进自己选的文字、
+        # 看长度的变化一点点猜出秘密；它要求回答里回显请求带来的东西。这一页只填 nonce、口令、翻译表和 Markdown 渲染器，
+        # 一个字都不回显请求（地址、请求头、表单），所以不受影响。以后要是往页面里填请求带来的内容，先想好这一条
+        if accepts_gzip(self.headers.get("Accept-Encoding", "")):
+            body = gzip.compress(body, PAGE_GZIP_LEVEL)
+            headers["Content-Encoding"] = "gzip"
+        self._send(200, "text/html; charset=utf-8", body, headers)
 
     def _send_manifest(self) -> None:
         """网页应用的清单（见 manifest.py）。里面的地址带着口令，所以和页面一样不进缓存。"""
@@ -507,13 +530,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        sessions = self.server.web.sessions
         caught_up = False  # 已有的事件补发完了没有
         watched = None  # 正在读的是哪一段的日志
         try:
             while True:
                 # 第一次（浏览器报上来的编号不是这一段的），或者换着看了另一段（restart）：页面清空，从头补发这一段的日志
-                ui, restart, events, wakes = sessions.watching(cursor, watched)
+                # 每次现找 server.web：从备份恢复以后换上了一个新的 WebApp（见 restore_api.py），接着读它的（还是同一个 WebUI）
+                ui, restart, events, wakes = self.server.web.sessions.watching(cursor, watched)
                 watched = ui
                 if restart:
                     if not events or events[0]["type"] != "reset":  # 这一段的日志不是从 reset 开始的：替它补一个
@@ -597,6 +620,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+
+def accepts_gzip(header: str) -> bool:
+    """Accept-Encoding 里有没有 gzip（或者 *），并且没写 q=0。"gzip, deflate, br"、"gzip;q=0.5" 都算；"gzip;q=0" 不算。"""
+    accepted = False
+    for item in header.split(","):
+        name, _, params = item.strip().partition(";")
+        name = name.strip().lower()
+        if name not in ("gzip", "x-gzip", "*"):
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            key, _, value = param.strip().partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0  # 写坏了的当成不要
+        if name in ("gzip", "x-gzip"):
+            return quality > 0  # 明说了 gzip 的，以它为准
+        accepted = quality > 0
+    return accepted
 
 
 def create_server(app: App, ui: WebUI, port: int | None = None, token: str | None = None, service: str | None = None) -> tuple[Server, str]:

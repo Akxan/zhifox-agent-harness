@@ -45,8 +45,8 @@ def _traced_turn(page) -> None:
 
 def test_a_turn_opens_its_trace_as_a_waterfall_and_it_survives_a_reload(page):
     _traced_turn(page)
-    # 入口在最后那个回答下面那排按钮里，在"复制"和"重新生成"之间；写着这一轮用了多久、花了多少
-    assert page.js("[...document.querySelector('#log .msg.assistant.turn-last .msg-actions').children].map((node) => node.classList.contains('trace-open') ? 'trace' : node.classList.contains('turn-retry') ? 'retry' : 'copy')") == ["copy", "trace", "retry"]
+    # 入口在最后那个回答下面那排按钮里，在"复制""分叉"和"重新生成"之间；写着这一轮用了多久、花了多少
+    assert page.js("[...document.querySelector('#log .msg.assistant.turn-last .msg-actions').children].map((node) => node.classList.contains('trace-open') ? 'trace' : node.classList.contains('turn-retry') ? 'retry' : node.classList.contains('fork-reply') ? 'fork' : 'copy')") == ["copy", "fork", "trace", "retry"]
     words = page.text("#log .trace-open")
     assert ("秒" in words or "毫秒" in words) and "$" in words
     assert page.js("document.querySelector('#log .trace-open').classList.contains('trace-new')"), "实时这一轮结束时，入口淡淡地出现"

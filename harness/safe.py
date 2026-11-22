@@ -22,7 +22,7 @@ import math
 import os
 import secrets
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from . import winacl
 
@@ -146,3 +146,28 @@ def write_file(path: Path, text: str | bytes) -> None:
     except BaseException:
         temp.unlink(missing_ok=True)  # 没写成：不留下半截的临时文件
         raise
+
+
+def write_stream(path: Path, source: IO[bytes], most: int) -> int:
+    """和 write_file 一样（先写旁边的临时文件、fsync、再一步换上去，新文件只有自己的账号能读），只是内容边读边写：
+    从 source 一块一块地读，最多 most 个字节。多出来的算失败（抛 ValueError），什么都不留下。返回一共写了多少字节。
+
+    从备份恢复时用（见 restore.py）：多媒体库里一个视频可能有几百 MB，不该整个读进内存。
+    """
+    temp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
+    written = 0
+    try:
+        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            while chunk := source.read(min(1 << 20, most - written + 1)):
+                written += len(chunk)
+                if written > most:
+                    raise ValueError(f"比说好的 {most} 个字节多")
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    return written

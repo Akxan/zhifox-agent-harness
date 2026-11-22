@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import budget, fallback, i18n
+from . import budget, fallback, fork, i18n
 from .agent import Agent
 from .agents import AgentError, AgentStore, CustomAgent
 from .agents import tools as agent_tools
@@ -217,10 +217,12 @@ class App:
 
     def view(self, chat: Chat) -> None:
         """换成看另一段（网页上同时进行几段对话时，见 webui/sessions.py）。只是换"正看着哪一段"：
-        那一段自己的东西一样都不动，后台的那一段照常跑。信息栏、MCP 一页照着 McpManager.active 画，跟着换。"""
+        那一段自己的东西一样都不动，后台的那一段照常跑。信息栏、MCP 一页照着 McpManager.active 画，跟着换。
+        设置里"现在用的模型"也换成它用的那个（和打开一段会话一样）：页面顶上的模型按钮、新对话、定时任务都照着它。"""
         with self._viewing:
             self.chat = chat
             self.mcp.active = chat.mcp
+        self._remember_choice(chat.conversation.provider, chat.conversation.model)
 
     def new_chat(self, ui: Any, shell: Shell | None = None) -> Chat:
         """准备一段新对话要用的全部东西（见 Chat）：此刻设置里选的那一家、那个模型，一段空的会话。
@@ -544,13 +546,38 @@ class App:
         做的事情只有两件：换回这段会话当时用的模型，把它的对话历史交还给适配层。
         下一次请求会把这份历史一起发给模型，模型就"想起"了之前聊过什么。
         """
-        chat = chat or self.chat
-        conversation = self.store.load(conversation_id)
+        return self._continue(self.store.load(conversation_id), chat or self.chat)
+
+    def fork_conversation(
+        self, conversation_id: str, index: int, at: str, expect: tuple[int | None, str] | None = None, chat: Chat | None = None
+    ) -> fork.Fork:
+        """从一段保存过的会话的第 index 轮（从 0 数）分叉成一段新的（规矩见 fork.py），存好盘，在 chat 里换到新的一段上接着聊
+        （chat 不给是你正看着的这一段）。
+        原来那段一字不动：只是从磁盘读它（ConversationStore.load 拿着会话库的锁，聊天通道正在写它也读不到半截）。
+
+        新的一段有内容才存盘；在第一轮的消息上分叉的是空的，和新对话一样先只在内存里（会话栏里照样列出来）。
+        分叉不了抛出 ForkError，会话读不出来、它用的那一家不在了抛出 ConversationError：这两种都什么都不换。
+        """
+        source = self.store.load(conversation_id)
+        made = fork.make(source, self._provider_of(source), self.store, index, at, expect)
+        if made.conversation.messages or made.conversation.events:
+            self.store.save(made.conversation)
+        self._continue(made.conversation, chat or self.chat)
+        return made
+
+    @staticmethod
+    def _provider_of(conversation: Conversation) -> Provider:
+        """一段会话用的那一家。不在了（自定义接口被删掉了、这个版本不支持了）时抛出 ConversationError，说明怎么办。"""
         provider = find(conversation.provider)
         if provider is None and conversation.provider.startswith(ENDPOINT_PREFIX):
             raise ConversationError(t("这段会话用的是自定义模型接口（{provider}），它已经被删掉了。在设置里重新添加一个同名的接口，就能接着聊。", provider=conversation.provider))
         if provider is None:
             raise ConversationError(t("这段会话用的模型提供方，这个版本的程序已经不支持了。"))
+        return provider
+
+    def _continue(self, conversation: Conversation, chat: Chat) -> Conversation:
+        """在 chat 里换到这段会话上接着聊：换回它用的模型，把它的历史交还给适配层（打开一段会话、分叉出一段新的都走这里）。"""
+        provider = self._provider_of(conversation)
         # 用 Agent 开始的会话：照着这个 Agent 现在的文件接着聊（和内置的提示词一样，用的是现在的那一版）。
         # 它被删掉了、或者现在不合格的话，退回到普通的对话，并且说一声
         persona = None

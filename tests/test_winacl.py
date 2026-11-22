@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -76,6 +77,74 @@ def test_on_macos_and_linux_it_does_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(winacl, "WINDOWS", False)
     monkeypatch.setattr(winacl, "runner", lambda args: pytest.fail("不是 Windows 时不运行任何命令"))
     assert winacl.restrict(tmp_path, folder=True)
+    assert winacl.others(tmp_path) is None  # 只读的那一半也一样：不是 Windows 就是"查不了"
+
+
+# ---- 只看不改：others（harness doctor 用） --------------------------------------------------
+
+
+def _saving(monkeypatch, *lines: str, code: int = 0, encoding: str = "utf-16-le"):
+    """假装是 Windows：icacls /save 把这几行写进它要的文件（真的 icacls 写的是 UTF-16），记下每一条命令。"""
+    calls: list[list[str]] = []
+
+    def runner(args):
+        calls.append(args)
+        if args[0].lower().endswith("whoami.exe"):
+            return 0, f'"pc\\me","{SID}"\r\n'
+        if code == 0:
+            Path(args[args.index("/save") + 1]).write_bytes("\r\n".join(lines).encode(encoding))
+        return code, "" if code == 0 else "拒绝访问。"
+
+    monkeypatch.setattr(winacl, "WINDOWS", True)
+    monkeypatch.setattr(winacl, "runner", runner)
+    winacl.forget()
+    return calls
+
+
+def test_others_reads_the_access_list_without_changing_it(monkeypatch, tmp_path):
+    calls = _saving(monkeypatch, "data", f"D:PAI(A;OICI;FA;;;{SID})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)")
+    assert winacl.others(tmp_path) == []
+    icacls = [call for call in calls if call[0].lower().endswith("icacls.exe")]
+    assert len(icacls) == 1 and icacls[0][1:3] == [str(tmp_path), "/save"] and icacls[0][-1] == "/q"
+    assert not any(flag in call for call in icacls for flag in ("/grant", "/grant:r", "/inheritance:r", "/reset"))
+
+
+def test_others_names_everyone_else_who_is_allowed(monkeypatch, tmp_path):
+    _saving(monkeypatch, "data", f"D:AI(A;OICIID;FA;;;{SID})(A;OICIID;FA;;;SY)(A;OICIID;0x1200a9;;;BU)(A;OICIIOID;SDGXGWGR;;;AU)(D;;FA;;;WD)(A;;FA;;;BU)")
+    assert winacl.others(tmp_path) == ["BU", "AU"]  # 拒绝的那一项（D;…;WD）不算；同一位只写一次
+    _saving(monkeypatch, "data", "D:NO_ACCESS_CONTROL")
+    assert winacl.others(tmp_path) == ["WD"]  # 没有访问控制列表：谁都能用
+    _saving(monkeypatch, "data", f"D:P(A;;FA;;;{SID})(A;;FA;;;S-1-5-21-9-9-9-1002)", encoding="utf-8")
+    assert winacl.others(tmp_path) == ["S-1-5-21-9-9-9-1002"]  # 别的账号按 SID 写
+
+
+
+def test_the_built_in_administrator_is_written_la_and_is_still_you(monkeypatch, tmp_path):
+    # 用这台电脑内置的 Administrator 账号（RID 500）登录时，SDDL 里"你自己"那一项写成别名 LA，不写 SID
+    admin = "S-1-5-21-7-8-9-500"
+
+    def runner(args):
+        if args[0].lower().endswith("whoami.exe"):
+            return 0, f'"pc\\administrator","{admin}"\r\n'
+        Path(args[args.index("/save") + 1]).write_bytes("data\r\nD:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)\r\n".encode("utf-16-le"))
+        return 0, ""
+
+    monkeypatch.setattr(winacl, "WINDOWS", True)
+    monkeypatch.setattr(winacl, "runner", runner)
+    winacl.forget()
+    assert winacl.others(tmp_path) == []
+    # 别的账号登录时，LA 是另一个人（这台电脑的 Administrator），照样算"别人"
+    _saving(monkeypatch, "data", f"D:PAI(A;OICI;FA;;;{SID})(A;OICI;FA;;;LA)")
+    assert winacl.others(tmp_path) == ["LA"]
+
+def test_others_cannot_tell_when_icacls_fails_or_the_file_is_odd(monkeypatch, tmp_path):
+    _saving(monkeypatch, code=5)
+    assert winacl.others(tmp_path) is None
+    _saving(monkeypatch, "D:\\work\\data")  # 文件名那一行以 D: 开头，可它不是 SDDL：不能当成"一项都没有"
+    assert winacl.others(tmp_path) is None
+    monkeypatch.setattr(winacl, "runner", lambda args: (1, "whoami 不在"))
+    winacl.forget()
+    assert winacl.others(tmp_path) is None
 
 
 def test_private_dir_restricts_every_folder_it_makes(windows, tmp_path):
@@ -158,6 +227,19 @@ def test_real_icacls_leaves_only_me_system_and_administrators(monkeypatch, tmp_p
     (folder / "x.json").write_text("{}", encoding="utf-8")
     inner = _only_mine(folder / "x.json", _me())
     assert all("(I)" in entry for entry in inner), inner
+
+
+@needs_windows
+def test_real_icacls_others_sees_who_else_can_read(monkeypatch, tmp_path):
+    """harness doctor 用的只读检查，对着真的 icacls：收紧以后只有自己；再给本机的所有用户（BU）读的权限，就看得出来。"""
+    monkeypatch.setattr(winacl, "runner", winacl._run)
+    winacl.forget()
+    folder = tmp_path / "data"
+    folder.mkdir()
+    assert winacl.restrict(folder, folder=True)
+    assert winacl.others(folder) == []
+    subprocess.run([winacl._system32("icacls.exe"), str(folder), "/grant", "*S-1-5-32-545:(OI)(CI)R"], check=True, capture_output=True)
+    assert winacl.others(folder) == ["BU"]
 
 
 @needs_windows

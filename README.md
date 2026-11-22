@@ -137,17 +137,113 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 
 ## Quick start
 
-You need macOS, Linux or Windows and [uv](https://docs.astral.sh/uv/). On Windows, see [Windows](#windows) for the
-PowerShell version of these steps.
+You need macOS, Linux or Windows. There are two ways to get ZhiFox:
+
+- **Install it with one command** to use it: no clone, no project folder, and a `harness` command that works in any
+  folder.
+- **Clone the repository** to read the code, change it, and run the tests and the evals (see
+  [From a clone](#from-a-clone-for-development-and-learning)).
+
+### Install with one command
+
+First install [uv](https://docs.astral.sh/uv/getting-started/installation/), then ZhiFox. uv also downloads a suitable
+Python (3.11 or later) if you don't have one, and installs ZhiFox in an environment of its own.
 
 ```bash
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh                   # install uv, then open a new terminal
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web                                                     # start the web UI; it opens in your browser
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new window
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+Installing from a `git+https://` address needs Git on the computer (uv runs it to download the code; you never use it
+yourself). macOS offers to install it the first time; most Linux systems have it. A fresh Windows doesn't: install
+[Git for Windows](https://git-scm.com/download/win) (or `winget install --id Git.Git -e`), or install from GitHub's
+zip of the code instead, which needs no Git:
+
+```powershell
+uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip
+```
+
+To update an install made from the zip, run that same line again with `--reinstall` added.
+
+If the terminal then says `harness` isn't found, run `uv tool update-shell` and open a new terminal: it adds the folder
+uv puts commands in (`~/.local/bin`) to your `PATH`.
+
+Updating and removing (the package is called `harness-assistant`; the command it installs is `harness`):
+
+```bash
+uv tool upgrade harness-assistant      # update to the latest version on GitHub
+uv tool uninstall harness-assistant    # remove the program; your data folder stays where it is
+```
+
+If ZhiFox runs as a [background service](#run-it-in-the-background), run `harness service restart` after updating.
+
+**Where your data and keys are.** Installed this way, the program lives in uv's own folder, which `uv tool upgrade` and
+`uv tool uninstall` replace and delete. So your conversations, memory and settings are kept outside it, in a folder of
+your own account, and the API keys (`.env`) are in that same folder:
+
+| System | Data folder, with `.env` inside it |
+|---|---|
+| macOS | `~/Library/Application Support/ZhiFox/` |
+| Linux | `$XDG_DATA_HOME/zhifox/`, by default `~/.local/share/zhifox/` |
+| Windows | `%LOCALAPPDATA%\ZhiFox\`, for example `C:\Users\you\AppData\Local\ZhiFox\` |
+
+The folder is readable by your account only, as `data/` is in a clone (see [Data and privacy](#data-and-privacy)). The
+easiest way to add a key is the web UI's **Settings**, which writes `.env` there; you can also create the file
+yourself with lines such as `ANTHROPIC_API_KEY=…` (see [.env.example](.env.example)). Being in the data folder doesn't
+make `.env` any easier to reach: the assistant's file tool can't open it, the command sandbox can't reach it, and
+**Export all data** leaves it out, the same as in a clone. `HARNESS_DATA_DIR` and `HARNESS_ENV_FILE` still move
+either one somewhere else.
+
+Why these folders: on Windows it's the *local* AppData, not the roaming one, because a roaming profile copies the whole
+folder at every sign-in and sign-out, and ZhiFox's data (attachments, the browser profile, backups) is large and partly
+tied to this computer. On Linux, `.env` stays in the data folder rather than going to `~/.config`, which many people
+keep in a public dotfiles repository.
+
+**Backing up.** **Settings → Export all data** makes a zip of the data folder without your keys (see
+[Backup and restore](#backup-and-restore)). Copying the whole folder also works, but that copy includes `.env`, so keep
+it private.
+
+**How it differs from a clone:**
+
+- Commands drop the `uv run` in front: `harness --web`, `harness service install`, `harness channels setup telegram`.
+  Wherever this README writes `uv run harness …`, type `harness …`.
+- You don't need the `zhifox` shortcut from [Using it in another folder](#using-it-in-another-folder): `harness`
+  already works in any folder, and the folder you start it in is the assistant's working folder.
+- The data folder is the one in the table, not a project's `data/`, so a clone and an installed ZhiFox on the same
+  computer don't share conversations or keys. To move from a clone, quit ZhiFox, then copy what's inside the clone's
+  `data/`, and its `.env`, into that folder (or set `HARNESS_DATA_DIR` and `HARNESS_ENV_FILE` to the clone's).
+- Feishu and DingTalk need their SDK, installed by reinstalling with the extra:
+  `uv tool install --force "harness-assistant[feishu,dingtalk] @ git+https://github.com/Akxan/zhifox-agent-harness"`
+  (the web page and `harness channels setup` print the exact line for what you have).
+- [Evals](#evals-is-the-assistant-actually-any-good) need a clone: the tasks and the fake servers of the dry run live
+  in the repository, not in the installed package. `harness eval` says so.
+
+### From a clone (for development and learning)
+
+```bash
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
 uv sync                 # install dependencies
 uv run harness --web    # start the web UI; it opens in your browser
 ```
 
-The first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that notice (or
-the button at the top right), enter a key for at least one provider, and start chatting. For the terminal UI, run
-`uv run harness` once a key is set.
+Here everything stays in the project: data in `data/`, keys in `.env`, both ignored by git. On Windows, see
+[Windows](#windows) for the PowerShell version. ZhiFox tells the two apart by looking at where its package is: next to
+its own `pyproject.toml` means a clone; inside a `site-packages` folder means installed (see
+[harness/install.py](harness/install.py)).
+
+Either way, the first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that
+notice (or the button at the top right), enter a key for at least one provider, and start chatting. For the terminal
+UI, run `harness` (from a clone: `uv run harness`) once a key is set.
 
 ### Supported models
 
@@ -206,7 +302,18 @@ endpoint's model as `custom-<id>/<model>`, for example `custom-ollama/qwen3:8b`.
 
 ZhiFox runs on Windows. Every push is tested on GitHub's `windows-latest` runner (Windows Server) as well as Ubuntu and
 macOS; it hasn't been tried by hand on a Windows 10 or 11 desktop yet, so tell us if something there behaves
-differently. In PowerShell:
+differently. To just use it, install it with one command (see [Install with one command](#install-with-one-command);
+data and keys then go to `%LOCALAPPDATA%\ZhiFox\`):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
+winget install --id Git.Git -e                                                        # Git, if you don't have it yet (uv uses it to download)
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+(Without Git, `uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` works too.)
+To work on the code, clone it instead:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # install uv, then open a new PowerShell window
@@ -253,6 +360,46 @@ Not supported on Windows yet:
   and Ctrl+Break in the terminal, and `uv run harness service stop`, all stop it cleanly. Closing the terminal window
   ends it without that.
 - The background service stops when you sign out (it runs as you, with no stored password).
+
+## Troubleshooting: `harness doctor`
+
+When something doesn't work, run the self-check first. It shows on one screen how ZhiFox is set up on this computer,
+and it's the quickest way to tell us what's different on yours, especially on Windows, which is tested on GitHub's
+runners but not yet on a real desktop. In the project folder:
+
+```bash
+# macOS and Linux (zsh, bash)
+uv run harness doctor                       # a table to read
+uv run harness doctor --json > doctor.json  # for scripts, or to attach when you ask someone for help
+echo $?                                     # 1 if anything is a problem, 0 otherwise
+```
+
+```powershell
+# Windows (PowerShell)
+uv run harness doctor
+uv run harness doctor --json | Out-File -Encoding utf8 doctor.json
+$LASTEXITCODE
+```
+
+In the terminal UI, type `/doctor`. Each line is in one of three states: **OK**, **Problem**, or **Not used** (a feature
+you haven't set up isn't a problem). Every problem comes with a fix written for your shell: zsh on macOS, bash on Linux,
+PowerShell on Windows. A data folder others can read, for example, gets `chmod 700 '…/data'` on macOS and Linux, and on
+Windows the same `icacls '…\data' /inheritance:r /grant:r '*S-1-5-21-…:(OI)(CI)F' …` command ZhiFox uses itself.
+
+| Section | What it looks at |
+|---|---|
+| Environment | Python's version and path (and whether it's the project's `.venv`), ZhiFox's version and git commit, the system, whether `uv` is on the PATH |
+| Folders | The working folder is writable; `data/` and `.env` can be read by your account only: 700 and 600 on macOS and Linux (and owned by you, not by root after a `sudo` run), the access list on Windows (read with `icacls /save`, never changed) |
+| In use | Whether another ZhiFox holds the data folder (the web UI, `harness serve`, the background service, `channels pair`) and its process ID |
+| API keys | Which providers have a key and where it comes from (`.env`, an environment variable, the Anthropic login); an empty variable hiding the key in `.env`; a variable that overrides a different key in `.env`; the selected model; custom endpoints |
+| This computer | Chrome found or not; whether the command sandbox works here (and what wants it: the chat, a task, a channel); computer use: the backend and, on macOS, the Screen Recording and Accessibility permissions (preflight checks only, nothing pops up); the background service: installed, running, crashed, or missing keys that are set only in your shell |
+| Extensions | MCP servers, chat channels, hooks and scheduled tasks: how many and how many are on; MCP servers and hooks whose program isn't installed (`npx`, `uvx`…); channels not filled in, not paired, or missing their SDK; a tasks file that can't be read |
+| Network | Proxies and changed API addresses (scheme, host and port only), a plain `http://` address outside your network; web search on or off |
+
+It only looks. It changes no files, permissions or settings, starts nothing (no MCP server, no Chrome, no screenshot),
+and sends nothing over the network. Keys are reported as present or missing, never the key or its last characters, and
+the `--json` output has no keys, tokens or tokenized addresses. It does contain your paths, which usually include your
+user name.
 
 ## Architecture
 
@@ -368,6 +515,7 @@ Each part of the harness has its own file or directory:
 | Headless mode | [harness/serve.py](harness/serve.py), [harness/log.py](harness/log.py), [harness/webui/lifecycle.py](harness/webui/lifecycle.py) | A server has no browser. `harness serve` starts the scheduler and the channels without one, logs for journald with secrets hidden, and shuts down cleanly on SIGTERM; the web UI and the headless mode start and stop the background parts in the same place |
 | Background service | [harness/service/](harness/service/), [harness/instance.py](harness/instance.py) | Started from a terminal, ZhiFox stops when the terminal closes. `harness service` hands it to launchd (macOS) or systemd (Linux), so it starts at login and restarts after a crash; the data folder's lock records who holds it, so a second ZhiFox can say what's in the way (see [Run it in the background](#run-it-in-the-background)) |
 | Edit and regenerate | [harness/rewind.py](harness/rewind.py) | You mistype, or the answer misses. The last turn can be rewound and run again: where to rewind to, which steps may have changed something (those need a warning first), and getting the attachments back |
+| Fork a conversation | [harness/fork.py](harness/fork.py), [harness/webui/fork_api.py](harness/webui/fork_api.py) | Rewinding only reaches the last turn. Forking starts a new conversation from any finished turn and leaves the original untouched: where to cut (the same positions rewinding uses), what is copied and what stays behind (see [Forking a conversation from a turn](#forking-a-conversation-from-a-turn)) |
 | Undo file changes | [harness/undo/](harness/undo/) | Rewinding brings back the conversation, not the files. Each turn records what the file tool changed (a copy of each file from before, kept under `data/backups/turns/`), and the files can be undone one by one or all at once, then redone; a content hash catches files that changed since (see [Undoing a turn's file changes](#undoing-a-turns-file-changes)) |
 | Conversation claims | [harness/claims.py](harness/claims.py) | One conversation can be open in the web page and in a chat app at once. A conversation is claimed for each turn, so two sides never write to it at the same time and overwrite each other's turn |
 | Permissions | [harness/permissions.py](harness/permissions.py) | A model can make mistakes or be misled. Risky actions need your approval |
@@ -386,9 +534,12 @@ Each part of the harness has its own file or directory:
 | Run trace | [harness/trace/](harness/trace/), [harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js), [trace-chart.js](harness/webui/page/scripts/trace-chart.js) | You can't see how many rounds the loop ran behind one answer, or what each round cost in time and money. The loop tells a recorder at a few recording points, the turn's record is saved with the conversation, and the web UI draws it as a waterfall (`/trace` in the terminal; see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)) |
 | Masking secrets | [harness/redact.py](harness/redact.py) | A command's output or a file can carry a key by accident, and once it is in the append-only history it's sent to the provider and saved for good. Results are masked the moment they're created, before the `tool_ended` recording point; known key formats, known values from the environment and `.env`, and random-looking values after `password=` / `token:` (see [Masking secrets in tool results](#masking-secrets-in-tool-results)) |
 | Export | [harness/export.py](harness/export.py) | Your data lives in one folder on one computer. One click packs it into a zip, with secrets left out |
+| Self-check | [harness/doctor/](harness/doctor/) | Most problems aren't in the code but on the computer: a key set only in your shell, a data folder others can read, an MCP server that needs `npx` on a machine without Node.js. `harness doctor` looks at all of it on one screen, read-only, with each fix written for your shell (see [Troubleshooting](#troubleshooting-harness-doctor)) |
+| Restore from a backup | [harness/restore.py](harness/restore.py), [harness/restore_keys.py](harness/restore_keys.py), [harness/webui/restore_api.py](harness/webui/restore_api.py), [harness/restore_cli.py](harness/restore_cli.py) | Unzipping a backup over the data folder by hand would overwrite your keys with placeholders and trust whatever is in the zip. The page (or `harness restore`) checks the archive against the export's own list, shows a preview, backs up the current data, keeps current secrets, and starts again in place (see [Backup and restore](#backup-and-restore)) |
 | Evals | [harness/evals/](harness/evals/), [evals/tasks/](evals/tasks/) | Tests prove the code does what it says; they can't tell you whether the *model* still does the right thing after you change the prompt or switch models. A set of small real tasks run by the real assistant in throwaway folders, graded on what was left behind, with a cost estimate and a confirmation before anything is spent (see [Evals](#evals-is-the-assistant-actually-any-good)) |
 | Interface languages | [harness/i18n.py](harness/i18n.py), [harness/locales/](harness/locales/) | Interface text in Chinese, English and Spanish, from one translation table shared by the web and terminal UIs |
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
+| Where it's installed | [harness/install.py](harness/install.py) | Running from a clone or installed with `uv tool install`: decided in one place, and with it the default data folder, `.env` and the command ZhiFox tells you to run (`uv run harness` or `harness`) |
 | Platform differences | [filelock.py](harness/filelock.py), [pathnames.py](harness/pathnames.py), [winacl.py](harness/winacl.py), [winjob.py](harness/winjob.py), [console.py](harness/console.py), [exits.py](harness/exits.py), [machine.py](harness/machine.py), [tools/shell.py](harness/tools/shell.py), [browser/chrome.py](harness/browser/chrome.py), [service/windows.py](harness/service/windows.py) | macOS, Linux and Windows lock files, name paths, protect files, end process trees, encode output and run shells differently. Each difference lives in one small module (or one function of the module that uses it), and the rest of the code just calls it |
 
 Suggested reading order: `agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`.
@@ -714,6 +865,52 @@ opens a conversation. Every open tab redraws in place without reloading. A reque
 turn it means, so a tab that is behind is turned away instead of rewinding something else, and a tab that was in the
 middle of an edit puts the unsent text back into its input box.
 
+### Forking a conversation from a turn
+
+Rewinding only reaches the last turn. To take a conversation in another direction from turn 3, fork it: the original
+stays byte for byte as it was, and a new conversation picks up from that turn. Every finished turn has two **Fork**
+buttons:
+
+- **Fork from here (keep this turn)**, next to **Copy** under a reply: the new conversation holds everything up to the
+  end of that turn. Whatever you say next takes it somewhere new.
+- **Fork from this message (edit and resend)**, beside your message on hover (left of **Edit** on the last one): the new
+  conversation stops just before that turn, and the message (text and attachments) is put back in the input box to
+  change and send again. Forking at the first message gives an empty conversation that, like a new one, is only saved
+  after its first turn.
+
+The new conversation opens at once. Its title ends in "(fork)", a small fork icon marks it in the sidebar, and a line at
+the top says where it came from; **Open the original** goes back and scrolls to that turn (once the original is deleted,
+only the text is left).
+
+**Why it doesn't break append-only.** Nothing in either history is edited. The new conversation's `messages` are a
+prefix of the original's, cut where a turn starts, which is the same thing rewinding does: every block that remains has
+exactly what came before it, so the cache still matches and Claude's thinking signatures still verify. It keeps the
+provider, the model and the custom agent, and from then on it only appends.
+
+**Where the cut goes** ([harness/fork.py](harness/fork.py)). It uses the positions recorded on `user` events (see
+above): forking from a message cuts at that turn's own position, forking from a reply at the next turn's position (or
+takes the whole history at the last turn). Whether a position still starts a turn is answered by the adapter's own rule
+(`providers.saved_before`, the same bookkeeping as `Backend.turn_at`). For GPT, Gemini and DeepSeek, a cut inside the
+part already folded into a summary is refused, as with rewinding, and those buttons are greyed out with the reason; a
+cut after the summary keeps the summary and carries `dropped` over, so the new conversation's recorded positions match
+too (you can edit or regenerate its last turn). A turn without a recorded position (one a scheduled task ran by itself,
+or one saved by an older version) can't be forked. `events` are cut at the same place, so a turn's run trace, subagent
+cards and approvals go with it.
+
+**What stays behind.** The record of file changes (the **Changed N files** line and its undos) isn't copied: the
+backups under `data/backups/turns/` are keyed by turn and there is only one copy of each file on disk, so if both
+conversations could undo the same turn, an undo in one would leave the other claiming the files were never undone.
+Undo stays with the original, and the new conversation's top line says so when those turns changed files. A fork of a
+scheduled task's or a chat channel's conversation is an ordinary web conversation (no `task` or `channel` mark), so it
+has no `send_file`. Money already spent stays spent; the new conversation's context size is estimated from its last
+run trace.
+
+**On the page.** Forking switches conversations, so it waits until your own turn is over. It only reads the original
+from disk (under the conversation store's lock, so a half-written file is never seen) and doesn't claim it, so a
+conversation a chat channel is using can be forked too. The request names the conversation and the turn, so a tab that
+is behind is turned away. The terminal UI keeps a single conversation in memory and never saves or opens conversations,
+so there is no original to keep and nowhere to switch to: forking is a web UI feature.
+
 ### Undoing a turn's file changes
 
 Rewinding brings back the conversation; this brings back the files. Every turn in which the file tool created, edited
@@ -868,6 +1065,13 @@ every refresh). Order matters: in CSS a later rule beats an equally specific ear
 last; and all the script parts are placed inside one function and share one scope, so the helpers everyone uses
 (`t()`, `el()`, `play()`, `calm()`) come first. Adding a part means adding a file and a line to the manifest; a test
 fails if a file is missing from it or listed twice.
+
+The assembled page is a little over a megabyte. When the browser says it accepts gzip, the server compresses it to about
+a third (`PAGE_GZIP_LEVEL` in [config.py](harness/config.py), around a dozen milliseconds per load), which matters when you
+open ZhiFox from a phone or another computer through a tunnel. The page holds the web token, and compression attacks
+such as BREACH guess secrets from how the compressed size changes when attacker-chosen text is reflected into the same
+response. This page reflects nothing from the request (only the nonce, the token, the translations and the Markdown
+renderer are filled in), so they don't apply; the comment in `_send_page` says to revisit this if that ever changes.
 
 The app icon is the one thing the browser fetches on its own, outside the page's script: when it decides whether the
 page can be installed and when it makes a shortcut, it reads a web app manifest and downloads the icons listed there.
@@ -2416,6 +2620,10 @@ This starts a small server on your computer and opens the chat page in your brow
   first lists those steps and asks once: only the conversation goes back, what was done stays done. Only the last turn can be edited or regenerated
   (why: [Editing the last message and regenerating](#editing-the-last-message-and-regenerating)). When that turn changed
   files, the same card offers to undo them too.
+- **Fork.** To go another way from an earlier turn, use **Fork** on it: next to **Copy** under a reply (keeps that turn),
+  or beside your message on hover (stops before it and puts the message back in the input box). The original stays as
+  it was; the new conversation opens at once, with a line at the top that leads back (see
+  [Forking a conversation from a turn](#forking-a-conversation-from-a-turn)).
 - **Run trace.** The row of buttons under the last reply shows how long the turn took and what it cost; click it for a
   waterfall chart of the turn: how many model calls, which tools, when each step started and ended, how long it waited
   for your approval, tokens and cost (see [Reading a turn: the run trace](#reading-a-turn-the-run-trace)).
@@ -2503,7 +2711,8 @@ This starts a small server on your computer and opens the chat page in your brow
     confirmation; whether the permissions or programs it needs are there; scheduled tasks and channels; blocked apps.
     See [Computer use](#computer-use).
   - **Export all data** downloads the whole data folder as one zip. It shows the folder's size first and the zip's size
-    afterwards. See [Backup and restore](#backup-and-restore).
+    afterwards. **Restore from backup…** next to it takes such a zip back: a preview first, then overwrite or merge, with
+    an automatic backup of the current data and your current secrets kept. See [Backup and restore](#backup-and-restore).
 - **Info panel** (opened and closed by the right-most button at the top right). Estimated cost, the split across the four
   kinds of tokens (uncached input, cache hits, cache writes, output), open to-dos, and **What 智狐 can do** (see
   [What ZhiFox can do](#what-zhifox-can-do-the-capability-list) below). It updates after every model call. Under this run's estimate, the cost card shows what you've spent **today** and
@@ -2956,17 +3165,20 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/retry` | Regenerate the last answer: your message goes out again exactly as it was |
 | `/edit` | Edit your last message: it is filled into the input line for you to change; or type `/edit` followed by the new text. Like `/retry`, it asks first if that turn ran a command or changed a file |
 | `/undo` | Undo the files the latest turn changed with the file tool: lists them (and anything that changed since) and asks before writing. Redo and undoing single files are in the web UI |
+| `/doctor` | Run the self-check: Python, folder permissions, which providers have keys, the browser, the sandbox, the background service… what's OK, what's a problem and how to fix it (the same as `uv run harness doctor`, see [Troubleshooting](#troubleshooting-harness-doctor)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
 Press Ctrl-C while the model is replying to interrupt it.
 
+The terminal UI doesn't save or open conversations, so forking a conversation is only in the web UI.
 The terminal UI doesn't run scheduled tasks or chat channels. You can ask the assistant to add or delete tasks here too;
 they run while the web UI or `harness serve` is running.
 
 ### Using it in another folder
 
-The assistant's working directory is the directory you start it from. To have it work somewhere else, `cd` there first,
-then run:
+The assistant's working directory is the directory you start it from. Installed with one command, `harness` already
+works in any folder: `cd` there and run `harness` (or `harness --workspace /some/folder`). The rest of this section is
+for a clone. To have it work somewhere else, `cd` there first, then run:
 
 ```bash
 uv run --project "/full/path/to/this/project" harness
@@ -3006,7 +3218,10 @@ uv run harness service restart     # restart it, for example after editing .env 
 uv run harness service uninstall   # stop it and don't start it at login any more (data and logs stay)
 ```
 
-Run them in the project folder. `install` takes `--no-web` (chat channels and scheduled tasks only, no web page),
+From a clone, run them in the project folder; installed with one command, drop the `uv run` and run them anywhere
+(`harness service install`). The service runs the same Python that runs ZhiFox (the clone's `.venv`, or the
+environment uv made for the tool), so `uv tool upgrade harness-assistant` followed by `harness service restart`
+switches it to the new version without reinstalling the service. `install` takes `--no-web` (chat channels and scheduled tasks only, no web page),
 `--port 9000` (default 8765; when 8765 is taken, a free port is picked) and `--workspace /some/folder` (the assistant's
 working folder; default: the current folder). Running `install` again is safe: the same settings change nothing, and new
 settings stop the old service and start the new one. **Settings → Run in the background** on the web page shows which
@@ -3268,6 +3483,10 @@ unprivileged user for the service.
 
 ## Data and privacy
 
+The paths below are for a clone: `data/` and `.env` in the project. Installed with one command, `data/` is the folder
+of your account from [Install with one command](#install-with-one-command) (`~/Library/Application Support/ZhiFox/`,
+`~/.local/share/zhifox/`, `%LOCALAPPDATA%\ZhiFox\`), and `.env` is inside it; everything else is the same.
+
 **Only your account can read it.** On macOS and Linux, `data/` and its folders are created with permissions 700 and the
 files 600. Windows has no such permission bits (`chmod` there only toggles "read-only"), and a folder you create outside
 your user folder (`C:\code\…`) normally inherits read access for every account on the computer. So on Windows ZhiFox
@@ -3300,6 +3519,7 @@ read everything anyway (as root can on the other systems) and removing them only
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
+| `data/restore-backups/` | The automatic backup made before each restore from a backup (`zhifox-before-restore-<date>-<time>.zip`, secrets masked, the newest 5 kept). Never exported (see [Backup and restore](#backup-and-restore)) |
 | `data/logs/` | The background service's log on macOS and Windows, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
 | `data/.lock` | Held by the ZhiFox that is using this data folder, with its kind (web page, `serve`, background service) and process id, so a second one can say who's in the way. Never exported |
@@ -3358,26 +3578,84 @@ is written to a temporary file first and swapped in, so a failed save never leav
 
 **Settings → Export all data** packs the data folder into `zhifox-backup-<date>-<time>.zip` and downloads it:
 conversations, memories, to-dos, settings, the spending record, and anything else later features keep there. API keys
-are never in it: they live in `.env`, which isn't in the data folder, and any `.env`-like file found there anyway is
-skipped. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
+are never in it: they live in `.env`, which is never exported, whether it's next to the data folder (a clone) or
+inside it (installed with one command), and any other `.env`-like file in the data folder is skipped too. `data/channels.json` is exported with every bot token and app secret, and any pairing code, replaced by `<removed-from-backup>` (app IDs are kept). If `data/mcp.json` exists, it is exported with every secret replaced the same way (environment
 variables, headers, fields named like a key, token or password, the value after flags such as `--token`, passwords in
 URLs, and strings shaped like an API key); the names are kept so you know what to fill in again. If that file isn't
 valid JSON, it is left out entirely rather than risk exporting a secret. `data/hooks.json` gets the same treatment (a hook's
-arguments may hold a token, such as `--token xxx`). Symbolic links are skipped too, since they
+arguments may hold a token, such as `--token xxx`), and so does `data/endpoints.json`. Symbolic links are skipped too, since they
 could point anywhere on your computer. A `README-backup.txt` inside the zip lists the date, how to restore, and what was
-masked or skipped. The zip is built in a temporary file outside the data folder and deleted once it has been sent.
+masked or skipped, and `backup-manifest.json` says the same for the program (format version, export time with time zone,
+which files were masked). The zip is built in a temporary file outside the data folder and deleted once it has been sent.
 
-To restore:
+**Restoring from the web UI: Settings → Restore from backup…**
 
-1. Quit ZhiFox (Ctrl-C in its terminal).
-2. Unzip the archive into the data folder (by default the project's `data/`), replacing files with the same name:
-   `unzip -o zhifox-backup-….zip -d data` (Finder's Archive Utility works too: copy the contents of the unzipped folder
-   into `data/`). To get back exactly to the backup, move the current `data/` aside first and unzip into a new, empty
-   `data/`.
-3. Start ZhiFox again. If the backup had MCP servers, fill their secrets in again; if it had chat channels, paste their
-   tokens or secrets again (**Extensions → Channels → Edit**, or `harness channels setup <platform>`).
+1. Choose the zip (or drag it into the window). It is uploaded to ZhiFox, which checks it before anything else; a bad
+   archive is refused with the reason, and nothing is written.
+2. A preview shows when it was exported, what's in it (how many conversations, memories, to-dos, scheduled tasks,
+   skills, agents, MCP servers…), what each way of restoring would do to each of them, and which secrets will need
+   filling in again.
+3. Pick a way and confirm (overwriting asks once more, in place):
+   - **Overwrite** makes the data folder what it was in the backup: each kind of data is replaced by the backup's, and
+     kinds the backup doesn't have are cleared. Files that hold secrets are the exception, see below.
+   - **Merge** only adds: conversations by ID, memories and agents by file name, skills by folder, media by content;
+     anything already here stays as it is. Whole files (settings, to-dos, scheduled tasks, the spending record, MCP,
+     channels, hooks…) are kept when they exist and taken from the backup only when they don't: stitching two
+     configurations together entry by entry would make one nobody ever used (a hook pointing at a script on the other
+     computer, a channel paired to someone else).
+4. Before writing anything, ZhiFox exports the current data folder to
+   `data/restore-backups/zhifox-before-restore-<date>-<time>.zip` (secrets masked, like any export; the newest 5 are kept,
+   and exports never include this folder). The result screen has a "Show in Finder" (File Explorer, file manager) button
+   for it, and lists the secrets that are still placeholders.
 
-Importing from the web UI isn't supported yet.
+**Your secrets are never overwritten by placeholders.** In `mcp.json`, `channels.json`, `endpoints.json` and
+`hooks.json`, each `<removed-from-backup>` in the backup is matched to the same place in the current file (the same MCP
+server's same environment variable, the endpoint with the same id, the same argument after `--token`, a URL that is the
+same apart from its password): if the current file has a real value there, it is kept; if not, the placeholder is
+written, and the preview and the result say where to fill it in (Extensions → MCP, Extensions → Channels, Settings →
+Custom model endpoints, Extensions → Hooks). Secrets you have now that the backup has no place for (a server that only
+exists here) are listed too, since they're gone after an overwrite. A current file that can't be read is left alone, and
+so is a secrets file the backup doesn't contain, even when overwriting.
+
+**The archive is untrusted input.** Only what an export writes is accepted, from one list shared with the export
+(`export.PARTS`); anything else is refused and nothing is written: paths with `../`, absolute paths, drive letters and
+Windows name tricks (`a:b`, `CON`, `PROGRA~1`, trailing dots, checked by `pathnames.archive_trick`), symbolic links and
+device files, encrypted entries, two names that differ only in case, `.env`-like files, `browser/profile/`, `.web-token`,
+`.lock`, and any name that isn't on the list. Sizes are capped (`RESTORE_MAX_*` in `config.py`: 8 GB unpacked in total,
+2 GB per file, 200,000 entries; the web upload itself is capped at 4 GB and checked before uploading), and the sizes a
+zip declares are checked against what is actually read, so a zip bomb stops at the cap. `README-backup.txt` and
+`backup-manifest.json` are read, never written.
+
+**When it refuses, and what happens afterwards.** Restoring waits for nothing: it is refused, with the reason, while your
+conversation turn is running, a scheduled task is running, or a chat channel is in the middle of a turn. Otherwise ZhiFox
+stops the scheduler, channels, MCP servers and its browser, writes the files (each kind of data is laid out in a staging
+folder inside the data folder and then swapped in; any failure puts everything back), and starts again in place from the
+restored data, the same way it starts up: same port, same link, same event stream, so the page just redraws (no reload,
+no restart, and the interface language follows the restored settings).
+
+**In a terminal** (a server without the web page): quit ZhiFox first, then
+
+```bash
+uv run harness restore zhifox-backup-….zip            # overwrite
+uv run harness restore zhifox-backup-….zip --merge    # merge
+uv run harness restore zhifox-backup-….zip --yes      # don't ask (required when there's no terminal)
+```
+
+```powershell
+uv run harness restore .\zhifox-backup-….zip
+uv run harness restore .\zhifox-backup-….zip --merge
+```
+
+It prints the same preview, asks you to type `yes`, makes the same automatic backup, and holds the data folder's lock
+while it works, so ZhiFox can't start halfway through. If ZhiFox is running, it says which one and points you to its web
+page. The terminal reads the file directly, so the 4 GB upload cap doesn't apply (the unpacked caps do).
+
+**By hand, as a last resort:** quit ZhiFox, move the current data folder aside (the project's `data/`, or the folder of
+your account when installed with one command; `harness doctor` shows which), unzip the archive into a new, empty `data/`
+(`unzip zhifox-backup-….zip -d data`; in PowerShell `Expand-Archive .\zhifox-backup-….zip -DestinationPath data`), delete
+`README-backup.txt` and `backup-manifest.json` from it, and start ZhiFox again. The files that held secrets now hold
+placeholders: fill those secrets in again. Never unzip over a data folder you're using: the placeholders would overwrite
+the keys you have.
 
 ## Cost
 
@@ -3467,7 +3745,7 @@ Set these in `.env`. All of them are optional:
 | `HARNESS_MAX_SEARCHES` | `5` | Maximum web searches per message; `0` means no limit |
 | `HARNESS_WEB` | `1` | Set to `0` to turn off web search completely |
 | `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
-| `HARNESS_DATA_DIR` | The project's `data/` | Where memory, to-dos, settings and other data are stored |
+| `HARNESS_DATA_DIR` | The project's `data/`; installed with one command, the folder of your account (see [Install with one command](#install-with-one-command)) | Where memory, to-dos, settings and other data are stored |
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Where voice messages are sent for transcription with your OpenAI key (and where OpenAI's SDK sends chat requests). Only `https://`, or plain `http://` to this computer |
 | `HARNESS_CHROME` | Found automatically | Full path of the Chrome (or Chromium, Edge, Brave) to use for browser use. A path entered in **Settings → Browser** takes precedence |
@@ -3530,7 +3808,10 @@ reach another file, headers, the security policy, and the maskable fox staying i
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
-ends up in the zip), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The run
+ends up in the zip), restoring in [tests/test_restore.py](tests/test_restore.py),
+[tests/test_restore_cli.py](tests/test_restore_cli.py) and [tests/test_restore_web.py](tests/test_restore_web.py) (a round
+trip, merge conflicts, every kind of bad archive refused with nothing written, placeholders never overwriting a current
+secret, the automatic backup holding no secret, the in-place restart), and their web endpoints in [tests/test_spending_web.py](tests/test_spending_web.py). The run
 trace is in [tests/test_trace.py](tests/test_trace.py) (a fake clock, so every step's start, end, time to first token
 and wait for approval are compared to the millisecond; the cost is the ledger's entry; allowed, declined and
 auto-allowed calls; subagents nested under their step; how an open step is closed when you stop or an error hits; the
@@ -3604,6 +3885,11 @@ The background service is in [tests/test_service.py](tests/test_service.py): the
 against a fake, installing twice, refusing a busy data folder, status parsing, `open` and the logs, plus one real
 `serve --service launchd` process writing its own log file. No test ever runs the real `launchctl` or `systemctl`, or
 opens a browser: `tests/conftest.py` makes them fail.
+The self-check is in [tests/test_doctor.py](tests/test_doctor.py): when each line is OK, a problem or not used; a made-up
+key in a temporary `.env` (plus a bot token, an endpoint key, MCP and hook secrets and a proxy password) appearing
+nowhere in the table or the JSON, not even its last 4 characters; a service that can't be checked; the fixes for zsh,
+bash and PowerShell (with `machine.system` swapped and a fake `icacls`); the exit code; and a snapshot showing it changed
+nothing on disk. The real `icacls /save` read is tested only on Windows ([tests/test_winacl.py](tests/test_winacl.py)).
 Skills (the frontmatter parser, hostile archives, downloads against a local HTTPS server, how the list reaches the model
 without changing the start of the request) are in [tests/test_skills.py](tests/test_skills.py).
 Importing from other tools is in [tests/test_imports.py](tests/test_imports.py): a fixture file for every supported
@@ -3773,6 +4059,10 @@ Each task also has a check that it *got the job done*, so a model that does noth
 doing nothing passes is measuring nothing. The test suite proves this for every starter task (see below).
 
 ### Running it
+
+Run evals in a clone: the tasks (`evals/tasks/`) and the fake servers of the dry run (`tests/`) are part of the
+repository, not of the package that `uv tool install` installs. An installed ZhiFox says so, and runs only tasks you
+point it at with `--tasks-dir` together with `--real`.
 
 ```bash
 uv run harness eval tasks                       # list the tasks

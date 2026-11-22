@@ -9,6 +9,8 @@
     harness sandbox ...           命令的沙箱：状态、哪一档、额外允许的路径、试一下（见 sandbox/cli.py）
     harness service ...           装成后台服务：登录时自动启动、出错退出后自己重启（见 service/）
     harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
+    harness doctor [--json]       自检：一屏看清智狐在这台电脑上的情况（不联网，不改任何东西，见 doctor/）
+    harness restore 备份.zip       从备份恢复：先看预览，输入 yes 才恢复（见 restore_cli.py）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -22,11 +24,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import capabilities, console, i18n, model_catalog, rewind
+from . import capabilities, console, i18n, model_catalog, restore_cli, rewind
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
+from .doctor import cli as doctor_cli
+from .doctor import examine as doctor_examine
+from .doctor import text as doctor_text
 from .evals import cli as eval_cli
 from .hooks import cli as hooks_cli
 from .i18n import k, t
@@ -68,9 +73,10 @@ HELP = k("""\
 /retry   重新生成最后一个回答（只去掉这一轮里模型写的、做的，你的消息原样再发一次）
 /edit    改最后一条消息再发：上一条会填在输入行里，改完按回车；也可以直接写 /edit 新的文字
 /undo    撤回最近一轮改的文件（文件工具做的改动；命令改动的文件没法自动撤回），先列出来问你
+/doctor  自检：Python、目录的权限、哪几家有密钥、浏览器、沙箱、后台服务……哪些好、哪些有问题、怎么修
 /exit    退出""")
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto"}
+COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto", "/doctor"}
 
 # MCP 服务器的几种状态，给人看的说法
 MCP_STATUS = {"connecting": k("连接中"), "ready": k("已连接"), "failed": k("连接失败"), "disabled": k("已停用")}
@@ -255,6 +261,10 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
         # 和网页上换模型的面板是同一份目录（见 model_catalog.py）：每一家有没有密钥、能选的模型、能做什么、价格
         for text, style in model_catalog.lines(model_catalog.catalog(app)):
             (ui.plain if style == "plain" else ui.info)(text)
+    elif command == "/doctor":
+        # 和 harness doctor 是同一份自检（见 doctor/）：有问题的那几行是红的
+        for text, style in doctor_text.lines(doctor_examine(app.config)):
+            {"plain": ui.plain, "info": ui.info, "error": ui.error}[style](text)
     return True
 
 
@@ -330,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     sandbox_cli.add_parser(commands)
     service_cli.add_parser(commands)
     eval_cli.add_parser(commands)
+    doctor_cli.add_parser(commands)
+    restore_cli.add_parser(commands)
     # "harness hooks add 名字 --event … -- 程序 参数"：-- 后面的原样交给那个命令。自己先在第一个 -- 处切开，再交给 argparse：
     # Python 3.11 的 argparse 不认子命令里一个位置参数后面跟着的 --（3.12 起才认），钩子的命令在 3.11 上就加不进去（GitHub 的测试抓到的）
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -363,6 +375,10 @@ def main(argv: list[str] | None = None) -> int:
         return service_cli.run(args, config)
     if args.command == "eval":
         return eval_cli.run(args, config)
+    if args.command == "doctor":
+        return doctor_cli.run(args, config)
+    if args.command == "restore":
+        return restore_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

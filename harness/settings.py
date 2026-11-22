@@ -267,6 +267,9 @@ def save_api_key(env_file: Path, name: str, value: str) -> None:
     else:
         os.environ.pop(name, None)
 
+    if not env_file.parent.is_dir():
+        # 装成工具时 .env 在数据目录里（见 install.py），HARNESS_ENV_FILE 也可能指向一个还没有的文件夹：先建好，只有你能进
+        private_dir(env_file.parent)
     temp = env_file.with_name(env_file.name + ".tmp")
     temp.write_text("\n".join(kept) + "\n", encoding="utf-8", newline="")
     temp.chmod(0o600)  # 只有你自己的账号能读

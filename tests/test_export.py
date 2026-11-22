@@ -10,7 +10,16 @@ from datetime import datetime
 from conftest import symlinks_work
 
 from harness import export, i18n
-from harness.export import NOTE, PLACEHOLDER, archive_name, mask, plan, write_archive
+from harness.export import (
+    MANIFEST,
+    NOTE,
+    PLACEHOLDER,
+    archive_name,
+    mask,
+    plan,
+    read_manifest,
+    write_archive,
+)
 
 MOMENT = datetime(2026, 11, 20, 14, 3)
 # 编造的、长得像真密钥的字符串。拼起来写，源文件里就不会出现一个"像密钥"的整串，免得被代码托管平台的密钥扫描误报
@@ -105,6 +114,7 @@ def test_the_archive_holds_the_whole_data_folder_and_no_secrets(symlinks, tmp_pa
         "media/photo.png",
         "mcp.json",
         NOTE,
+        MANIFEST,
     ])
     assert archive.testzip() is None
     assert archive.read("memories/用户偏好.md").decode() == "# 用户偏好\n- 喜欢简短的回答\n"
@@ -176,7 +186,8 @@ def test_the_note_explains_how_to_restore(symlinks, tmp_path, monkeypatch):
     archive = zipfile.ZipFile(io.BytesIO(raw))
     note = archive.read(NOTE).decode()
     assert "2026-11-20 14:03" in note and str(data) in note
-    assert "解压到数据文件夹里" in note and "Ctrl-C" in note
+    # 先讲页面上的办法，再讲终端；直接解压会拿占位符盖掉现在的密钥，说明里明说不要这样做
+    assert "从备份恢复" in note and "harness restore" in note and "不要直接解压到数据文件夹里" in note
     assert PLACEHOLDER in note and "mcp.json" in note and "link-to-key" in note
     assert archive.getinfo(NOTE).external_attr >> 16 == 0o600
     # 上一次导出时放进来、又被解压回数据文件夹的那份说明，不会再导出一份（压缩包里只有这一次的）
@@ -212,7 +223,7 @@ def test_the_chat_bot_token_and_the_pairing_code_are_left_out(tmp_path):
 
     raw, work = export_bytes(data)
     archive = zipfile.ZipFile(io.BytesIO(raw))
-    assert sorted(archive.namelist()) == sorted(["channels.json", NOTE])  # 锁文件不导出
+    assert sorted(archive.namelist()) == sorted(["channels.json", NOTE, MANIFEST])  # 锁文件不导出
     assert list(work.masked) == ["channels.json"]
     entry = json.loads(archive.read("channels.json"))["platforms"]["telegram"]
     assert entry["credentials"]["token"] == PLACEHOLDER and entry["pairing"]["secret"] == PLACEHOLDER
@@ -238,8 +249,50 @@ def test_the_browser_profile_with_its_login_cookies_is_left_out(tmp_path):
     shot.write_bytes(b"\xff\xd8\xff")
     raw, work = export_bytes(data)
     archive = zipfile.ZipFile(io.BytesIO(raw))
-    assert sorted(archive.namelist()) == sorted([f"browser/shots/{'a' * 64}.jpg", NOTE])
+    assert sorted(archive.namelist()) == sorted([f"browser/shots/{'a' * 64}.jpg", NOTE, MANIFEST])
     assert b"very-secret-cookie-value" not in b"".join(archive.read(name) for name in archive.namelist())
     assert [name for name, _ in work.skipped] == ["browser/profile/"]
     assert "cookie" in archive.read(NOTE).decode()
 
+
+
+def test_the_manifest_is_for_the_restore_to_read(symlinks, tmp_path):
+    """backup-manifest.json 是写给程序看的说明：格式、导出的时刻（带时区）、哪些文件遮了密钥、哪些没导出。
+    恢复（restore.py）靠它说清楚"这是什么时候的备份""哪几个文件里的密钥要重新填"。"""
+    data = make_data(tmp_path)
+    raw, work = export_bytes(data)
+    archive = zipfile.ZipFile(io.BytesIO(raw))
+    assert archive.getinfo(MANIFEST).external_attr >> 16 == 0o600
+    written = json.loads(archive.read(MANIFEST))
+    assert written["format"] == export.MANIFEST_FORMAT and written["app"] == "ZhiFox"
+    assert written["files"] == work.count == 8 and written["bytes"] == work.size
+    read = read_manifest(archive.read(MANIFEST))
+    assert read["exported_at"] == MOMENT.astimezone() and read["exported_at"].tzinfo is not None
+    assert read["masked"] == ["mcp.json"]
+    assert set(read["left_out"]) == {".env", "conversations/.env.local", "old/prod.env", "link-to-key", "linked-folder/"}
+
+
+def test_reading_a_manifest_trusts_nothing_in_it():
+    """压缩包是从外面来的：读不懂的、不是智狐写的返回 None；只留认识的字段、类型对的值。"""
+    assert read_manifest(b"not json") is None
+    assert read_manifest(bytes([0xFF, 0xFE])) is None
+    assert read_manifest(json.dumps({"format": 1, "app": "Other"}).encode()) is None
+    assert read_manifest(json.dumps({"format": True, "app": "ZhiFox"}).encode()) is None  # True 不是格式号
+    assert read_manifest(json.dumps([1, 2]).encode()) is None
+    odd = read_manifest(json.dumps({"format": 9, "app": "ZhiFox", "exported_at": "昨天", "masked": ["mcp.json", 3, None], "left_out": "x"}).encode())
+    assert odd == {"format": 9, "exported_at": None, "masked": ["mcp.json"], "left_out": []}  # 格式太新的原样交回，由恢复拒绝
+
+
+def test_restore_backups_and_restore_scratch_are_not_exported(tmp_path):
+    """恢复之前自动留的备份（restore-backups/）每一份都是整个数据文件夹，带进去会越套越大；
+    正在恢复时的临时文件夹（.restore-xxxx/）是写到一半的东西；.service-stop 只是 Windows 上请后台服务停下的那一会儿才有。"""
+    data = tmp_path / "data"
+    for relative in ("restore-backups/zhifox-before-restore-20261120-140300.zip", ".restore-1a2b3c4d/new/settings.json",
+                     ".service-stop", "settings.json"):
+        path = data / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    raw, work = export_bytes(data)
+    names = zipfile.ZipFile(io.BytesIO(raw)).namelist()
+    assert sorted(names) == sorted(["settings.json", NOTE, MANIFEST])
+    assert [name for name, _ in work.skipped] == ["restore-backups/"]  # 说明里写着它没导出；临时文件夹和 .service-stop 不提

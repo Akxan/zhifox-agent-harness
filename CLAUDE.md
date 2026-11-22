@@ -158,7 +158,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
-| `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥） |
+| `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥；恢复的白名单 `PARTS` 和写给程序看的 manifest 也在这里） |
+| `harness/restore.py`、`restore_keys.py`、`restore_cli.py`、`harness/webui/restore_api.py` | 从备份恢复：检查压缩包、预览两种方式、先自动备份再恢复（restore.py）；占位符不盖掉现在的密钥（restore_keys.py）；终端的 `harness restore`；网页的上传、确认和原地重新开起来（restore_api.py），页面在 `page/scripts/restore.js` |
 | `harness/webui/markdown.js` | 回复里的 Markdown → 页面元素；逐字输出时只重画最后一两块 |
 | `harness/mcp/` | MCP 客户端：jsonrpc、stdio、http、client（两代协议）、bridge、manager（快照）、config、importers |
 | `harness/media.py` | 多媒体库：附件原件按内容存在 `data/media/`；哪段会话、哪条消息里有哪些附件；旧会话从对话历史里找回附件 |
@@ -179,6 +180,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/trace/` | 运行记录：每一轮的时间线（请求模型、工具调用、等你确认），页面在 `page/scripts/trace.js`、`trace-chart.js`；终端 `/trace` |
 | `harness/endpoints/`、`harness/webui/endpoints_api.py` | 自定义模型接口：地址规矩、`data/endpoints.json`、不带别家密钥的客户端、猜能力、测试连接 |
 | `harness/undo/`、`harness/webui/changes_api.py` | 撤回一轮改的文件：留底（`data/backups/turns/`）、撤回和重做、冲突检查、告诉模型；页面在 `page/scripts/file-changes.js` |
+| `harness/fork.py`、`harness/webui/fork_api.py` | 从某一轮分叉成一段新对话：截到哪、复制什么、什么不跟过来（fork.py，不碰网页）；`/api/fork` 和状态里的 `fork`（fork_api.py）；页面在 `page/scripts/fork.js` |
 | `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
 | `harness/hooks/`、`harness/webui/hooks_api.py` | 你的钩子：config（`data/hooks.json`）、runner（启动、沙箱、超时）、protocol（退出码和 JSON）、engine（每次运行的 HookRun）、cli（`harness hooks`） |
 | `harness/redact.py` | 遮住工具结果里像密钥的东西：各家密钥的格式（`KEY_SHAPES`，导出和 MCP 设置页也用它）、已知的值、`password=` 后面的长串；页面在 `page/scripts/redact.js` |
@@ -187,11 +189,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
+| `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/webui/server.py`、`webapp.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁（`_turn`）、存盘、这段会话归谁、状态快照。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
+| `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
 
 ## 改代码时必须守住的几条
 
@@ -212,6 +216,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   这一轮做过可能改动东西的事，倒回之前在原地问一次（`rewind.effects`；操作过整台电脑、浏览器的另外单独一句，`rewind.operated`）。
   新加的工具默认算"改动"；只读的动作要在 `rewind.py` 里登记。账本和信息栏的用量都不因为倒回而减少。
   压缩的切口只落在 `compaction.is_turn_start` 认的一轮开头：工具结果后面补的图片消息（`TOOL_IMAGES_NOTE`）不算。
+- **从某一轮分叉（`harness/fork.py`）是另存一个前缀，不是改中间。** 原会话只读：从磁盘读（`ConversationStore.load` 拿着会话库的锁，
+  读不到写了一半的），不认领、一个字节都不写，所以聊天通道正占着的会话也能分叉。新会话的 `messages` 是原来那段切在某一轮开头的前缀，
+  `dropped` 原样带过去（事件里每一轮的 mark 照样对得上，新会话里照样能倒回最后一轮），之后照常只追加；provider、model、agent 不变。
+  切口只用 `user` 事件上的 mark：在消息上分叉（at=message）切在这一轮自己的 mark，在回答上分叉（at=reply）切在下一轮的 mark，
+  最后一轮是整段。位置认不认只由 `providers.saved_before` 说了算（和 `Backend.turn_at` 同一笔账，各家的格式写在各自的适配层里）：
+  落在压缩进摘要的那一段的、没记 mark 的一律拒绝，不猜。`events` 截到同一个位置；`file_changes`、`file_undo` 不复制
+  （`fork.LEFT_OUT`：留底按一轮的编号存、磁盘上的文件只有一份，两段会话都能撤回同一轮就会对不上，所以撤回只在原会话里做，
+  `forked_from.changes` 让新会话顶上说一句）；`task`、`channel` 不带（新会话是普通的网页会话，没有 send_file）。
+  分叉要换会话，所以拿 `WebApp._turn`（你的一轮没结束时回答"先等"）；页面只给会话编号、那一轮 user 事件的编号和 at，对不上就 409。
+  以后新加"跟着一轮走、但不能在两段会话里各管一份"的事件，加进 `fork.LEFT_OUT`。
 - **历史里只放普通的字典和字符串**，这样才能原样存成 JSON 文件、读回来原样发给 API。
 - **每个工具调用都必须有对应的结果**，包括被用户中断的情况。相关逻辑在 `Agent._run_tools` 的 `finally` 里。
 - **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则。
@@ -227,7 +241,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   API key 不出现在发给浏览器的任何内容里。
   服务器里会替页面启动系统程序的地方有两类。一类是在文件管理器里显示：`/api/conversation/reveal`（会话的文件）、
   `/api/memory/show`（一条记忆）、`/api/memory/reveal`（记忆文件夹）、`/api/reveal`（只认 tasks / todos / prompt / channels）、
-  `/api/mcp/reveal`、`/api/commands/reveal`（什么都不给，只显示 `data/commands.json`）、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
+  `/api/mcp/reveal`、`/api/commands/reveal`（什么都不给，只显示 `data/commands.json`）、`/api/restore/reveal`（只认 `data/restore-backups/` 里已有的、名字是 `restore.BEFORE` 那个样子的文件，或者什么都不给：打开那个文件夹）、`/api/browser/reveal`（只打开浏览器的配置文件夹）、`/api/computer/permission`（只认 `screen`、`input` 两个词，只打开 macOS 系统设置的那一页，不改任何设置）、`/api/skill/reveal`（只认 data/skills/ 里已有的、不是链接的一段文件夹名，或者什么都不给）。
   `/api/media/reveal` 只接受附件编号（`会话编号/第几排/第几张`，用 `media.ID` 检查格式、在索引里查到条目），
   路径是 `data/media/<sha256>.<扩展名>`，由服务器算。
   **只有 `/api/media/file`、`/api/browser/shot` 和 `/api/computer/shot` 会把文件的字节发给浏览器**（都写在 `server.py` 的 `_route` 里，和 `_send` 在一处）。两个 shot 只收 64 位十六进制编号，固定 `image/jpeg`，
@@ -293,7 +307,27 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （有意的例外，金额不变，读不懂的行原样保留）。新的调用方要记账，就给它的 agent 接 `ledger.recorder(..., source="…")`
   （定时任务用 source="task"），不要另算价格。
 - **导出不能带出密钥。** 新增存着密钥的配置文件时，把它加进 `export.MASKED_FILES`，并在 `tests/test_export.py` 里
-  加一条"压缩包里找不到这个密钥"的测试。`export.LEFT_OUT_FOLDERS` 里的文件夹整个不导出（`browser/profile`：里面是登录过的网站的 cookie）。
+  加一条"压缩包里找不到这个密钥"的测试。`export.LEFT_OUT_FOLDERS` 里的文件夹整个不导出（`browser/profile`：里面是登录过的网站的 cookie；
+  `restore-backups`：恢复之前自动留的备份，带进去会越套越大）。
+- **从备份恢复（`harness/restore.py`）只认白名单，密钥不覆盖，恢复前先备份。**
+  - 白名单只有一份：`export.PARTS`，和导出写在一起。新功能在数据文件夹里放了新的文件或文件夹，导出不用改，但要在 `PARTS` 里加一行，
+    否则它的备份恢复不了（`tests/test_restore.py` 拿 `Config` 里的每个数据路径对一遍）。名单外的名字、路径花招（`pathnames.archive_trick`，
+    Skill 的安装也用它）、链接和设备文件、加密的项、只差大小写的两项、太大的（`config.RESTORE_*`；写的大小还要和实际读到的对一遍）
+    一律整个拒绝、一个字节都不写。`.env` 这类、`browser/profile/`、`.web-token`、`.web-address`、`.lock` 永远不收；
+    `README-backup.txt`、`backup-manifest.json`（格式写在 `export.manifest` / `read_manifest`）只读不写。
+  - 密钥不覆盖：`export.MASKED_FILES` 里的文件，备份里的占位符按"同一处"去找现在的值（`restore_keys.py`：字典按键、带 id/name 的列表按它、
+    参数列表要除了密钥一模一样），有就留着现在的，没有才写占位符、告诉用户去哪儿填（`restore.KEY_HOMES`）；现在的读不懂的不动，
+    备份里没有的存着密钥的文件覆盖时也留着。
+  - 恢复前先备份：`restore.backup_first` 把现在的数据导出一份到 `data/restore-backups/`（和导出一样遮密钥，留 `RESTORE_KEEP_BACKUPS` 份），
+    备份不成就不恢复。覆盖先在 `.restore-xxxx/` 里摆好、一样一样换上去，出错换回原样，确认新程序开起来了才 `commit` 删掉旧的；
+    合并只加（会话、记忆、Agent、多媒体按文件，Skill 按文件夹），整份的文件现在有就留着现在的。写文件一律 `safe.write_stream`。
+  - 网页上拿 `WebApp._turn`（拿不到用 `_busy()`），定时任务在跑、聊天通道占着会话（`Claims.held`）就拒绝。恢复以后照着磁盘 `build_app`
+    一遍、换上一个新的 WebApp（`server.web`；口令、端口、WebUI 不变，旧的那个的 `_turn` 永远不放）。**有意的破例**：WebApp 不再是
+    启动时那一个，所以拿着它的地方要用 `server.web` 现找（`serve.py` 的收尾就是这样）；测试和演示换过的东西（client_factory、
+    聊天平台的 factories / checks、headless_only）在 `restore_api._rebuild` 里带过去，再加这类东西也要带。
+  - 上传是原样的字节（不是 JSON），在 server.py 的 do_POST 里先于 `_read_json` 交给 `restore_api.upload`：边读边写进系统的临时文件，
+    上限 `RESTORE_MAX_UPLOAD_BYTES`，超了读掉最多 `RESTORE_DISCARD_BYTES` 再回 413。终端的 `harness restore` 先占住数据目录的锁（kind `restore`），
+    没有终端又没有 `--yes` 不恢复。
 - **聊天通道和定时任务是同一个做法。** 每个聊天的每一轮用 `App.channel_agent`（和 `unattended_agent` 共用 `_side_run`：
   自己的 shell、自己名下的 MCP 调用、`Permissions.unattended(通道的档位)`，记账 source=`channel`），不拿 `WebApp._turn`；
   开始之前先用 `Claims.take` 占住这段会话，网页这时不能写它（409），一轮结束放开、网页上开着的话重新读一遍。
@@ -417,6 +451,14 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   价格只在 `pricing.transcribe_cost` 里算（按分钟估，有的模型其实按 token 计费）。现在只有 Telegram 收语音，别的平台回答"暂时只有 Telegram 支持"。
 - **本机的 Python 是 3.11，CI 在三个系统上各跑 3.11 和 3.13**：只在一个版本上才有的行为（argparse 的 `--`、绕圈的符号链接）本机不一定看得到，
   拿不准时用 `uv run --python 3.13 --isolated pytest …` 在另一个版本上也跑一遍。
+- **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
+  （`install.from_source`：包的上一层有写着 harness-assistant 的 pyproject.toml，而且不叫 site-packages），别处不要再判断。
+  从仓库里运行时 `data/` 和 `.env` 在仓库里，一字不变；装成工具时都在 `install.user_dir`（macOS 的 Application Support、
+  Linux 的 XDG_DATA_HOME、Windows 的 LOCALAPPDATA），`.env` 在数据目录里，所以挡它的几处（`protected_files`、导出的 secrets、
+  沙箱的 deny）一直按路径认，不能改成只认仓库里的那个。`HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 永远优先、各管各的。
+  说给用户听的命令写成 `{command}`、填 `config.COMMAND`（`uv run harness` / `harness`），叫人修好安装的填 `config.REPAIR`，
+  不要再写死 `uv run harness`（还没改的：`cli.py` 的 SETUP_HELP 和两句提示、`server.py` 的一句、页面上"后台运行"那一节）。
+  运行时读的文件只能放在 `harness/` 包里（wheel 只带它）；用到 `PROJECT_ROOT` 的只有说明过的几处（`tests/test_install_location.py` 会查）。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
@@ -472,7 +514,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）只在本机 macOS 上从本地的 wheel 和 zip 真装过（2026-11-22，临时的家目录和工具目录）；Linux、Windows 上的真装，从 GitHub 的 `git+https://` 和 zip 地址装，`uv tool upgrade` 从 GitHub 拉新版本，都没实测。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

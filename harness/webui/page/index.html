@@ -136,6 +136,7 @@ __STYLES__
   <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15.5l4.5-4.5 4 4 2.5-2.5 5 5M15.5 9.5h.01"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 13.5L4.5 9 9 4.5M4.5 9h10a5 5 0 0 1 0 10H11"/></symbol>
   <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 13.5L19.5 9 15 4.5M19.5 9h-10a5 5 0 0 0 0 10H13"/></symbol>
+  <symbol id="i-fork" viewBox="0 0 24 24"><path d="M6 3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM18 3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM12 16.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 7.5v1a3.5 3.5 0 0 0 3.5 3.5h5A3.5 3.5 0 0 0 18 8.5v-1M12 12v4.5"/></symbol>
   <symbol id="i-diff" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9.5 11.5h5M12 9v5M9.5 17h5"/></symbol>
 </svg>
 
@@ -275,6 +276,8 @@ __STYLES__
             </div>
           </div>
           <div class="column">
+            <!-- 这段会话是从哪儿分叉来的（scripts/fork.js）：不是分叉出来的会话一直藏着 -->
+            <div id="fork-origin" class="fork-origin" role="note" hidden></div>
             <div id="log" class="log"></div>
             <div id="working" class="working"><svg class="loop" aria-hidden="true"><use href="#i-loop"/></svg><span id="working-text"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
           </div>
@@ -630,12 +633,13 @@ __STYLES__
       <div id="service-card" class="service-card"></div>
     </section>
     <section>
-      <h3 data-i18n>导出全部数据</h3>
+      <h3 data-i18n>备份和恢复</h3>
       <div class="row">
         <button id="export-run" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>导出全部数据</span></button>
+        <button id="restore-open" class="button with-icon" type="button"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n>从备份恢复…</span></button>
         <span id="export-size" class="export-size"></span>
       </div>
-      <p class="hint" data-i18n>会话、记忆、待办、设置、花费记录……整个数据文件夹打成一个 zip，下载到你的电脑。不含 API 密钥；MCP 配置里的密钥会换成占位符。恢复时先退出智狐，再把压缩包解压到数据文件夹里。</p>
+      <p class="hint" data-i18n>会话、记忆、待办、设置、花费记录……整个数据文件夹打成一个 zip，下载到你的电脑。不含 API 密钥；MCP 配置里的密钥会换成占位符。恢复时先给你看备份里有什么，你确认了才恢复；现在填好的密钥会留着。</p>
     </section>
   </div>
   <div id="settings-message" class="settings-message" role="status"></div>
@@ -834,6 +838,19 @@ __STYLES__
     <p class="approval-commands"><span data-i18n>选“自动允许只读命令”时，你自己加的命令也不用问。</span><button id="approval-commands" class="link" type="button" data-i18n>管理不用问的命令</button></p>
     <p class="hint" data-i18n>不管选哪一种，助手做的每一步都会显示在对话里，没有问你的那些会标上"自动允许"；保存 API 密钥的 .env 文件它始终读不了。重启程序后会恢复成"每次确认"。</p>
   </div>
+</dialog>
+
+<dialog id="restore-dialog" class="settings restore-dialog" aria-labelledby="restore-title">
+  <div class="settings-head">
+    <div class="memory-head">
+      <h2 id="restore-title" data-i18n>从备份恢复</h2>
+      <p class="memory-sub" data-i18n>选一个“导出全部数据”存下的压缩包。先给你看里面有什么，你确认了才恢复。</p>
+    </div>
+    <button id="close-restore" class="icon-button" type="button" title="关闭" aria-label="关闭" data-i18n-title data-i18n-aria-label><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="restore-body" class="settings-body restore-body"></div>
+  <div class="memory-foot restore-foot"><p id="restore-message" class="memory-message" role="status"></p><div id="restore-actions" class="restore-actions"></div></div>
+  <input id="restore-file" type="file" accept=".zip,application/zip" hidden>
 </dialog>
 
 <dialog id="commands-dialog" class="settings commands-dialog" aria-labelledby="commands-title">

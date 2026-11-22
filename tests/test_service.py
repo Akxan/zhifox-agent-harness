@@ -1315,3 +1315,53 @@ def test_status_lists_only_the_problems_of_the_latest_run():
     assert logs.problems(old + started + later, 5) == later
     # 还没写过"从这里开始"（开不起来，或者是这个改动之前的日志）：照旧全部都算
     assert len(logs.problems(old, 5)) == 2
+
+
+# ---- 装成工具时（uv tool install，见 harness/install.py）-----------------------------------------
+
+
+def tool_python(tmp_path: Path) -> Path:
+    """uv tool install 给智狐建的虚拟环境里的 python（~/.local/share/uv/tools/harness-assistant/bin/python）。只要在、能执行就行。"""
+    python = tmp_path / "home" / ".local" / "share" / "uv" / "tools" / "harness-assistant" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    python.chmod(0o755)
+    return python
+
+
+@pytest.fixture
+def as_tool(monkeypatch, tmp_path):
+    """假装智狐是装成工具运行的：sys.executable 是工具环境里的 python，说给你听的命令是 harness。"""
+    python = tool_python(tmp_path)
+    monkeypatch.setattr(sys, "executable", str(python))
+    monkeypatch.setattr(service_cli, "COMMAND", "harness")
+    monkeypatch.setattr(service_cli, "FROM_SOURCE", False)
+    return python
+
+
+def test_installed_as_a_tool_launchd_runs_the_tools_python_with_p(mac, as_tool):
+    # 用的是工具环境里的 python 本身（不解开符号链接），照样 -P -m harness：服务的当前目录照样是你的工作目录
+    assert service_cli.run(args_for("install"), mac.config, mac.system) == 0
+    info = plistlib.loads((mac.home / "Library" / "LaunchAgents" / f"{LABEL}.plist").read_bytes())
+    assert info["ProgramArguments"][:4] == [str(as_tool), "-P", "-m", "harness"]
+    out, err = said(mac.system)
+    assert "打开网页：harness service open" in out and "管它：harness service status" in out
+    assert "uv run" not in out + err
+
+
+def test_installed_as_a_tool_systemd_runs_the_tools_python_with_p(linux, as_tool):
+    assert service_cli.run(args_for("install"), linux.config, linux.system) == 0
+    unit = linux.fake.unit_file.read_text(encoding="utf-8")
+    exec_start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+    assert exec_start.startswith(f'ExecStart="{as_tool}" "-P" "-m" "harness" ')
+    assert "uv run" not in "".join(said(linux.system))
+
+
+def test_installed_as_a_tool_the_mac_folders_hint_moves_only_the_workspace(mac, as_tool):
+    workspace = mac.home / "Documents" / "我的项目"
+    workspace.mkdir(parents=True)
+    service_cli.run(args_for("install", "--workspace", str(workspace)), mac.config, mac.system)
+    err = said(mac.system)[1]
+    # 程序不在"文稿"里（在 ~/.local/share/uv/tools 里），要挪的只有工作目录；没有项目文件夹，也就没有 uv sync
+    assert "harness service install --workspace" in err and "完整磁盘访问权限" in err
+    assert "uv sync" not in err and "把项目" not in err

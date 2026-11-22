@@ -23,13 +23,19 @@ OWNER RIGHTS，也就是"所有者"。但 3.11、3.12 不会，已经存在的�
 它是一个子进程，所以每个文件夹在一次运行里只设一次（_done），不会每写一个文件就运行一次。
 
 设不成功（不是 NTFS 的盘、U 盘、网络盘，或者 icacls 出错）：照常运行，在日志里写一句警告，不拦着你用。
+
+只看不改的那一半（others，给 harness doctor 用）：用 icacls /save 把 ACL 存成 SDDL（D:PAI(A;OICI;FA;;;S-1-5-21-…)…），
+再一项一项看"允许"的那几项给了谁。为什么不看 icacls 平常打印的那张表：表里写的是账号的名字，名字跟着系统的语言变
+（德文的 Windows 上 SYSTEM 叫 NT-AUTORITÄT\\SYSTEM），SDDL 里写的是 SID 和固定的别名（SY、BA、BU……），哪种语言都一样。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -110,6 +116,65 @@ def restrict(path: Path, folder: bool) -> bool:
         if folder:
             _done.add(key)
         return True
+
+
+# ---- 只看，不改 ------------------------------------------------------------------
+
+# SDDL 里本来就该在的那几位（别名和 SID 两种写法都认）：SYSTEM、Administrators、OWNER RIGHTS（这个文件的所有者，
+# Python 3.13 的 os.mkdir 会加上它）、CREATOR OWNER（只往下继承：谁新建的文件，那一项就是谁）。你自己的 SID 另外比
+_FINE = {"SY", SYSTEM_SID, "BA", ADMINISTRATORS_SID, "OW", "S-1-3-4", "CO", "S-1-3-0"}
+# 一行 SDDL 里的访问控制列表那一段：D: 后面是几个标记（P 不继承上一层的，AI 自动继承……），再是一项一项的 (…)。
+# icacls /save 只存这一段；前面万一带着所有者（O:）、组（G:），后面带着审核（S:），也认
+_DACL = re.compile(r"(?:O:[A-Z0-9-]+)?(?:G:[A-Z0-9-]+)?D:([A-Z_]*)((?:\([^()]*\))*)(?:S:.*)?")
+_ACE = re.compile(r"\(([^()]*)\)")
+
+
+def sddl(path: Path) -> str | None:
+    """path 的访问控制列表，SDDL 的写法（D:PAI(A;OICI;FA;;;S-1-5-21-…)…）。读不出来返回 None。
+
+    icacls /save 把它写进一个文件（不改 path 的任何东西）：存在临时文件夹里，读完就删。那个文件是 UTF-16 的，
+    第一行是文件名，第二行是 SDDL。文件名那一行可能也以 D: 开头（D:\\work\\data），所以要整行都是 SDDL 的样子才算。"""
+    with tempfile.TemporaryDirectory(prefix="zhifox-acl-") as folder:
+        saved = Path(folder) / "acl.txt"
+        code, out = runner([_system32("icacls.exe"), str(path), "/save", str(saved), "/q"])
+        if code != 0 or not saved.is_file():
+            logger.info("没能读出 %s 的访问权限（icacls 退出码 %s）：%s", path, code, out.strip()[:300])
+            return None
+        data = saved.read_bytes()
+    text = data.decode("utf-16-le" if b"\x00" in data else "utf-8", errors="replace").lstrip("\ufeff")
+    lines = [line.strip() for line in text.splitlines() if _DACL.fullmatch(line.strip())]
+    return lines[-1] if lines else None
+
+
+def others(path: Path) -> list[str] | None:
+    """除了你自己的账号、SYSTEM、管理员，这台电脑上还有谁能用 path。只看，不改任何权限。
+
+    返回 SDDL 里的写法：别名（AU 登录过的用户、BU 本机的所有用户、WD 所有人……）或者别的账号的 SID，按出现的顺序。
+    只有那三位的是空列表。查不了（不是 Windows、读不出你的 SID、icacls 出错、不是 NTFS 的盘）返回 None。
+    只看"允许"的那几项：拒绝的不会让谁多读到什么。"""
+    if not WINDOWS:
+        return None
+    sid = current_sid()
+    found = sddl(path)
+    if sid is None or found is None:
+        return None
+    match = _DACL.fullmatch(found)
+    assert match is not None
+    flags, aces = match.group(1), match.group(2)
+    # 你自己的账号。SDDL 里有几个账号不写 SID、写两个字母的别名：这台电脑内置的 Administrator 账号（SID 以 -500 结尾）
+    # 写成 LA。用它登录的时候（GitHub 的 Windows 机器就是），访问控制列表里"你自己"那一项是 LA，不认的话就成了"别人也能读"
+    mine = {sid, "LA"} if sid.endswith("-500") else {sid}
+    if "NO_ACCESS_CONTROL" in flags:
+        return ["WD"]  # 没有访问控制列表：谁都能用
+    out: list[str] = []
+    for ace in _ACE.findall(aces):
+        parts = ace.split(";")
+        if len(parts) < 6 or parts[0] not in ("A", "OA"):
+            continue
+        who = parts[5]
+        if who not in mine and who not in _FINE and who not in out:
+            out.append(who)
+    return out
 
 
 def forget() -> None:

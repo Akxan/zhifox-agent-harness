@@ -47,6 +47,7 @@ STYLES = (
     "styles/chat.css",  # 消息、编辑和重新生成、思考、提示条
     "styles/tool-cards.css",  # 工具调用卡片、确认卡片、"正在工作"
     "styles/file-changes.css",  # 每一轮末尾的"改了 N 个文件"、改动的预览、撤回和重做
+    "styles/fork.css",  # 每一轮上的"分叉"、分叉出来的会话顶上那一行和会话栏里的小图标
     "styles/markdown.css",  # 回复里的 Markdown
     "styles/citations.css",  # 回答引用的网页：记号、浮出的卡片、来源列表
     "styles/welcome.css",  # 空白页：问候语和建议
@@ -75,6 +76,7 @@ STYLES = (
     "styles/redact.css",  # 遮住工具结果里的密钥
     "styles/endpoints.css",  # 自定义模型接口：设置里的那一节和编辑的窗口
     "styles/spending.css",  # 花费
+    "styles/restore.css",  # 设置 · 从备份恢复的窗口
     "styles/flyouts.css",  # 顶栏上的按钮弹出来的小面板：外观、换模型、语言共用的样子（窄屏上从底下升起来）
     "styles/appearance.css",  # 外观面板
     "styles/models.css",  # 换模型的面板
@@ -118,12 +120,14 @@ SCRIPTS = (
     "scripts/send.js",  # 发送消息
     "scripts/rewind.js",  # 编辑最后一条消息、重新生成
     "scripts/file-changes.js",  # 改了哪些文件：每一轮末尾那一行、撤回、重做（见 harness/undo/）
+    "scripts/fork.js",  # 从某一轮分叉成一段新对话（见 harness/fork.py）
     "scripts/sidebars.js",  # 两边的栏：展开和收起
     "scripts/appearance.js",  # 外观：颜色和动效
     "scripts/conversations.js",  # 会话列表
     "scripts/info.js",  # 信息栏
     "scripts/capabilities.js",  # 信息栏 · 智狐能做的事（清单由 harness/capabilities.py 算）
     "scripts/spending.js",  # 花费
+    "scripts/restore.js",  # 设置 · 从备份恢复：选文件、上传、预览、确认、结果（检查和恢复在 harness/restore.py）
     "scripts/memory.js",  # 记忆
     "scripts/tasks.js",  # 定时任务：共用的状态、时间的写法、左边栏的标签
     "scripts/tasks-list.js",  # 定时任务 · 列表

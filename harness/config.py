@@ -9,7 +9,16 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import install
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# 从仓库里运行（git clone 下来、uv sync），还是装成了工具（uv tool install）。判断只在 install.from_source 里，理由也写在那里。
+# 从仓库里运行时数据和密钥在仓库里（data/、.env）；装成工具时在每个用户自己的位置（见 install.user_dir）
+FROM_SOURCE = install.from_source(PROJECT_ROOT)
+# 告诉你"运行这条命令"时，智狐的命令怎么写：uv run harness，或者装成工具时的 harness（见 install.command）
+COMMAND = install.command(FROM_SOURCE)
+# 装坏了的时候怎么修：uv sync，或者装成工具时重新装一遍（见 install.repair）
+REPAIR = install.repair(FROM_SOURCE)
 
 # 这个助手给人看的名字。代码里的包名和命令仍然叫 harness（它讲的就是 harness 是怎么回事），
 # 只有显示给用户的地方用这个名字：终端的标题、网页、系统提示词。
@@ -302,7 +311,7 @@ EXIT_OK, EXIT_BUSY, EXIT_CONFIG = 0, 1, 2
 
 # 评测（见 evals/）：让真正的智狐去做一组真实的小事，按做成了没有打分，看改了提示词、换了模型以后是变好了还是变坏了。
 # 任务的文件夹（一个任务一个 .toml 文件）。放在仓库里、和 tests/ 并列，不打进包里：它和测试一样是"量产品"的东西，
-# 随代码一起改、一起提交（理由见 evals/__init__.py）
+# 随代码一起改、一起提交（理由见 evals/__init__.py）。装成工具时没有它，harness eval 会说清楚（见 evals/cli.py 的 _load）
 EVAL_TASKS_DIR = PROJECT_ROOT / "evals" / "tasks"
 EVAL_RESULTS_DIR = "evals"  # 结果存在数据目录里的这个文件夹（data/evals/）：一次运行一个子文件夹，不提交
 EVAL_MAX_STEPS = 30  # 评测里一轮最多调用模型这么多次（平常是 50）。评测的任务都是小事，用不了那么多，到了上限就停，省钱
@@ -342,6 +351,10 @@ SERVICE_RESTART_SECONDS = 10
 SERVICE_LOG = Path("logs") / "service.log"
 # 后台服务没有终端可以打印网页的地址（里面有口令），就写在数据目录里的这个文件里（见 serve.py），harness service open 读它
 WEB_ADDRESS = ".web-address"
+# 网页本身（一个自给自足的页面，一百多万字节）发给浏览器之前用 gzip 压缩到大约三分之一（见 webui/server.py 的 _send_page）。
+# 1 最快、压得最少，9 最慢；每打开一次页面就压一次（页面里有一次性的 nonce，压好的不能留着下次用），
+# 4 在本机上大约十几毫秒，从手机、从别的电脑远程打开时省下的传输时间多得多
+PAGE_GZIP_LEVEL = 4
 # 后台服务的网页口令存在这里，重启前后不变，开着的页面刷新一下就能接着用（见 webui/token.py）
 WEB_TOKEN = ".web-token"
 # 数据目录里的用户设置（模型、界面语言……，见 settings.py）。Windows 上的 supervise.py 没有 Config，也照这个名字找界面语言
@@ -362,6 +375,24 @@ SERVICE_POLL_SECONDS = 0.5
 # Windows 上停下服务时，supervise.py 给智狐 SERVICE_STOP_SECONDS 秒收尾，到时间还没退出就结束它；
 # harness service stop 再多等这么几秒（让 supervise.py 自己先处理完），还没停下才用 schtasks /End 和 taskkill
 SERVICE_STOP_SLACK_SECONDS = 5
+
+
+# ---- 从备份恢复（见 restore.py）------------------------------------------------------------
+# 备份的压缩包是不可信的输入（可能是故意做坏的），下面几个上限挡住压缩炸弹和塞满磁盘的东西。
+# 多媒体库可能有几个 GB，所以比 Skill 的上传（约 20 MB）宽得多；页面在上传之前就照着第一个数拦下太大的文件
+RESTORE_MAX_UPLOAD_BYTES = 4_000_000_000  # 网页上传的压缩包最大这么大（终端的 harness restore 直接读文件，不受它限制，只看下面几个）
+RESTORE_MAX_TOTAL_BYTES = 8_000_000_000  # 解开之后一共最多这么大（压缩包里写的大小；解的时候再按实际读到的核对一遍）
+RESTORE_MAX_FILE_BYTES = 2_000_000_000  # 单个文件解开之后最大这么大
+RESTORE_MAX_FILES = 200_000  # 压缩包里最多这么多项（包括文件夹）
+RESTORE_MAX_DEPTH = 32  # 路径最多这么多层
+RESTORE_DISCARD_BYTES = 16_000_000  # 上传太大被拒绝时，最多读掉这么多再回答（和 server.py 的 MAX_DISCARD_BYTES 一个道理）
+RESTORE_STAGE_SECONDS = 3600  # 上传好、还没确认的备份留这么久（秒），过了就删掉，要再传一次
+# 恢复之前，先把现在的数据导出一份放在数据目录里的这个文件夹里（data/restore-backups/）。导出时不带它：
+# 每一份都是整个数据文件夹，带进去就会越套越大。最多留这么多份，更早的删掉
+RESTORE_BACKUPS_DIR = "restore-backups"
+RESTORE_KEEP_BACKUPS = 5
+# 恢复时要停下定时任务、聊天通道、MCP 服务器，最多等它们这么多秒收尾存盘（和退出时一样）
+RESTORE_STOP_SECONDS = 5
 
 
 # ---- 语音转文字（聊天里发来的语音，见 voice/）----------------------------------------------
@@ -555,15 +586,17 @@ def load_config(workspace: Path | None = None) -> Config:
     """workspace：工作目录，不给的话是现在所在的目录（在服务器上用 --workspace 指定，见 cli.py）。
 
     密钥默认在项目里的 .env；HARNESS_ENV_FILE 可以换一个位置（服务器上放在 /etc 下、测试里放在临时目录里）。
+    数据默认在项目里的 data/；HARNESS_DATA_DIR 可以换一个位置。装成工具时两样的默认位置都在每个用户自己的文件夹里
+    （见 install.py），两个环境变量照样优先。
     """
-    env_file = Path(os.environ.get("HARNESS_ENV_FILE") or PROJECT_ROOT / ".env").expanduser().resolve()
+    env_file = Path(os.environ.get("HARNESS_ENV_FILE") or install.default_env_file(PROJECT_ROOT, FROM_SOURCE)).expanduser().resolve()
     load_env_file(env_file)
     return Config(
         effort=os.environ.get("HARNESS_EFFORT", "medium"),
         max_tokens=64000,
         max_steps=50,
         workspace=(workspace or Path.cwd()).expanduser().resolve(),
-        data_dir=Path(os.environ.get("HARNESS_DATA_DIR") or PROJECT_ROOT / "data").expanduser().resolve(),
+        data_dir=Path(os.environ.get("HARNESS_DATA_DIR") or install.default_data_dir(PROJECT_ROOT, FROM_SOURCE)).expanduser().resolve(),
         env_file=env_file,
         web=os.environ.get("HARNESS_WEB", "1") != "0",
         max_searches=_int_env("HARNESS_MAX_SEARCHES", 5),

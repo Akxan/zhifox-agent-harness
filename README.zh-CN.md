@@ -81,15 +81,101 @@ Claude 用 Anthropic 的浏览器工具包，GPT、Gemini、DeepSeek 用智狐�
 
 ## 快速开始
 
-需要 macOS、Linux 或 Windows，以及 [uv](https://docs.astral.sh/uv/)。Windows 上的 PowerShell 写法见下面的[在 Windows 上使用](#在-windows-上使用)。
+需要 macOS、Linux 或 Windows。有两种装法：
+
+- **一行命令装上**：只是想用它的话选这种。不用 clone，没有项目文件夹，装好以后在哪个文件夹里都能用 `harness` 这个命令。
+- **把仓库 clone 下来**：想读代码、改代码、跑测试和评测的话选这种（见[从仓库里运行](#从仓库里运行开发和学习用)）。
+
+### 一行命令装上
+
+先装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再装智狐。电脑上没有 3.11 以上的 Python 的话，uv 会自己下载一个，
+并且把智狐装在它自己的一个环境里，不碰系统的 Python。
 
 ```bash
+# macOS 和 Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh                   # 装 uv，装好后另开一个终端
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web                                                     # 启动网页界面，会自动在浏览器里打开
+```
+
+```powershell
+# Windows（PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个窗口
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+从 `git+https://` 这样的地址装，电脑上要有 Git（uv 用它下载代码，你自己不用会）。macOS 第一次用到时会提示你安装；
+Linux 一般自带。刚装好的 Windows 没有：先装 [Git for Windows](https://git-scm.com/download/win)（或者 `winget install --id Git.Git -e`），
+或者改从 GitHub 打包好的 zip 装，不需要 Git：
+
+```powershell
+uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip
+```
+
+从 zip 装的，要更新时把这一行再运行一次，加上 `--reinstall`。
+
+装好以后终端说找不到 `harness` 的话，运行 `uv tool update-shell`，再另开一个终端：它把 uv 放命令的文件夹（`~/.local/bin`）加进 `PATH`。
+
+更新和卸载（包名是 `harness-assistant`，装上的命令是 `harness`）：
+
+```bash
+uv tool upgrade harness-assistant      # 更新到 GitHub 上的最新版
+uv tool uninstall harness-assistant    # 卸掉程序；你的数据文件夹原样留着
+```
+
+装成了[后台服务](#在后台一直运行)的话，更新以后运行一次 `harness service restart`。
+
+**数据和密钥在哪儿。** 这样装的时候，程序在 uv 自己的文件夹里，`uv tool upgrade` 和 `uv tool uninstall` 会替换、删掉它。
+所以会话、记忆、设置放在它外面、你这个账号自己的一个文件夹里，API 密钥（`.env`）也在这个文件夹里：
+
+| 系统 | 数据文件夹（`.env` 在里面） |
+|---|---|
+| macOS | `~/Library/Application Support/ZhiFox/` |
+| Linux | `$XDG_DATA_HOME/zhifox/`，默认是 `~/.local/share/zhifox/` |
+| Windows | `%LOCALAPPDATA%\ZhiFox\`，比如 `C:\Users\你\AppData\Local\ZhiFox\` |
+
+这个文件夹只有你的账号能读，和 clone 时的 `data/` 一样（见[数据存在哪里](#数据存在哪里)）。填密钥最省事的办法是网页界面的
+**设置**，它会写进这里的 `.env`；也可以自己建这个文件，写上 `ANTHROPIC_API_KEY=…` 这样的行（见 [.env.example](.env.example)）。
+`.env` 放在数据文件夹里，并不会因此更容易被碰到：助手的文件工具打不开它，命令的沙箱碰不到它，**导出全部数据**也不带它，
+和 clone 时一样。`HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 照样能把它们换到别处。
+
+为什么是这几个位置：Windows 上用的是"本地"的 AppData，不是"漫游"的那个：漫游的配置文件每次登录、注销都会把整个文件夹同步一遍，
+而智狐的数据（附件、浏览器的配置文件夹、留底）不小，有一部分还只属于这台电脑。Linux 上 `.env` 留在数据文件夹里，不放进 `~/.config`：
+很多人把 `~/.config` 整个放在公开的 dotfiles 仓库里。
+
+**备份。** **设置 → 导出全部数据** 会把数据文件夹打成一个不含密钥的 zip（见[备份和恢复](#备份和恢复)）。直接复制整个文件夹也行，
+但那一份里有 `.env`，要自己收好。
+
+**和 clone 的方式有什么不同：**
+
+- 命令前面不写 `uv run`：`harness --web`、`harness service install`、`harness channels setup telegram`。
+  这份说明里写 `uv run harness …` 的地方，换成 `harness …`。
+- 用不着[在别的目录里使用](#在别的目录里使用)里的 `zhifox` 快捷命令：`harness` 本来就在哪个文件夹里都能用，你在哪个文件夹里启动它，
+  那里就是助手的工作目录。
+- 数据文件夹是上面表里的那个，不是项目里的 `data/`：同一台电脑上 clone 的和装上的两个智狐，会话和密钥不共用。
+  想从 clone 的搬过来：先退出智狐，把 clone 里 `data/` 文件夹里面的东西和 `.env` 拷进那个文件夹
+  （或者把 `HARNESS_DATA_DIR`、`HARNESS_ENV_FILE` 指向 clone 里的那两样）。
+- 飞书和钉钉要另外装它们的 SDK，办法是带上 extra 重新装一次：
+  `uv tool install --force "harness-assistant[feishu,dingtalk] @ git+https://github.com/Akxan/zhifox-agent-harness"`
+  （网页上和 `harness channels setup` 会照你已经装了的，给出完整的那一行）。
+- [评测](#评测助手到底好不好用)要在 clone 下来的仓库里跑：任务和演习用的假服务器都在仓库里，不在装好的包里。`harness eval` 会这样告诉你。
+
+### 从仓库里运行（开发和学习用）
+
+```bash
+git clone https://github.com/Akxan/zhifox-agent-harness.git
+cd zhifox-agent-harness
 uv sync                 # 安装依赖
 uv run harness --web    # 启动网页界面，会自动在浏览器里打开
 ```
 
-第一次打开时，页面中间会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
-想用终端界面的话，填好密钥后运行 `uv run harness`。
+这时所有东西都在项目里：数据在 `data/`，密钥在 `.env`，git 都不会提交它们。Windows 上的 PowerShell 写法见[在 Windows 上使用](#在-windows-上使用)。
+智狐是看自己的包在哪儿来分这两种的：旁边有它自己的 `pyproject.toml`，就是从仓库里运行；在某个 `site-packages` 文件夹里，就是装上的
+（见 [harness/install.py](harness/install.py)）。
+
+不管哪种装法，第一次打开时页面中间都会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
+想用终端界面的话，填好密钥后运行 `harness`（从仓库里运行是 `uv run harness`）。
 
 ### 支持的模型
 
@@ -140,7 +226,18 @@ Agent 文件和别的程序用 `custom-<编号>/<模型名>` 指定接口上的�
 ### 在 Windows 上使用
 
 智狐能在 Windows 上运行。每次推送都会在 GitHub 的 `windows-latest`（Windows Server）上和 Ubuntu、macOS 一起跑一遍测试；
-还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。在 PowerShell 里：
+还没有在 Windows 10、11 的桌面电脑上手动用过，那里要是有不一样的地方，请告诉我们。只是想用的话，一行命令装上
+（见[一行命令装上](#一行命令装上)；数据和密钥放在 `%LOCALAPPDATA%\ZhiFox\`）：
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
+winget install --id Git.Git -e                                                        # 还没有 Git 的话先装上（uv 用它下载）
+uv tool install git+https://github.com/Akxan/zhifox-agent-harness
+harness --web
+```
+
+（不想装 Git 的话，`uv tool install https://github.com/Akxan/zhifox-agent-harness/archive/refs/heads/main.zip` 也行。）
+想改代码的话，改成 clone 下来：
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # 装 uv，装好后另开一个 PowerShell 窗口
@@ -185,6 +282,43 @@ Windows 上暂时还不支持的：
   以及 `uv run harness service stop`，都会好好地停下；直接关掉终端窗口不会。
 - 后台服务在你注销时会停下（它以你的身份运行，不保存密码）。
 
+### 出了问题：先运行 harness doctor
+
+哪里不对劲的时候，先运行自检。它把智狐在这台电脑上的情况放在一屏里；想告诉我们你的电脑上有什么不一样，这也是最快的办法，
+Windows 上尤其如此（Windows 只在 GitHub 的测试机上跑过，还没在真的桌面电脑上用过）。在智狐的文件夹里：
+
+```bash
+# macOS 和 Linux（zsh、bash）
+uv run harness doctor                       # 给人看的表格
+uv run harness doctor --json > doctor.json  # 给程序看，或者找人帮你看时当附件发过去
+echo $?                                     # 有一项有问题是 1，都没问题是 0
+```
+
+```powershell
+# Windows（PowerShell）
+uv run harness doctor
+uv run harness doctor --json | Out-File -Encoding utf8 doctor.json
+$LASTEXITCODE
+```
+
+终端界面里输入 `/doctor` 也一样。每一行是三种状态之一：**好**、**有问题**、**没用上**（没配置的功能不算问题）。
+有问题的都跟着一句怎么修，按你的 shell 写：macOS 上是 zsh 的，Linux 上是 bash 的，Windows 上是 PowerShell 的。
+比如数据目录别人也能读：macOS、Linux 上给的是 `chmod 700 '…/data'`，Windows 上给的是智狐自己收紧权限时用的那条
+`icacls '…\data' /inheritance:r /grant:r '*S-1-5-21-…:(OI)(CI)F' …`。
+
+| 一节 | 看什么 |
+|---|---|
+| 环境 | Python 的版本和路径（是不是项目里的 `.venv`）、智狐的版本和 git 提交、系统、PATH 里有没有 `uv` |
+| 目录 | 工作目录能不能写；`data/` 和 `.env` 是不是只有你自己的账号能读：macOS、Linux 上看 700 和 600（还要属于你，用 `sudo` 运行过一次的话会变成 root 的），Windows 上看访问控制列表（用 `icacls /save` 读，从不改） |
+| 占用 | 数据目录现在是不是被另一个智狐占着（网页界面、`harness serve`、后台服务、`channels pair`），进程编号是多少 |
+| 密钥 | 哪几家有密钥、从哪儿来（`.env`、环境变量、Anthropic 的登录信息）；环境变量设成了空的、把 `.env` 里的密钥盖住了；环境变量里的和 `.env` 里的不一样；现在选的模型；自定义接口 |
+| 这台电脑上能不能用 | 找不找得到 Chrome；命令的沙箱在这台电脑上能不能用（以及谁要用它：对话、哪个定时任务、哪个聊天通道）；操作整台电脑：后端，以及 macOS 上"录屏与系统录音""辅助功能"两项权限（只做不弹窗的预检）；后台服务：装没装、在不在跑、是不是出错退出了、有没有只在终端里设置的密钥 |
+| 扩展 | MCP 服务器、聊天通道、钩子、定时任务各有几个、开着几个；要运行的程序没装的 MCP 服务器和钩子（`npx`、`uvx`……）；没填全、没配对、缺 SDK 的聊天通道；读不出来的任务文件 |
+| 网络 | 代理和改过的接口地址（只写协议、主机和端口）、指向外面的明文 `http://` 地址；联网搜索开没开 |
+
+它只看不改：不改任何文件、权限和设置，不启动任何东西（MCP 服务器、Chrome、截图都不碰），也不发任何网络请求。
+密钥只说有没有，不写出密钥，连最后几位也不写；`--json` 的结果里没有密钥、口令和带口令的网址，但有你的路径（路径里一般有你的用户名）。
+
 ### 网页界面
 
 ```bash
@@ -226,6 +360,8 @@ uv run harness --web
   "重新生成"单独放在最后。这一轮做过可能改动了电脑的事（执行命令、改文件、调用 MCP 工具、操作整台电脑、在浏览器里点击或输入），
   会先把这些事列出来问你一次：倒回去的只是对话，做过的事不会撤销。只有最后一轮能编辑、重新生成
   （为什么，见[编辑最后一条消息、重新生成](#编辑最后一条消息重新生成)）。这一轮改过文件的话，同一张卡片上可以勾上"同时撤回这一轮改的文件"。
+- 分叉：想从前面某一轮换个方向，就在那一轮上点"分叉"：回答下面紧挨着"复制"的那个带着这一轮，你的消息左边悬停出现的那个截到它之前、
+  把消息放回输入框。原来那段不动，新的一段马上打开，顶上一行能点回原会话（见[从某一轮分叉](#从某一轮分叉)）。
 - 运行记录：最后一个回答下面那排按钮里写着"这一轮用了多久、花了多少"，点开是一张瀑布图：这一轮调用了几次模型、
   用了哪些工具、每一步从什么时候到什么时候、等你确认等了多久、多少 token、多少钱（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)）。
 - 改过的文件：文件工具改过文件的那一轮，末尾有一行"改了 N 个文件"，右边的"撤回"一下撤回整轮；点开看每个文件，点文件名看一行一行的预览，
@@ -290,6 +426,7 @@ uv run harness --web
   - 操作整台电脑（进阶，默认关着）：确认过风险以后让助手操作整台电脑；需要的权限、程序有没有；定时任务和聊天通道能不能用；
     不许碰的程序。见下面的"操作整台电脑"。
   - 导出全部数据：把整个数据文件夹打成一个 zip 下载下来。导出前显示文件夹有多大，导出后显示压缩包有多大。
+    旁边的"从备份恢复…"把这样的压缩包放回来：先看预览，再选覆盖或者合并；恢复之前自动备份现在的数据，现在的密钥留着。
     见下面的"备份和恢复"。
 - 信息栏（右上角最右边的按钮展开或收起）：估算费用、四类 token 各占多少、未完成的待办、
   **智狐能做的事**（见下面的[智狐能做的事](#智狐能做的事功能清单)）。每调用一次模型就更新一次。费用卡片上"本次运行"的数字下面，是**今天**和**本月**一共花了多少
@@ -638,15 +775,18 @@ uv run harness
 | `/retry` | 重新生成最后一个回答：你的消息原样再发一次 |
 | `/edit` | 改最后一条消息：它会填在输入行里，改完按回车；也可以直接写 `/edit 新的文字`。和 `/retry` 一样，这一轮执行过命令、改过文件的话先问你 |
 | `/undo` | 撤回最近一轮用文件工具改的文件：先列出来（后来又被改过的另外标出来），问你一句再写。重做、挑着撤回几个文件在网页界面上做 |
+| `/doctor` | 自检：Python、目录的权限、哪几家有密钥、浏览器、沙箱、后台服务……哪些好、哪些有问题、怎么修（和 `uv run harness doctor` 一样，见[出了问题：先运行 harness doctor](#出了问题先运行-harness-doctor)） |
 | `/exit` | 退出（也可以用 `/quit`，或者按 Ctrl-D） |
 
 模型回复到一半时按 Ctrl-C 可以打断它。
 
+终端界面不保存、不打开会话，所以分叉只在网页界面里有。
 终端界面不运行定时任务和聊天通道。在这里也可以让助手添加或删除任务，它们在网页界面或者 `harness serve` 开着的时候运行。
 
 ### 在别的目录里使用
 
-助手的"工作目录"是你启动它时所在的目录。想让它在别的目录里工作，先 `cd` 到那里，再运行：
+助手的"工作目录"是你启动它时所在的目录。一行命令装上的 `harness` 本来就在哪个文件夹里都能用：`cd` 到那里运行 `harness`
+（或者 `harness --workspace /某个/文件夹`）就行。下面说的是 clone 下来的情况。想让它在别的目录里工作，先 `cd` 到那里，再运行：
 
 ```bash
 uv run --project "/这个项目的完整路径" harness
@@ -703,6 +843,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 无界面模式 | [harness/serve.py](harness/serve.py)、[harness/log.py](harness/log.py)、[harness/webui/lifecycle.py](harness/webui/lifecycle.py) | 服务器上没有浏览器。`harness serve` 不开浏览器就启动调度器和通道，日志按 journald 的习惯写、密钥都遮住，收到 SIGTERM 时干净地退出；网页界面和无界面模式在同一个地方启动、停下这些后台的部分 |
 | 后台服务 | [harness/service/](harness/service/)、[harness/instance.py](harness/instance.py) | 在终端里开的智狐，终端一关它也停了。`harness service` 把它交给 launchd（macOS）或者 systemd（Linux）：登录时自动启动、出错退出后自己重启；数据目录的锁上记着是谁占着，再开一个的时候能说清楚是谁挡着（见"在后台一直运行"） |
 | 编辑和重新生成 | [harness/rewind.py](harness/rewind.py) | 你打错了字，或者回答不对。最后一轮可以倒回去再跑一遍：倒到哪儿、这一轮哪些事可能改动了东西（要先提醒）、附件怎么原样取回来 |
+| 分叉 | [harness/fork.py](harness/fork.py)、[harness/webui/fork_api.py](harness/webui/fork_api.py) | 倒回只能倒最后一轮。分叉从任意一轮结束了的地方开一段新对话，原来那段一字不动：切在哪儿（和倒回用的是同一套位置）、复制什么、什么留在原会话（见"从某一轮分叉"） |
 | 撤回改动 | [harness/undo/](harness/undo/) | 倒回对话撤回的是对话，不是文件。每一轮记下文件工具改了哪些文件（每个文件改之前的样子留一份底，在 `data/backups/turns/` 里），可以一个个撤回、整轮撤回，再重做；后来又被改过的文件靠内容的哈希认出来（见"撤回一轮改的文件"） |
 | 会话的认领 | [harness/claims.py](harness/claims.py) | 同一段会话可能同时开在网页上和聊天软件里。每一轮开始前先"认领"这段会话，两边就不会同时往里写、把对方的那一轮冲掉 |
 | 权限 | [harness/permissions.py](harness/permissions.py) | 模型可能出错或被误导。危险操作要你点头 |
@@ -721,9 +862,12 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 运行记录 | [harness/trace/](harness/trace/)、[harness/webui/page/scripts/trace.js](harness/webui/page/scripts/trace.js)、[trace-chart.js](harness/webui/page/scripts/trace-chart.js) | 一问一答背后循环跑了几圈、每一圈花了多久和多少钱，平时看不见。循环在几个记录点告诉记录器一声，一轮结束时整理成一份记录，存进会话；网页画成瀑布图，终端是 `/trace`（见[看懂一轮对话：运行记录](#看懂一轮对话运行记录)） |
 | 遮住密钥 | [harness/redact.py](harness/redact.py) | 命令的输出、文件里可能一不小心带着一把密钥，进了只追加的历史就会发给厂商、永远存着。结果一产生就遮，在 `tool_ended` 记录点之前：认各家密钥的格式、环境变量和 `.env` 里已知的值、`password=` `token:` 后面随机的一串（见[遮住工具结果里的密钥](#遮住工具结果里的密钥)） |
 | 导出 | [harness/export.py](harness/export.py) | 数据都在一台电脑的一个文件夹里。点一下就打成一个 zip，密钥不带出去 |
+| 自检 | [harness/doctor/](harness/doctor/) | 多数问题不在代码里，在这台电脑上：密钥只设在终端里、数据目录别人也能读、MCP 服务器要 `npx` 而这台电脑没装 Node.js。`harness doctor` 只看不改，一屏看完，修法按你的 shell 写（见[出了问题：先运行 harness doctor](#出了问题先运行-harness-doctor)） |
+| 从备份恢复 | [harness/restore.py](harness/restore.py)、[harness/restore_keys.py](harness/restore_keys.py)、[harness/webui/restore_api.py](harness/webui/restore_api.py)、[harness/restore_cli.py](harness/restore_cli.py) | 手动把备份解压到数据文件夹上，占位符会盖掉你的密钥，压缩包里有什么都照单全收。页面上（或者 `harness restore`）照着导出的名单检查压缩包、先给你看预览、先备份现在的数据、留着现在的密钥，再在原地重新开起来（见"备份和恢复"） |
 | 评测 | [harness/evals/](harness/evals/)、[evals/tasks/](evals/tasks/) | 测试证明代码照着写的那样运行，却说不出改了提示词、换了模型以后，*模型*还会不会做对。一组真实的小任务，由真正的助手在用完就删的临时文件夹里去做，按留下的结果打分；花钱之前先估算、要你确认（见[评测](#评测助手到底好不好用)） |
 | 多语言 | [harness/i18n.py](harness/i18n.py)、[harness/locales/](harness/locales/) | 界面上的话有中文、英文、西班牙语三种，网页和终端共用一份翻译表 |
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
+| 装在哪儿 | [harness/install.py](harness/install.py) | 从仓库里运行，还是用 `uv tool install` 装上的：只在这一处判断，数据文件夹和 `.env` 的默认位置、智狐让你运行的命令（`uv run harness` 还是 `harness`）都跟着它 |
 | 系统之间的差别 | [filelock.py](harness/filelock.py)、[pathnames.py](harness/pathnames.py)、[winacl.py](harness/winacl.py)、[winjob.py](harness/winjob.py)、[console.py](harness/console.py)、[exits.py](harness/exits.py)、[machine.py](harness/machine.py)、[tools/shell.py](harness/tools/shell.py)、[browser/chrome.py](harness/browser/chrome.py)、[service/windows.py](harness/service/windows.py) | macOS、Linux、Windows 锁文件、写路径、保护文件、结束进程树、给输出编码、执行命令的办法都不一样。每一处差别只放在一个小模块里（或者用到它的那个模块的一个函数里），别处只调用它 |
 
 建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`，其余的按兴趣看。
@@ -1051,6 +1195,38 @@ GPT、Gemini、DeepSeek 的位置从对话开始数，被压缩掉的也算在�
 和打开一段会话是同一个做法。开着的每个标签页都原地重画，不用刷新。请求里写明是哪段会话的哪一轮，落后的标签页会被拒绝，
 不会倒回别的内容；正在改的标签页，没发出去的字会放回它的输入框。
 
+### 从某一轮分叉
+
+倒回只能倒最后一轮。想"从第 3 轮换个思路重来"，就从那一轮分叉：原来那段一个字节都不动，新开的一段从那里接着聊。
+每一轮结束以后，这一轮上有两个"分叉"：
+
+- 回答下面那排按钮里、紧挨着"复制"的"从这里分叉（带上这一轮）"：新的一段里是到这一轮结束为止的全部内容，接着说就是新的方向。
+- 鼠标移到你的消息上，左边的"从这条消息分叉（改了再发）"（最后一条消息上排在"编辑"左边）：新的一段截到这一轮开始之前，
+  这条消息（文字和附件）放回输入框，改了再发。在第一条消息上分叉，新的一段是空的，和新对话一样，第一轮结束才存盘。
+
+点了以后直接换到新的一段。它的标题后面带着"（分叉）"，会话栏里前面有一个小小的分叉图标，顶上一行写着从哪儿来的；
+点"打开原会话"回到原来那段、滚到分叉的那一轮（原会话删掉以后，这一行只剩文字）。
+
+为什么不违反"只追加"：两段历史都没有被改。新的一段的 `messages` 是原来那段的前缀，切在某一轮的开头，和倒回最后一轮是同一件事：
+留下的每一块，它前面的内容都和当初一字不差，缓存照样对得上，Claude 思考内容的签名照样通过校验。
+它用同一家的同一个模型、同一个角色（自定义 Agent）接着聊，之后照常只在末尾追加。
+
+切在哪儿（[harness/fork.py](harness/fork.py)）：用的是 `user` 事件上记着的位置（见上一节）。在消息上分叉切在这一轮自己的位置，
+在回答上分叉切在下一轮的位置（最后一轮就是整段历史）。这个位置还是不是一轮的开头，交给适配层自己的规矩去认
+（`providers.saved_before`，和 `Backend.turn_at` 是同一笔账）。GPT、Gemini、DeepSeek 的历史压缩过：切口落在已经写进摘要的那一段，
+和倒回一样分不了，那几轮的按钮是灰的、写着为什么；切口在摘要之后的，新的一段带着摘要，`dropped` 原样带过去，
+所以它的事件里记着的位置也对得上（新的一段里照样能编辑、重新生成最后一轮）。没有记下位置的那一轮（定时任务自己跑的、
+旧版本存下的）不能在那里分叉。`events` 截到同一个位置，这一轮的运行记录、子 Agent 的卡片、确认请求跟着这一轮走。
+
+不跟过来的：改文件的记录（"改了 N 个文件"那一行和撤回、重做）不复制。留底（`data/backups/turns/`）按一轮的编号存，
+磁盘上的文件也只有一份：两段会话都能撤回同一轮的话，一边撤回了，另一边那一行还写着"没撤回"，两边就对不上了。
+所以撤回只在原会话里做；那几轮改过文件的，新的一段顶上那一行会说一句。从定时任务、聊天通道的会话分叉出来的，
+是一段普通的网页会话（不带 `task`、`channel` 的标记），所以也没有 `send_file`。花掉的钱照旧；新的一段的上下文大小按它最后一轮的运行记录估。
+
+页面上：分叉会换到另一段会话，所以要等你自己的这一轮结束。原会话只是读：从磁盘读（拿着会话库的锁，读不到写了一半的文件），
+不认领它，所以聊天通道正在用的会话也能分叉。请求里写明是哪段会话的哪一轮，落后的标签页会被拒绝。
+终端界面只在内存里留着一段对话，从不保存、打开会话，没有"原来那段"可留、也没有地方可换过去，所以分叉只在网页界面里有。
+
 ### 撤回一轮改的文件
 
 倒回对话撤回的是对话，这里撤回的是文件。文件工具新建、修改、覆盖过文件的那一轮，末尾有一行"改了 2 个文件 +7 −1"，
@@ -1174,6 +1350,11 @@ agent 循环 ──调用──► WebUI ──事件──► 本地服务器 �
 后写的盖过先写的，所以 `reduce-motion.css` 排在最后；脚本的各块都放在同一个函数里、共用一个作用域，
 所以大家都要用的 `t()`、`el()`、`play()`、`calm()` 排在前面。新加一块就是加一个文件、在清单里加一行；
 文件漏列了或者列了两次，测试会失败。
+
+拼好的页面有一百多万字节。浏览器说自己收 gzip 时，服务器把它压到三分之一左右（`config.py` 里的 `PAGE_GZIP_LEVEL`，
+每打开一次大约十几毫秒），从手机、从别的电脑通过隧道打开时快得多。页面里有网页的口令，而 BREACH 这类压缩攻击
+是往同一个回答里回显攻击者选的文字、看压缩后的长度怎么变，一点点猜出秘密。这一页一个字都不回显请求（只填 nonce、口令、
+翻译表和 Markdown 渲染器），所以不受影响；`_send_page` 的注释里写着：以后要是往页面里填请求带来的内容，先重新想这一条。
 
 应用图标是唯一一样由浏览器自己去取、不经过页面脚本的东西：判断这个页面能不能装成应用、做快捷方式的时候，它要读一份
 网页应用清单，再下载清单里列出的图标。所以它们得是真的地址：`/manifest.webmanifest` 和 `/icons/<名字>`
@@ -2396,7 +2577,9 @@ uv run harness service restart     # 重启，比如改了 .env、升级了智�
 uv run harness service uninstall   # 停下，以后登录时也不再自动启动（数据和日志都留着）
 ```
 
-在项目文件夹里运行它们。`install` 可以加 `--no-web`（只运行聊天通道和定时任务，不开网页）、`--port 9000`（默认 8765；
+clone 下来的，在项目文件夹里运行它们；一行命令装上的，去掉前面的 `uv run`，在哪儿运行都行（`harness service install`）。
+服务用的就是运行智狐的那个 Python（clone 里的 `.venv`，或者 uv 给这个工具建的环境），所以 `uv tool upgrade harness-assistant`
+之后运行 `harness service restart` 就换上了新版本，不用重装服务。`install` 可以加 `--no-web`（只运行聊天通道和定时任务，不开网页）、`--port 9000`（默认 8765；
 8765 被占用时自动换一个空闲的）和 `--workspace /某个/文件夹`（助手的工作目录，默认是现在所在的目录）。
 `install` 重复运行也没关系：设置没变就什么都不动，变了就停下旧的、换上新的。网页上的 **设置 → 后台运行** 会显示智狐现在是哪种开法；
 跟着终端的时候，那里有装成后台服务的命令，可以直接复制。
@@ -2623,6 +2806,9 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 
 ## 数据存在哪里
 
+下面的路径说的是 clone 下来的情况：项目里的 `data/` 和 `.env`。一行命令装上的，`data/` 换成[一行命令装上](#一行命令装上)里你这个账号的那个文件夹
+（`~/Library/Application Support/ZhiFox/`、`~/.local/share/zhifox/`、`%LOCALAPPDATA%\ZhiFox\`），`.env` 在它里面；别的都一样。
+
 **只有你自己的账号能读。** macOS 和 Linux 上，`data/` 和里面的文件夹建出来就是 700，文件是 600。Windows 没有这种权限位
 （`chmod` 在那里只能改"只读"这一个标记），而你在用户文件夹以外建的文件夹（`C:\code\…`）默认会继承"这台电脑上的所有账号都能读"。
 所以 Windows 上智狐对每个文件夹运行一次 `icacls`（[winacl.py](harness/winacl.py)）：把 `data\` 和里面的文件夹从上一层继承来的权限去掉，
@@ -2653,6 +2839,7 @@ journalctl -u zhifox -f        # 看日志；加上 `-p warning` 只看警告和
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
 | `data/backups/turns/` | 文件工具改过文件的每一轮一个文件夹：一份清单，每个文件这一轮之前（和之后）的样子，撤回时为重做留的那一份。只有你的账号能读，30 天后删掉 |
 | `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
+| `data/restore-backups/` | 每次从备份恢复之前自动留的备份（`zhifox-before-restore-日期-时间.zip`，密钥遮住，最多留最新的 5 份）。从不导出（见"备份和恢复"） |
 | `data/logs/` | macOS 上后台服务的日志 `service.log`，以及最多三份旧的（见"在后台一直运行"） |
 | `data/.web-address`、`data/.web-token` | 后台服务的网页口令（重启前后不变，卸载服务时删掉），和带着它的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
 | `data/.lock` | 正在用这个数据目录的那个智狐占着它，里面记着是哪一种（网页界面、`serve`、后台服务）和进程编号，再开一个的时候好说清楚是谁挡着。导出时不带 |
@@ -2700,26 +2887,69 @@ MCP 工具调用的参数会发给那个服务器（它可能在网上），所�
 ### 备份和恢复
 
 **设置 → 导出全部数据** 会把数据文件夹打成 `zhifox-backup-日期-时间.zip` 下载下来：会话、记忆、待办、设置、
-花费账本，以及以后的功能放在这个文件夹里的东西。里面没有任何 API 密钥：密钥在 `.env` 里，它不在数据文件夹里；
-万一在数据文件夹里发现像 `.env` 这样的文件，也会跳过。`data/mcp.json` 存在的话照样导出，但所有密钥都换成
+花费账本，以及以后的功能放在这个文件夹里的东西。里面没有任何 API 密钥：密钥在 `.env` 里，它从不导出，不管它是在数据文件夹旁边
+（clone 下来的）还是在里面（一行命令装上的）；数据文件夹里别的像 `.env` 这样的文件也会跳过。`data/mcp.json` 存在的话照样导出，但所有密钥都换成
 `<removed-from-backup>`：环境变量、请求头、名字像 key、token、password 的字段、`--token` 这类开关后面的值、网址里的密码，
 以及长得像 API 密钥的字符串；名字都留着，恢复以后知道要填回哪几项。这个文件不是合法的 JSON 的话，整个不导出，
 宁可少导出一份也不冒险带出密钥。`data/channels.json` 里每个机器人的 token、应用的密钥和正在用的配对码，
-导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。`data/hooks.json` 也一样处理（钩子的参数里可能有令牌，比如 `--token xxx`）。
-符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
-`README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出。压缩包在数据文件夹以外的临时文件里生成，
-发给浏览器之后就删掉。
+导出时也同样换成 `<removed-from-backup>`（应用的 ID 留着）。`data/hooks.json` 也一样处理（钩子的参数里可能有令牌，比如 `--token xxx`），
+`data/endpoints.json` 也是。符号链接也不导出，因为它可能指向你电脑上的任何地方。压缩包里有一份
+`README-backup.txt`，写着导出的时间、怎么恢复、哪些文件做了处理或者没有导出；另有一份写给程序看的 `backup-manifest.json`
+（格式的版本、带时区的导出时间、哪些文件遮了密钥）。压缩包在数据文件夹以外的临时文件里生成，发给浏览器之后就删掉。
 
-恢复的办法：
+**在网页上恢复：设置 → 从备份恢复…**
 
-1. 先退出智狐（在它的终端里按 Ctrl-C）。
-2. 把压缩包解压到数据文件夹里（默认是项目里的 `data/`），覆盖同名的文件：`unzip -o zhifox-backup-….zip -d data`
-   （用访达双击解压也行：把解压出来的文件夹里的内容拷进 `data/`）。想完全回到备份时的样子，先把现在的 `data/`
-   挪到一边，再解压到一个新建的空 `data/` 里。
-3. 重新启动智狐。备份里有 MCP 服务器的话，把它们的密钥重新填上；接过聊天通道的话，把它们的 token 或者密钥重新粘贴一次
-   （"扩展 → 通道 → 编辑"，或者 `harness channels setup <平台>`）。
+1. 选那个压缩包（或者直接拖进窗口）。它先传给智狐检查一遍；有问题的压缩包会被拒绝并说明原因，什么都不写。
+2. 预览里写着它是什么时候导出的、里面有什么（几段会话、几条记忆、待办、定时任务、Skill、Agent、MCP 服务器……）、
+   两种方式各会把每一样怎么样，以及哪些密钥恢复以后要重新填。
+3. 选一种方式，确认（覆盖会在原地再问一次）：
+   - **覆盖**：数据文件夹变成备份时的样子。每一样都换成备份里的，备份里没有的那几样清空。存着密钥的文件是例外，见下面。
+   - **合并**：只往里加。会话按编号、记忆和 Agent 按文件名、Skill 按文件夹、多媒体按内容，现在没有的加进来，已经有的原样留着。
+     整份的文件（设置、待办、定时任务、花费账本、MCP、聊天通道、钩子……）现在有就留着现在的，没有才用备份里的：
+     两份设置一项一项拼起来，会拼出一份谁都没用过的设置（钩子指着另一台电脑上的脚本、聊天通道配对的是另一个人）。
+4. 写之前，智狐先把现在的数据文件夹导出一份，放在 `data/restore-backups/zhifox-before-restore-日期-时间.zip`
+   （和导出一样遮住密钥；最多留最新的 5 份，导出时不带这个文件夹）。结果那一页上有"在访达中显示"
+   （文件资源管理器、文件管理器）的按钮，还列出哪些密钥还是占位符。
 
-暂时还不能在网页界面里导入。
+**你的密钥绝不会被占位符盖掉。** `mcp.json`、`channels.json`、`endpoints.json`、`hooks.json` 里，备份中的每一个
+`<removed-from-backup>` 都去现在的文件里找"同一处"（同一个 MCP 服务器的同一个环境变量、编号相同的自定义接口、
+`--token` 后面的同一个参数、除了密码一模一样的网址）：现在那里有真的值，就留着现在的；没有的照样写进占位符，
+预览和结果里写明去哪儿重新填（扩展 → MCP、扩展 → 通道、设置 → 自定义模型接口、扩展 → 钩子）。现在有、备份里却没有对应位置的密钥
+（只有这台电脑上才有的服务器）也会列出来：覆盖以后它们就没了。现在的文件读不懂的不动它；备份里没有的存着密钥的文件，
+覆盖时也原样留着。
+
+**压缩包是不可信的输入。** 只认导出会写的那些东西，名单和导出共用一份（`export.PARTS`）；别的一律拒绝，什么都不写：
+带 `../` 的路径、绝对路径、盘符和 Windows 的路径花招（`a:b`、`CON`、`PROGRA~1`、尾巴上的点，用 `pathnames.archive_trick` 检查）、
+符号链接和设备文件、加密的项、只差大小写的两个名字、像 `.env` 的文件、`browser/profile/`、`.web-token`、`.lock`，以及不在名单上的名字。
+大小有上限（`config.py` 里的 `RESTORE_MAX_*`：解开以后一共 8 GB、一个文件 2 GB、20 万项；网页上传本身最多 4 GB，上传之前就查），
+压缩包里写的大小还要和实际读到的对一遍，所以压缩炸弹到了上限就停。`README-backup.txt` 和 `backup-manifest.json` 只读，不写进数据文件夹。
+
+**什么时候拒绝，恢复以后怎样。** 恢复不排队：你的这一轮对话还没结束、有定时任务正在运行、聊天通道里正在进行一轮的时候，
+直接拒绝并说明原因。否则智狐先停下定时任务、聊天通道、MCP 服务器和它的浏览器，再写文件（每一样先在数据文件夹里的一个临时文件夹里摆好，
+再换上去；哪一步出了错都换回原样），然后照着恢复的数据在原地重新开起来，和启动时一样：端口、链接、事件流都不变，
+页面照着新的状态重画就行（不用刷新、不用重启，界面语言也跟着恢复的设置走）。
+
+**在终端里**（没有网页的服务器上）：先退出智狐，再运行
+
+```bash
+uv run harness restore zhifox-backup-….zip            # 覆盖
+uv run harness restore zhifox-backup-….zip --merge    # 合并
+uv run harness restore zhifox-backup-….zip --yes      # 不问（没有终端时必须带上）
+```
+
+```powershell
+uv run harness restore .\zhifox-backup-….zip
+uv run harness restore .\zhifox-backup-….zip --merge
+```
+
+它打印同样的预览，要你输入 `yes`，同样先自动备份，做的时候一直占着数据目录的锁，智狐不会在半路被开起来。
+智狐正开着的话，它会说是哪一个在运行，请你用那边网页上的按钮。终端直接读文件，所以没有 4 GB 的上传上限（解开以后的上限照样有）。
+
+**最后一招，手动恢复：** 先退出智狐，把现在的数据文件夹挪到一边（默认是项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹，
+`harness doctor` 会告诉你是哪个），把压缩包解压到一个新建的空 `data/` 里
+（`unzip zhifox-backup-….zip -d data`；PowerShell 里是 `Expand-Archive .\zhifox-backup-….zip -DestinationPath data`），
+删掉里面的 `README-backup.txt` 和 `backup-manifest.json`，再启动智狐。原来存着密钥的那几个文件现在是占位符，要把密钥重新填上。
+千万不要解压到正在用的数据文件夹上：占位符会把你现在的密钥盖掉。
 
 ## 费用
 
@@ -2789,7 +3019,7 @@ DeepSeek 把中国法定节假日也算作闲时，这些日子没有内置，�
 | `HARNESS_MAX_SEARCHES` | `5` | 每条消息最多联网搜索几次，`0` 表示不限制 |
 | `HARNESS_WEB` | `1` | 设为 `0` 完全关闭联网搜索 |
 | `HARNESS_EFFORT` | `medium` | Claude 思考的力度：`low` / `medium` / `high` / `xhigh` / `max` |
-| `HARNESS_DATA_DIR` | 项目里的 `data/` | 记忆、待办、设置等数据存放的目录 |
+| `HARNESS_DATA_DIR` | 项目里的 `data/`；一行命令装上的，是你这个账号的那个文件夹（见[一行命令装上](#一行命令装上)） | 记忆、待办、设置等数据存放的目录 |
 | `HARNESS_PROVIDER`、`HARNESS_MODEL` | `anthropic`、`claude-opus-5-5` | 还没在界面上选过模型时用哪一个。选过之后以界面上的选择为准 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 用你的 OpenAI 密钥转语音时发到哪里（OpenAI 的 SDK 发对话请求也认它）。只能是 `https://`，或者连这台电脑自己的明文 `http://` |
 | `HARNESS_CHROME` | 自动查找 | 浏览器用哪个 Chrome（或者 Chromium、Edge、Brave）的完整路径。"设置 → 浏览器"里填了路径的话，以那里为准 |
@@ -2842,6 +3072,9 @@ uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用
 响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
 花费账本和预算在 [tests/test_ledger.py](tests/test_ledger.py)（用固定的钟测 DeepSeek 的高峰、闲时价，文件末尾的半行，
 旧明细的合并），导出在 [tests/test_export.py](tests/test_export.py)（压缩包里一个密钥都没有），
+从备份恢复在 [tests/test_restore.py](tests/test_restore.py)、[tests/test_restore_cli.py](tests/test_restore_cli.py)、
+[tests/test_restore_web.py](tests/test_restore_web.py)（导出再恢复一圈、合并时撞上的、各种做坏的压缩包都拒绝且什么都没写、
+占位符不盖掉现在的密钥、自动备份里没有密钥、在原地重新开起来），
 它们在网页上的接口在 [tests/test_spending_web.py](tests/test_spending_web.py)。
 运行记录在 [tests/test_trace.py](tests/test_trace.py)（用一块假的表，每一段的开始、结束、首字时间、等你多久都按毫秒比对；钱和账本里的那一笔一样；
 允许、拒绝、没问就放行；子 Agent 挂在那一步下面；停下、出错时还开着的那一段怎么收尾；有没有运行记录，发出去的请求一个字节都不差；
@@ -2898,6 +3131,10 @@ MCP 的测试在 [tests/test_mcp.py](tests/test_mcp.py) 和 [tests/test_mcp_web.
 怪路径的引号、对着假的 `launchctl` 和 `systemctl` 发出的每一条命令、装两次、数据目录被占着时不装、读状态、`open` 和日志，
 还有一个真的 `serve --service launchd` 进程自己写日志文件。没有任何测试会运行真的 `launchctl`、`systemctl`，或者打开浏览器：
 `tests/conftest.py` 让它们一调用就失败。
+自检在 [tests/test_doctor.py](tests/test_doctor.py)：每一行什么时候是好、有问题、没用上；临时的 `.env` 里放一个编造的密钥
+（再加上机器人的 token、自定义接口的密钥、MCP 和钩子里的密钥、代理的密码），表格和 JSON 里都找不到它，连最后 4 位也找不到；
+后台服务查不了的时候不崩；zsh、bash、PowerShell 三种修法（换掉 `machine.system`，用假的 `icacls`）；退出码；
+跑之前、跑之后给磁盘拍个快照，证明它什么都没改。真的 `icacls /save` 只在 Windows 上测（[tests/test_winacl.py](tests/test_winacl.py)）。
 Skill（frontmatter 的解析、做坏了的压缩包、对着本地 HTTPS 服务器的下载、列表怎么交给模型而不改动请求的开头）在 [tests/test_skills.py](tests/test_skills.py)。
 从其他工具导入在 [tests/test_imports.py](tests/test_imports.py)：假的家目录里给每一个支持的来源放一份文件（JSON、带注释的 JSONC、
 Codex 的 TOML、Goose 和 Continue 的 YAML、frontmatter 各不相同的 Markdown Agent、Kiro 和 Codex 的 Agent 文件），测每种写法怎么换、
@@ -3023,6 +3260,9 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 测试里对每个起步任务都验证了这一点（见下面）。
 
 ### 怎么跑
+
+评测要在 clone 下来的仓库里跑：任务（`evals/tasks/`）和演习用的假服务器（`tests/`）是仓库的一部分，不在 `uv tool install` 装上的包里。
+一行命令装上的智狐会这样告诉你；它只跑你用 `--tasks-dir` 指定、再加上 `--real` 的任务。
 
 ```bash
 uv run harness eval tasks                       # 列出任务
