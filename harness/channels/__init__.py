@@ -36,7 +36,8 @@
   ui.py         聊天里的对话用的"界面"（agent 循环通过它说话）
   session.py    一个聊天：会话、助手、排队、跑一轮
   outbound.py   助手用 send_file 往聊天里发文件：这个平台收什么（plan），发到哪个聊天（Outlet）
-  router.py     来了一条消息该交给谁；发送队列
+  router.py     来了一条消息该交给谁；要发的排进发送队列
+  outbox.py     发送队列：按顺序发，发不出去的再试、留着等连上了补发（哪种失败再试有用，看 base.retry_delay）
   hub.py        哪些通道开着；网页和命令行上的操作
   cli.py        命令行：harness channels setup / pair / status / approval
 """

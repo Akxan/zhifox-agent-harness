@@ -69,6 +69,7 @@ a.chan-button.primary { color: var(--on-ink); }
 .chan-ask-head .icon { flex: none; width: 15px; height: 15px; }
 .chan-ask pre { max-height: 220px; overflow: auto; margin: 10px 0; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
 .chan-ask .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chan-ask-note { margin: -2px 0 10px; font-size: 12px; line-height: 1.55; color: var(--warn); overflow-wrap: anywhere; }
 /* 已经接上的通道：一个平台一行，和 MCP 服务器、会话的行一个样子。右边是开关，最右边一格平时写着最后一次说话的时间，
    悬停（或者键盘移到这一行）时淡出，换成按钮（重新配对，然后是在访达中显示、编辑、删除），只改透明度，开关不挪位置 */
 .chan-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
@@ -82,6 +83,8 @@ a.chan-button.primary { color: var(--on-ink); }
 .chan-bot { min-width: 0; font: 12px/1.4 var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chan-meta { font-size: 12px; line-height: 1.45; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chan-error { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 12px; line-height: 1.55; color: var(--err); overflow-wrap: anywhere; }
+/* 消息发不到聊天里：还有几条等着补发、最后一次失败（见 channels-list.js 的 chanDelivery）。是提醒，不是出错：用警示色 */
+.chan-delivery { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 12px; line-height: 1.55; color: var(--warn); overflow-wrap: anywhere; }
 .chan-flag { flex: none; padding: 0 7px; font-size: 11px; line-height: 1.6; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; white-space: nowrap; }
 .chan-flag.calm { color: var(--ink-3); background: var(--hover); border-color: transparent; }
 .chan-slot { position: relative; flex: none; align-self: stretch; width: 150px; }

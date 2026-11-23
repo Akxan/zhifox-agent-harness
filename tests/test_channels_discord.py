@@ -58,6 +58,7 @@ from harness.channels.base import (
     Press,
     Prompt,
     Uploads,
+    transient,
 )
 from harness.channels.discord import (
     DiscordChannel,
@@ -346,6 +347,21 @@ def test_a_confirmation_gets_two_buttons_and_is_settled_in_place(fake):
     fake.fail_next[f"PATCH /channels/{OWNER_CHAT}/messages/{second}"] = (404, {"code": 10008, "message": "Unknown Message"})
     channel.settle(OWNER_CHAT, second, "已拒绝")
     assert fake.sent[-1]["plain"] == "已拒绝" and len(fake.edits) == 1
+
+
+def test_an_edit_that_hits_a_discord_outage_is_left_for_the_send_queue_to_retry(fake):
+    # Discord 出了故障（5xx）：不是这条消息的问题，不另发一条"已允许"顶替，原样抛出，由发送队列过一会儿再改（见 channels/outbox.py）；
+    # 那条消息的样子要留着，再改的那一次才改得出来
+    channel = client(fake)
+    handle = channel.ask(OWNER_CHAT, prompt("$ ls"))
+    fake.fail_next[f"PATCH /channels/{OWNER_CHAT}/messages/{handle}"] = (502, {"message": "Bad Gateway", "code": 0})
+    sent = len(fake.sent)
+    with pytest.raises(DiscordError) as caught:
+        channel.settle(OWNER_CHAT, handle, "已允许")
+    assert caught.value.status == 502 and transient(caught.value) and len(fake.sent) == sent
+    channel.settle(OWNER_CHAT, handle, "已允许")
+    (edit,) = fake.edits
+    assert edit["content"].endswith("**已允许**")
 
 
 def test_a_very_long_command_is_shown_in_full_before_the_buttons(fake):

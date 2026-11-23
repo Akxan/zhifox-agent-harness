@@ -890,7 +890,6 @@
  "发得太快，被 Slack 限流了，过一会儿会自动重试。": "Se está enviando demasiado rápido y Slack ha limitado el bot. Se volverá a intentar solo dentro de un momento.",
  "发得太快，被 Telegram 限流了，过一会儿会自动重试。": "Se está enviando demasiado rápido y Telegram ha limitado el bot. Se volverá a intentar solo dentro de un momento.",
  "发得太快，被钉钉限流了，过一会儿会自动重试。": "Se está enviando demasiado rápido y DingTalk ha limitado el bot. Se volverá a intentar solo dentro de un momento.",
- "发文件时出错了，详细的原因写在智狐的日志里。": "Algo ha fallado al enviar el archivo. Los detalles están en el registro de 智狐.",
  "发文件直接做": "Envía archivos sin preguntar",
  "发给模型的工具名": "Nombres de herramientas que recibe el modelo",
  "发送": "Enviar",
@@ -3753,5 +3752,16 @@
  "（附件：{names}）": "(adjuntos: {names})",
  "没有打开：这段会话用的是 {provider}，还没有设置 {provider} 的 API 密钥。": "No se ha abierto: esta conversación usa {provider} y aún no hay una clave de API de {provider}. ",
  "这段对话用的是 {provider}，还没有设置 {provider} 的 API 密钥。": "Esta conversación usa {provider} y aún no hay una clave de API de {provider}. ",
- "在 {env_file} 里加上一行 {key_env}=你的key（或者在网页界面 {command} --web 的“设置”里填），再重新启动终端。": "Añade una línea {key_env}=tu-clave a {env_file} (o escríbela en Ajustes de la interfaz web, {command} --web) y vuelve a iniciar la terminal."
+ "在 {env_file} 里加上一行 {key_env}=你的key（或者在网页界面 {command} --web 的“设置”里填），再重新启动终端。": "Añade una línea {key_env}=tu-clave a {env_file} (o escríbela en Ajustes de la interfaz web, {command} --web) y vuelve a iniciar la terminal.",
+ "前面还有 {n} 条消息没发到聊天里（{reason}），所以这个文件也没有发。": "Mensajes anteriores aún sin entregar en el chat: {n} ({reason}), así que este archivo tampoco se ha enviado.",
+ "发送时出错了，详细的原因写在智狐的日志里。": "Algo ha fallado al enviar. Los detalles están en el registro de 智狐.",
+ "还没发到这里的消息：{n} 条（连上以后会按顺序补发）": "Mensajes aún sin entregar aquí: {n} (se enviarán en orden cuando vuelva la conexión)",
+ "没能发出去的消息：{n} 条": "Mensajes que no se pudieron entregar: {n}",
+ "最后一次失败：{when}（{reason}）": "Último fallo: {when} ({reason})",
+ "还没发到聊天里（{reason}），连上以后会补发。也可以在这里答复。": "Aún no ha llegado al chat ({reason}); se enviará cuando vuelva la conexión. También puedes responder aquí.",
+ "没能发到聊天里（{reason}）。请在这里答复。": "No se pudo entregar en el chat ({reason}). Responde aquí.",
+ "还没发到聊天里的消息：{n} 条（连上以后会按顺序补发）": "Mensajes aún sin entregar en el chat: {n} (se enviarán en orden cuando vuelva la conexión)",
+ "没能发到聊天里的消息：{n} 条": "Mensajes que no se pudieron entregar en el chat: {n}",
+ "还没发到聊天里": "Aún no ha llegado al chat",
+ "没能发到聊天里": "No se pudo entregar en el chat"
 }

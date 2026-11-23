@@ -554,7 +554,7 @@ def test_a_token_that_is_about_to_expire_is_replaced_first(fake):
 
 def test_rate_limiting_waits_and_tries_again(fake, monkeypatch):
     waits: list[float] = []
-    monkeypatch.setattr(qq, "time", SimpleNamespace(time=time.time, sleep=waits.append))  # 不真的等
+    monkeypatch.setattr(qq, "pause", waits.append)  # 不真的等（被限流时等的那一下用 base.pause，退出时能马上醒过来）
     api = qq.OpenAPI(APP_ID, APP_SECRET, fake.base_url)
     fake.fail_next["GET /users/@me"] = (429, {"code": 22009, "message": "请求过于频繁"})
     assert api.call("GET", "/users/@me")["id"] == BOT_ID

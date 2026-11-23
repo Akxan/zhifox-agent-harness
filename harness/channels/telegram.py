@@ -32,7 +32,6 @@ import json
 import logging
 import re
 import threading
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -44,6 +43,7 @@ from ..config import (
     CHANNEL_DOWNLOAD_BYTES,
     CHANNEL_POLL_SECONDS,
     CHANNEL_RETRY_SECONDS,
+    CHANNEL_SEND_RETRY_AFTER_MAX,
     CHANNEL_THUMB_BYTES,
     CHANNEL_THUMB_EDGE,
     CHANNEL_TIMEOUT,
@@ -65,6 +65,8 @@ from .base import (
     Prompt,
     Status,
     Uploads,
+    pause,
+    transient,
 )
 
 LIMIT = 4096  # 一条消息最多这么多个字符（UTF-16 单位，按排版之后的文字算）
@@ -77,12 +79,14 @@ logger = logging.getLogger("harness.channels.telegram")
 
 
 class TelegramError(ChannelError):
-    """Telegram 回答了一个错误，或者连不上。code 是 HTTP 状态码（连不上是 0）。"""
+    """Telegram 回答了一个错误，或者连不上。code 是 HTTP 状态码（Telegram 的 error_code 就是它；没得到回答是 0）。
 
-    def __init__(self, message: str, code: int = 0, retry_after: float = 0.0, description: str = ""):
-        super().__init__(message)
+    连不上的那几处另外写明 status=0（见 base.ChannelError）：同样是 code 为 0，"没得到回答"过一会儿再试多半会好，
+    "回答看不懂""文件太大"再试也一样。"""
+
+    def __init__(self, message: str, code: int = 0, retry_after: float = 0.0, description: str = "", status: int | None = None):
+        super().__init__(message, status=code or status, retry_after=retry_after)
         self.code = code
-        self.retry_after = retry_after
         self.description = description  # Telegram 自己的英文说明（判断是不是"HTML 解析不了"用）
 
 
@@ -123,7 +127,9 @@ class BotAPI:
             payload.setdefault("error_code", exc.code)
         except (OSError, ValueError) as exc:  # 连不上、超时、回答不是 JSON（URLError、TimeoutError 都是 OSError）
             reason = getattr(exc, "reason", None) or exc
-            raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(reason)) or type(exc).__name__)) from None
+            # 没得到回答（OSError）的过一会儿再试多半会好；回答不是 JSON、网址不对（ValueError）的再试也一样
+            status = 0 if isinstance(exc, OSError) else None
+            raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(reason)) or type(exc).__name__), status=status) from None
         return self._result(payload)
 
     def upload(self, method: str, params: dict, file: multipart.File) -> Any:
@@ -132,7 +138,7 @@ class BotAPI:
         try:
             reply = multipart.post(f"{self.base}/bot{self.token}/{method}", fields=fields, files=[file], hide=(self.token,))
         except http.NetError as exc:
-            raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(exc)))) from None
+            raise TelegramError(t("连不上 Telegram（{error}）", error=self._redact(str(exc))), status=exc.status) from None
         payload = reply.data if isinstance(reply.data, dict) else {}
         if not reply.ok:
             payload = {**payload, "ok": False}
@@ -275,13 +281,23 @@ class TelegramChannel(Channel):
             self._thread.join(timeout)
 
     def _poll(self, deliver: Callable[[Event], None]) -> None:
+        """长轮询，直到 stop。
+
+        刚开始、刚出过错之后的那一次 getUpdates 不让 Telegram 等（timeout=0）：有消息马上拿到，没有就马上回一个空列表，
+        我们马上就知道又连上了，页面上的"连接中"马上变回"在线"，补发留着的消息（见 outbox.py）也不用干等。
+        以前这一次也是 25 秒的长轮询：没人说话的时候，要等它满 25 秒回来才写"在线"（日志里每次连接被重置以后都是
+        "connecting" 过 26 秒才 "online"）。消息其实没有被耽误（来了消息 Telegram 会马上回答），只是状态晚了 25 秒，
+        而这 25 秒里留着的回答也一直没补发。之后的每一次照常是长轮询。
+        """
         delay = 1.0
+        quick = True
         while not self._stopping.is_set():
+            wait_seconds = 0 if quick else int(self.poll_seconds)
             try:
                 updates = self.api.call(
                     "getUpdates",
-                    {"offset": self.offset, "timeout": int(self.poll_seconds), "allowed_updates": ["message", "callback_query"]},
-                    timeout=self.poll_seconds + CHANNEL_TIMEOUT,
+                    {"offset": self.offset, "timeout": wait_seconds, "allowed_updates": ["message", "callback_query"]},
+                    timeout=wait_seconds + CHANNEL_TIMEOUT,
                 )
             except TelegramError as exc:
                 if self._stopping.is_set():
@@ -294,9 +310,11 @@ class TelegramChannel(Channel):
                 else:
                     self._set_status("error" if exc.code else "connecting", str(exc))
                     wait, delay = delay, min(delay * 2, CHANNEL_RETRY_SECONDS)
+                quick = True
                 self._stopping.wait(wait)
                 continue
             delay = 1.0
+            quick = False
             if self._stopping.is_set():
                 break  # 停下以后才回来的这一批不处理（也不往后挪 offset）：下次开着的时候 Telegram 会再发一遍
             self._set_status("online")
@@ -402,7 +420,7 @@ class TelegramChannel(Channel):
             except TelegramError as exc:
                 if exc.code != 429 or attempt == MAX_RETRIES:
                     raise
-                time.sleep(min(max(exc.retry_after, 1.0), 30.0))
+                pause(min(max(exc.retry_after, 1.0), CHANNEL_SEND_RETRY_AFTER_MAX))
         return None
 
     def _send_html(self, chat: str, html: str, plain: str, buttons: list | None = None) -> dict:
@@ -449,15 +467,26 @@ class TelegramChannel(Channel):
         return handle
 
     def settle(self, chat: str, handle: str, outcome: str) -> None:
-        html = self._asked.pop(handle, None)
+        """在确认请求那条消息上写明结果、去掉按钮。
+
+        连不上这类暂时的失败原样抛出，由发送队列过一会儿再改一次：所以那条消息的样子要等改成了才从 _asked 里拿掉，
+        不然再试的那一次找不到它，什么都不做就算"成功"了。第一次其实改成了、只是回答没收到的话，再改一次 Telegram 会说
+        "message is not modified"：当作改好了，不另发一条。"""
+        html = self._asked.get(handle)
         if not handle or html is None:
             return
         text = f"{html}\n\n<b>{markup.escape(outcome)}</b>"
         try:
             # 不带 reply_markup：这样改完以后按钮就没了，不会再被点
             self._call("editMessageText", {"chat_id": chat, "message_id": int(handle), "text": text, "parse_mode": "HTML"})
-        except (TelegramError, ValueError):
-            self._call("sendMessage", {"chat_id": chat, "text": outcome})  # 改不了（比如消息太旧）：另发一条说明结果
+        except TelegramError as exc:
+            if transient(exc):
+                raise
+            if "message is not modified" not in exc.description.lower():
+                self._call("sendMessage", {"chat_id": chat, "text": outcome})  # 改不了（比如消息太旧）：另发一条说明结果
+        except ValueError:
+            self._call("sendMessage", {"chat_id": chat, "text": outcome})
+        self._asked.pop(handle, None)
 
     def send_file(self, chat: str, outgoing: OutboundFile) -> None:
         """发一个文件：图片当照片（GIF 当动图），别的当文件。说明放进 caption（太长的另发一条）。
@@ -497,7 +526,7 @@ class TelegramChannel(Channel):
                     continue
                 if exc.code != 429 or attempt == MAX_RETRIES:
                     raise
-                time.sleep(min(max(exc.retry_after, 1.0), 30.0))
+                pause(min(max(exc.retry_after, 1.0), CHANNEL_SEND_RETRY_AFTER_MAX))
 
     def typing(self, chat: str) -> None:
         try:

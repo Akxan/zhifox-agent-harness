@@ -113,7 +113,12 @@ before asking, secrets never sent, `data/` asking, `/stop` during an upload, and
 the same across turns, restarts and the web page: [tests/test_send_file.py](../../tests/test_send_file.py)), and that no
 token or secret appears in the page, the logs, error messages or the export ([tests/test_channels.py](../../tests/test_channels.py),
 [tests/test_channels_web.py](../../tests/test_channels_web.py), `tests/test_channels_<platform>.py`,
-[tests/test_channels_platforms.py](../../tests/test_channels_platforms.py)). When the SDKs are installed, the Feishu
+[tests/test_channels_platforms.py](../../tests/test_channels_platforms.py)). Sends that fail are tested by making the
+fake Telegram drop the connection without answering, or answer 500, 429 or 403, for the next few calls: retried in
+order, lasting failures not retried, kept and delivered once the channel is back online, shown on the page and in
+`/status`, `/stop` and shutdown not waiting for the backoff, `send_file` reporting its failure to the model, and the
+status back to *Online* right after a reset ([tests/test_channels_delivery.py](../../tests/test_channels_delivery.py),
+[tests/ui/test_ui_channel_delivery.py](../../tests/ui/test_ui_channel_delivery.py)). When the SDKs are installed, the Feishu
 dispatcher and the real DingTalk Stream client are also run against the fakes; otherwise those tests are skipped.
 The WebSocket client and the HTTPS helper have their own tests against a local fake server and proxy
 ([tests/test_websocket.py](../../tests/test_websocket.py), [tests/test_net_http.py](../../tests/test_net_http.py)). The server mode and the CLI, including a real `harness serve`

@@ -125,7 +125,9 @@ each finished paragraph goes back to the chat; a command or file change first ar
    open, rename or delete it, and when the turn ends the page reloads it, so neither side overwrites the other.
 4. **Talking back.** The loop talks to a `ChannelUI` ([ui.py](../../harness/channels/ui.py)), the same event log the web UI
    uses (so the saved conversation replays in the page), which hands each finished paragraph to a per-platform send
-   queue ([router.py](../../harness/channels/router.py)): network sends never block the loop, and the order is kept.
+   queue ([outbox.py](../../harness/channels/outbox.py), fed by [router.py](../../harness/channels/router.py)): network
+   sends never block the loop, the order is kept, and a send that fails is retried or kept for later (see
+   [When a message can't be delivered](#when-a-message-cant-be-delivered)).
    Replies are converted from Markdown to the small HTML subset Telegram accepts (only `& < >` need escaping, unlike
    MarkdownV2) and split under Telegram's 4,096-character limit, counted in UTF-16 the way Telegram counts, closing and
    reopening a code block that has to be split ([markup.py](../../harness/channels/markup.py)). If Telegram still rejects the
@@ -159,6 +161,48 @@ each finished paragraph goes back to the chat; a command or file change first ar
    ("zip it first", "make a smaller copy"). The first message of a chat conversation (the `<channel>` note) also tells
    the model to send files rather than paths, which a phone can't open; the system prompt is untouched, because every
    conversation shares it.
+
+### When a message can't be delivered
+
+A chat platform is a server on the internet, and the connection to it drops now and then. In one user's logs the
+connection to Telegram was reset by the other side about every ten minutes and came back within half a minute; a reply
+that landed in such a window used to be lost, with nothing but a log line. Every send now goes through the platform's
+send queue ([outbox.py](../../harness/channels/outbox.py)), which tells the two kinds of failure apart in one place
+(`retry_delay` in [base.py](../../harness/channels/base.py); each platform only fills in the HTTP status it got, `0` for
+no answer at all):
+
+- **Passing failures are retried.** No answer (the connection was reset or refused, a timeout, a DNS failure), the
+  platform failing (5xx) or rate limiting (429, or the platform's own "too fast" code): the queue waits and tries again,
+  up to 4 times, 1, 2, 4 and 8 seconds apart (`CHANNEL_SEND_RETRIES`, `CHANNEL_SEND_RETRY_SECONDS` in `config.py`), or
+  as long as the platform's `Retry-After` says, capped at 30 seconds. Later messages wait meanwhile, so a chat never
+  sees them out of order.
+- **Lasting failures aren't.** Any other 4xx (a malformed request, a bot you blocked, a message too long) or a bad token
+  would fail the same way again: one log line, and the message is counted as not delivered.
+- **Nothing is dropped silently.** A reply, an approval request, or the edit that writes the answer on an approval
+  request, that still fails after the retries is kept in memory, per chat and in order (up to 50 per chat,
+  `CHANNEL_UNDELIVERED_MAX`), and sent again as soon as the channel reports it's online again, when a new message comes
+  in from that chat, or every 30 seconds while the channel looks online. Whatever that chat sends next waits behind
+  them. An approval request that hasn't reached the chat says so on the web page ("Not delivered to the chat yet"),
+  where you can answer it: the turn is waiting for it either way.
+- **You can see it.** The channel's row in **Extensions → Channels** says how many messages are waiting, how many
+  couldn't be delivered, and when and why the last failure happened; `/status` in the chat says the same (its answer
+  isn't queued behind the waiting messages). `harness channels status` runs in another process and can't see the queue.
+- **Files report back.** `send_file` gets the same retries but is never kept for later: the model waits for the
+  result, so it's told "not sent: …", or, if the connection broke mid-upload and you stopped it, that the file may or
+  may not have arrived.
+- **Stopping doesn't wait.** `/stop` stops the turn at once, and a file waiting to be retried isn't tried again. On
+  shutdown the queue doesn't wait out its backoff: every queued and kept message gets one more try, and whatever still
+  fails is logged (memory doesn't survive the exit).
+- **A rare duplicate rather than a lost reply.** If the request did reach the platform and only its answer was lost, a
+  retry shows the message twice; if one piece of a long reply that's split into several messages fails, the pieces
+  before it are sent again. That's the trade-off: a duplicate now and then is better than a reply that silently never
+  arrives. Edits don't duplicate: editing to the same text again is harmless (Telegram answers "message is not
+  modified", which counts as done).
+- **"Online" right after a reset.** The first `getUpdates` after starting or after an error doesn't wait on Telegram's
+  side (`timeout=0`), so the status is back to *Online* within a second or two instead of after a whole 25-second long
+  poll. The logs used to show "connecting" for about 26 seconds after every reset; incoming messages weren't delayed
+  (Telegram answers a long poll as soon as one arrives), but replies kept for later waited for that "online". Discord,
+  Slack, QQ, Feishu and DingTalk already report online as soon as their handshake completes.
 
 ### Voice messages (Telegram)
 

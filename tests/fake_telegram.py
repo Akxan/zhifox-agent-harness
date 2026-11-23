@@ -6,6 +6,9 @@ answerCallbackQuery、sendChatAction、setMyCommands、getFile 和文件下载�
 也像真的一样检查：照片最大 10 MB、别的 50 MB（超了回答 413），说明最多 1024 个字符，HTML 要合格。
 测试代码扮演手机上的你：user_says 发一条消息、press 点一个按钮、wait_sent 等机器人回话。
 
+网络出毛病也能演（trouble）：某个方法接下来的几次，一个字都不回就把连接关掉（像真实日志里的 "Connection reset by peer"）、
+回答 500、429 带着 retry_after、403（你把机器人停用了）……用完了就照常回答。演示的"手机"页面上可以用 /control/trouble 打开。
+
 它还会像 Telegram 一样检查机器人发来的 HTML：只认那几个标签、必须成对、去掉标签以后不能超过 4096 个字符
 （按 UTF-16 数）。不合格就回答 400，和真的一样。这样测试能发现"排版排坏了"和"太长没拆开"。
 
@@ -88,6 +91,9 @@ class FakeTelegram:
         self.requests: list[str] = []  # 收到的每个请求的完整路径（检查 token 有没有被送到别处）
         self.offsets: list[int] = []  # getUpdates 带来的 offset
         self.fail_next: dict[str, dict] = {}  # 方法名 → 下一次回答的错误（用一次就没了）
+        # 方法名 → 接下来几次各怎么出错（见 trouble），一次用掉一个
+        self.troubles: dict[str, list[dict]] = {}
+        self.poll_timeouts: list[float] = []  # getUpdates 带来的 timeout（长轮询要在服务器那边等多久）
         self._next_update = 1
         self._next_message = 100
         self._changed = threading.Condition()
@@ -108,6 +114,14 @@ class FakeTelegram:
                 prefix, _, method = path.rpartition("/")
                 if prefix != f"/bot{fake.token}":
                     self._reply(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})
+                    return
+                trouble = fake._take_trouble(method)
+                if trouble is not None and trouble.get("reset"):
+                    # 一个字都不回就关掉连接：客户端看到的是"对方关掉了连接"（和真实日志里的连接重置一样，都是 OSError）
+                    self.close_connection = True
+                    return
+                if trouble is not None:
+                    self._reply(int(trouble.get("error_code", 500)), {"ok": False, **trouble})
                     return
                 if is_multipart(self.headers.get("content-type")):
                     try:
@@ -171,6 +185,35 @@ class FakeTelegram:
         self.server.shutdown()
         self.server.server_close()
 
+    # ---- 网络出毛病 ----------------------------------------------------------
+
+    def trouble(self, method: str, *failures: dict | str) -> None:
+        """method 接下来的几次各怎么出错（按顺序，一次用掉一个；用完了照常回答）。每一个是：
+          "reset"                      一个字都不回就关掉连接（连接被重置）
+          500、502……                    Telegram 出了故障
+          {"error_code": 429, "parameters": {"retry_after": 1}, "description": "Too Many Requests"}  被限流
+          {"error_code": 403, "description": "Forbidden: bot was blocked by the user"}            你把机器人停用了
+        数字会写成 {"error_code": 数字, "description": "Internal Server Error"}。"""
+        shaped: list[dict] = []
+        for failure in failures:
+            if failure == "reset":
+                shaped.append({"reset": True})
+            elif isinstance(failure, int):
+                shaped.append({"error_code": failure, "description": "Internal Server Error" if failure >= 500 else f"Error {failure}"})
+            elif isinstance(failure, dict):
+                shaped.append(dict(failure))
+        with self._changed:
+            self.troubles.setdefault(method, []).extend(shaped)
+
+    def _take_trouble(self, method: str) -> dict | None:
+        with self._changed:
+            waiting = self.troubles.get(method)
+            if not waiting:
+                return None
+            self.calls.append(method)  # 出错的那几次也算它被调用过：测试数得出一共试了几次
+            self._changed.notify_all()
+            return waiting.pop(0)
+
     # ---- Bot API ----------------------------------------------------------
 
     def _api(self, method: str, params: dict) -> tuple[int, dict]:
@@ -182,6 +225,8 @@ class FakeTelegram:
         if method == "getMe":
             return 200, {"ok": True, "result": {"id": int(self.token.split(":")[0]), "is_bot": True, "first_name": "ZhiFox Test", "username": self.username}}
         if method == "getUpdates":
+            with self._changed:
+                self.poll_timeouts.append(float(params.get("timeout") or 0))
             return 200, {"ok": True, "result": self._updates(int(params.get("offset") or 0), float(params.get("timeout") or 0))}
         if method in ("sendMessage", "editMessageText"):
             text, problem = visible(params.get("text", ""), params.get("parse_mode"))
@@ -386,6 +431,11 @@ class FakeTelegram:
     def _control(self, action: str, body: dict) -> dict:
         if action == "say":
             self.user_says(str(body.get("text", "")))
+        elif action == "trouble":  # 演示里：接下来几次发消息出错（{"method": "sendMessage", "failures": ["reset", 500, …]}）
+            self.trouble(str(body.get("method") or "sendMessage"), *(body.get("failures") or []))
+        elif action == "calm":  # 没用完的 trouble 都不要了（页面测试收尾时用，免得留给下一个测试）
+            with self._changed:
+                self.troubles.clear()
         elif action == "press":
             message = next((item for item in self.sent if item["message_id"] == body.get("message_id")), None)
             if message is not None:

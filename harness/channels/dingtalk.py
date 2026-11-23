@@ -87,10 +87,17 @@ logger = logging.getLogger("harness.channels.dingtalk")
 
 
 class DingTalkError(ChannelError):
-    def __init__(self, message: str, code: str = "", status: int = 0):
-        super().__init__(message)
+    """code 是钉钉自己的错误编号；status 是 HTTP 状态码（0：没得到回答；None：不是一次请求出的错，见 base.ChannelError）。"""
+
+    def __init__(self, message: str, code: str = "", status: int | None = None):
+        super().__init__(message, status=status, busy=_limited(code))
         self.code = code
-        self.status = status
+
+
+def _limited(code: str) -> bool:
+    """钉钉用自己的错误编号说"发得太快了"（HTTP 状态不一定是 429）：发送队列过一会儿再试，见 base.retry_delay。"""
+    lowered = code.lower()
+    return "toofast" in lowered or "flowcontrol" in lowered
 
 
 def _explain(status: int, code: str, message: str) -> str:
@@ -99,7 +106,7 @@ def _explain(status: int, code: str, message: str) -> str:
         return t("钉钉不认这个 Client ID 和 Client Secret：可能抄错了，或者 Client Secret 已经重置过。")
     if "forbidden" in lowered or status == 403:
         return t("钉钉拒绝了：应用缺少“企业内机器人发送消息”的权限。")
-    if "toofast" in lowered or "flowcontrol" in lowered or status == 429:
+    if _limited(code) or status == 429:
         return t("发得太快，被钉钉限流了，过一会儿会自动重试。")
     return t("钉钉回答了一个错误：{error}", error=f"{code} {message}".strip() or status)
 
@@ -130,7 +137,7 @@ class OpenAPI:
         try:
             return http.request(method, url, headers=headers, body=body, hide=self.secrets)
         except http.NetError as exc:
-            raise DingTalkError(t("连不上钉钉（{error}）", error=str(exc))) from None
+            raise DingTalkError(t("连不上钉钉（{error}）", error=str(exc)), status=exc.status) from None
 
     def token(self, fresh: bool = False) -> str:
         with self._lock:
@@ -170,7 +177,7 @@ class OpenAPI:
             try:
                 reply = multipart.post(url, fields={"type": kind}, files=[file], hide=self.secrets)
             except http.NetError as exc:
-                raise DingTalkError(t("连不上钉钉（{error}）", error=str(exc))) from None
+                raise DingTalkError(t("连不上钉钉（{error}）", error=str(exc)), status=exc.status) from None
             data = reply.data if isinstance(reply.data, dict) else {}
             errcode = data.get("errcode")
             if reply.ok and errcode in (0, None) and data.get("media_id"):

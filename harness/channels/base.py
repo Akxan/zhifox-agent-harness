@@ -11,6 +11,9 @@
 不知道背后是哪一家。平台之间的差别（能不能放按钮、一条消息多长、能不能显示"正在输入"）写在 Capabilities 里，
 router.py 按它决定怎么说话：没有按钮的平台，确认请求后面跟一句"回复 允许 或 拒绝"。
 能不能发文件、多大、哪几种，写在 Capabilities.uploads 里（Uploads）；不能发的平台（QQ）是 None。
+
+发失败了，平台抛出 ChannelError，上面如实写着对方回答了什么（status、retry_after、busy）；"过一会儿再试有没有用"
+只在这里的 retry_delay 判断一次，发送队列（outbox.py）照着它决定再试、留着补发还是算了。
 """
 
 from __future__ import annotations
@@ -26,12 +29,71 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import CHANNEL_SEEN_MESSAGES
+from ..config import CHANNEL_SEEN_MESSAGES, CHANNEL_SEND_RETRY_AFTER_MAX
 from ..i18n import t
 
 
 class ChannelError(Exception):
-    """通道出错了（token 不对、连不上、平台拒绝了请求……）。错误信息可以直接显示给用户，里面绝不含 token。"""
+    """通道出错了（token 不对、连不上、平台拒绝了请求……）。错误信息可以直接显示给用户，里面绝不含 token。
+
+    发送队列（outbox.py）要知道"过一会儿再发一次有没有用"。平台的代码只管把下面三样如实填上，
+    怎么判断只写在 retry_delay 这一处，不在每个平台、每个调用的地方各写一遍：
+
+      status       对方回答的 HTTP 状态码。0：根本没得到回答（连不上、超时、域名解析失败、连接被对方重置）。
+                   None（默认）：不是一次请求出的错（这个平台不支持、参数不对、回答看不懂……），再试也一样
+      retry_after  对方说的"过多久再来"（秒）：429 的 Retry-After 头，或者平台自己写在回答里的；没说是 0
+      busy         对方用它自己的说法表示"现在忙、发得太快了，过一会儿再来"，HTTP 状态却不是 429 或 5xx
+                   （Slack 的 ratelimited、internal_error，飞书的 99991400，QQ 的 40034100……）
+    """
+
+    status: int | None = None
+    retry_after: float = 0.0
+    busy: bool = False
+
+    def __init__(self, *args: object, status: int | None = None, retry_after: float = 0.0, busy: bool = False):
+        super().__init__(*args)
+        self.status = status
+        self.retry_after = retry_after
+        self.busy = busy
+
+
+# 这几种 HTTP 状态说的是"现在不行，过一会儿再来"：请求超时、被限流、对方出了故障或者正忙（5xx 都算）
+TRANSIENT_STATUS = frozenset({408, 425, 429})
+
+
+def retry_delay(error: BaseException) -> float | None:
+    """一次发送失败了：过一会儿再试有没有用。有用返回至少要等几秒（对方说的 Retry-After，最多 CHANNEL_SEND_RETRY_AFTER_MAX；
+    没说是 0，由发送队列按自己的退避等）；没用返回 None。
+
+    暂时的（再试多半会好）：根本没得到回答（连接被重置、被拒绝、超时、域名解析失败）、对方出了故障（5xx）、
+    被限流（429，或者平台自己说"太快了"）。
+    一直会这样的（再试也一样，只会白白多发几次请求）：别的 4xx（请求不对、用户把机器人停用了、消息太长……）、
+    token 不对（401），以及不是一次请求出的错（平台不支持、看不懂的回答）。
+    """
+    if not isinstance(error, ChannelError):
+        return None
+    status = error.status
+    if error.busy or status == 0 or status in TRANSIENT_STATUS or (status is not None and status >= 500):
+        return min(max(error.retry_after, 0.0), CHANNEL_SEND_RETRY_AFTER_MAX)
+    return None
+
+
+def transient(error: BaseException) -> bool:
+    """见 retry_delay：这次失败是不是暂时的。"""
+    return retry_delay(error) is not None
+
+
+pausing = threading.local()  # 发送队列的线程在这里放一个 Event：退出时设上它，pause 马上醒过来（见 outbox.py）
+
+
+def pause(seconds: float) -> None:
+    """平台的代码被限流时"等一会儿再试"用这个，不直接 time.sleep：在发送队列的线程里，程序要退出时马上醒过来，
+    不让退出等上半分钟。别的线程里（收消息、检查 token）就是普通的 sleep。"""
+    wake = getattr(pausing, "wake", None)
+    if isinstance(wake, threading.Event):
+        wake.wait(seconds)
+    else:
+        time.sleep(seconds)
 
 
 # 能当照片发的图片（按文件内容认出来的，见 attachments.sniff_image）

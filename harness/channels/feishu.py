@@ -65,6 +65,7 @@ from .base import (
     Uploads,
     backoff,
     close_loop,
+    transient,
 )
 from .platforms import missing_sdk
 
@@ -83,9 +84,15 @@ IMAGE_REFUSED = {234011, 234039}
 logger = logging.getLogger("harness.channels.feishu")
 
 
+# 飞书用自己的错误编号说"请求太频繁了"（HTTP 状态不一定是 429）：发送队列过一会儿再试，见 base.retry_delay
+RATE_LIMITED = {99991400}
+
+
 class FeishuError(ChannelError):
-    def __init__(self, message: str, code: int = 0):
-        super().__init__(message)
+    """code 是飞书自己的错误编号；status 是 HTTP 状态码（0：没得到回答；None：不是一次请求出的错，见 base.ChannelError）。"""
+
+    def __init__(self, message: str, code: int = 0, status: int | None = None):
+        super().__init__(message, status=status, busy=code in RATE_LIMITED)
         self.code = code
 
 
@@ -129,33 +136,34 @@ class OpenAPI:
         with self._lock:
             if not fresh and self._token and time.time() < self._expires - 300:
                 return self._token
-            data = self._json("POST", "/open-apis/auth/v3/tenant_access_token/internal", {"app_id": self.app_id, "app_secret": self.secret}, None)
+            status, data = self._json("POST", "/open-apis/auth/v3/tenant_access_token/internal", {"app_id": self.app_id, "app_secret": self.secret}, None)
             if data.get("code") != 0 or not data.get("tenant_access_token"):
-                raise FeishuError(_explain(int(data.get("code") or 0), str(data.get("msg") or "")), int(data.get("code") or 0))
+                raise FeishuError(_explain(int(data.get("code") or 0), str(data.get("msg") or "")), int(data.get("code") or 0), status)
             self._token = str(data["tenant_access_token"])
             log.hide(self._token)
             self._expires = time.time() + float(data.get("expire") or 7200)
             return self._token
 
-    def _json(self, method: str, path: str, body: Any, token: str | None) -> dict:
+    def _json(self, method: str, path: str, body: Any, token: str | None) -> tuple[int, dict]:
+        """发一个请求，返回（HTTP 状态码，回答的 JSON）。状态码一起交回去：出错时发送队列靠它判断再试有没有用（5xx 再试）。"""
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
             reply = http.request(method, self.base + path, headers=headers, body=body, hide=self.secrets)
         except http.NetError as exc:
-            raise FeishuError(t("连不上飞书（{error}）", error=str(exc))) from None
+            raise FeishuError(t("连不上飞书（{error}）", error=str(exc)), status=exc.status) from None
         if isinstance(reply.data, dict):
-            return reply.data
-        raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status))
+            return reply.status, reply.data
+        raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status), status=reply.status)
 
     def call(self, method: str, path: str, body: Any = None) -> dict:
         """调用一个接口。返回回答里的 data（或者整个回答，比如 bot/v3/info 的 bot 不在 data 里）；code 不是 0 时抛出 FeishuError。"""
         for attempt in range(2):
-            data = self._json(method, path, body, self.token(fresh=attempt > 0))
+            status, data = self._json(method, path, body, self.token(fresh=attempt > 0))
             code = int(data.get("code") or 0)
             if code in TOKEN_INVALID and attempt == 0:
                 continue
             if code != 0:
-                raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code)
+                raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code, status)
             return data
         return {}
 
@@ -168,15 +176,15 @@ class OpenAPI:
             try:
                 reply = multipart.post(self.base + path, fields=fields, files=[file], headers={"Authorization": f"Bearer {token}"}, hide=self.secrets)
             except http.NetError as exc:
-                raise FeishuError(t("连不上飞书（{error}）", error=str(exc))) from None
+                raise FeishuError(t("连不上飞书（{error}）", error=str(exc)), status=exc.status) from None
             data = reply.data if isinstance(reply.data, dict) else None
             if data is None:
-                raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status))
+                raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status), status=reply.status)
             code = int(data.get("code") or 0)
             if code in TOKEN_INVALID and attempt == 0:
                 continue
             if code != 0:
-                raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code)
+                raise FeishuError(_explain(code, http.scrub(str(data.get("msg") or ""), self.secrets)), code, reply.status)
             found = (data.get("data") or {}).get(key) if isinstance(data.get("data"), dict) else None
             if not isinstance(found, str) or not found:
                 raise FeishuError(t("飞书的回答看不懂（HTTP {status}）", status=reply.status))
@@ -524,6 +532,8 @@ class FeishuChannel(PushChannel):
         try:
             handle = self._create(chat, "interactive", {**card, "body": {"elements": [*card["body"]["elements"], buttons]}})
         except FeishuError as exc:
+            if transient(exc):
+                raise  # 连不上、飞书出了故障：不是卡片本身的问题，由发送队列过一会儿照样发卡片
             logger.info("feishu: 卡片发不出去，改成文字（%s）", exc)
             text = "\n\n".join(item for item in (f"**{prompt.title}**", f"```\n{markup.fence_safe(parts[-1])}\n```" if parts[-1] else "", prompt.where, prompt.hint) if item)
             return self._post(chat, text)
@@ -532,7 +542,8 @@ class FeishuChannel(PushChannel):
         return handle
 
     def settle(self, chat: str, handle: str, outcome: str) -> None:
-        card = self._asked.pop(handle, None)
+        # 连不上这类暂时的失败原样抛出，由发送队列再改一次（所以改成了才从 _asked 里拿掉，见 telegram.py 的 settle）
+        card = self._asked.get(handle)
         if not handle:
             return
         if card is None:
@@ -541,8 +552,11 @@ class FeishuChannel(PushChannel):
         done = {**card, "header": {**card["header"], "template": "grey"}, "body": {"elements": [*card["body"]["elements"], {"tag": "markdown", "content": f"**{outcome}**"}]}}
         try:
             self.api.call("PATCH", f"/open-apis/im/v1/messages/{handle}", {"content": json.dumps(done, ensure_ascii=False)})
-        except FeishuError:
+        except FeishuError as exc:
+            if transient(exc):
+                raise
             self._create(chat, "text", {"text": outcome})
+        self._asked.pop(handle, None)
 
 
 def _post_text(content: dict) -> tuple[str, list[str]]:

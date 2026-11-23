@@ -1,6 +1,8 @@
 // ---- 扩展 · 通道 · 列表 -----------------------------------------------------
 // 通道一页的第一层：已经接上的通道（状态、绑定的账号、聊天里正在做什么）、聊天里等你批准的操作、可以接入的平台。
 // 每一行有开关、重新配对、停下聊天里正在做的事，和别处一样的"在访达中显示 / 编辑 / 删除"（删除先在原地确认）。
+// 连不上平台、消息发不到聊天里时，那一行写着还有几条等着补发、最后一次失败的时间和原因；没发到聊天里的确认请求上也写明
+// （chanDelivery、chanUndelivered，数字都由助手程序算好，见 channels/outbox.py）。
 // 后面一小节是主区域顶上的那条提示（chan-alert）：答的是同一批请求，不用打开对话框也能允许或拒绝。
 
 function drawChanList(focus) {
@@ -79,6 +81,9 @@ function chanAsks() {
     head.appendChild(el('span', null, title));
     card.setAttribute('aria-label', title);
     card.appendChild(el('pre', null, ask.summary));
+    // 这条确认请求没发到聊天里（连不上平台）：这一轮一直在等它，写清楚，在这里答也一样（见 channels/outbox.py）
+    const undelivered = chanUndelivered(ask);
+    if (undelivered) card.appendChild(el('p', 'chan-ask-note', undelivered));
     const row = card.appendChild(el('div', 'row'));
     const allow = row.appendChild(el('button', 'mini primary', t('允许')));
     const deny = row.appendChild(el('button', 'mini', t('拒绝')));
@@ -102,6 +107,27 @@ async function chanConfirm(ask, allow, ...buttons) {
   const said = allow ? t('已允许。聊天里那条消息上也写上了。') : t('已拒绝。聊天里那条消息上也写上了。');
   if (extensionsDialog.open) extensionSay(null, null, 'good', said); else toast(said);
   announce(said);
+}
+
+// 一条确认请求发到聊天里了没有（delivery：waiting 留着等补发，failed 不再试了；problem 是为什么，助手程序已经按现在的语言译好）
+function chanUndelivered(ask) {
+  const why = ask.problem || '?';
+  if (ask.delivery === 'waiting') return t('还没发到聊天里（{reason}），连上以后会补发。也可以在这里答复。', { reason: why });
+  if (ask.delivery === 'failed') return t('没能发到聊天里（{reason}）。请在这里答复。', { reason: why });
+  return '';
+}
+
+// 发不到聊天里的：还有几条留着等补发、几条不再补发了、最后一次失败的时间和原因。数字和原因都是助手程序算好的
+// （channels/outbox.py 的 summary），这里只照着写；都发出去了、也没有丢过，什么都不写
+function chanDelivery(item) {
+  const info = item.delivery;
+  if (!item.enabled || !info || (!info.waiting && !info.lost)) return '';
+  const count = (n) => n.toLocaleString(LOCALES[language]);
+  const bits = [];
+  if (info.waiting) bits.push(t('还没发到聊天里的消息：{n} 条（连上以后会按顺序补发）', { n: count(info.waiting) }));
+  if (info.lost) bits.push(t('没能发到聊天里的消息：{n} 条', { n: count(info.lost) }));
+  if (info.failed_at) bits.push(t('最后一次失败：{when}（{reason}）', { when: fromNow(info.failed_at), reason: info.error || '?' }));
+  return bits.join(' · ');
 }
 
 function chanMeta(item) {
@@ -156,7 +182,9 @@ function chanRow(item) {
   const meta = words.appendChild(el('span', 'chan-meta', chanMeta(item)));
   meta.title = meta.textContent;
   if (item.enabled && item.status.message && status !== 'online') words.appendChild(el('span', 'chan-error', item.status.message));
-  open.setAttribute('aria-label', t('设置 {platform}：{state}', { platform: item.label, state: chanMeta(item) }));
+  const delivery = chanDelivery(item);
+  if (delivery) words.appendChild(el('span', 'chan-delivery', delivery));
+  open.setAttribute('aria-label', t('设置 {platform}：{state}', { platform: item.label, state: chanMeta(item) + (delivery ? ' · ' + delivery : '') }));
   open.addEventListener('click', () => openChanWizard(item.id));
 
   const toggle = main.appendChild(el('button', 'chan-switch'));
@@ -277,7 +305,9 @@ function renderChanAlert() {
   }
   chanAsked = synced ? keys : null;  // 刚连上时补发的旧状态不播报
   if (!ask) return;
-  const text = t('{platform} 上的对话在等你批准：{what}', { platform: ask.label, what: oneLine(ask.summary) });
+  // 确认请求没发到聊天里的：顶上这一条也说一声（手机上看不到它，只能在这里答）
+  const missing = ask.delivery === 'waiting' ? t('还没发到聊天里') : ask.delivery === 'failed' ? t('没能发到聊天里') : '';
+  const text = t('{platform} 上的对话在等你批准：{what}', { platform: ask.label, what: oneLine(ask.summary) }) + (missing ? ' · ' + missing : '');
   $('chan-alert-text').textContent = asks.length > 1 ? text + ' ' + t('（还有 {n} 个）', { n: asks.length - 1 }) : text;
   box.setAttribute('aria-label', text);
   $('chan-alert-open').title = t('打开“通道”看完整的内容');

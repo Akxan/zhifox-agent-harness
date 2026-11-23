@@ -35,7 +35,15 @@ USER_AGENT = "ZhiFox (https://github.com/Akxan/zhifox-agent-harness, 0.1)"
 
 
 class NetError(Exception):
-    """连不上、超时、回答太大或者看不懂。说明可以直接给人看，里面没有密钥。"""
+    """连不上、超时、回答太大或者看不懂。说明可以直接给人看，里面没有密钥。
+
+    status 和 channels.base.ChannelError 的一样：0 是根本没得到回答（连不上、超时、连接被重置，过一会儿再试多半会好），
+    None 是得到了、但用不了（太大、文件超过上限、网址写得不对：再试也一样）。平台的代码把它原样交给自己的错误。
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass
@@ -146,7 +154,8 @@ def request(
             raw = b""
     except _FAILURES as exc:
         reason = getattr(exc, "reason", None) or exc
-        raise NetError(t("连不上 {host}（{error}）", host=_host(url), error=scrub(str(reason), hide) or type(exc).__name__)) from None
+        # 网址写得不对（ValueError）再试也一样；别的（连不上、超时、对方回的不是 HTTP）都算没得到回答
+        raise NetError(t("连不上 {host}（{error}）", host=_host(url), error=scrub(str(reason), hide) or type(exc).__name__), None if isinstance(exc, ValueError) else 0) from None
     if len(raw) > limit:
         raise NetError(t("{host} 的回答太大了。", host=_host(url)))
     try:
@@ -167,10 +176,10 @@ def download(url: str, *, headers: dict[str, str] | None = None, limit: int, tim
                 raise NetError(t("这个文件太大了，最多 {size} MB。", size=limit // 1_000_000))
             content = response.read(limit + 1)
     except urllib.error.HTTPError as exc:
-        raise NetError(t("下载文件失败（HTTP {status}）", status=exc.code)) from None
+        raise NetError(t("下载文件失败（HTTP {status}）", status=exc.code), exc.code) from None
     except _FAILURES as exc:
         reason = getattr(exc, "reason", None) or exc
-        raise NetError(t("下载文件失败（{error}）", error=scrub(str(reason), hide) or type(exc).__name__)) from None
+        raise NetError(t("下载文件失败（{error}）", error=scrub(str(reason), hide) or type(exc).__name__), None if isinstance(exc, ValueError) else 0) from None
     if len(content) > limit:
         raise NetError(t("这个文件太大了，最多 {size} MB。", size=limit // 1_000_000))
     return content

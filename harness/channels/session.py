@@ -80,6 +80,10 @@ class Waiting:
     summary: str  # 要做的事（Permissions.review 写的那段话）
     handle: str = ""  # 聊天里那条消息的编号（发出去以后才有）
     by: str = ""  # 谁答复的：chat（在聊天里）或 web（在网页上）
+    # 发送队列记的（见 outbox.py）：waiting 是没发到聊天里、留着等连上了补发；failed 是发不出去、不再试了。
+    # 这一轮一直在等它，页面上照着写"还没发到聊天里"，网页上照样能答。problem 是为什么（t() 写的）
+    delivery: str = ""
+    problem: object = ""
 
 
 class Session:
@@ -198,8 +202,9 @@ class Session:
             "step": agent.usage.requests if agent is not None and running else 0,
             "queued": queued,
             "started_at": started if running else None,
-            # 确认请求上的那句话按现在的界面语言重新译（你可能在它等着的时候换了语言）
-            "confirm": {"id": waiting.id, "summary": retell(waiting.summary)} if waiting is not None else None,
+            "undelivered": self.router.undelivered(self.platform, self.chat),  # 还有几条没发到这个聊天里（见 outbox.py）
+            # 确认请求上的那句话按现在的界面语言重新译（你可能在它等着的时候换了语言）。delivery：它发到聊天里了没有
+            "confirm": {"id": waiting.id, "summary": retell(waiting.summary), "delivery": waiting.delivery, "problem": retell(waiting.problem)} if waiting is not None else None,
         }
 
     def status_text(self) -> str:
@@ -231,6 +236,7 @@ class Session:
             lines.append(t("现在：空闲"))
         if queued:
             lines.append(t("排队：{n} 条消息", n=queued))
+        lines.extend(delivery_lines(router.delivery(self.platform), router.undelivered(self.platform, self.chat)))
         spend = app.spending()
         lines.append(t("今天花了 ${today}，本月 ${month}", today=f"{spend['today']:.4f}", month=f"{spend['month']:.4f}"))
         return "\n".join(lines)
@@ -591,6 +597,25 @@ class Session:
             outcome = t("已允许") if allowed else t("已拒绝")
         self.router.settle(self.platform, self.chat, waiting, outcome)
         self.router.changed()
+
+
+def delivery_lines(summary: dict, here: int) -> list[str]:
+    """/status 里"发不出去的"那几行（summary 是 Outbox.summary 给的；here 是这个聊天里还有几条没发出去）。
+    都发出去了、也没有丢过，一行都不写。/status 的回答不排在没发出去的那些后面（见 outbox.KINDS），所以你看得到这几行。"""
+    lines: list[str] = []
+    if here:
+        lines.append(t("还没发到这里的消息：{n} 条（连上以后会按顺序补发）", n=here))
+    if summary["lost"]:
+        lines.append(t("没能发出去的消息：{n} 条", n=summary["lost"]))
+    if summary["failed_at"] and (here or summary["lost"]):
+        lines.append(t("最后一次失败：{when}（{reason}）", when=_clock(summary["failed_at"]), reason=retell(summary["error"])))
+    return lines
+
+
+def _clock(moment: float) -> str:
+    """一个时刻写成 14:05；不是今天的写成 11-22 14:05。"""
+    local = time.localtime(moment)
+    return time.strftime("%H:%M" if local[:3] == time.localtime()[:3] else "%m-%d %H:%M", local)
 
 
 def _first_note(platform: str, buttons: bool = True) -> Callable[[list], str]:

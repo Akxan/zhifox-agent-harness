@@ -41,13 +41,12 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from collections.abc import Callable
 from functools import partial
 from typing import Any
 
 from .. import log
-from ..config import CHANNEL_DOWNLOAD_BYTES, Config
+from ..config import CHANNEL_DOWNLOAD_BYTES, CHANNEL_SEND_RETRY_AFTER_MAX, Config
 from ..i18n import t
 from ..net import http, multipart
 from ..safe import to_json
@@ -63,6 +62,8 @@ from .base import (
     Prompt,
     PushChannel,
     Uploads,
+    pause,
+    transient,
 )
 from .gateway import FATAL, IDENTIFY_NEXT, RESUME_NEXT, Fatal, Gateway, Rules, Wait
 
@@ -80,9 +81,10 @@ logger = logging.getLogger("harness.channels.discord")
 
 
 class DiscordError(ChannelError):
-    def __init__(self, message: str, status: int = 0, code: int = 0):
-        super().__init__(message)
-        self.status = status
+    """status 是 HTTP 状态码（0：没得到回答；None：不是一次请求出的错，见 base.ChannelError）。"""
+
+    def __init__(self, message: str, status: int | None = None, code: int = 0, retry_after: float = 0.0):
+        super().__init__(message, status=status, retry_after=retry_after)
         self.code = code  # Discord 自己的错误编号（比如 50007：不能给这个人发私信）
 
 
@@ -118,16 +120,24 @@ class RestAPI:
             try:
                 reply = send()
             except http.NetError as exc:
-                raise DiscordError(t("连不上 Discord（{error}）", error=str(exc))) from None
+                raise DiscordError(t("连不上 Discord（{error}）", error=str(exc)), exc.status) from None
+            data = reply.data if isinstance(reply.data, dict) else {}
+            wait = _retry_after(data, reply) if reply.status == 429 else 0.0
             if reply.status == 429 and attempt < MAX_RETRIES:
-                data = reply.data if isinstance(reply.data, dict) else {}
-                time.sleep(min(max(float(data.get("retry_after") or reply.retry_after() or 1.0), 0.5), 30.0))
+                pause(min(max(wait or 1.0, 0.5), CHANNEL_SEND_RETRY_AFTER_MAX))
                 continue
             if reply.ok:
                 return reply.data
-            data = reply.data if isinstance(reply.data, dict) else {}
-            raise DiscordError(_explain(reply.status, int(data.get("code") or 0), http.scrub(str(data.get("message") or reply.text), (self.token,))), reply.status, int(data.get("code") or 0))
+            raise DiscordError(_explain(reply.status, int(data.get("code") or 0), http.scrub(str(data.get("message") or reply.text), (self.token,))), reply.status, int(data.get("code") or 0), wait)
         return None
+
+
+def _retry_after(data: dict, reply: http.Reply) -> float:
+    """被限流时 Discord 说的"过多久再来"（秒）：回答里的 retry_after，没有就看 Retry-After 头。"""
+    try:
+        return max(float(data.get("retry_after") or 0), reply.retry_after())
+    except (TypeError, ValueError):
+        return reply.retry_after()
 
 
 def _explain(status: int, code: int, message: str) -> str:
@@ -392,13 +402,17 @@ class DiscordChannel(PushChannel):
         return handle
 
     def settle(self, chat: str, handle: str, outcome: str) -> None:
-        content = self._asked.pop(handle, None)
+        # 连不上这类暂时的失败原样抛出，由发送队列再改一次（所以改成了才从 _asked 里拿掉，见 telegram.py 的 settle）
+        content = self._asked.get(handle)
         if not handle or content is None:
             return
         try:
             self.api.call("PATCH", f"/channels/{chat}/messages/{handle}", {"content": f"{content}\n\n**{outcome}**", "components": [], "allowed_mentions": {"parse": []}})
-        except DiscordError:
+        except DiscordError as exc:
+            if transient(exc):
+                raise
             self._post(chat, outcome)  # 改不了：另发一条说明结果
+        self._asked.pop(handle, None)
 
     def send_file(self, chat: str, outgoing: OutboundFile) -> None:
         """发一个文件：一条带附件的消息（见文件开头）。说明排成 Discord 的样子写在 content 里，放不下的文件先发、说明另发。"""
