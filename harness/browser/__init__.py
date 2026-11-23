@@ -15,7 +15,10 @@
   cdp.py       CDP 客户端：一来一回的 JSON、事件、标签页的会话、超时、按"主人"取消
   chrome.py    找到 Chrome、用智狐的配置文件夹启动它（管道，不开端口）、连同子进程一起关掉
   manager.py   什么时候开、什么时候关（用到才开、闲置就关、退出必关），几次运行怎么共用一个 Chrome，下载一律拒绝
-  session.py   一次运行（一段对话、一次定时任务……）自己的标签页，以及在上面做的每一个动作
+  session.py   一次运行（一段对话、一次定时任务……）自己的标签页，以及在上面做的每一个动作（BrowserSession）。
+               动作按小节分在同一前缀的几个文件里，混进 BrowserSession（见 session.py 开头）：
+               session_tabs.py 标签页、session_page.py 调用 page.js / 等待 / 截图、session_look.py 打开和读页面、
+               session_input.py 鼠标和键盘、session_facts.py 动作之前先看一眼、session_types.py 写给 mypy 看的类型
   page.js      放进网页"隔离世界"里的脚本：把页面整理成一行一行、给能操作的元素编号（ref_12）
   keys.py      按键的名字 → 键盘事件
   urls.py      网址怎么理解、哪些不打开、两个地址算不算同一个网站

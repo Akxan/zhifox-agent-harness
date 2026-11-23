@@ -110,12 +110,12 @@ class Agent:
         # 每条用户消息前面还要附上的说明。每一个都拿到到目前为止的对话历史，返回要附的文字（不用附就返回空的）。
         # 比如"可用的 Skill 变了"（见 skills/catalog.py）：这类会变的信息和时间一样，不能写进系统提示词
         self.notes: list[Callable[[list], str]] = []
-        # 每调用完一次模型，把"哪一家、哪个模型、用了多少、什么时候"交出去（记账用，见 ledger.py 和 app.py）。
+        # 每调用完一次模型，把"哪一家、哪个模型、用了多少、什么时候"交出去（记账用，见 ledger.py 和 app_chat.py 的 App._wire）。
         # 循环自己不管钱怎么算、记在哪儿，只负责在每次调用之后说一声。它交回这一次算出来的钱（没有价格是 None），
         # 运行记录照着写，不另算一遍
         self.on_call: Callable[[str, str, Usage, datetime], float | None] | None = None
         # 运行记录（见 trace/）：这一轮每一次请求、每一次工具调用的时刻和数字。一轮结束时把整理好的记录交给 on_trace
-        # （网页界面存进会话，终端界面留给 /trace，见 app.py）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
+        # （网页界面存进会话，终端界面留给 /trace，见 app_chat.py 的 App._wire）。子 Agent 的记录挂在叫它的那次调用下面（见 agents/runner.py）
         self.trace = Tracer()
         self.on_trace: Callable[[dict], None] | None = None
         # 遮住工具结果里像密钥的东西（见 redact.py）。默认就开着（只认环境变量里的密钥和固定的格式）；
@@ -127,7 +127,7 @@ class Agent:
         self._primary = ""  # 这一轮开始时用的模型（你选的那个）；改用了备用模型的话，一轮结束时换回它
         # 你的钩子（见 hooks/）：在下面几个记录点旁边各调用一次。没接上的（测试里自己组装的助手）什么都不做
         self.hooks: HookRun = NO_HOOKS
-        # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app.py 用它换上这段对话的工具：
+        # 一段对话的第一条消息发出之前调用（这时历史还是空的）。app_chat.py（App._wire、_fresh_start）用它换上这段对话的工具：
         # 工具在一段对话里不能变（原因见 providers/claude.py），只有在还什么都没发过的时候换才不会出问题
         self.on_start: Callable[[], None] | None = None
         # 上一轮是怎么结束的：done 答完了，refused 被拒绝，truncated 回复被截断，steps 用完了 max_steps 次。

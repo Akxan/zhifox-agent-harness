@@ -30,7 +30,7 @@
   prompt.py        一个 Agent 的系统提示词：它的设定，加上程序附上的环境说明
   runner.py        把一项任务交给子 Agent：新的历史、它的工具和模型、确认、停止、记账、交回结果
 
-主助手用的 agent 工具在 tools/agent.py；用一个 Agent 开始一段对话，在 app.py 的 new_conversation。
+主助手用的 agent 工具在 tools/agent.py；用一个 Agent 开始一段对话，在 app_conversations.py 的 new_conversation。
 """
 
 from .store import (
