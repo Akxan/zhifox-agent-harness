@@ -4,6 +4,9 @@
 
 # Architecture
 
+How ZhiFox is put together: the parts of the harness and the file each one lives in, the loop that drives everything,
+and the run trace that shows one turn of it. The page about each feature has a "how it works" part of its own.
+
 A model does one thing: it reads text and writes the next piece of text. It doesn't remember your last conversation,
 and it can't take any action. A **harness** is the code wrapped around the model that makes up for this.
 **Agent = model + harness.**

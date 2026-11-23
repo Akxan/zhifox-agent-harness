@@ -4,6 +4,9 @@
 
 # Terminal UI
 
+The same assistant in a terminal: the same loop and the same saved conversations as the [web UI](web-ui.md), with slash
+commands instead of buttons.
+
 ```bash
 uv run harness
 ```

@@ -4,6 +4,8 @@
 
 # 数据存在哪里
 
+智狐存下的每一个文件和谁读得到、网页能让你的电脑做哪些事，以及怎么导出、备份和恢复。
+
 下面的路径说的是 clone 下来的情况：项目里的 `data/` 和 `.env`。一行命令装上的，`data/` 换成[一行命令装上](installation.md#一行命令装上更多说明)里你这个账号的那个文件夹
 （`~/Library/Application Support/ZhiFox/`、`~/.local/share/zhifox/`、`%LOCALAPPDATA%\ZhiFox\`），`.env` 在它里面；别的都一样。
 

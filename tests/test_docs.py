@@ -238,3 +238,14 @@ def test_the_quick_start_anchor_the_release_notes_link_to_is_still_there():
     # tests/release_notes.py 写的发布说明链到 仓库主页#quick-start，也就是 README.md 的这一节
     assert "quick-start" in anchors("README.md")
     assert "快速开始" in anchors("README.zh-CN.md")
+
+
+def test_the_address_written_into_installed_systemd_units_still_lands_somewhere():
+    # 已经装好的 systemd 服务里写着 Documentation=仓库主页#run-it-in-the-background（harness/service/systemd.py）。
+    # 那一节搬进了 docs/，README 的"文档"目录里留着一个同名的 <a name>，别人电脑上的旧地址照样跳到那一页的链接上
+    from harness.install import REPOSITORY
+    from harness.service import systemd
+
+    address, _, anchor = systemd.DOCUMENTATION.partition("#")
+    assert address == REPOSITORY
+    assert anchor in anchors("README.md")

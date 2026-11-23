@@ -4,6 +4,9 @@
 
 # Conversations
 
+How a conversation is kept, changed and found again. Several conversations running at the same time are described in
+[Web UI](web-ui.md#several-conversations-at-once).
+
 ## How conversations are saved and restored
 
 The model remembers nothing, so "continuing where you left off" is entirely the harness's job: it saves the last

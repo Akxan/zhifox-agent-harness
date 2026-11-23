@@ -1,5 +1,5 @@
 # 每次推送到 main、每个 pull request 都把测试、代码检查（ruff）和类型检查（mypy，下面的 types）跑一遍。
-# 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 README 的 Testing 一节）。
+# 测试不需要 API 密钥、不花钱：模型那一头是 tests/ 里的本地假服务器（见 docs/zh-CN/testing.md）。
 # 页面测试（tests/ui/）用 runner 上预装的 Chrome（Ubuntu 是 google-chrome，macOS 在 /Applications 里，Windows 在 Program Files 里），无界面运行。
 # 三个系统都跑（CLAUDE.md 第 9 条）：Windows 上命令是 PowerShell、后台服务是任务计划程序、文件权限是 ACL，只在那里才有的测试在那里才跑。
 name: tests
@@ -120,7 +120,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
           bwrap --version
           # 和 harness/sandbox/linux.py 的 problem 试的是同样几样。Ubuntu 24.04 起 AppArmor 默认不许普通用户建用户命名空间
-          # （README 的沙箱一节写着）：建得了就照原样测；建不了才放开这一条，并在日志里说一声
+          # （docs/zh-CN/sandbox-and-hooks.md 的沙箱一节写着）：建得了就照原样测；建不了才放开这一条，并在日志里说一声
           if ! bwrap --die-with-parent --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev true; then
             echo "这台 runner 不许普通用户建用户命名空间：放开 kernel.apparmor_restrict_unprivileged_userns"
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

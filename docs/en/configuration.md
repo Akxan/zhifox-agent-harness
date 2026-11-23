@@ -4,6 +4,8 @@
 
 # Configuration and troubleshooting
 
+Settings that live in `.env` rather than in the page, and the self-check to run first when something doesn't work.
+
 ## Configuration
 
 Set these in `.env`. All of them are optional:

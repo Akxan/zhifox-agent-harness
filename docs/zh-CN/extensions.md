@@ -4,6 +4,8 @@
 
 # 扩展：MCP、Skill 和自定义 Agent
 
+让助手多一些本事的几种办法：MCP 服务器带来的工具、教它按你的方法做事的 Skill、自定义 Agent，以及从你已经在用的工具里把这三样导入进来。在页面上怎么管理它们，见[网页界面](web-ui.md)里的“扩展”。
+
 ## MCP：别人写好的工具
 
 上面这些工具都写在这个程序里。[MCP](https://modelcontextprotocol.io)（Model Context Protocol）是一个公开的协议，

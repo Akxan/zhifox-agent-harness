@@ -4,6 +4,9 @@
 
 # Sandbox, secret masking and hooks
 
+Safeguards on top of the approval prompts in [Tools and permissions](tools-and-permissions.md): an operating-system
+sandbox for commands, masking keys that turn up in tool results, and hooks that run your own scripts at fixed moments.
+
 ## Sandbox
 
 The sandbox for commands is off by default; what it does and why is in

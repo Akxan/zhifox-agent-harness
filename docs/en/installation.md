@@ -4,6 +4,10 @@
 
 # Installation and updates
 
+The install commands are in the [quick start](../../README.md#quick-start). This page has the rest: updating and
+removing a one-command install, installing a released version, where your data and keys are kept, being told about new
+versions, and starting ZhiFox from another folder.
+
 ## More on the one-command install
 
 Updating and removing (the package is called `harness-assistant`; the command it installs is `harness`):

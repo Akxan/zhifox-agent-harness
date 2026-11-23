@@ -4,6 +4,9 @@
 
 # Models and providers
 
+Which models ZhiFox works with and how to add your own, then how one loop talks to providers whose APIs differ, how long
+conversations are compacted, and what happens when a model is temporarily unavailable.
+
 ## Supported models
 
 | Provider | Where to get an API key | Variable in `.env` | Tested |

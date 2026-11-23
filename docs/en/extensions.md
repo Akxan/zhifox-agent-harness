@@ -4,6 +4,10 @@
 
 # Extensions: MCP, skills and custom agents
 
+Ways to give the assistant more to work with: tools from MCP servers, skills that teach it how you want something done,
+and custom agents, plus importing all three from the tools you already use. Managing them in the page is described under
+**Extensions** in [Web UI](web-ui.md).
+
 ## MCP: tools written by someone else
 
 The tools in [Three kinds of tools](tools-and-permissions.md#three-kinds-of-tools) are part of this program. [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open

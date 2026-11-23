@@ -4,6 +4,9 @@
 
 # Scheduled and recurring tasks
 
+Setting up reminders and recurring tasks comes first; [running when nobody is
+watching](#scheduled-tasks-running-when-nobody-is-watching) explains how a run works without you.
+
 Tell the assistant "remind me to drink water every morning at 9" or "every weekday at 9, look at my to-dos and write a
 plan for the day", or add a task by hand in the web UI. There are two kinds:
 

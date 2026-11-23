@@ -4,6 +4,9 @@
 
 # Testing
 
+How the test suite runs for free (the real SDKs against local fake servers), what each part covers, and how a release is
+made.
+
 ```bash
 uv run pytest          # in parallel, one process per CPU core (pytest-xdist): about a minute for everything
 uv run pytest -n 0     # one test at a time, e.g. while debugging or to see print output

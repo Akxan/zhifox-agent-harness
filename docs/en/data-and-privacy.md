@@ -4,6 +4,9 @@
 
 # Data and privacy
 
+Every file ZhiFox keeps and who can read it, what the web page may make your computer do, and how to export, back up and
+restore it all.
+
 The paths below are for a clone: `data/` and `.env` in the project. Installed with one command, `data/` is the folder
 of your account from [Install with one command](installation.md#more-on-the-one-command-install) (`~/Library/Application Support/ZhiFox/`,
 `~/.local/share/zhifox/`, `%LOCALAPPDATA%\ZhiFox\`), and `.env` is inside it; everything else is the same.

@@ -4,6 +4,8 @@
 
 # Background service and servers
 
+Keeping ZhiFox running when no terminal is open: as a service on your own computer, or with `harness serve` on a server.
+
 ## Run it in the background
 
 Started with `uv run harness --web`, ZhiFox is a child of that terminal: close the terminal, or end the Claude Code

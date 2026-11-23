@@ -4,6 +4,9 @@
 
 # Chat channels
 
+Setting up a bot and using it comes first; [how it works](#chat-channels-talking-to-zhifox-from-your-chat-app) follows,
+including voice messages and how the six platforms differ.
+
 Open **Extensions → Channels** and pick a platform. A four-step wizard walks you through it:
 
 1. **Create a bot.** The wizard shows the platform's steps (below), with links to its developer console.

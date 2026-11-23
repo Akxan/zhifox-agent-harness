@@ -4,6 +4,10 @@
 
 # Browser and computer use
 
+Three ways the assistant reaches beyond files and commands, from the safest to the most powerful: reading one page by
+its address, using websites in a Chrome of its own, and (an advanced option, off by default) operating your whole
+desktop. For the browser and for computer use, how to turn it on comes first, then how it works.
+
 ## Reading a web page without a browser (`web_fetch`)
 
 Claude reads the web through two tools that run on Anthropic's servers: web search and web fetch. GPT, Gemini, DeepSeek

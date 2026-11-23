@@ -4,6 +4,8 @@
 
 # Limitations, roadmap and FAQ
 
+What doesn't work yet or hasn't been tested with real keys, what may come next, and answers to common questions.
+
 ## Limitations
 
 - On Windows: no computer use yet, read-only commands are not auto-allowed (every command asks), and signing out or

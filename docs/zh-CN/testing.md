@@ -4,6 +4,8 @@
 
 # 测试
 
+测试怎么不花钱地跑（真的 SDK 对着本地的假服务器）、每一部分测了什么，以及怎么发布新版本。
+
 ```bash
 uv run pytest          # 并行跑：有几个 CPU 核心就开几个进程（pytest-xdist），全部跑完一分钟左右
 uv run pytest -n 0     # 一个一个跑，调试、想看 print 的输出时用

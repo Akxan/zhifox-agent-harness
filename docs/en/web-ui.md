@@ -4,6 +4,9 @@
 
 # Web UI
 
+Everything on the page comes first. The sections after it explain how the page works: several conversations at once, the
+event stream behind it, Markdown, the sources of web-search answers and the three interface languages.
+
 ```bash
 uv run harness --web
 ```

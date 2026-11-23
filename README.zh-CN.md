@@ -144,26 +144,26 @@ uv run harness --web    # 启动网页界面，会自动在浏览器里打开
 
 其余的内容按主题分成了几页，放在 [docs/zh-CN/](docs/zh-CN/) 里，按下面的顺序读（[docs/en/](docs/en/) 里的英文页面是同样的几页）：
 
-1. [安装和更新](docs/zh-CN/installation.md)
-2. [网页界面](docs/zh-CN/web-ui.md)
-3. [终端界面](docs/zh-CN/terminal-ui.md)
-4. [模型和厂商](docs/zh-CN/models.md)
-5. [会话](docs/zh-CN/conversations.md)
-6. [工具和权限](docs/zh-CN/tools-and-permissions.md)
-7. [沙箱、遮密钥和钩子](docs/zh-CN/sandbox-and-hooks.md)
-8. [扩展：MCP、Skill 和自定义 Agent](docs/zh-CN/extensions.md)
-9. [浏览器和操作整台电脑](docs/zh-CN/browser-and-computer-use.md)
-10. [定时任务和重复任务](docs/zh-CN/scheduled-tasks.md)
-11. [聊天通道](docs/zh-CN/chat-channels.md)
-12. [后台服务和服务器](docs/zh-CN/background-and-servers.md)
-13. [在 Windows 上使用](docs/zh-CN/windows.md)
-14. [数据存在哪里](docs/zh-CN/data-and-privacy.md)
-15. [费用](docs/zh-CN/cost.md)
-16. [配置和排查问题](docs/zh-CN/configuration.md)
-17. [Harness 是什么](docs/zh-CN/architecture.md)
-18. [测试](docs/zh-CN/testing.md)
-19. [评测：助手到底好不好用](docs/zh-CN/evals.md)
-20. [局限和可以接着做的方向](docs/zh-CN/limitations.md)
+1. [安装和更新](docs/zh-CN/installation.md)：一行命令装上的怎么更新和卸载、装某一个发布版、数据和密钥放在哪儿、检查新版本、在别的目录里启动
+2. [网页界面](docs/zh-CN/web-ui.md)：页面上的每一样东西（会话栏、附件、设置、记忆、扩展、功能清单）、几段对话同时进行，以及页面是怎么做的
+3. [终端界面](docs/zh-CN/terminal-ui.md)：终端里的同一个助手，用斜杠命令
+4. [模型和厂商](docs/zh-CN/models.md)：四家模型和密钥、本地模型和自己的网关、各家的差别、长对话的压缩、备用模型
+5. [会话](docs/zh-CN/conversations.md)：保存和重新打开、编辑最后一条消息、从某一轮分叉、撤回一轮改的文件、会话搜索
+6. [工具和权限](docs/zh-CN/tools-and-permissions.md)：三类工具、一起跑的读取、命令记住的目录、问不问你的几档和只读命令的判断、加一个自己的工具
+7. [沙箱、遮密钥和钩子](docs/zh-CN/sandbox-and-hooks.md)：命令的沙箱（可选，macOS、Linux）、遮住工具结果里的密钥、你自己的钩子
+8. [扩展：MCP、Skill 和自定义 Agent](docs/zh-CN/extensions.md)：MCP 服务器、Skill、自定义 Agent（子 Agent 和角色），以及从别的工具导入
+9. [浏览器和操作整台电脑](docs/zh-CN/browser-and-computer-use.md)：用 `web_fetch` 读网页、在智狐自己的 Chrome 里用浏览器、操作整台电脑（进阶，默认关着）
+10. [定时任务和重复任务](docs/zh-CN/scheduled-tasks.md)：提醒和助手到时间自己去做的任务，以及没人看着的时候一次运行是怎么进行的
+11. [聊天通道](docs/zh-CN/chat-channels.md)：在 Telegram、Discord、Slack、飞书、钉钉、QQ 里和智狐说话，包括设置向导、配对、在聊天里确认和语音消息
+12. [后台服务和服务器](docs/zh-CN/background-and-servers.md)：用 launchd、systemd 或任务计划程序让智狐一直开着，以及在服务器上用 `harness serve`
+13. [在 Windows 上使用](docs/zh-CN/windows.md)：Windows 上不一样的地方（PowerShell、Ctrl 快捷键、文件资源管理器）和暂时不支持的功能
+14. [数据存在哪里](docs/zh-CN/data-and-privacy.md)：智狐存下的每一个文件和谁读得到、网页能让你的电脑做哪些事、导出、备份和恢复
+15. [费用](docs/zh-CN/cost.md)：钱花在哪儿、花费账本和每月预算，以及怎么省钱
+16. [配置和排查问题](docs/zh-CN/configuration.md)：`.env` 里可选的设置，以及出了问题时先运行的 `harness doctor`
+17. [Harness 是什么](docs/zh-CN/architecture.md)：harness 由哪几部分组成、每个文件管什么、agent 循环和运行记录
+18. [测试](docs/zh-CN/testing.md)：对着本地假服务器、不花钱的测试，无界面 Chrome 里的页面测试，三个系统上的 CI，以及发布
+19. [评测：助手到底好不好用](docs/zh-CN/evals.md)：量一量真的模型做得对不对，包括演习、真跑和任务文件的格式
+20. [局限和可以接着做的方向](docs/zh-CN/limitations.md)：还做不到的、没用真实的密钥测过的，以及接下来可以做的方向
 
 ## 关键词
 
@@ -175,7 +175,7 @@ Python · 终端聊天 · 网页界面
 ## 参与贡献
 
 欢迎报告 bug、提建议和提 pull request。[CONTRIBUTING.md](CONTRIBUTING.md)（英文在前，后面是完整的中文）写了怎么准备环境、怎么不花钱地跑测试
-（假服务器，不需要 API 密钥），以及改动要守住的规矩：每个改动都带测试、三种界面语言、两份 README 一起改、macOS、Windows 和 Linux 都要想到。
+（假服务器，不需要 API 密钥），以及改动要守住的规矩：每个改动都带测试、三种界面语言、两份 README 和 docs/ 下中英两份页面一起改、macOS、Windows 和 Linux 都要想到。
 报告 bug 请用 [bug 报告表单](https://github.com/Akxan/zhifox-agent-harness/issues/new?template=bug_report.yml)。
 
 ## 安全

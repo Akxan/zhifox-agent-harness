@@ -4,6 +4,10 @@
 
 # Tools and permissions
 
+What the assistant can call, and when it has to ask you first. The optional sandbox, secret masking and your own hooks
+are in [Sandbox, secret masking and hooks](sandbox-and-hooks.md); MCP servers, skills and agents are in
+[Extensions](extensions.md).
+
 ## Three kinds of tools
 
 The difference is who writes the spec and who runs the tool:

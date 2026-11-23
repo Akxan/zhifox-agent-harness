@@ -211,26 +211,26 @@ UI, run `harness` (from a clone: `uv run harness`) once a key is set.
 Everything else is in topic pages under [docs/en/](docs/en/), in this order (the Chinese pages under
 [docs/zh-CN/](docs/zh-CN/) are the same set):
 
-1. [Installation and updates](docs/en/installation.md)
-2. [Web UI](docs/en/web-ui.md)
-3. [Terminal UI](docs/en/terminal-ui.md)
-4. [Models and providers](docs/en/models.md)
-5. [Conversations](docs/en/conversations.md)
-6. [Tools and permissions](docs/en/tools-and-permissions.md)
-7. [Sandbox, secret masking and hooks](docs/en/sandbox-and-hooks.md)
-8. [Extensions: MCP, skills and custom agents](docs/en/extensions.md)
-9. [Browser and computer use](docs/en/browser-and-computer-use.md)
-10. [Scheduled and recurring tasks](docs/en/scheduled-tasks.md)
-11. [Chat channels](docs/en/chat-channels.md)
-12. [Background service and servers](docs/en/background-and-servers.md)
-13. [Windows](docs/en/windows.md)
-14. [Data and privacy](docs/en/data-and-privacy.md)
-15. [Cost](docs/en/cost.md)
-16. [Configuration and troubleshooting](docs/en/configuration.md)
-17. [Architecture](docs/en/architecture.md)
-18. [Testing](docs/en/testing.md)
-19. [Evals: is the assistant actually any good?](docs/en/evals.md)
-20. [Limitations, roadmap and FAQ](docs/en/limitations.md)
+1. [Installation and updates](docs/en/installation.md): updating and removing, installing a released version, where your data and keys are kept, the update check, and starting ZhiFox from another folder
+2. [Web UI](docs/en/web-ui.md): everything on the page (sidebar, attachments, settings, memory, extensions, the capability list), several conversations at once, and how the page is built
+3. [Terminal UI](docs/en/terminal-ui.md): the same assistant in a terminal, with slash commands
+4. [Models and providers](docs/en/models.md): the four providers and their keys, local models and your own gateway, what differs between providers, compaction of long conversations, backup models
+5. [Conversations](docs/en/conversations.md): saving and reopening, editing the last message, forking from a turn, undoing a turn's file edits, search
+6. [Tools and permissions](docs/en/tools-and-permissions.md): the three kinds of tools, parallel reads, the shell's current folder, approval modes and the read-only command check, writing your own tool
+7. [Sandbox, secret masking and hooks](docs/en/sandbox-and-hooks.md): the optional sandbox for commands (macOS, Linux), masking secrets in tool results, your own hooks
+8. [Extensions: MCP, skills and custom agents](docs/en/extensions.md): MCP servers, skills, custom agents (subagents and personas), and importing them from other tools
+9. [Browser and computer use](docs/en/browser-and-computer-use.md): reading a page with `web_fetch`, browser use in ZhiFox's own Chrome, and computer use of the whole desktop (advanced, off by default)
+10. [Scheduled and recurring tasks](docs/en/scheduled-tasks.md): reminders and tasks the assistant runs on its own, and how a run works when nobody is watching
+11. [Chat channels](docs/en/chat-channels.md): talking to ZhiFox from Telegram, Discord, Slack, Feishu, DingTalk or QQ, with the setup wizard, pairing, approvals in the chat and voice messages
+12. <a name="run-it-in-the-background"></a>[Background service and servers](docs/en/background-and-servers.md): keeping ZhiFox running with launchd, systemd or Task Scheduler, and `harness serve` on a server
+13. [Windows](docs/en/windows.md): what is different on Windows (PowerShell, Ctrl shortcuts, File Explorer) and what isn't supported there yet
+14. [Data and privacy](docs/en/data-and-privacy.md): every file ZhiFox keeps and who can read it, what the web page may make your computer do, export, backup and restore
+15. [Cost](docs/en/cost.md): what you pay for, the spending record and monthly budget, and what keeps the cost down
+16. [Configuration and troubleshooting](docs/en/configuration.md): optional settings in `.env`, and `harness doctor` when something doesn't work
+17. [Architecture](docs/en/architecture.md): what a harness is, which file does what, the agent loop and the run trace
+18. [Testing](docs/en/testing.md): free tests against local fake servers, page tests in headless Chrome, CI on three systems, releases
+19. [Evals: is the assistant actually any good?](docs/en/evals.md): measuring whether a real model does the right thing, with dry runs, real runs and the task format
+20. [Limitations, roadmap and FAQ](docs/en/limitations.md): what doesn't work yet or hasn't been tested with real keys, what may come next, and frequently asked questions
 
 ## Keywords
 
@@ -243,7 +243,7 @@ Python · terminal chat · web UI
 
 Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up a clone, running
 the tests for free (fake servers, no API key), and the rules a change keeps: tests with every change, three interface
-languages, both READMEs, and macOS, Windows and Linux. Report bugs with the
+languages, both READMEs and both languages of the docs, and macOS, Windows and Linux. Report bugs with the
 [bug report form](https://github.com/Akxan/zhifox-agent-harness/issues/new?template=bug_report.yml).
 
 ## Security
