@@ -71,7 +71,8 @@ def test_the_level_is_saved_as_soon_as_it_is_chosen(page):
     _choose(page, "#sandbox-level", "workspace")
     until(lambda: _saved(page)["level"] == "workspace", what="选了马上存下来")
     page.wait("document.getElementById('sandbox-state').textContent.length > 2 && document.getElementById('settings-message').textContent.length > 0", what="说一声")
-    assert page.text("#sandbox-level-text") != off_text, "下面那一句跟着选的那一档变"
+    # 下面那一句跟着选的那一档变：它是照着服务器发回来的状态画的，可能比"说一声"晚到一点（GitHub 的 Windows 机器上真晚过），所以等它
+    page.wait(f"document.getElementById('sandbox-level-text').textContent !== {off_text!r}", what="下面那一句跟着选的那一档变")
     # 这台电脑上用不用得了，两种情况都要说得对：用不了而且选了一档，是醒目的红色；用得了就不出现
     if page.js("!document.getElementById('sandbox-problem').hidden"):
         assert page.js("document.getElementById('sandbox-problem').classList.contains('bad')")

@@ -44,3 +44,28 @@ def test_a_conversation_from_a_chat_channel_names_its_platform_after_a_reload(pa
         assert shown.startswith("Telegram · "), f"应该写平台的名字，实际是：{shown!r}"
     finally:
         page.demo.api("/api/channel/remove", {"platform": "telegram"})
+
+
+def test_a_click_on_a_channel_is_not_lost_when_its_state_changes_between_press_and_release(page):
+    # 通道的状态一变（连上了、收到消息……）就重画整页。GitHub 的 Windows 机器上真丢过一下：刚接上 Telegram 时状态接连变了几次，
+    # 点"打开"的按下和松开之间正好重画了一次，按下的那个按钮已经不在了，浏览器不算这是一次点击，向导没打开
+    from fake_discord import TOKEN as DISCORD
+
+    assert page.demo.api("/api/channel/connect", {"platform": "telegram", "token": TOKEN})[0] == 200
+    try:
+        steps.extensions_tab(page, "channels")
+        button = "#panel-channels li.chan-row[data-platform='telegram'] .chan-open"
+        page.wait(f"document.querySelector({button!r}) && document.getElementById('count-channels').textContent === '1'", what="Telegram 连上了")
+        steps.idle(page)
+        x, y = page.reach(button)
+        page.mouse(x, y)
+        page.call("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1})
+        # 按着的时候再接上一个：状态变了（标签上的数字马上跟着变，整页的重画等松开）
+        assert page.demo.api("/api/channel/connect", {"platform": "discord", "token": DISCORD})[0] == 200
+        page.wait("document.getElementById('count-channels').textContent === '2'", timeout=30, what="状态到了：又连上一个")
+        page.call("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1})
+        page.wait("document.querySelector('#panel-channels .chan-stepper')", what="这一下点击算数了：向导打开")
+        steps.close_extensions(page)
+    finally:
+        for platform in ("telegram", "discord"):
+            page.demo.api("/api/channel/remove", {"platform": platform})

@@ -13,6 +13,9 @@
 // （最后在那里挂到扩展对话框上）。
 
 const chanPanel = $('panel-channels');
+// 状态一变（连上了、收到消息、配对码到了……）就重画整页：鼠标正按在这一页里时等松开再画（见 hold-redraw.js），
+// 否则点一行、点"下一步"的那一下会丢（GitHub 的 Windows 机器上真丢过：刚接上 Telegram 时状态接连变了几次）
+const chanLater = holdRedraws(chanPanel);
 const CHAN_STATUS = { online: k('在线'), connecting: k('连接中'), error: k('有问题'), off: k('已关闭') };
 const CHAN_STAGE = { ready: k('现在能用'), soon: k('即将支持'), public_url: k('需要公网地址 · 第二阶段'), unsupported: k('不支持') };
 const CHAN_STEPS = [k('建机器人'), k('填 token'), k('配对'), k('确认方式')];
@@ -136,7 +139,7 @@ function renderChannelsState(data) {
   const connected = chanConnected().length;
   $('count-channels').textContent = connected ? connected.toLocaleString(LOCALES[language]) : '';
   renderChanAlert();
-  if (extensionsDialog.open && extensionTab === 'channels') drawChannels();
+  if (extensionsDialog.open && extensionTab === 'channels') chanLater(drawChannels);
 }
 
 function drawChannels() {
