@@ -1,3 +1,9 @@
+"""动作之前先看一眼（BrowserSession 的一组方法，见 session.py 开头）：要做的这个动作碰的是什么，交给 permissions.py 决定问不问你。
+
+这里只说事实（Facts：是不是密码框、像不像银行卡号、点它会不会提交表单、是不是另一个网站嵌进来的框……），不做决定。
+不为了看一眼去打开浏览器：浏览器没开、这次运行还没有标签页，就照实说"看不到"（_live_tab 返回 None）。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

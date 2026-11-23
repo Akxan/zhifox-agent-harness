@@ -1,3 +1,12 @@
+"""价格和花费（App 的一组方法，见 app.py 开头）。
+
+算钱用的价格表由两部分拼成（merged_prices）：你在设置里给内置模型填的（按模型名），加上自定义接口上每个模型的（按"接口/模型"）。
+build_app 也用它（交给子 Agent 记账）。价格怎么算只在 pricing.py、账只记在 ledger.py；这里交出"该照哪一份价格"（prices、price_of），
+设置里改价格时记到对的地方（set_price），以及信息栏的"今天、本月花了多少，超没超预算"（spending，提醒的规矩在 budget.py）。
+
+为什么单独一个文件：这里只关系到钱，改它不会影响一段对话用的是哪个模型（那是 app_models.py）。
+"""
+
 from __future__ import annotations
 
 from . import budget
@@ -15,6 +24,8 @@ def merged_prices(settings: Settings, endpoints: EndpointStore) -> dict[str, dic
 
 
 class AppPrices(AppPart):
+    # ---- 价格和花费 ---------------------------------------------------------------
+
     def prices(self) -> dict[str, dict]:
         """算钱用的价格表（见 merged_prices）。"""
         return merged_prices(self.settings, self.endpoints)

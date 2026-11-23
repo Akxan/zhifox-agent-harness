@@ -1,3 +1,11 @@
+"""在一个标签页里做事的几样基本功（BrowserSession 的一组方法，见 session.py 开头）：每个动作都要用，它们自己不是动作。
+
+  - 页面里的脚本：page.js 放在一个"隔离世界"（WORLD）里，_js 调用它的一个函数、拿回结果；页面一跳转隔离世界就没了，用到时重建；
+  - 等待：_sleep 会被 stop() 叫醒；_input 做一个会动到页面的操作（点击、按键），再等页面安静下来，点的是链接就等新页面加载完；
+  - 截图：_capture 截一张；_preview 是给你看的：大图存起来（编号），小图直接给页面。
+Outcome（一个动作交回去的结果）也在这里：session.py 的 _finish 照它填好，tools/browser.py 把它变成交给模型的结果。
+"""
+
 from __future__ import annotations
 
 import base64

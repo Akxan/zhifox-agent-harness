@@ -1,3 +1,17 @@
+"""一段对话手里有哪些工具（App 的一组方法，见 app.py 开头）。
+
+一段对话的工具说明书从头到尾不变（变了 Claude 的缓存就失效，原因见 providers/claude.py），所以工具在这段对话开始时就摆好：
+  - fresh_tools：第一条消息发出之前（或者打开一段旧会话时）拍一张 MCP 的快照，连同自己的工具一起换上；
+  - conversation_tools：一段对话用哪些工具：基本的那一套（用它自己的 shell）、读网页、浏览器、操作电脑、send_file、
+    agent 工具、MCP 的快照；用一个 Agent 当角色的，只留它放开的。浏览器、电脑、读网页是"设置里开着，或者这段对话用过"
+    才带上（_wants_fetch、_wants_browser、_wants_computer）；
+  - refresh_tools：设置里开、关了其中一样，还没开始的这一段马上换上，开始了的不动；
+  - toolbox、tool_names：信息栏"智狐能做的事"（capabilities.py）和终端的 /tools 照着画的那一份。
+定时任务和聊天通道的一次运行摆的是同一套、顺序也一样（见 app_runs.py 的 _side_run），两边的工具清单才对得上。
+
+为什么单独一个文件："这段对话真正有哪些工具"只在这里算（toolbox），别处只照着用。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -50,13 +64,13 @@ class AppTools(AppPart):
         chat = chat or self.chat
         channel = chat.conversation.channel if channel is None else channel
         delegate = self.delegator.tool_for(chat.agent)
-        # 浏览器和电脑的 session 每次调用时现找：换一段对话时 chat 换上新的（见 _fresh_browser），工具还是这一套
+        # 浏览器和电脑的 session 每次调用时现找：换一段对话时 chat 换上新的（见 app_chat.py 的 _fresh_browser），工具还是这一套
         browser = make_browser_tools(lambda: chat.browser, lambda: self.browser.enabled) if self._wants_browser(chat) else []
         # 操作整台电脑也一样：设置里开着才带上（工具包的说明书每次请求约 4500 个 token），用过它的旧会话也带上
         desktop = make_computer_tools(lambda: chat.desktop, lambda: self.desktop.enabled) if self._wants_computer(chat) else []
         send = [make_send_tool(self.permissions.editor, None)] if channel else []
         # 读网页（见 tools/fetch.py）：和浏览器一样，设置里开着才带上，用过它的旧会话也带上。Claude 开着联网搜索时不发给它
-        # （服务器上本来就有一个，见 Backend.sends）。它的那一份状态每次调用时现找：换一段对话时 chat 换上新的（见 _fresh_fetch）
+        # （服务器上本来就有一个，见 Backend.sends）。它的那一份状态每次调用时现找：换一段对话时 chat 换上新的（见 app_chat.py 的 _fresh_fetch）
         fetch = [self._fetch_tool(lambda: chat.fetch, lambda: chat.agent.turns)] if self._wants_fetch(chat) else []
         tools = [*chat.tools, *fetch, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
         return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)

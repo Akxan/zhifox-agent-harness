@@ -8,7 +8,7 @@
   3. 服务器工具             Anthropic     Anthropic     web.py
 
 agent.py（把任务交给子 Agent）不在下面的 build_registry 里：它要知道"是谁在叫"（哪一方的界面、权限、第几层），
-所以每一方各做一个，由 app.py 和 agents/runner.py 放进那一方的工具箱。
+所以每一方各做一个，由 app_tools.py（你的对话）、app_runs.py（定时任务、聊天通道）和 agents/runner.py 放进那一方的工具箱。
 """
 
 from __future__ import annotations

@@ -1,3 +1,11 @@
+"""鼠标和键盘（BrowserSession 的一组方法，见 session.py 开头）：click、hover、drag、mouse（按下、松开、移动）、
+scroll、scroll_to、type、key、hold_key、form_input。
+
+要操作的位置是一个 Target：一个元素编号（ref，见 page.js），或者窗口里的一个点。_point 把它换成坐标（ref 的话量出元素的中心），
+_mouse 发一个鼠标事件，网页收到的和真人的一样（Input.dispatchMouseEvent、dispatchKeyEvent）。
+会动到页面的（点击、松开、按回车……）经过 session_page.py 的 _input：做完等页面安静下来，跳转了就告诉模型。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,6 +34,8 @@ class Target:
 
 
 class SessionInput(SessionPart):
+    # ---- 要操作的位置、鼠标事件 -----------------------------------------------------
+
     def _point(self, connection: Connection, tab: Tab, target: Target) -> tuple[int, int, str]:
         """要点的位置。ref 的话量出元素的中心（必要时先滚过去）。返回（x，y，给模型看的一句补充）。"""
         width, height = BROWSER_VIEWPORT
@@ -49,6 +59,8 @@ class SessionInput(SessionPart):
             session=tab.session,
             owner=self,
         )
+
+    # ---- 动作：鼠标 ---------------------------------------------------------------
 
     def _do_click(self, target: Target, button: str = "left", count: int = 1, modifiers: str = "", tab_id: str | None = None) -> Outcome:
         connection = self._connection()
@@ -136,6 +148,8 @@ class SessionInput(SessionPart):
             raise ToolError(f"{target.ref} 已经失效或者在这一页上找不到了。重新读一遍页面，拿新的编号。")
         self._sleep(0.15)
         return self._finish(connection, tab, f"把 {target.ref} 滚到了窗口中间。")
+
+    # ---- 动作：键盘、表单 -----------------------------------------------------------
 
     def _do_type(self, text: str, tab_id: str | None = None, ref: str = "", submit: bool = False) -> Outcome:
         """在当前选中的地方输入文字。ref：先选中那个元素（别家模型用的 browser_type）；submit：输完按回车。"""

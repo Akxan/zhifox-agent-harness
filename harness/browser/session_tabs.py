@@ -1,3 +1,11 @@
+"""一次运行自己的标签页：开一个、连上它、挑一个，以及管标签页的四个动作（BrowserSession 的一组方法，见 session.py 开头）。
+
+标签页的编号（tab-1、tab-2……）是这个 session 自己数的，用过的不再用；Chrome 里的编号（targetId）记在 Tab 里，不给模型看。
+连上一个标签页（_attach）时把它设成固定的大小、窗口不在最前面也当它有焦点、不弹"选择文件"的窗口。
+new_tab、list_tabs、switch_tab、close_tab 的结果只有一个 browser_state（session.py 的 _tabs_result）。
+_clean_title 也在这里：标签页的标题是网页自己定的，交给模型之前洗一遍（session.py 的 _state、session_look.py 读页面时都用它）。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,7 +27,7 @@ class Tab:
 
 
 class SessionTabs(SessionPart):
-    # ---- 连接和标签页 ---------------------------------------------------------
+    # ---- 标签页：开一个、连上、挑一个 -----------------------------------------------
 
     def _new_tab_entry(self, target: str) -> Tab:
         self._count += 1
@@ -67,6 +75,8 @@ class SessionTabs(SessionPart):
             raise ToolError(f"没有 {chosen} 这个标签页。现在开着的有：{', '.join(self.tabs) or '（没有）'}。")
         self._attach(connection, tab)
         return tab
+
+    # ---- 管标签页的四个动作（结果只有 browser_state，见 session.py 的 _tabs_result）----------
 
     def _do_new_tab(self) -> Outcome:
         connection = self._connection()

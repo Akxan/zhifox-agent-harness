@@ -220,7 +220,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/voice/`、`harness/webui/voice_api.py` | 语音转文字：设置（settings）、选哪一种服务和发出去（transcribe）、聊天通道收到语音时（listen）；页面在 `page/scripts/voice.js` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
 | `harness/fetch/`、`harness/tools/fetch.py` | 读网页（`web_fetch`）：给自己不能联网的模型的只读小工具。guard（哪些地址不去、网址怎么理解）、client（解析、检查、连到查过的地址、自己跟跳转、上限）、charset、readable（HTML → 文字）、content（按类型挑读法）、session（允许过的网站、每条消息几次） |
-| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
+| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图。一次运行的 `BrowserSession` 在 `session.py`（状态、run / facts / stop / close、收件箱、和 Chrome 的连接、每个动作的收尾），动作按小节以基类混进来：`session_tabs`（标签页）、`session_page`（调用 page.js、等待、截图）、`session_look`（打开、读页面）、`session_input`（鼠标、键盘）、`session_facts`（动作之前先看一眼），类型见 `session_types.py` 的 `SessionPart`；别处照旧 `from .session import BrowserSession, Facts, Outcome, Target` |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
@@ -228,7 +228,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/chat_cli.py`、`harness/history_cli.py` | 终端里的会话：一轮一轮地跑、每一轮存盘、`/retry` `/edit` 倒回、`/undo`、`/new` `/open` 换一段（chat_cli.py）；`/history` 和 `/open` 写出来的那几行（history_cli.py，只管怎么写） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
-| `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
+| `harness/app.py`、`harness/app_*.py` | 组装：`build_app`、`run_turn`；App 的字段（全部状态）和你正看着的那一段在 `app.py`，每一组方法一个文件、以基类混进 App（和 WebApp 一样）：`app_chat`（Chat 装着什么、怎么建）、`app_conversations`（会话：新建、打开、分叉、存盘、改名、删除）、`app_tools`（一段对话的工具、`toolbox`）、`app_models`（换模型、提示词、适配层、密钥、自定义接口）、`app_prices`（价格和花费）、`app_runs`（定时任务和聊天通道的一次运行、`UnattendedRun`），类型见 `app_types.py` 的 `AppPart`。别处照旧 `from harness.app import …` |
+| `harness/cli.py`、`config.py`、`settings.py`、`pricing.py` | 入口、配置、用户设置、计价 |
 | `harness/version.py`、`.github/workflows/release.yml`、`tests/release_notes.py`、`tests/smoke_release.py` | 版本号（只写在 pyproject.toml，`harness --version` 和 doctor 都从 `version.py` 拿）和发布（见上面的"发布新版本"） |
 | `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
 | `harness/updates.py`、`harness/updates_cli.py`、`harness/webui/updates_api.py` | 检查新版本（默认关着）：问 GitHub、比版本、缓存（`data/updates.json`）、后台线程、按装法给的升级命令（updates.py，不碰网页）；`harness updates`（updates_cli.py）；设置里那一节的接口和状态（updates_api.py），页面在 `page/scripts/updates.js` |
@@ -338,7 +339,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
   对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。
 - **你的几段对话、定时任务、聊天通道同时进行**（`harness/webui/sessions.py`、`sessions_api.py`）。
-  - 网页上一段"活着的"对话是一个 `Session`：`chat`（`app.py` 的 `Chat`：Agent 和适配层、会话、自己的 `Shell`、浏览器和电脑的 session、
+  - 网页上一段"活着的"对话是一个 `Session`：`chat`（`app_chat.py` 的 `Chat`：Agent 和适配层、会话、自己的 `Shell`、浏览器和电脑的 session、
     MCP 的快照和调用记在谁名下 `owner`）、它自己的事件日志 `ui`（WebUI）、一把锁 `lock`、`running`、存盘失败的原因 `unsaved`。
     `App.chat` 是你正看着的那一段，`App.agent`、`conversation`、`shell`、`chat_browser`、`chat_desktop` 都是它的：读它们的代码不用管有几段。
     **会在后台接着跑的代码**（`chat_api._run_turn` 和它调用的收尾）只用 Session 自己的东西，调用 App 的方法时传 `chat=`，
@@ -560,6 +561,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   - t() 给的是 Message（str 的子类）：和普通字符串放在一起时把容器标成 `list[str]`，不要 `str(t(...))`（会丢掉原文，换语言时没法重译）。
   - 整个 `harness` 包都查，没有哪个模块例外（`harness/webui/` 和 `harness/app.py` 以前不查，2026-11-22 收紧）。混进 WebApp 的那几组方法
     用到的 self 上的东西写在 `harness/webui/webapp_types.py` 的 `WebAppPart` 里（为什么、新的一组怎么写，见那个文件开头），
+    App 的那几组写在 `harness/app_types.py` 的 `AppPart`，BrowserSession 的写在 `harness/browser/session_types.py` 的 `SessionPart`
+    （混进来的方法会整个换掉的属性，要在 Protocol 里写一个值，原因见 `app_types.py` 开头），
     不要在 mixin 里写 `self: Any`、`getattr`，也不要给它们另开 `ignore_errors`。
 - **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
   （`install.from_source`：包的上一层有写着 harness-assistant 的 pyproject.toml，而且不叫 site-packages），别处不要再判断。

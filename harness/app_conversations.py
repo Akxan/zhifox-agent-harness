@@ -1,3 +1,16 @@
+"""会话：新建、打开、分叉、存盘、起标题、改名、删除、会话栏里的列表（App 的一组方法，见 app.py 开头）。
+
+一段会话（Conversation，见 conversations.py）是存在磁盘上的那一份：历史、事件、标题、用的是哪一家的哪个模型。
+这里管的是"一段对话（Chat，见 app_chat.py）现在接着的是哪段会话"，以及会话本身的增删改：
+  - 换到另一段上（new_conversation、open_conversation、fork_conversation，后两个都走 _continue）要同时换掉好几样：
+    适配层、会话、记住的选择、浏览器和电脑的 session、工具。规矩是"要么全换，要么都不动"（见 app_models.py 里
+    select_model 前面的那段说明）：会失败的先做完，都成了，再一口气在内存里换掉；
+  - 存盘、起标题、改名、删除照着磁盘上的会话库（ConversationStore）做；还开着的那几段（你正看着的、网页上在后台的）
+    在内存里的那份跟着改，下次存盘才不会改回去。还没存过盘的会话也列在会话栏里（conversation_summaries）。
+
+为什么单独一个文件："会话"这件事的全部在这里，和"用哪个模型"（app_models.py）、"手里有哪些工具"（app_tools.py）分开看。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -58,7 +71,7 @@ class AppConversations(AppPart):
         self._fresh_fetch(chat)
         # 手里的工具换成新的这一段会用的（它还没开始，换了不丢任何东西）：角色只放开的那些、上一段中途打开的浏览器……
         # 上一段是网页上打开的聊天通道会话的话，新的这一段不在聊天软件里，不带 send_file。
-        # 信息栏里"智狐能做的事"照着手里的工具画（见 toolbox），不换的话第一条消息之前列的还是上一段的
+        # 信息栏里"智狐能做的事"照着手里的工具画（见 app_tools.py 的 toolbox），不换的话第一条消息之前列的还是上一段的
         self.refresh_tools(chat)
         if persona is not None and persona.spec.model:
             self._remember_choice(provider_id, model)
@@ -130,13 +143,15 @@ class AppConversations(AppPart):
         self._fresh_browser(chat)
         self._fresh_desktop(chat)
         self._fresh_fetch(chat)
-        chat.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
+        chat.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 app_tools.py 的 conversation_tools）
         self.fresh_tools(chat)  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         # 命令从工作目录重新开始，不恢复当时停在哪儿；历史里执行过命令的，第一条命令的结果里说一声（见 tools/cwd.py）
         chat.shell.current.reset(reopened=commands_in(conversation.events))
         chat.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation
+
+    # ---- 存盘、标题、改名、删除、会话栏的列表 ------------------------------------------
 
     def save_conversation(self, events: list, chat: Chat | None = None) -> bool:
         """把一段会话写到磁盘（chat 不给是你正看着的这一段）。events 是界面上显示过的内容。还没有任何对话内容时不保存。

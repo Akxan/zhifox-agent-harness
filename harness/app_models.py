@@ -1,3 +1,16 @@
+"""用哪一家、哪个模型（App 的一组方法，见 app.py 开头）。
+
+  - provider：现在用的是哪一家；FALLBACK：设置里选的那一家不在了时，退回到哪一家的哪个模型；
+  - select_model、set_prompt：换模型、改提示词。适配层（Backend，见 providers/）里记着历史、系统提示词和工具说明书，
+    能接着用就接着用，不能就用 _backend_for 建一个新的；_remember_choice 把选择记进设置，下次启动还用它；
+  - attachment_problem：现在的模型收不收得了这些附件；
+  - set_api_key、sync_models：保存密钥，问服务器有哪些模型；
+  - 自定义模型接口（见 endpoints/）：存、删，改了以后正在用它的这一段怎么跟着换。
+"换了会怎样"（continue / fresh / leave）在 model_catalog.py 里判断，这里是真的去换。
+
+为什么单独一个文件：这些都是在换"助手背后连着的那个模型"；价格和花费只关系到钱，另在 app_prices.py。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -34,6 +47,8 @@ FALLBACK = ("anthropic", "claude-opus-5-5")
 
 
 class AppModels(AppPart):
+    # ---- 现在用的是哪一家；换模型、改提示词（换掉适配层）-------------------------------
+
     @property
     def provider(self) -> Provider:
         """当前使用的是哪一家。选中的自定义接口刚被删掉的话（删不掉正在用的，见 delete_endpoint，所以只有手改文件才会这样），
@@ -90,7 +105,7 @@ class AppModels(AppPart):
 
     def _backend_for(self, provider_id: str, model: str, persona: CustomAgent | None = None, channel: str | None = None, chat: Chat | None = None) -> Any:
         """建一个连着指定模型的新适配层（历史是空的）。persona：用哪个 Agent 当角色（None 是普通的对话）。
-        channel：这段会话是在哪个聊天通道里开始的（见 conversation_tools），不给就是 chat 那一段的。
+        channel：这段会话是在哪个聊天通道里开始的（见 app_tools.py 的 conversation_tools），不给就是 chat 那一段的。
         chat：给哪一段对话用（工具照着它摆），不给是你正看着的这一段。
         这一家不在了（自定义接口被删掉了）时抛出 ProviderError。"""
         provider = find(provider_id)
@@ -114,6 +129,8 @@ class AppModels(AppPart):
             self.settings.choose(provider_id, model)
         except OSError as exc:
             self.warnings.append(t("没能把这次选择的模型记下来（{error}），下次启动时用的还是之前记住的那个。", error=exc))
+
+    # ---- 附件、密钥、模型列表 -----------------------------------------------------
 
     def attachment_problem(self, attachments: Sequence[Attachment]) -> str:
         """当前的模型收不收得了这些附件。收不了的话返回说明，收得了返回空字符串。

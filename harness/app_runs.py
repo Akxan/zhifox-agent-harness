@@ -1,3 +1,14 @@
+"""定时任务的一次运行、聊天通道里的一个聊天：只属于它的那几样东西（App 的一组方法，见 app.py 开头）。
+
+它们和你的对话同时进行，所以凡是"会被停下"的都各用各的：自己的 shell、自己名下的 MCP 调用、自己的浏览器和电脑的 session、
+自己那一档权限和沙箱，花的钱记在 task 或 channel 名下。_side_run 是两边共用的那一套，unattended_agent（定时任务）和
+channel_agent（聊天通道）各填上自己的那几样。交回去的是一个 UnattendedRun：助手，加上停下（stop）和收尾（close）。
+它们不拿网页上的任何一把锁（见 webui/scheduler.py、channels/session.py）。
+
+为什么单独一个文件：你的对话（Chat，见 app_chat.py）和这两种"没人看着的运行"建起来的方式不一样，分开看不会混；
+共用的只有工具的摆法（和 app_tools.py 的 conversation_tools 一样）和大家共用的那几样（权限、遮密钥、备用模型、账本）。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -33,6 +44,8 @@ class UnattendedRun:
 
 
 class AppRuns(AppPart):
+    # ---- 定时任务的一次运行、聊天通道里的一个聊天 ----------------------------------------
+
     def unattended_agent(self, ui: Any, approval: str = "ask", sandbox: str = SANDBOX_DEFAULT) -> UnattendedRun:
         """给定时任务的一次运行准备一个助手，以及只属于这次运行的那几样东西（见 UnattendedRun）。
 
@@ -43,7 +56,7 @@ class AppRuns(AppPart):
           - 用的是此刻设置里选中的那一家、那个模型。之后你再换模型，只影响以后的运行；
           - 权限是这个任务自己的那一档（approval，见 Permissions.unattended），和你在对话里选的哪一档无关；
           - 沙箱也是这个任务自己的那一档（sandbox：default 跟随设置、off、workspace、network，见 sandbox/）；
-          - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 fresh_tools），而且记在这次运行自己的名下：
+          - MCP 的工具是开始运行那一刻拍的快照（和一段对话一样，见 app_tools.py 的 fresh_tools），而且记在这次运行自己的名下：
             停下这次运行，只取消它自己正在等的 MCP 调用，你的对话和别的任务的不受影响（见 McpManager.call）。
         别的工具和对话共用：背后是同一份待办、任务、记忆和工作目录里的文件，它们各自有锁（见 TodoStore、TaskStore、
         tools/files.py、tools/memory.py），几边同时改也不会互相冲掉。
@@ -62,7 +75,7 @@ class AppRuns(AppPart):
           - 沙箱也是这个通道自己的那一档（channels.json 里的 sandbox）。sandbox 每条命令前读一次：你在页面上改了马上算数；
           - 花的钱记在 channel 名下；
           - 在聊天里发 /new 某个 Agent 的名字，这段会话就用它当角色（persona）：和网页上用它开始一段对话一样
-            （见 new_conversation），提示词换成它的设定，工具只有它放开的那些。
+            （见 app_conversations.py 的 new_conversation），提示词换成它的设定，工具只有它放开的那些。
           - 多一个 send_file 工具：把这台电脑上的文件发到这个聊天里（outlet 是这个聊天，见 channels/outbound.py 和 tools/send.py）。
         在聊天里发 /stop，只结束这个聊天自己的命令、MCP 调用和浏览器操作；网页上的"停止"、别的聊天、定时任务都碰不到它。
         每一轮结束时调用 run.close，关掉这个聊天自己的浏览器标签页（和定时任务的一次运行一样）。
@@ -90,11 +103,11 @@ class AppRuns(AppPart):
         # 没有"这段对话里不再问"。和浏览器一样放在格子里，每一轮结束换一个新的
         desktop = [self.desktop.session(desktop_labels.TASK if source == "task" else desktop_labels.CHANNEL)]
         own_desktop = make_computer_tools(lambda: desktop[0], lambda: self.desktop.unattended) if self.desktop.unattended else []
-        # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 conversation_tools）：
+        # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 app_tools.py 的 conversation_tools）：
         # 两边的工具清单一字不差，在网页上接着聊也照样命中缓存
         own_send = [make_send_tool(self.permissions.editor, outlet)] if source == "channel" else []
         # 读网页：这次运行自己的一份（允许过的网站、这条消息里读了几次）。聊天通道里一段会话跑很多轮，一直用这一份：
-        # 这段会话里允许过的网站不再问。放的位置和网页上一样（见 conversation_tools），两边的工具清单才对得上
+        # 这段会话里允许过的网站不再问。放的位置和网页上一样（见 app_tools.py 的 conversation_tools），两边的工具清单才对得上
         fetch_session = FetchSession()
         own_fetch = [self._fetch_tool(lambda: fetch_session, lambda: agent.turns)] if self.settings.web_fetch else []
         tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_fetch, *own_browser, *own_desktop, *own_send])
@@ -105,12 +118,12 @@ class AppRuns(AppPart):
         # 这一次运行也是"一段对话"：用此刻已经连上的 MCP 服务器的工具拍一张快照，跑完之前不再变。
         # 不改 self.mcp.active：那是你正在看的这段对话的快照，信息栏和 MCP 一页按它显示
         everything = [*tools, *([delegate] if delegate else []), *self.mcp.snapshot(owner).tools]
-        # 用一个 Agent 当角色的：只留它放开的工具（和网页上的 conversation_tools 一样）
+        # 用一个 Agent 当角色的：只留它放开的工具（和网页上的 conversation_tools 一样，见 app_tools.py）
         agent.use_tools(ToolRegistry(agent_tools.allowed(persona.spec.tools, everything) if persona is not None else everything))
         # 花的钱也记进账本，来源写成 task 或 channel，花费明细里就能和对话分开看。每次运行各有一个助手，各自记各自的
         agent.on_call = self.ledger.recorder(self.prices, source=source)
         agent.redact = self.agent.redact  # 遮密钥：和你的对话同一个（同一份已知的密钥、同一个开关，见 redact.py）
-        agent.fallbacks = self.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 build_app）
+        agent.fallbacks = self.fallbacks  # 备用模型和你的对话用同一份设置（每次现读，见 app.py 的 build_app）
         # 每一轮的运行记录（见 trace/）交给这次运行自己的界面：存进这次运行（这个聊天）的会话里，和网页上的对话一样
         agent.on_trace = getattr(ui, "trace", None)
         # 你的钩子也照样跑（runsIn 里有 task / channel 的那些，默认都有，理由见 hooks/__init__.py）。

@@ -2,10 +2,33 @@
 
 终端版和网页版从这里拿到的是同一套东西，区别只在于传进来的界面（ui）不同。
 
-你的一段对话用的东西（助手、会话、shell、浏览器和电脑的 session……）装在一个 Chat 里。终端界面只有一个；
+你的一段对话用的东西（助手、会话、shell、浏览器和电脑的 session……）装在一个 Chat 里（见 app_chat.py）。终端界面只有一个；
 网页上可以几段对话同时进行（见 webui/sessions.py），每段一个。App.chat 是你正看着的那一段，
 App.agent、App.conversation、App.shell、App.chat_browser、App.chat_desktop 都是它的，读它们的代码不用管有几段。
-会在后台接着跑的那几段，调用这里的方法时把它们自己的 Chat 传进来（chat=…），不要用 App.agent 这些。
+会在后台接着跑的那几段，调用 App 的方法时把它们自己的 Chat 传进来（chat=…），不要用 App.agent 这些。
+
+## App 由几块拼成
+
+这个文件里是几块都要用的部分：App 的字段（全部的状态）、"你正看着的这一段"（上面那几个属性、chats、view）、
+攒下的提醒和退出时的收尾，以及 build_app（把一切建起来）、run_turn / retry_turn（跑一轮，出错不退出）。
+每一组功能的方法写在它自己的文件里，以基类的形式混进 App：
+
+  AppChats          app_chat.py           一段对话（Chat）：建起来、接上共用的那几样，换会话时换上新的 session，不用了收掉
+  AppConversations  app_conversations.py  会话：新建、打开、分叉、存盘、起标题、改名、删除、会话栏的列表
+  AppTools          app_tools.py          一段对话手里有哪些工具：MCP 快照，浏览器、电脑、读网页带不带，信息栏照着画的那一份
+  AppModels         app_models.py         用哪一家、哪个模型：换模型、改提示词、建适配层、附件、密钥、模型列表、自定义接口
+  AppPrices         app_prices.py         价格和花费
+  AppRuns           app_runs.py           定时任务的一次运行、聊天通道里的一个聊天（UnattendedRun）
+
+为什么是混进来的基类（和 webui/webapp.py 的 WebApp 同一个道理），而不是 app.models.select(...) 这样另建几个对象：
+方法的名字照旧是 app.select_model(...)，调用它们的地方（网页界面、终端、定时任务、聊天通道、测试）一个都不用改；
+这些方法用的又都是 App 自己的状态（self.config、self.chat……），放在别的对象上也得一路 self.app. 回来。
+混进来的类只有方法：不存状态，状态都是下面 App 的字段，一眼看得全。
+每个 AppXxx 都继承 AppPart（app_types.py）：单看那个类，类型检查不知道 self 上有 config、chat、_backend_for……，
+AppPart 把这些写给它看（运行时是空的）。新的一组功能照这样办：方法写进它自己的 app_xxx.py 里的 AppXxx，加进 App 的基类；
+要新的状态就加一个字段、写明是给谁用的；用到了别的文件里的字段或方法，按 app_types.py 开头说的在 AppPart 里补一行。
+
+Chat、UnattendedRun、FALLBACK、merged_prices 跟着用它们的代码搬走了，这里照旧导出（__all__）：别处 from .app import … 不用改。
 """
 
 from __future__ import annotations
@@ -59,12 +82,14 @@ __all__ = ["FALLBACK", "App", "Chat", "UnattendedRun", "build_app", "merged_pric
 
 @dataclass
 class App(AppChats, AppConversations, AppTools, AppModels, AppPrices, AppRuns):
+    # ---- 状态：几组方法共用的全部东西（混进来的每一组用到其中哪些，见 app_types.py）----
+
     config: Config
     settings: Settings
     todos: TodoStore
     tasks: TaskStore  # 定时任务（只在网页界面开着的时候运行，见 webui/scheduler.py）
     tools: ToolRegistry  # 基本的工具（一开始的那一段对话、定时任务、聊天通道都从它换上自己的 shell）
-    system_prompt: str  # 新的一段对话要用的系统提示词（用户可以改，见 prompt.py 和 set_prompt）
+    system_prompt: str  # 新的一段对话要用的系统提示词（用户可以改，见 prompt.py 和 app_models.py 的 set_prompt）
     client_factory: ClientFactory
     store: ConversationStore  # 保存在磁盘上的全部会话
     media: MediaStore  # 发过的附件的原件（多媒体库，见 media.py）
@@ -85,14 +110,14 @@ class App(AppChats, AppConversations, AppTools, AppModels, AppPrices, AppRuns):
     fallbacks: Callable[[str, str], list[str]] | None = None  # 备用模型的名单（见 fallback.py），每次现读设置
     # 读网页时真正去取的那一个（见 fetch/client.py）。程序里从来不换；测试换成一个能连本地假网站的（不在设置里，模型也碰不到）
     fetcher: Fetcher = field(default_factory=Fetcher)
-    chat: Chat = None  # type: ignore[assignment]  # 你正看着的这一段（见 Chat）。build_app 建好以后才有
+    chat: Chat = None  # type: ignore[assignment]  # 你正看着的这一段（见 app_chat.py 的 Chat）。build_app 建好以后才有
     # 此刻活着的每一段（包括正看着的这一段）。网页界面换成它自己的那份名单（见 webui/sessions.py）；终端只有 chat 这一段
     live: Callable[[], Sequence[Chat]] | None = None
     warnings: list[str] = field(default_factory=list)  # 做成了、但有一点没做好的事，等界面取走显示（见 take_warnings）
     # 换"正看着哪一段"和设 McpManager.active 时拿的小锁：后台那一段刚拍完快照的同一刻你换了一段，不能把它的快照装到你正看着的这一段上
     _viewing: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    # ---- 你正看着的这一段（见 Chat）-----------------------------------------------
+    # ---- 你正看着的这一段（Chat 见 app_chat.py）------------------------------------
 
     @property
     def agent(self) -> Agent:
@@ -163,6 +188,8 @@ class App(AppChats, AppConversations, AppTools, AppModels, AppPrices, AppRuns):
         persona = self.persona if self.persona is not None and self.persona.name == name else None
         return {"name": name, "color": persona.spec.color if persona else "", "missing": persona is None}
 
+    # ---- 攒下的提醒、退出 -----------------------------------------------------------
+
     def take_warnings(self) -> list[str]:
         """取走攒下的提醒（取走就清空）。"""
         taken, self.warnings = self.warnings, []
@@ -174,6 +201,9 @@ class App(AppChats, AppConversations, AppTools, AppModels, AppPrices, AppRuns):
         self.browser.close()
         for chat in self.chats():
             chat.desktop.close()
+
+
+# ---- 建起来、跑一轮 --------------------------------------------------------------
 
 
 def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_client) -> App:
@@ -203,7 +233,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
     system_prompt = build_system_prompt(config)
     mcp = McpManager(McpConfig(config.mcp_file))
     permissions = Permissions(files, private=[config.data_dir], tasks=tasks, mcp=mcp, commands=commands)
-    # 每调用一次模型记一笔账（见 ledger.py 和 App._wire）。终端和网页都记
+    # 每调用一次模型记一笔账（见 ledger.py 和 app_chat.py 的 App._wire）。终端和网页都记
     ledger = Ledger(config.ledger_file)
 
     def prices() -> dict[str, dict]:
@@ -239,7 +269,7 @@ def build_app(config: Config, ui: Any, client_factory: ClientFactory = make_clie
         changes=changes,
         permissions=permissions,
         # 工具的结果先遮一遍密钥再交给模型（见 redact.py）：认 .env 里的、自定义接口的密钥，开没开每次现看设置。
-        # 你的每段对话、定时任务、聊天通道、子 Agent 都用这同一个（见 _wire、_side_run 和 agents/runner.py）
+        # 你的每段对话、定时任务、聊天通道、子 Agent 都用这同一个（见 app_chat.py 的 _wire、app_runs.py 的 _side_run 和 agents/runner.py）
         redact=Redactor(
             config.env_file,
             known=lambda: [("自定义接口的密钥", endpoint.api_key) for endpoint in endpoints.list() if endpoint.api_key],

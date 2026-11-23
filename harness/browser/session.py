@@ -19,6 +19,24 @@
 
 stop() 让正在进行的那个动作马上结束：还在等 Chrome 回答的命令立刻作废（Connection.cancel），
 在等页面加载、在 wait 的也立刻醒来。只停这一个 session 的：别的运行照常。
+
+## BrowserSession 由几块拼成
+
+和 App（app.py）、WebApp（webui/webapp.py）是同一种写法：这个文件里是几块都要用的部分，每一组方法写在它自己的文件里，
+以基类的形式混进来：
+
+  这个文件          状态（__init__）、对外的四个方法（run、facts、stop、close）、manager 在读线程里交来的事（收件箱）、
+                    和 Chrome 的连接、每个动作的收尾（攒下的说明、标签页的情况）
+  session_tabs.py   SessionTabs：开一个标签页、连上它、挑一个；管标签页的四个动作。Tab 也在那里
+  session_page.py   SessionPage：在页面里做事的基本功：调用 page.js、等页面安静下来、截图。Outcome 也在那里
+  session_look.py   SessionLook：去哪一页、看这一页（navigate、截图、放大、读页面、找元素、等）
+  session_input.py  SessionInput：鼠标和键盘（点、拖、滚动、打字、按键、填表单）。Target 也在那里
+  session_facts.py  SessionFacts：动作之前先看一眼，给 permissions.py。Facts 也在那里
+  session_types.py  SessionPart：混进来的几组方法要用的、别的文件里的东西，只写给类型检查（mypy）看
+
+run(action) 照旧按名字找 _do_<action>，不管它写在哪个文件里；别处照旧 from .session import BrowserSession、Facts、Outcome、Target。
+混进来的类只有方法，状态只在 __init__ 里。会把 _notes、_changes 整个换掉的 _state、_finish、_tabs_result 也留在这里，
+和往里放东西的收件箱（_drain）挨着：一样东西从哪儿来、到哪儿去，在一个文件里看得全（另一个原因见 session_types.py 开头）。
 """
 
 from __future__ import annotations
@@ -96,7 +114,7 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
                 self.manager.ended()
 
     def facts(self, action: str, **args: Any) -> Facts:
-        """要做的这个动作碰的是什么（见 Facts）。不会为了看一眼去打开浏览器。"""
+        """要做的这个动作碰的是什么（见 session_facts.py 的 Facts）。不会为了看一眼去打开浏览器。"""
         with self._lock:
             self._drain()
             try:
@@ -194,6 +212,8 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
             self._cdp_sessions.clear()
             self._inbox = [item for item in self._inbox if item[0] == "note"]
 
+    # ---- 和 Chrome 的连接 ---------------------------------------------------------
+
     def _connection(self) -> Connection:
         """拿到和 Chrome 的连接（没开就打开）。Chrome 在两次动作之间重启过的话，旧的标签页都作废。"""
         connection, generation = self.manager.connect()
@@ -205,7 +225,7 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
             self._generation = generation
         return connection
 
-    # ---- 标签页的情况（browser_state） -------------------------------------------
+    # ---- 每个动作的收尾：攒下的说明、标签页的情况（browser_state） ----------------------
 
     def _state(self, connection: Connection, force: bool = False) -> dict | None:
         """现在开着哪些标签页、哪个在前面（Claude 的工具包要的格式）。和上次报告的一样、也没有新变化，返回 None。"""
