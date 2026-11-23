@@ -4333,7 +4333,8 @@ more often a bug in a task or a check than a fact about the model.
 - Search doesn't support pinyin (typing `baogao` won't find "报告"). It keeps the text of every conversation in memory,
   so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
   searchable until it has been saved.
-- One conversation at a time: while one is replying, you can't switch to another, rename one or delete one.
+- At most three conversations run at the same time in the web UI (`MAX_PARALLEL_CHATS`), and one that is running can't
+  be renamed or deleted until it finishes or you stop it. The terminal UI has one conversation.
 - The web UI renders a subset of Markdown: CommonMark plus GitHub's tables, task lists and strikethrough. Images
   aren't loaded (you see their description and address), raw HTML is shown as text, links work only for http, https
   and mailto, and indented code blocks, reference-style links and footnotes aren't supported. Code coloring knows
