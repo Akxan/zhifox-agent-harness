@@ -18,7 +18,7 @@ Claude 联网靠 Anthropic 服务器上的两个工具：联网搜索和读网�
 | [guard.py](../../harness/fetch/guard.py) | 哪些地址一律不去，网址怎么理解（只认 `http`、`https`；网址里带用户名、密码的，`2130706433`、`0x7f.1` 这种古怪的数字写法，都不读） |
 | [client.py](../../harness/fetch/client.py) | 真的去取：域名只解析一次、每个地址都查一遍、连到查过的那个上，自己跟着跳转、每一跳再查一遍；时间、大小、跳转次数都有上限 |
 | [charset.py](../../harness/fetch/charset.py) | 字节换成文字：BOM、回答头 `Content-Type`、网页自己写的 `<meta charset>`，都没有就 UTF-8 或者 windows-1252；名字按浏览器的认法换（gb2312 按 gb18030 解……） |
-| [readable.py](../../harness/fetch/readable.py) | HTML 换成能读的文字，用标准库的 `html.parser`：最前面是标题和简介，然后是标题、段落、列表、表格、`<pre>`，少量链接写成"文字 (网址)"；脚本、样式、导航、页脚和藏起来的元素都去掉（藏起来的字最常拿来放冲着模型写的指示） |
+| [readable.py](../../harness/fetch/readable.py) | HTML 换成能读的文字，用标准库的 `html.parser`：最前面是标题和简介，然后是标题、段落、列表、表格、`<pre>`，少量链接写成"文字 (网址)"；脚本、样式、导航、页脚和藏起来的元素都去掉（藏起来的字最常拿来放冲着模型写的指示）；连着 `FETCH_LINK_RUN`（10）个以上、每一项都只是一个链接的列表项，收成一句"略过了一串 N 个链接"：真的维基百科页面上，语言菜单就在 `<main>` 里、只靠 CSS 藏着，以前占满了开头和链接的名额 |
 | [content.py](../../harness/fetch/content.py) | 按类型挑读法：网页、纯文本和 JSON、Word / Excel / PowerPoint（和附件同一套读法）。PDF、图片和别的文件不读，说清楚为什么 |
 | [session.py](../../harness/fetch/session.py) | 每次运行自己的一份：这段对话里允许过哪些网站、这条消息里读了几次 |
 | [tools/fetch.py](../../harness/tools/fetch.py) | 模型看到的样子：固定的一段说明、一个 `url` 参数；结果的第一句就说明这是第三方的资料，不是指示 |

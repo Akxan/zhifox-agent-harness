@@ -551,3 +551,46 @@ def test_cut_office_file_unreadable():
 def test_broken_office_file_unreadable():
     with pytest.raises(content.Unreadable, match="损坏"):
         content.extract(fetched(DOCX_TYPE, b"PK\x03\x04not really a zip", url="https://example.com/a.docx"))
+
+
+# ---- 一长串只是链接的列表项：导航、语言列表 --------------------------------------------
+
+
+def _languages(n: int) -> str:
+    return "<ul>" + "".join(f"<li><a href='https://l{k}.wikipedia.org/wiki/Fox'>语言{k}</a></li>" for k in range(n)) + "</ul>"
+
+
+BODY = "<p>" + "赤狐是体型最大的狐狸。" * 30 + "</p>"
+
+
+def test_a_long_run_of_link_only_list_items_is_folded_into_one_line():
+    # 2026-11-23 用真的网络读维基百科：新版的皮肤把语言下拉菜单放在 <main> 里、只靠 CSS 藏着，HTML 里看不出它藏起来了，
+    # 正文前面先是一百多个"语言 (网址)"，还把链接的名额（FETCH_MAX_LINKS）全用掉了，正文里的链接反而没有网址
+    html = f"<main>{_languages(120)}{BODY}<p>另见<a href='/wiki/Vulpes'>狐属</a>。</p></main>"
+    page = readable.read(html, "https://zh.wikipedia.org/wiki/x")
+    assert "语言5" not in page.text and "l5.wikipedia" not in page.text
+    assert "略过了一串 120 个链接" in page.text
+    assert "赤狐是体型最大的狐狸" in page.text
+    assert "狐属 (https://zh.wikipedia.org/wiki/Vulpes)" in page.text  # 名额没被导航用掉
+
+
+def test_short_link_lists_and_lists_with_words_stay():
+    short = _languages(readable.FETCH_LINK_RUN - 1)
+    described = "<ul>" + "".join(f"<li><a href='/p{k}'>工具{k}</a>：一个很好用的小工具，用来做第 {k} 件事</li>" for k in range(30)) + "</ul>"
+    page = readable.read(f"<main>{short}{described}{BODY}</main>", "https://example.com/")
+    assert f"语言{readable.FETCH_LINK_RUN - 2}" in page.text  # 短的一串留着
+    assert "工具29" in page.text and "第 29 件事" in page.text  # 每一项有说明的也留着
+    assert "略过" not in page.text
+
+
+def test_two_runs_are_folded_separately_and_the_words_between_stay():
+    page = readable.read(f"<main>{_languages(20)}<p>中间的一段话，讲的是正文。</p>{_languages(15)}{BODY}</main>", "https://example.com/")
+    assert "略过了一串 20 个链接" in page.text and "略过了一串 15 个链接" in page.text
+    assert "中间的一段话" in page.text
+
+
+def test_the_marker_for_a_link_cannot_be_faked_by_the_page():
+    # 链接的网址先记成一个记号，最后按名额换成"(网址)"：网页里自己写的那两个记号字符先去掉，不能冒充一个链接
+    page = readable.read("<p>看https://evil.example/这里</p>", "https://example.com/")
+    assert "" not in page.text and "" not in page.text
+    assert "(https://evil.example/)" not in page.text

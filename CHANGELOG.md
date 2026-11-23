@@ -69,6 +69,9 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Fixed
 
+- `web_fetch` folds a long run of list items that are nothing but a link (a language menu, a navigation list) into one
+  line. On real Wikipedia pages the language menu sits inside `<main>`, hidden only by CSS, and its 150-odd links came
+  before the article and used up the 60 link addresses, so links in the article itself lost theirs.
 - **Extensions → Channels**: clicking a channel just as its state changed (connecting, a message arriving) could be
   lost, because the whole page was redrawn between the press and the release. Redraws now wait until the mouse is
   released, as the model switcher and the hooks page already did.

@@ -4,13 +4,17 @@
   标题（<title>，没有的话用第一个 h1）、简介（<meta name="description">），放在最前面
   h1~h6 写成 # 开头的一行（几级几个 #）；段落、div 这类各占一行；列表项前面加 "- "（有序列表写 1. 2. …）；
   表格一行一行写，格子之间用 " | " 隔开；<pre> 里的原样保留缩进和换行
-  链接写成"文字 (网址)"，但最多 FETCH_MAX_LINKS 个（只认 http、https；页内的 #锚点不写），图片只写它的 alt
+  链接写成"文字 (网址)"，但最多 FETCH_MAX_LINKS 个（只认 http、https；页内的 #锚点不写），图片只写它的 alt。
+  名额在整页读完以后才分：读的时候每个网址先记成一个记号，下面那一串导航收起来以后，从前往后换成"(网址)"，用完了的只留文字
 去掉的：
   脚本、样式、<noscript>、<template>、SVG、内嵌的框（iframe）、导航（nav）、侧栏（aside）、页脚（footer）、按钮、下拉框、对话框，
   以及藏起来的（hidden、aria-hidden="true"、style 里写着 display:none 或 visibility:hidden）：
   藏起来的文字你看不到，却常常是冲着模型写的指示（提示词注入），不交给它。
 正文在哪儿：网页里有 <main>（或者 role="main"）、<article> 的，而且里面的字不算太少（MAIN_MIN_CHARS），只留它们里面的；
 没有的话留下整页（去掉上面那些）。
+连着 FETCH_LINK_RUN 个以上、每一项都只是一个链接的列表项（导航、语言列表），收成一句"略过了一串 N 个链接"：
+维基百科新版的皮肤把语言下拉菜单放在 <main> 里、只靠 CSS 藏着，HTML 里看不出它藏起来了（2026-11-23 用真的网络读出来的）。
+正文里的列表多半每一项带着说明，短的几个链接也留着。
 
 写坏了的 HTML（没关上的 <p>、<li>）很常见：要跳过的那一段用一个栈记着里面开过哪些标签，碰到外层的结束标签就把里面没关的一起关上。
 """
@@ -23,7 +27,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 from ..browser import urls
-from ..config import FETCH_MAX_LINKS
+from ..config import FETCH_LINK_RUN, FETCH_MAX_LINKS
 
 # 整段跳过的标签（里面的东西都不要）
 SKIP = {
@@ -41,6 +45,11 @@ BLOCK = {
 HEADINGS = {f"h{level}": level for level in range(1, 7)}
 MAIN_MIN_CHARS = 200  # <main>、<article> 里至少有这么多字才只留它们（太少的多半是一个小卡片，正文在别处）
 _SPACES = re.compile(r"\s+")
+# 链接的网址在读的时候先记成 记号开始 + 网址 + 记号结束（私用区的两个字符），整页读完才按名额换成" (网址)"或者去掉。
+# 网页里自己写的这两个字符在 handle_data 里先去掉，冒充不了一个链接
+_LINK_OPEN, _LINK_CLOSE = "\ue010", "\ue011"
+_LINK_MARK = re.compile(f"{_LINK_OPEN}([^{_LINK_CLOSE}]*){_LINK_CLOSE}")
+_ITEM_PREFIX = re.compile(r"\s*(?:-|\d+\.) $")
 _HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
 
 
@@ -69,13 +78,14 @@ class _Reader(HTMLParser):
         self.skipping: list[str] = []  # 正在跳过的那一段里开着的标签（空的就是没在跳过）
         self.open: list[str] = []  # 开着的标签（不算跳过的那一段）：结束标签对上的是哪一个，没关上的一起关上
         self.mains: list[int] = []  # 开着的 main、article（以及 role="main" 的那个标签）在 open 里的位置
-        self.lines: list[tuple[str, bool]] = []  # （一行字，是不是在正文里）
+        self.lines: list[tuple[str, bool, bool]] = []  # （一行字，是不是在正文里，是不是只是一个链接的列表项）
+        self.line_chars = 0  # 这一行里的字有多少（不算空白），其中多少在链接里：看它是不是"只是一个链接"
+        self.line_link_chars = 0
         self.buffer: list[str] = []  # 这一行还没写完的几段
         self.prefix = ""  # 这一行前面要加的："## "、"- "、"1. "
         self.pre = 0  # 在几层 <pre> 里面
         self.lists: list[list] = []  # 开着的列表：["ul" 或 "ol"，已经数到第几项]
         self.link: tuple[str, int] | None = None  # 开着的链接：（网址，它的文字从 buffer 的第几段开始）
-        self.links = 0
         self.first_heading = ""
 
     # ---- 标签 ----------------------------------------------------------------
@@ -166,6 +176,11 @@ class _Reader(HTMLParser):
         if self.in_title:
             self.title.append(data)
             return
+        data = data.replace(_LINK_OPEN, "").replace(_LINK_CLOSE, "")  # 冒充不了链接的记号（见 _LINK_MARK）
+        size = len("".join(data.split()))
+        self.line_chars += size
+        if self.link is not None:
+            self.line_link_chars += size
         self.buffer.append(data if self.pre else _SPACES.sub(" ", data))
 
     # ---- 帮手 ----------------------------------------------------------------
@@ -202,35 +217,68 @@ class _Reader(HTMLParser):
         href, start = self.link
         self.link = None
         text = "".join(self.buffer[start:]).strip()
-        if href and text and self.links < FETCH_MAX_LINKS and href.rstrip("/") != text.rstrip("/"):
-            self.buffer.append(f" ({urls.shown(href)})")
-            self.links += 1
+        if href and text and href.rstrip("/") != text.rstrip("/"):
+            self.buffer.append(f"{_LINK_OPEN}{urls.shown(href)}{_LINK_CLOSE}")  # 名额整页读完才分（见 page）
 
     def _flush(self) -> None:
         self._close_link()  # 一行要结束了，链接还没关上（写坏了的 HTML）：先把它的网址写上，不然会跟到下一行去
         raw = "".join(self.buffer)
         self.buffer = []
         in_main = bool(self.mains)
+        # 只是一个链接的列表项："- 语言 (网址)" 这样，几乎所有的字都在链接里（见 page 里收起来的那一步）
+        only_link = bool(_ITEM_PREFIX.match(self.prefix)) and self.line_chars > 0 and self.line_link_chars >= 0.9 * self.line_chars
+        self.line_chars = self.line_link_chars = 0
         if self.pre:
             for line in raw.strip("\n").split("\n"):
-                self.lines.append((line.rstrip(), in_main))
+                self.lines.append((line.rstrip(), in_main, False))
         else:
             line = _SPACES.sub(" ", raw).strip()
             if line:
                 if self.prefix == "# " and not self.first_heading:
-                    self.first_heading = line
+                    self.first_heading = _LINK_MARK.sub("", line)
                 if self.prefix.startswith("#") and self.lines and self.lines[-1][0]:
-                    self.lines.append(("", in_main))  # 标题前面空一行，读起来分得清一节一节的
-                self.lines.append((self.prefix + line, in_main))
+                    self.lines.append(("", in_main, False))  # 标题前面空一行，读起来分得清一节一节的
+                self.lines.append((self.prefix + line, in_main, only_link))
                 self.prefix = ""
 
     def page(self) -> Page:
         self._flush()
-        main = [line for line, inside in self.lines if inside]
-        chosen = main if sum(len(line) for line in main) >= MAIN_MIN_CHARS else [line for line, _ in self.lines]
-        text = re.sub(r"\n{3,}", "\n\n", "\n".join(chosen)).strip()
+        main = [(line, link) for line, inside, link in self.lines if inside]
+        chosen = main if sum(len(line) for line, _ in main) >= MAIN_MIN_CHARS else [(line, link) for line, _, link in self.lines]
+        kept = _fold_link_runs(chosen)
+        budget = [FETCH_MAX_LINKS]  # 名额从前往后分：收起来的导航不占
+
+        def shown(found: re.Match) -> str:
+            if budget[0] <= 0:
+                return ""
+            budget[0] -= 1
+            return f" ({found.group(1)})"
+
+        text = re.sub(r"\n{3,}", "\n\n", _LINK_MARK.sub(shown, "\n".join(kept))).strip()
         title = _SPACES.sub(" ", "".join(self.title)).strip() or self.first_heading
         return Page(title=title[:300], description=self.description, text=text)
+
+
+def _fold_link_runs(lines: list[tuple[str, bool]]) -> list[str]:
+    """连着 FETCH_LINK_RUN 个以上只是一个链接的列表项，换成一句（见文件开头）。别的行原样。"""
+    kept: list[str] = []
+    run: list[str] = []
+
+    def end_run() -> None:
+        if len(run) >= FETCH_LINK_RUN:
+            kept.append(f"（这里略过了一串 {len(run)} 个链接：多半是导航、语言列表这一类）")
+        else:
+            kept.extend(run)
+        run.clear()
+
+    for line, only_link in lines:
+        if only_link:
+            run.append(line)
+            continue
+        end_run()
+        kept.append(line)
+    end_run()
+    return kept
 
 
 def _hidden(values: dict[str, str]) -> bool:
