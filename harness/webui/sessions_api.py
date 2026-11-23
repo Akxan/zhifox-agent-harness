@@ -9,7 +9,7 @@ SessionActions 混进 WebApp（见 webapp.py）：只有方法，用到的状态
   _viewed_idle     拿 _switch 和你正看着的那一段的锁（换模型、填密钥、改提示词、改自定义接口、撤回文件）
   _take            发消息、重新生成时拿正看着的那一段的锁，一直拿到这一轮收尾
   _too_many、_busy_everywhere   到了同时几段的上限、全局的操作碰上有几段在跑时，说清楚为什么
-  _show            换成看名单里的另一段：信息栏、MCP、"现在用的模型"跟着它，事件流换一份日志读（见 server.py 的 _send_events）
+  _show            换成看名单里的另一段：信息栏、MCP、"现在用的模型"跟着它，事件流换一份日志读（见 server_events.py 的 _send_events）
   _left_behind     换走以后，原来那一段怎么办：没在跑的丢掉（_discard），在跑的留在后台接着跑
   _settle          一轮结束：记下跑完了（在后台的那一段标上"跑完了""出错了"，存好了盘的从名单里拿掉）、发状态、告诉页面、放开锁
   answer_confirm   确认卡片的编号是全局唯一的，按编号找到是哪一段在等，只答到那一段

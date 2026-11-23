@@ -129,6 +129,7 @@ from fake_telegram import TOKEN, FakeTelegram
 
 import harness.webui.reveal as reveal_module
 import harness.webui.server as server_module
+import harness.webui.server_page as page_module
 from harness import console, machine
 from harness.agents import examples as agent_examples
 from harness.app import build_app
@@ -831,8 +832,8 @@ send_page = server_module.Handler._send_page
 
 
 def send_fresh_page(self) -> None:
-    server_module.PAGE = assemble_page()
-    server_module.MARKDOWN = (Path(server_module.__file__).parent / "markdown.js").read_text(encoding="utf-8")
+    page_module.PAGE = assemble_page()
+    page_module.MARKDOWN = (Path(page_module.__file__).parent / "markdown.js").read_text(encoding="utf-8")
     send_page(self)
 
 

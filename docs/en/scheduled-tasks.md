@@ -69,7 +69,7 @@ because that task will spend money later on its own; reminders don't ask.
 
 ## Scheduled tasks: running when nobody is watching
 
-A task is a saved instruction plus a schedule ([harness/tasks.py](../../harness/tasks.py)). Running one reuses the same loop,
+A task is a saved instruction plus a schedule ([harness/tasks.py](../../harness/tasks.py) and the `tasks_*.py` files next to it). Running one reuses the same loop,
 with three things handled differently ([harness/webui/scheduler.py](../../harness/webui/scheduler.py)):
 
 1. **When.** A scheduler thread sleeps until the next task is due, at most 30 seconds at a time so that a changed clock

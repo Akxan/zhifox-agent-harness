@@ -21,7 +21,7 @@
 // （CITE_OPEN 编号 CITE_CLOSE，见 page/scripts/citations.js）。这里认出它，交给页面的 hooks.cite(编号) 去建元素
 // （这个文件自己不建链接）；代码里、链接文字里不放记号。记号只由页面插入：模型写出来的这两个字符，页面先换成了 �。
 //
-// 服务器发页面时，把这个文件原样填进页面里一个带 nonce 的 <script>（见 server.py 的 _send_page），
+// 服务器发页面时，把这个文件原样填进页面里一个带 nonce 的 <script>（见 server_page.py 的 _send_page），
 // 所以它和页面的其他脚本守同一套安全策略。测试（tests/markdown.test.mjs）用 Node 直接加载这个文件。
 (function (scope) {
   'use strict';

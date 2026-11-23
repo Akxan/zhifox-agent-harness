@@ -391,7 +391,7 @@ SERVICE_RESTART_SECONDS = 10
 SERVICE_LOG = Path("logs") / "service.log"
 # 后台服务没有终端可以打印网页的地址（里面有口令），就写在数据目录里的这个文件里（见 serve.py），harness service open 读它
 WEB_ADDRESS = ".web-address"
-# 网页本身（一个自给自足的页面，一百多万字节）发给浏览器之前用 gzip 压缩到大约三分之一（见 webui/server.py 的 _send_page）。
+# 网页本身（一个自给自足的页面，一百多万字节）发给浏览器之前用 gzip 压缩到大约三分之一（见 webui/server_page.py 的 _send_page）。
 # 1 最快、压得最少，9 最慢；每打开一次页面就压一次（页面里有一次性的 nonce，压好的不能留着下次用），
 # 4 在本机上大约十几毫秒，从手机、从别的电脑远程打开时省下的传输时间多得多
 PAGE_GZIP_LEVEL = 4
@@ -430,7 +430,7 @@ RESTORE_MAX_TOTAL_BYTES = 8_000_000_000  # 解开之后一共最多这么大（�
 RESTORE_MAX_FILE_BYTES = 2_000_000_000  # 单个文件解开之后最大这么大
 RESTORE_MAX_FILES = 200_000  # 压缩包里最多这么多项（包括文件夹）
 RESTORE_MAX_DEPTH = 32  # 路径最多这么多层
-RESTORE_DISCARD_BYTES = 16_000_000  # 上传太大被拒绝时，最多读掉这么多再回答（和 server.py 的 MAX_DISCARD_BYTES 一个道理）
+RESTORE_DISCARD_BYTES = 16_000_000  # 上传太大被拒绝时，最多读掉这么多再回答（和 webui/server_gate.py 的 MAX_DISCARD_BYTES 一个道理）
 RESTORE_STAGE_SECONDS = 3600  # 上传好、还没确认的备份留这么久（秒），过了就删掉，要再传一次
 # 恢复之前，先把现在的数据导出一份放在数据目录里的这个文件夹里（data/restore-backups/）。导出时不带它：
 # 每一份都是整个数据文件夹，带进去就会越套越大。最多留这么多份，更早的删掉

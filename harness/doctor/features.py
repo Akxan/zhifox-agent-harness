@@ -5,7 +5,7 @@
   - 沙箱：sandbox/backend.detect().problem()（真的建一个什么都不做的沙箱试一下，和执行命令前的检查一样）
   - 操作整台电脑：desktop/backend.detect() 和后端的 checks()。macOS 上 checks 只调用不弹窗的预检函数
     （CGPreflightScreenCaptureAccess、AXIsProcessTrusted），不请求权限、不改系统设置。用不了的原因和信息栏里的同一句
-    （capabilities._NO_DESKTOP）。
+    （capabilities_switched.py 的 _NO_DESKTOP，从 capabilities 导出）。
   - 后台服务：service/cli.detect() 和服务管家的 state()，说法用 harness service status 的那一句（service/cli._describe）。
     查状态要运行 launchctl list / systemctl --user show / schtasks /Query，都只是看；测试里这些命令一调用就失败，
     那时这一项写"查不了"，不让整个自检崩掉。

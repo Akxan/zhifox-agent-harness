@@ -7,7 +7,7 @@
 一段"活着的"对话（Session）：
   chat      助手这一侧的东西（app.py 的 Chat）：Agent（适配层、历史、用量）、会话、shell、浏览器和电脑的 session、
             MCP 的快照和调用记在谁名下
-  ui        它自己的事件日志（WebUI）。页面只读你正看着的那一段的日志（见 server.py 的 _send_events）
+  ui        它自己的事件日志（WebUI）。页面只读你正看着的那一段的日志（见 server_events.py 的 _send_events）
   lock      这一段的锁：谁拿着它，谁就在这一段里进行一轮（发消息、重新生成），或者正在改它（换模型、改名、撤回文件……）。
             发消息时在请求的线程里拿，这一轮跑完时在跑它的那个线程里放（所以是 Lock，不是 RLock）
   running   正在进行一轮（从开始到 chat_api._run_turn 收尾）。同时最多 config.MAX_PARALLEL_CHATS 段
@@ -76,7 +76,7 @@ class Session:
     running: bool = False
     unsaved: str = ""  # 上一次存盘失败的原因。空字符串表示内容都在磁盘上了
     discard_ok: str = ""  # 用户已经被提醒过一次"离开会丢内容"的那个操作；紧接着再做一次同样的操作就放行
-    # 这一段从事件的哪个编号起成了"你正看着的"（见 server.py 的 _send_events：浏览器断线重连时报上来的编号比它小，
+    # 这一段从事件的哪个编号起成了"你正看着的"（见 server_events.py 的 _send_events：浏览器断线重连时报上来的编号比它小，
     # 说明浏览器还没收到过这一段的日志，要从头补发）。一开始的那一段是 0
     since: int = 0
     media: tuple = (None, ())  # 这一段里的附件，和算它时的依据（见 media_api._live_media）
@@ -117,7 +117,7 @@ class Sessions:
             return next((session for session in self._all if session.id == conversation_id), None)
 
     def watching(self, cursor: int, watched: WebUI | None) -> tuple[WebUI, bool, list[dict], int]:
-        """事件流用（见 server.py 的 _send_events）：（你正看着的那一段的日志，要不要从头补发，要发的事件，它被 wake 叫过几次）。
+        """事件流用（见 server_events.py 的 _send_events）：（你正看着的那一段的日志，要不要从头补发，要发的事件，它被 wake 叫过几次）。
 
         cursor 是浏览器已经收到的最后一个编号，watched 是这个连接上一次读的是哪一段的日志（刚连上时是 None）。
         换着看了另一段、或者刚连上而 cursor 不是这一段的（比它被看着的起点 since 小，或者比谁都新），要从头补发。

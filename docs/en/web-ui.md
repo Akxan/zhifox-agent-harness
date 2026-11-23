@@ -346,7 +346,7 @@ chat. Each row says:
 Status is never shown by color alone: every label has an icon and words, and the icon tile changes shape (filled, dashed,
 faded). The terminal's `/tools` prints the same list.
 
-Why it is built this way ([harness/capabilities.py](../../harness/capabilities.py)): it is the only place that maps tools to
+Why it is built this way ([harness/capabilities.py](../../harness/capabilities.py) and the `capabilities_*.py` files next to it): it is the only place that maps tools to
 capabilities, and the page only draws what it is sent. "Does it ask first?" is not a second copy of the rules: the
 catalog takes a few representative actions ("edit a file in the working folder", "`ls`", "type into a password field")
 and asks [permissions.py](../../harness/permissions.py) about each one, the same way the loop does before running a tool, so
