@@ -440,7 +440,7 @@ def test_runs_recorded_from_many_threads_at_once_are_all_kept(tmp_path, monkeypa
             others_done.wait(timeout=0.3)  # 有锁的话别的线程进不来，等到超时就接着写
         real_write(target, content)
 
-    monkeypatch.setattr("harness.tasks.write_file", write_file)
+    monkeypatch.setattr("harness.tasks_store.write_file", write_file)
     errors: list = []
 
     def in_thread(job) -> threading.Thread:

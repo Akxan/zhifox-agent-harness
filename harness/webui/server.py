@@ -116,9 +116,6 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
 
 from __future__ import annotations
 
-import gzip
-import json
-import re
 import secrets
 import shutil
 import signal
@@ -129,21 +126,20 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from .. import export, i18n, instance, media
+from .. import export, instance, media
 from ..app import App, build_app
 from ..config import (
     APP_NAME,
     BROWSER_SHOT_DAYS,
     DESKTOP_SHOT_DAYS,
-    PAGE_GZIP_LEVEL,
     Config,
 )
 from ..exits import EXIT_SIGNALS
 from ..i18n import t
 from ..providers import has_key
-from ..safe import clean, to_json
+from ..safe import to_json
 from . import (
     channels_api,
     chat_api,
@@ -162,26 +158,40 @@ from . import (
     tasks_api,
 )
 from . import manifest as web_manifest
-from .page import assemble as assemble_page
 from .restore_api import UPLOAD_PATH as RESTORE_UPLOAD
+from .server_events import KEEPALIVE_SECONDS, HandlerEvents
+from .server_gate import (
+    MAX_BODY_BYTES,
+    MAX_DISCARD_BYTES,
+    MAX_MESSAGE_BODY_BYTES,
+    HandlerGate,
+)
+from .server_page import MARKDOWN, PAGE, HandlerPage, accepts_gzip
 from .skills_api import MAX_UPLOAD_BODY_BYTES
-from .ui import WebUI, latest_state_only
+from .ui import WebUI
 from .webapp import WebApp
 
-DEFAULT_PORT = 8765
-MAX_BODY_BYTES = 1_000_000
-# 发消息的请求可以带附件（base64 编码后比原文件大三分之一），所以单独放宽到这么多。别的请求都是几行设置，1MB 足够
-MAX_MESSAGE_BODY_BYTES = 64_000_000
-MAX_DISCARD_BYTES = 16_000_000  # 请求体太大时，最多读掉这么多再回答（见 Handler._read_json）
-SHUTDOWN_WAIT_SECONDS = 5  # 退出时最多等这么久，让正在进行的一轮收尾存盘
-KEEPALIVE_SECONDS = 15
+__all__ = [
+    "DEFAULT_PORT",
+    "KEEPALIVE_SECONDS",
+    "MARKDOWN",
+    "MAX_BODY_BYTES",
+    "MAX_DISCARD_BYTES",
+    "MAX_MESSAGE_BODY_BYTES",
+    "PAGE",
+    "SHUTDOWN_WAIT_SECONDS",
+    "Handler",
+    "Server",
+    "WebApp",
+    "accepts_gzip",
+    "claim_data_dir",
+    "create_server",
+    "run_web",
+    "shut_down",
+]
 
-# 页面由 page/ 里的几块拼成（骨架、样式、脚本，见 page/__init__.py），启动时拼一次。
-# 拼好的仍然是一个自给自足的 HTML，里面留着 __NONCE__ 这几处，每次发页面时填（见 Handler._send_page）
-PAGE = assemble_page()
-# 回复里的 Markdown 怎么画，单独写在 markdown.js 里（一个文件只讲一件事，也方便用 Node 单独测试）。
-# 发页面时把它原样填进页面里那个带 nonce 的 <script>，所以不用为它另开一个地址，也不用放宽安全策略。
-MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
+DEFAULT_PORT = 8765
+SHUTDOWN_WAIT_SECONDS = 5  # 退出时最多等这么久，让正在进行的一轮收尾存盘
 
 
 class Server(ThreadingHTTPServer):
@@ -189,7 +199,7 @@ class Server(ThreadingHTTPServer):
     web: WebApp
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(HandlerGate, HandlerPage, HandlerEvents, BaseHTTPRequestHandler):
     server: Server
     _responded = False  # 这个请求是不是已经开始回答了
 
@@ -424,191 +434,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json(200, {"ok": True, **data})
 
-    # ---- 安全检查 ----------------------------------------------------------
-
-    def _allowed(self, supplied_token: str) -> bool:
-        port = self.server.server_address[1]
-        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-        origin = self.headers.get("Origin")
-        ok = (
-            self.headers.get("Host") in hosts
-            and (origin is None or origin in {f"http://{host}" for host in hosts})
-            and secrets.compare_digest(supplied_token.encode(), self.server.web.token.encode())
-        )
-        if not ok:
-            if self.command == "POST":
-                # 先把（不大的）请求体读掉再回答。Windows 上关掉一个还有没读完的数据的连接，系统会直接发 RST，
-                # 对方连这个 403 都收不到，只看到"连接被中止"（CI 的 Windows 上真出过）。只读不大的，读的量有上限
-                try:
-                    length = int(self.headers.get("Content-Length") or 0)
-                except ValueError:
-                    length = 0
-                if 0 < length <= MAX_BODY_BYTES:
-                    self._discard(length, MAX_BODY_BYTES)
-            # 作为后台服务运行时口令重启前后不变（见 token.py），过期多半是重装过服务、或者是终端里开的那一份换了口令
-            self._send_text(403, t("链接无效或已经过期。请使用终端里显示的完整地址重新打开。") + "\n" + t("智狐作为后台服务运行时，在终端里运行 uv run harness service open 重新打开。"))
-        return ok
-
     # ---- 响应 --------------------------------------------------------------
-
-    def _send_page(self) -> None:
-        # nonce 是一个一次性的随机数：只有带着它的 <script> 和 <style> 才会被浏览器执行，
-        # 这样即使页面里混进了别的脚本（比如模型输出里夹带的），浏览器也不会运行。
-        nonce = secrets.token_urlsafe(16)
-        # 图片和清单这两项由 manifest.policy 写：img-src 除了 data: 只多了自带的那几张图标的地址，manifest-src 只有清单那一个地址
-        # （为什么要放行、为什么这样就够窄，见那里）。Host 已经在 _allowed 里查过，只能是 127.0.0.1:端口 或 localhost:端口
-        policy = (
-            f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; "
-            f"{web_manifest.policy('http://' + self.headers.get('Host', ''))}; "
-            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        )
-        # 翻译表和 Markdown 渲染器也在这时塞进页面（翻译表放在一段 JSON 数据里，浏览器不会执行）。
-        # 口令填进头上清单和图标的地址里：只是把打开这一页的地址里已有的东西再写一遍，quote 之后只剩字母、数字和 %-_.~。
-        # 几处一次填完（re.sub 不会回头再扫一遍填进去的内容）：翻译表里万一出现 "__NONCE__"，
-        # 或者 nonce 里碰巧有 "__I18N__"，都不会被当成要填的地方。
-        fills = {
-            "__NONCE__": nonce,
-            "__TOKEN__": quote(self.server.web.token, safe=""),
-            "__I18N__": i18n.page_payload(self.server.web.app.settings.language),
-            "__MARKDOWN__": MARKDOWN,
-        }
-        page = re.sub("__NONCE__|__TOKEN__|__I18N__|__MARKDOWN__", lambda match: fills[match.group(0)], PAGE)
-        headers = {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Vary": "Accept-Encoding"}
-        body = page.encode()
-        # 浏览器说收 gzip 的话压缩一下：一百多万字节变成三分之一左右，远程打开（手机、隧道）时快得多。
-        # 页面里有口令。压缩以后的长度会随内容变，有一类攻击（BREACH）就是往同一个回答里塞进自己选的文字、
-        # 看长度的变化一点点猜出秘密；它要求回答里回显请求带来的东西。这一页只填 nonce、口令、翻译表和 Markdown 渲染器，
-        # 一个字都不回显请求（地址、请求头、表单），所以不受影响。以后要是往页面里填请求带来的内容，先想好这一条
-        if accepts_gzip(self.headers.get("Accept-Encoding", "")):
-            body = gzip.compress(body, PAGE_GZIP_LEVEL)
-            headers["Content-Encoding"] = "gzip"
-        self._send(200, "text/html; charset=utf-8", body, headers)
-
-    def _send_manifest(self) -> None:
-        """网页应用的清单（见 manifest.py）。里面的地址带着口令，所以和页面一样不进缓存。"""
-        self._send(
-            200,
-            "application/manifest+json; charset=utf-8",
-            to_json(web_manifest.manifest(self.server.web.token), readable=True).encode(),
-            {"Content-Security-Policy": "default-src 'none'; sandbox"},
-        )
-
-    def _send_icon(self, name: str) -> None:
-        """一张图标。name 是地址里 /icons/ 后面的那一段，原样拿去查表（不解码、不拼路径），
-        不是 manifest.ICONS 里一字不差的文件名就是 404。内容是程序自带的固定的几张图，不是你的数据，
-        所以让浏览器缓存一天（地址里带着口令，换了口令就是另一个地址）；类型写死成 image/png，不让浏览器猜。"""
-        data = web_manifest.icon_bytes(name)
-        if data is None:
-            self._send_json(404, {"error": "not found"})
-            return
-        self._send(
-            200,
-            "image/png",
-            data,
-            {"Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'; sandbox"},
-        )
-
-    def _send_events(self) -> None:
-        """事件流（Server-Sent Events）：连接不关闭，有新事件就写过去。
-
-        刚连上时，先把日志里已有的事件补发一遍，然后发一个名叫 synced 的标记，意思是
-        "旧的补完了，后面的都是此刻正在发生的"。页面靠它区分两种内容：补发的旧内容直接画出来，
-        实时的新内容才播放入场动画。标记不带编号、也不进日志，所以不影响断线重连时
-        "从第几号接着发"的计算。
-
-        读的是你正看着的那一段的日志（见 sessions.py）。换着看另一段时（打开一段正在后台跑的会话、
-        你正看着的那一段在跑时开了新对话），先写一个不带编号的 reset（页面清空，"reset 到下一个状态之间算重放"），
-        再把那一段的日志从头补发：它可能正在一轮中间，确认卡片、写了一半的回复都在里面，之后的事件接着实时发过来。
-        那个 reset 不带编号：浏览器记着的还是最后一个真实事件的编号。
-
-        断线重连时浏览器报上来它收到的最后一个编号（Last-Event-ID）。几段的编号从同一个数往下排（见 ui.EventIds），
-        这一段从 since 那一号起才成了正看着的：报上来的比 since 小，说明浏览器还没收到过这一段的日志（或者不知道收全了没有），
-        从头补发一遍（前面加上 reset）；不小于 since，说明它收到的就是这一段的，接着发后面的。
-        换过去的那一刻（Sessions.view）和这里读日志（Sessions.watching）拿的是同一把锁，所以换过去以前读到的事件，
-        编号一定都比 since 小：浏览器不会拿着上一段的编号，被当成"这一段已经收到这里了"。
-        """
-        try:
-            # 浏览器断线重连时，会用这个请求头告诉我们它上次收到了第几号事件
-            cursor = int(self.headers.get("Last-Event-ID") or 0)
-        except ValueError:
-            cursor = 0
-        self._responded = True
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        caught_up = False  # 已有的事件补发完了没有
-        watched = None  # 正在读的是哪一段的日志
-        try:
-            while True:
-                # 第一次（浏览器报上来的编号不是这一段的），或者换着看了另一段（restart）：页面清空，从头补发这一段的日志
-                # 每次现找 server.web：从备份恢复以后换上了一个新的 WebApp（见 restore_api.py），接着读它的（还是同一个 WebUI）
-                ui, restart, events, wakes = self.server.web.sessions.watching(cursor, watched)
-                watched = ui
-                if restart:
-                    if not events or events[0]["type"] != "reset":  # 这一段的日志不是从 reset 开始的：替它补一个
-                        self.wfile.write(f"data: {to_json({'type': 'reset'})}\n\n".encode())
-                    events = latest_state_only(events)
-                if not events:
-                    if not caught_up:
-                        caught_up = True
-                        self.wfile.write(b"event: synced\ndata: {}\n\n")
-                    elif not ui.wait_newer(cursor, KEEPALIVE_SECONDS, wakes):
-                        self.wfile.write(b": keepalive\n\n")  # 没有新事件时也定期写一点，才能发现对方已经断开
-                    continue
-                cursor = events[-1]["id"]
-                if not caught_up:
-                    events = latest_state_only(events)  # 补发的这一批里，过时的状态不用发
-                for event in events:
-                    # to_json 保证编码不会失败（见 safe.py）。要是在这里抛了异常，浏览器重连后会从同一个事件
-                    # 接着要、我们再抛一次，这段会话的页面就再也连不上了
-                    self.wfile.write(f"id: {event['id']}\ndata: {to_json(event)}\n\n".encode())
-                if not caught_up:
-                    caught_up = True
-                    self.wfile.write(b"event: synced\ndata: {}\n\n")
-        except OSError:
-            pass  # 浏览器关掉了页面
-
-    def _read_json(self, limit: int) -> dict | None:
-        """读出请求体并解析成字典。请求体超过 limit 个字节时回答 413，返回 None。"""
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = -1
-        if not 0 <= length <= limit:
-            if limit == MAX_UPLOAD_BODY_BYTES:
-                self._discard(length, limit + MAX_DISCARD_BYTES)
-                self._send_json(413, {"error": t("上传的内容太大了：一次最多约 20 MB。")})
-            elif limit > MAX_BODY_BYTES:
-                # 发消息的请求：上限本来就大，多读掉的量也跟着放宽，不然页面还是只能看到"连接断开"
-                self._discard(length, limit + MAX_DISCARD_BYTES)
-                self._send_json(413, {"error": t("请求太大：一条消息连同附件最多发送约 64MB 的内容")})
-            else:
-                self._discard(length, MAX_DISCARD_BYTES)
-                self._send_json(413, {"error": t("请求太大：一次最多发送约 1MB 的内容")})
-            return None
-        try:
-            # clean：浏览器送来的文字（消息、标题……）在进门的地方统一洗一遍，见 safe.py
-            body = clean(json.loads(self.rfile.read(length) or b"{}"))
-        except (ValueError, RecursionError):  # RecursionError：嵌套了上千层的 JSON
-            body = None
-        if not isinstance(body, dict):
-            self._send_json(400, {"error": t("请求格式不正确")})
-            return None
-        return body
-
-    def _discard(self, length: int, most: int) -> None:
-        """把一个不打算处理的请求体读掉扔了，最多读 most 个字节。
-
-        不读的话，浏览器还在往这边发数据，连接就被我们关掉了：它来不及读到我们的回答，只会报"连接断开"。
-        读掉再回答，页面才能把"请求太大"显示出来。读的量设了上限，免得被一个巨大的请求拖住。
-        """
-        remaining = min(max(length, 0), most)
-        while remaining > 0:
-            chunk = self.rfile.read(min(remaining, 65536))
-            if not chunk:
-                break
-            remaining -= len(chunk)
 
     def _send_json(self, status: int, payload: dict) -> None:
         self._send(status, "application/json; charset=utf-8", to_json(payload, readable=True).encode())
@@ -627,28 +453,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
-
-
-def accepts_gzip(header: str) -> bool:
-    """Accept-Encoding 里有没有 gzip（或者 *），并且没写 q=0。"gzip, deflate, br"、"gzip;q=0.5" 都算；"gzip;q=0" 不算。"""
-    accepted = False
-    for item in header.split(","):
-        name, _, params = item.strip().partition(";")
-        name = name.strip().lower()
-        if name not in ("gzip", "x-gzip", "*"):
-            continue
-        quality = 1.0
-        for param in params.split(";"):
-            key, _, value = param.strip().partition("=")
-            if key.strip().lower() == "q":
-                try:
-                    quality = float(value)
-                except ValueError:
-                    quality = 0.0  # 写坏了的当成不要
-        if name in ("gzip", "x-gzip"):
-            return quality > 0  # 明说了 gzip 的，以它为准
-        accepted = quality > 0
-    return accepted
 
 
 def create_server(app: App, ui: WebUI, port: int | None = None, token: str | None = None, service: str | None = None) -> tuple[Server, str]:

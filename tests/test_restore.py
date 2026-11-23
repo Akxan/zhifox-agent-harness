@@ -20,7 +20,7 @@ import pytest
 from conftest import symlinks_work
 from modes import has_mode
 
-from harness import export, restore, restore_keys
+from harness import export, restore, restore_check, restore_keys
 from harness.channels.store import ChannelStore
 from harness.commands.allowlist import CommandList
 from harness.config import Config
@@ -413,7 +413,7 @@ def test_not_a_zip_at_all(tmp_path):
 def test_bombs_and_huge_archives_are_refused(tmp_path, monkeypatch, limit):
     """压缩炸弹：几 KB 的压缩包写着解开有几个 GB。按压缩包里写的大小、项数、层数先拦下（上限在 config.RESTORE_*）。"""
     # 两个文件一共 3000 字节：一个 2000 超过单个的上限，一共超过总的上限；压缩包里一共 3 项，最深的那个 5 层
-    monkeypatch.setattr(restore, limit, {"RESTORE_MAX_TOTAL_BYTES": 2500, "RESTORE_MAX_FILE_BYTES": 1500, "RESTORE_MAX_FILES": 2, "RESTORE_MAX_DEPTH": 3}[limit])
+    monkeypatch.setattr(restore_check, limit, {"RESTORE_MAX_TOTAL_BYTES": 2500, "RESTORE_MAX_FILE_BYTES": 1500, "RESTORE_MAX_FILES": 2, "RESTORE_MAX_DEPTH": 3}[limit])
     bomb = handmade(tmp_path / "bomb.zip", [("memories/a/b/c/zeros.md", "0" * 2000), ("memories/more.md", "0" * 1000)])
     assert bomb.stat().st_size < 1500  # 压缩以后很小，解开以后超了
     with pytest.raises(RestoreError):
