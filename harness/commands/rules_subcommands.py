@@ -1,3 +1,12 @@
+"""只读的命令 · 有子命令的程序：git、systemctl、docker、kubectl、crontab（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+每个只许几个"只是看"的子命令（GIT_READS、SYSTEMCTL_READS……），前面的全局选项大多不许（git -c、docker -H 能换设置、连别的机器）；
+会打出环境变量、密码、带 token 的地址的（systemctl show、docker inspect、kubectl 碰到 Secret、git remote -v）也不算。
+
+为什么单独一个文件：这几个先认子命令、再按子命令分开判断，写法和别的程序不一样。
+journalctl 照内容属于这里，因为只用一个 Program 就写完了（JOURNALCTL），写在 rules.py（见那里开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

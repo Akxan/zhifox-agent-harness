@@ -243,7 +243,11 @@ How ZhiFox decides ([harness/commands/](../../harness/commands/)), step by step:
    on macOS does), and more than `READONLY_GLOB_MAX` matches asks. Ranges (`[a-z]`, which bash reads differently per
    locale), `[^a]` and character classes (`[:alpha:]`) aren't understood and ask. A wildcard in the program's name asks,
    and commands you add yourself can't contain one.
-2. **Programs** ([rules.py](../../harness/commands/rules.py)). Only programs on a built-in list count, each with its own
+2. **Programs** ([rules.py](../../harness/commands/rules.py), and the checks that read a command closely, one file per kind of
+   program: [rules_system.py](../../harness/commands/rules_system.py), [rules_files.py](../../harness/commands/rules_files.py),
+   [rules_search.py](../../harness/commands/rules_search.py), [rules_text.py](../../harness/commands/rules_text.py),
+   [rules_subcommands.py](../../harness/commands/rules_subcommands.py), [rules_wrappers.py](../../harness/commands/rules_wrappers.py)).
+   Only programs on a built-in list count, each with its own
    rule about which options are fine: `find` without `-exec`, `-delete` or `-fprint`; `sed` without `-i`, and only a
    script made of simple commands (no `w`, `r` or `e`); `awk` without `system`, `getline`, `>` or `|` anywhere in the
    program; `sort` without `-o`; `git` only for `status`, `log`, `diff`, `show`, `branch` (listing) and a few more, with no

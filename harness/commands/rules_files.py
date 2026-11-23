@@ -1,3 +1,14 @@
+"""只读的命令 · 读文件的程序：选项表和要自己看一遍的那几个（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+  LS、TREE、DU、DIFF 的 *_ALLOW、*_VALUES  只许用哪些选项、哪些选项带值（带值的选项后面那个词不是要读的文件）
+  SORT_VALUES、UNIQ_VALUES                 sort、uniq 带值的选项
+  _xxd             xxd 输入 输出：第二个参数是要写的文件，-r 是在还原文件
+  _du、_diff       会走遍文件夹的那几种写法，按"列出名字""读里面每个文件"走一遍
+
+为什么单独一个文件：读文件的程序最多，选项表又长；cat、head 这类什么选项都行的直接写在 RULES 里。
+CHECKSUM（md5sum 那一组）照内容属于这里，因为是 Program 的实例，写在 rules.py（见那里开头）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

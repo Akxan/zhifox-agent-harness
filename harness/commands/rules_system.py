@@ -1,3 +1,12 @@
+"""只读的命令 · 报告系统情况的程序里，要自己看一遍的那几个（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+  date、top、sysctl  Program 的 extra：date 带参数是在设系统时间，top 只许"打印一次就退出"，sysctl 名字=值 是在改内核的设置
+  ps                 有几种写法会把别的进程的环境变量打出来（常常有密钥）
+  ip                 只许"看"的几个动词，而且要写全（ip 认缩写：ip link s 是 set）
+
+为什么单独一个文件：这几样都只是看这台电脑的情况，不读你的文件；同一类里简单的那些（whoami、uname、df……）直接写在 RULES 里。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

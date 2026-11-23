@@ -1,3 +1,11 @@
+"""只读的命令 · 编辑文字的程序：sed、awk、jq，只许"读进来、改了打印出去"的用法（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+它们都带着一段小程序：sed 的脚本一个字一个字地读，只许几种最简单的命令（_sed_script）；awk、jq 的程序里出现 AWK_FORBIDDEN、
+JQ_FORBIDDEN 里的字（运行命令、写文件、读环境变量……）就不算。看不懂的一律不算。
+
+为什么单独一个文件：这三个的判断要读程序的内容，是整个名单里最容易出绕过的地方，放在一起才好一起看、一起改测试。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

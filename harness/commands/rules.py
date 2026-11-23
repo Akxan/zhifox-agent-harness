@@ -14,6 +14,24 @@
   - 会打印环境变量的：env、printenv、set（环境变量里常常有密钥）
 
 tests/test_commands.py 里有一张几百行的表，逐条写着哪些算、哪些不算，以及为什么。改这里的规矩之前先看那张表。
+
+## 由几个文件拼成
+
+这个文件是入口：上面说的写法（Context、Program，以及只许查版本的 VERSIONS），和把每个程序对上它那条规矩的总表 RULES。
+"自己看一遍"的那些函数和它们用的选项表，按程序的种类写在同一前缀的几个文件里：
+
+  rules_system.py       报告系统情况的：date、top、sysctl、ps、ip
+  rules_files.py        读文件的：xxd、ls、tree、du、diff（还有 sort、uniq 的选项表）
+  rules_search.py       搜索的：grep、rg、find
+  rules_text.py         编辑文字的（只许"读进来、改了打印出去"）：sed、awk、jq
+  rules_subcommands.py  有子命令的：git、systemctl、docker、kubectl、crontab
+  rules_wrappers.py     套在别的命令外面的：env、timeout
+
+它们只 import options.py、words.py，只在 if TYPE_CHECKING 里 import 这里的 Context（给类型注解用）：运行时 import 这个文件，
+就成了互相导入（这里要 import 它们的函数来拼 RULES）。所以用 Program(...) 写、要起名字的规矩（ANY、NO_OPERANDS、CHECKSUM、
+JOURNALCTL）都在这个文件里，拆出去的文件里一个 Program 都不建。
+加一个程序：简单的在 RULES 里写一行 Program(...)；要自己看一遍的，函数写进它那一类的 rules_*.py，再在 RULES 里登记。
+别处照旧 from .rules import RULES, Context（原来的每一个公开名字都写在 __all__ 里）。
 """
 
 from __future__ import annotations
@@ -197,6 +215,7 @@ class Program:
 
 ANY = Program()  # 不会写文件、也不会运行别的程序的：什么选项都行，参数照样当路径检查
 NO_OPERANDS = Program(operands=0)
+# 下面两条照内容属于"读文件的"（rules_files.py）和"有子命令的"（rules_subcommands.py），因为是 Program 的实例写在这里（见文件开头）
 CHECKSUM = Program(deny=names("-c --check"))  # -c：按一个文件里列的名字去读别的文件
 
 JOURNALCTL = Program(
@@ -233,7 +252,7 @@ def _version(program: str) -> Callable[[list[str], Context], None]:
 
 
 RULES: dict[str, Callable[[list[str], Context], None]] = {
-    # 报告系统的情况
+    # 报告系统的情况（自己看一遍的函数在 rules_system.py）
     "pwd": Program(allow=names("-L -P"), operands=0),
     "whoami": NO_OPERANDS, "uptime": NO_OPERANDS, "uname": NO_OPERANDS, "arch": NO_OPERANDS, "nproc": NO_OPERANDS,
     "free": NO_OPERANDS, "lscpu": NO_OPERANDS, "sw_vers": NO_OPERANDS, "tty": NO_OPERANDS, "locale": NO_OPERANDS,
@@ -256,7 +275,7 @@ RULES: dict[str, Callable[[list[str], Context], None]] = {
     ),
     "ip": _ip,
     "ifconfig": Program(allow=names("-a -l -s -v -u -d -L -m"), operands=1),
-    # 读文件
+    # 读文件（rules_files.py）
     "cat": ANY, "tac": ANY, "nl": ANY, "cut": ANY, "column": ANY, "fold": ANY, "paste": ANY, "join": ANY, "comm": ANY,
     "expand": ANY, "unexpand": ANY, "rev": ANY, "od": ANY, "hexdump": ANY, "strings": ANY, "cmp": ANY, "stat": ANY,
     "realpath": ANY, "readlink": ANY, "basename": ANY, "dirname": ANY,
@@ -273,13 +292,13 @@ RULES: dict[str, Callable[[list[str], Context], None]] = {
     "tree": Program(allow=TREE_ALLOW, values=TREE_VALUES, walks=True, follow=names("-l")),  # -o 写文件，-R 在每一层写 00Tree.html：不在名单里
     "du": Program(allow=DU_ALLOW, values=DU_VALUES, extra=_du),
     "diff": Program(allow=DIFF_ALLOW, values=DIFF_VALUES, extra=_diff),  # -l 会调用 pr，不在名单里
-    # 搜索
+    # 搜索（rules_search.py）
     "grep": _grep, "egrep": _grep, "fgrep": _grep, "rg": _rg, "find": _find,
-    # 编辑文字（只许打印出来）
+    # 编辑文字（只许打印出来，rules_text.py）
     "sed": _sed, "awk": _awk, "jq": _jq,
-    # 有子命令的
+    # 有子命令的（rules_subcommands.py）
     "git": _git, "systemctl": _systemctl, "journalctl": JOURNALCTL, "docker": _docker, "kubectl": _kubectl, "crontab": _crontab,
-    # 套在外面的
+    # 套在外面的（rules_wrappers.py）
     "env": _env, "timeout": _timeout,
     **{program: _version(program) for program in VERSIONS},
 }

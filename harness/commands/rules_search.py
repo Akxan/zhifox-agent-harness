@@ -1,3 +1,11 @@
+"""只读的命令 · 搜索的程序：grep（egrep、fgrep）、rg、find（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+要找的内容只是一段文字，不当路径检查（grep -i secret 很常见），别的参数是要搜的文件；递归的、find 都要把文件夹走一遍。
+find 的表达式只许名单里的测试（-exec、-delete、-fprint 这类不在里面），-newer 这类的值是一个文件，照样当路径检查。
+
+为什么单独一个文件：这三个都会走遍文件夹、选项最多，grep 和 rg 还共用一段（_search）。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

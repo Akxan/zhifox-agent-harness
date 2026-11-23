@@ -1,3 +1,11 @@
+"""只读的命令 · 套在别的命令外面的：env、timeout（规矩的写法和总表 RULES 见 rules.py 开头）。
+
+它们自己不读也不写，只是运行后面那条命令：后面那条交给 Context.stage，照它自己的规矩再判断一遍（commands/__init__.py 接上）。
+env 光写会打印所有环境变量、带 名字=值 会改那条命令的环境，都不算；timeout 只认几个选项和一个时长。
+
+为什么单独一个文件：只有这两个要把后面的词当成另一条命令。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
