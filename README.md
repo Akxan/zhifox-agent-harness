@@ -511,6 +511,7 @@ Each part of the harness has its own file or directory:
 |---|---|---|
 | Loop | [harness/agent.py](harness/agent.py) | A model replies once per call. The loop keeps calling it until the task is done |
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
+| Reads that run together | [harness/parallel.py](harness/parallel.py) | A model often asks for several things in one step ("read these five files"); one after another, you wait for all of them added up. Consecutive calls that only read and don't need asking run at the same time on a small thread pool, while the cards, approvals, hooks and history stay in call order (see [Several reads in one step run at the same time](#several-reads-in-one-step-run-at-the-same-time)) |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
 | Custom model endpoints | [harness/endpoints/](harness/endpoints/), [harness/webui/endpoints_api.py](harness/webui/endpoints_api.py) | The built-in providers all live on someone else's servers. An endpoint is any OpenAI-format URL (Ollama, LM Studio, vLLM, llama.cpp, a company gateway): the URL rules (https, or plain http only on your own network), storage with an optional key, a client that never carries other providers' keys or follows redirects, guessing what each model can do, and testing the connection without spending anything (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
@@ -618,6 +619,42 @@ earlier content invalidates the cache (so requests cost more), and it makes the 
 validation (so requests are rejected). The one exception is compacting very long GPT, Gemini and DeepSeek
 conversations; see [When a conversation gets too long](#when-a-conversation-gets-too-long-compaction).
 
+### Several reads in one step run at the same time
+
+One reply from the model can ask for several tools at once: "read these five files and list those two folders". Run one
+after another, you wait for every read added up. They don't depend on each other (they only read), so ZhiFox runs them at
+the same time and you wait only for the slowest one ([harness/parallel.py](harness/parallel.py)).
+
+**Which calls.** A call joins a batch only if all three hold, and only together with the calls right next to it:
+
+1. **The tool says this call only reads** (`Tool.parallel`, opt-in, off by default: a new tool counts as one that changes
+   things). Today that is viewing a file or listing a folder (the file tool's `view`), viewing memory, listing to-dos,
+   listing scheduled tasks and reading a skill.
+2. **It doesn't need asking at all.** The same `permissions.review` that decides whether to show you a card says no. A
+   call that would normally ask but your approval mode lets through (reading outside the working folder under "Read-only
+   commands without asking", any read under "Allow everything") still runs alone, so its "auto-allowed" mark is recorded
+   before it runs, exactly as before.
+3. **None of your `PreToolUse` [hooks](#hooks-your-own-scripts-at-fixed-moments) looks at it.** Such a hook may ask you to
+   confirm, and confirmations come one at a time. `PostToolUse` hooks are fine: they run after the result, in call order.
+
+Everything else (commands, edits, the browser, computer use, MCP tools, subagents, `send_file`, anything that asks you)
+runs alone and in order, as it always did, so one step can split into `[read, read] [edit: asks you] [read, read, read]`.
+Why "only looks" isn't enough: scrolling and taking a screenshot only look too, but they share one browser, and which comes
+first changes what you see; a subagent changes nothing itself but runs a whole loop of its own. So this is its own switch,
+not the rewind list of read-only actions (every call that may run together is on that list, and a test checks it).
+
+**What you see stays in order.** The thread pool (at most `config.MAX_PARALLEL_TOOLS`, 4) only runs the tool itself, each
+call in a copy of the turn's `contextvars` context (so the undo journal is still visible). The cards, approvals, hooks,
+secret masking and the results sent back to the model all happen on the turn's own thread, one call after another in the
+order the model asked: the first card appears once the whole batch has started, and the next ones usually arrive already
+finished. That is on purpose: the page draws a result into the card just before it (the events carry no IDs), rewinding a
+turn reads the same order to see what was done, and a replayed conversation looks exactly like the live one. The only
+place you see that calls overlapped is the [run trace](#reading-a-turn-the-run-trace).
+
+**Stopping.** Stop (Ctrl-C in the terminal) takes effect the next time the loop touches the interface, as with any tool.
+Calls that haven't started never start; the few that are running are reads, so their results are just dropped. Every call
+still gets a result in the history ("interrupted"), as before.
+
 ### Reading a turn: the run trace
 
 On the page you see one question and one answer, but behind it the loop may have gone round several times: a request,
@@ -653,6 +690,9 @@ Hover a row (or pick one with Tab and ↑↓) and the line above shows all of it
 token, input tokens (and how many came from the cache), output tokens, the cost, the API's stop reason (`tool_use`,
 `end_turn`…); for a tool call, its real name and arguments, how big the result was, whether it asked you and how long it
 waited. Click to jump to that step's details below. **Copy as JSON** in the corner copies the record ZhiFox stored.
+Reads that [ran together in one step](#several-reads-in-one-step-run-at-the-same-time) are drawn with overlapping bars,
+joined on the left by a thin line, and say "ran alongside 2 other steps"; in the time split they count once, for the
+stretch they covered together, not as the sum of their bars (the `batch` field in the record).
 
 **What it teaches.**
 
@@ -2565,7 +2605,10 @@ adds `tool_response`, `is_error` and `duration_ms`; `UserPromptSubmit` adds `pro
   turns a failure into a block for `PreToolUse` and `UserPromptSubmit`: a safety hook that breaks fails closed.
 
 Several hooks on the same moment run one after another in file order (Claude Code runs them in parallel), and the
-first one that blocks wins. Every hook run is a span in the [run trace](#reading-a-turn-the-run-trace).
+first one that blocks wins. Every hook run is a span in the [run trace](#reading-a-turn-the-run-trace). When
+[several reads in one step run at the same time](#several-reads-in-one-step-run-at-the-same-time), hooks still never
+overlap: a call that any `PreToolUse` hook matches runs on its own, and `PostToolUse` runs once per call, in call order,
+after that call's result.
 
 **Where hooks run.** In your conversations, in scheduled tasks and in chat channels, all three by default; the
 `runsIn` field narrows it. Why on by default in unattended runs: a hook can only make things stricter, so running it

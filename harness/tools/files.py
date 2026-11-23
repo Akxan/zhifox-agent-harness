@@ -31,7 +31,7 @@ from .. import pathnames
 from ..attachments import MAX_IMAGE_BYTES, sniff_image
 from ..redact import MARKED
 from ..undo.journal import watching
-from .base import Tool, ToolError, ToolImage, ToolOutput
+from .base import Tool, ToolError, ToolImage, ToolOutput, views
 
 TOOL_NAME = "str_replace_based_edit_tool"
 WRITE_COMMANDS = {"create", "str_replace", "insert"}
@@ -315,4 +315,6 @@ PORTABLE = {
 def make_file_tool(editor: FileEditor) -> Tool:
     # 给 Claude 的说明书只有这一行：类型和名字。参数格式由 Anthropic 定义，不用（也不能）自己写。
     spec = {"type": "text_editor_20250728", "name": TOOL_NAME}
-    return Tool(spec=spec, run=editor.run, portable=PORTABLE)
+    # view（读文件、列目录）只是读，可以和同一步里别的只读调用同时跑（见 ../parallel.py）。几个 view 同时读不用锁：
+    # _EDITING 只管"读出来、改一处、写回去"的那几样，同一批里不会有它们
+    return Tool(spec=spec, run=editor.run, portable=PORTABLE, parallel=views)

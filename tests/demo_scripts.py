@@ -23,6 +23,8 @@
   [ui:trace]    一轮把运行记录（harness/trace/）用齐的对话：先查待办（不用问）→ 执行一条要你批准的命令 → 交给子 Agent
                 「资料研究员」（它自己读一个文件、联网搜索一次再回答）→ 主助手转告。看"运行记录"的瀑布图、子 Agent 缩进的那几行、
                 等你确认的那一截。子 Agent 的任务里也写着 [ui:tracesub]，它自己的那几次请求按 tracesub 回答
+  [ui:together] 一步里同时要三样只读的东西：读 notes.txt、列工作目录、列待办（见 harness/parallel.py）。三次一起跑，
+                卡片照样一张接一张；运行记录里这三段横条叠在一起，左边一道细线连着，详情里写着"和另外 2 步同时执行"
   [ui:fallback] 用 Opus 5.5 的请求一律回答 529 过载，用别的模型的照常回答：在设置里选了备用模型（比如 Sonnet 5.5）的话，
                 这一轮改用它，对话里说一声，运行记录里失败的那次标成出错、后面的标着"备用"（见 harness/fallback.py）。没选就是一条出错提示
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
@@ -212,6 +214,18 @@ def tracesub(body: dict) -> dict:
     )
 
 
+def together(body: dict) -> dict:
+    if _steps(body) == 0:
+        return reply(
+            text("这三样一起看。"),
+            tool_use("toolu_ui_together_notes", "str_replace_based_edit_tool", {"command": "view", "path": "notes.txt"}),
+            tool_use("toolu_ui_together_dir", "str_replace_based_edit_tool", {"command": "view", "path": "."}),
+            tool_use("toolu_ui_together_todos", "todo_list", {}),
+            stop_reason="tool_use",
+        )
+    return reply(text("三样都看过了：笔记两行，工作目录里没什么要清理的，待办也查过了。"))
+
+
 CJK = re.compile(r"[㐀-䶿一-鿿]")
 WEEKDAYS = "一二三四五六日"
 
@@ -317,7 +331,7 @@ def readme(body: dict) -> dict:
 
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
     "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
-    "pause": pause, "trace": trace, "tracesub": tracesub, "files": files, "fallback": fallback,
+    "pause": pause, "trace": trace, "tracesub": tracesub, "files": files, "fallback": fallback, "together": together,
 }
 
 

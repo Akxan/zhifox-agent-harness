@@ -180,6 +180,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | 位置 | 内容 |
 |---|---|
 | `harness/agent.py` | 循环。不出现任何和具体厂商、具体界面有关的代码 |
+| `harness/parallel.py` | 一步里连着的只读调用一起跑：哪些能（规矩写在开头）、线程池、每个调用一份 context、停下时取消没开始的；挑哪些在 `Agent._batch_at` |
 | `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用，`compaction.py` 是这三家的压缩历史 |
 | `harness/tools/` | 工具。`base.py` 里的 `function_tool` 用来创建自定义工具 |
 | `harness/permissions.py` | 哪些操作要先问用户 |
@@ -262,6 +263,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   以后新加"跟着一轮走、但不能在两段会话里各管一份"的事件，加进 `fork.LEFT_OUT`。
 - **历史里只放普通的字典和字符串**，这样才能原样存成 JSON 文件、读回来原样发给 API。
 - **每个工具调用都必须有对应的结果**，包括被用户中断的情况。相关逻辑在 `Agent._run_tools` 的 `finally` 里。
+- **一步里只有"只读、又根本不用问"的调用才一起跑**（`harness/parallel.py`，判断在 `Agent._batch_at`）。三样都要：工具自己写了
+  `Tool.parallel`（opt-in，默认 None：新加的工具一律一个一个来；现在只有文件和记忆的 `view`、`todo_list`、`task_list`、`skill`）、
+  `_gate`（`Tool.check` + `permissions.review`，和一个一个跑时是同一段）说不用问、`HookRun.looks_before` 说没有 PreToolUse 钩子要看它。
+  这一档放行的（`allowance` 不是 None）也单独跑：`auto_allowed()` 的记录要在执行之前。连着的至少两个才成一批，别的照旧单独、按顺序；
+  确认永远不和别的调用同时出现。执行命令、浏览器、电脑、MCP、子 Agent、send_file、会写的永远不写 `parallel`：它们有自己的 Shell、
+  会话或屏幕，或者看不见副作用。线程里只跑 `Agent._execute`（每个调用一份 `contextvars.copy_context()`，撤回的记账才看得到）；
+  界面事件、记录点、钩子、遮密钥、放进结果都回到这一轮的线程、按调用的顺序做。**事件顺序不变**（tool_call、结果、tool_call、结果）：
+  页面按"结果跟在它的卡片后面"配对、`rewind._executed` 也靠这个顺序，所以不要改成谁先做完谁先发。运行记录里同一批标着 `batch`，
+  合计按它们一共占的时间算（`recorder._covered`）。上限是 `config.MAX_PARALLEL_TOOLS`（`Config.max_parallel_tools`，1 就是关掉）。
+  给一个工具加 `parallel` 之前确认它线程安全、不碰共享的会话状态，并且 `rewind.changes` 认为它没改东西（`tests/test_parallel_tools.py` 会查）。
 - **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则。
 - **网页界面的安全措施不能削弱**：只监听 `127.0.0.1`；所有请求校验 token、Host 和 Origin；
   页面不加载任何外部资源；模型和工具输出的文字只用 `textContent` 放进页面，不当作 HTML 解析；

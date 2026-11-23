@@ -3194,6 +3194,8 @@
  "已关掉：工具结果会原样交给模型。": "Off: tool results go to the model as-is.",
  "遮住了 1 处密钥": "masked 1 secret",
  "遮住了 {n} 处密钥": "masked {n} secrets",
+ "和另外 1 步同时执行": "ran alongside 1 other step",
+ "和另外 {n} 步同时执行": "ran alongside {n} other steps",
  "要说清楚开还是关（enabled 是 true 或 false）": "Say whether to turn it on or off (enabled must be true or false)",
  "命令的输出、读到的文件、MCP 和网页交回来的内容里，长得像密钥的（各家的 API 密钥、令牌、私钥、password= 后面的一串），先换成一个“已遮住”的记号，再交给模型。会话里、页面上看到的也是遮住以后的。": "Anything in command output, files read, or MCP and web results that looks like a secret (provider API keys, tokens, private keys, the string after password=) is replaced with a “masked” marker before the model sees it. Conversations and this page show the masked version too.",
  "{failed} 暂时不可用，这一轮接下来改用 {fallback}。": "{failed} is temporarily unavailable; the rest of this turn will use {fallback}.",

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..safe import write_file
-from .base import Tool, ToolError, function_tool
+from .base import Tool, ToolError, always, function_tool
 
 
 class TodoStore:
@@ -175,6 +175,9 @@ def make_todo_tools(store: TodoStore) -> list[Tool]:
             },
             required=[],
             function=todo_list,
+            # 只是读（读那个 JSON 文件；写都是先写临时文件再一步换上去，读到的不会是写了一半的），
+            # 可以和同一步里别的只读调用同时跑（见 ../parallel.py）
+            parallel=always,
         ),
         function_tool(
             name="todo_update",

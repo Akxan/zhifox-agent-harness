@@ -124,6 +124,13 @@ MAX_PARALLEL_CHATS = 3
 # 慢的电脑上要一会儿）时，下一个最多等这么多秒，还拿不到才回答"请先等"：连着点两下不该被拒绝；等的时间有上限，所以也不会卡死
 SWITCH_WAIT_SECONDS = 2.0
 
+# 模型一步里要好几样只读的东西（读几个文件、列待办……）时，最多同时跑几个（见 parallel.py）。读文件、列目录大多在等磁盘，
+# 几个一起读就快多了；再多也快不了多少（磁盘就那么快），还会让一步里同时开着太多文件。设成 1 就是一个一个跑（和以前一样）
+MAX_PARALLEL_TOOLS = 4
+# 等一批里的某一个调用时，每隔这么多秒醒一下。Windows 上一直等着一把锁的线程收不到 Ctrl-C（macOS、Linux 上收得到），
+# 醒一下才停得下来；只读的调用大多一眨眼就做完了，醒这几下花不了什么
+PARALLEL_TOOLS_POLL_SECONDS = 0.1
+
 # 命令的沙箱（见 sandbox/）：设置里"额外允许的路径"最多这么多条，每条最长这么多个字符
 SANDBOX_MAX_PATHS = 50
 SANDBOX_PATH_CHARS = 1000
@@ -431,6 +438,7 @@ class Config:
     default_model: str = "claude-opus-5-5"
     max_parallel_tasks: int = MAX_PARALLEL_TASKS  # 定时任务最多同时运行几个（测试里会改小）
     max_parallel_chats: int = MAX_PARALLEL_CHATS  # 网页上你的对话最多同时进行几段（测试里会改小）
+    max_parallel_tools: int = MAX_PARALLEL_TOOLS  # 一步里的只读调用最多同时跑几个（见 parallel.py；测试里会改）
     # Telegram Bot API 的地址。一般不用改；在连不上 api.telegram.org 的地方可以换成自建的 Bot API 服务器，
     # 测试和演示把它指向本地的假服务器。只能用环境变量 TELEGRAM_API_BASE 改，页面上改不了：token 会发到这个地址去
     telegram_api: str = "https://api.telegram.org"

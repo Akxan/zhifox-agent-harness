@@ -153,3 +153,28 @@ def test_the_trace_reads_well_in_dark_mode_and_at_phone_width(page):
     ), "窄屏上时间轴应该在名字下面"
     assert page.js("document.documentElement.scrollWidth <= innerWidth")
     steps.escape_closes(page, "trace-dialog")
+
+
+def test_reads_that_ran_together_are_linked_in_the_waterfall(page):
+    # [ui:together]：一步里同时读 notes.txt、列工作目录、列待办（见 harness/parallel.py）。对话里的卡片照样一张接一张、
+    # 各自带着自己的结果；运行记录里这三行左边一道细线连着（第一行起、最后一行止），详情和悬停的那一行字写着"和另外 2 步同时执行"
+    steps.send(page, "[ui:together] 看看笔记、工作目录和待办")
+    steps.reply(page, "三样都看过了", timeout=40)
+    page.wait("document.querySelector('#log .trace-open')", what="这一轮的运行记录出现了")
+    cards = page.js(
+        "[...document.querySelectorAll('#log details.call')].slice(-3).map((card) => [card.querySelector('.tool-name').textContent,"
+        " card.querySelector('.status').className, card.querySelector('.tool-body').textContent])"
+    )
+    assert [name for name, _, _ in cards] == ["str_replace_based_edit_tool", "str_replace_based_edit_tool", "todo_list"]
+    assert all("pending" not in status for _, status, _ in cards), "三张卡片都有了结果"
+    assert "第一行" in cards[0][2] and "notes.txt" in cards[1][2], "每张卡片里是它自己的结果"
+
+    steps.open_trace(page)
+    linked = page.js("[...document.querySelectorAll('#trace-body .trace-lane.in-batch')].map((row) => [row.classList.contains('batch-first'), row.classList.contains('batch-last')])")
+    assert linked == [[True, False], [False, False], [False, True]]
+    tags = page.js("[...document.querySelectorAll('#trace-body .trace-step.kind-tool')].map((step) => (step.querySelector('.trace-tags') || {}).textContent || '')")
+    assert len(tags) == 3 and all("和另外 2 步同时执行" in tag for tag in tags), tags
+    page.hover("#trace-body .trace-lane.in-batch", 1)
+    page.wait("document.querySelector('#trace-body .trace-readout').textContent.includes('和另外 2 步同时执行')", what="悬停时写着同时执行")
+    assert page.js("document.documentElement.scrollWidth <= innerWidth")
+    steps.escape_closes(page, "trace-dialog")

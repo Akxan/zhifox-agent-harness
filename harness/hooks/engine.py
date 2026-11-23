@@ -15,6 +15,10 @@ agent.py 调用的几个方法，每个都在"这个时刻有没有要跑的钩�
   after_tool(agent, call, tool, text, is_error, seconds)   PostToolUse：工具做完了，返回接上补充之后的结果
   stopped(agent, ended)              Stop：这一轮答完了，只是通知
   watch(ui)                          包着界面交给适配层：记下模型这一次写的字（Stop 的 last_assistant_message）
+  looks_before(call, tool)           这次调用有没有 PreToolUse 钩子要看（不跑）：有的话它不和别的调用一起跑（见 ../parallel.py）
+
+这几个方法都在跑这一轮的那个线程里调用，一次一个（一步里的只读调用一起跑的时候也是：线程里只执行工具本身，
+PostToolUse 回到这个线程、按调用的顺序一个一个跑），所以 Launcher 只记着"正在运行的那一个"就够了。
 
 每跑一个钩子，在运行记录上画一段（agent.trace.hook_began / hook_ended，见 trace/recorder.py），时刻和结果由记录器记，
 这里不另算。钩子给你的话（systemMessage、出错的提醒）用 ui.info 说；子 Agent 的用 ui.notice，画进它那张卡片，
@@ -285,6 +289,11 @@ class HookRun:
 
     def stop(self) -> None:
         self.launcher.stop()
+
+    def looks_before(self, call: Any, tool: Any) -> bool:
+        """这次调用有没有要跑的 PreToolUse 钩子（只看配置，不跑）。agent.py 靠它决定能不能和别的调用一起跑（见 ../parallel.py）：
+        PreToolUse 可能要你再确认一次，确认只能一个一个来，所以它要看的调用单独跑。"""
+        return self.hooks is not None and bool(self.hooks.matching("PreToolUse", self.source, call, tool))
 
     def watch(self, ui: Any) -> Any:
         if self.hooks is None:

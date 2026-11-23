@@ -19,7 +19,8 @@ let traceEnter = false;  // 下一次画的时候播放入场动画（只在刚�
 const TRACE_ENDED = { done: k('答完了'), truncated: k('回复被截断了'), refused: k('模型拒绝了'), steps: k('用完了步数'), stopped: k('你停下了它'), error: k('出错了'), blocked: k('被你的钩子拦下了') };
 // fallback（用的是备用模型，替的是哪个）、redacted（结果里遮住了几处密钥）也是后来加的：以前存下的记录里没有
 const TRACE_TEXT = ['provider', 'model', 'status', 'stop', 'name', 'group', 'label', 'detail', 'result', 'approval', 'why', 'note', 'server', 'agent', 'event', 'sandbox', 'fallback'];
-const TRACE_COUNTS = ['start', 'end', 'first', 'input', 'cache_read', 'cache_write', 'output', 'calls', 'retries', 'size', 'images', 'redacted', 'asked', 'waited', 'added'];
+// batch（同一批同时跑的工具调用，见 harness/parallel.py）也是后来加的
+const TRACE_COUNTS = ['start', 'end', 'first', 'input', 'cache_read', 'cache_write', 'output', 'calls', 'retries', 'size', 'images', 'redacted', 'asked', 'waited', 'added', 'batch'];
 // hooks、hook_runs、hooks_blocked 是后来加的（你的钩子）：以前存下的记录里没有，traceNumber 当成 0
 const TRACE_TOTALS = ['model', 'tools', 'hooks', 'waiting', 'other', 'requests', 'tool_calls', 'errors', 'unpriced', 'input', 'cache_read', 'cache_write', 'output', 'asked', 'allowed', 'refused', 'auto', 'hook_runs', 'hooks_blocked'];
 const TRACE_KINDS = ['model', 'tool', 'hook'];

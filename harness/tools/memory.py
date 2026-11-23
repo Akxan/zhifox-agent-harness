@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 
 from .. import pathnames
-from .base import Tool, ToolError
+from .base import Tool, ToolError, views
 
 MEMORY_ROOT = "/memories"  # 模型看到的记忆目录（SDK 规定的），路径都以它开头
 
@@ -125,4 +125,6 @@ def make_memory_tool(data_dir: Path) -> Tool:
             raise ToolError(str(exc)) from exc
 
     # 给 Claude 的说明书由 SDK 生成：{"type": "memory_20250818", "name": "memory"}
-    return Tool(spec=dict(backend.to_dict()), run=run, portable=PORTABLE)
+    # view 只是读，可以和同一步里别的只读调用同时跑（见 ../parallel.py）。几个 view 照样在 _LOCK 上排着队（SDK 的实现
+    # 不知道线程安不安全，排队最省心，看记忆很快）；和它同时跑的是别的工具（读文件、列待办……）
+    return Tool(spec=dict(backend.to_dict()), run=run, portable=PORTABLE, parallel=views)

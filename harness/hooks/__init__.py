@@ -87,6 +87,8 @@ JSON 全是 ASCII（中文写成 \\uXXXX），钩子的输出按 UTF-8 读（用
              onFailure 设成 block 的，PreToolUse 和 UserPromptSubmit 上当成拦下（管安全的钩子坏了时宁可不做）
 
 几个钩子对上同一个时刻时，按文件里的顺序一个接一个地跑（Claude Code 是同时跑），第一个拦下的说了算，后面的不再跑。
+一步里的几次读取一起跑的时候（见 ../parallel.py）钩子也不同时跑：有 PreToolUse 钩子要看的调用单独跑（它可能要你再确认一次），
+PostToolUse 回到这一轮的线程里，每个调用一次、按调用的顺序。
 
 ## 安全：钩子就是在你的电脑上运行命令，所以和 stdio 的 MCP 服务器守同样的规矩
 
