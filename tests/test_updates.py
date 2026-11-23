@@ -556,7 +556,9 @@ def test_the_terminal_checks_a_stale_cache_in_the_background(make_config, monkey
 
     def after_the_check():
         until(lambda: fake.count == 1, what="后台问了一次")
-        time.sleep(0.2)  # 等它把结果记下来
+        # 等后台那个线程做完（按名字认，见 updates.Updater.check_soon）：它先存缓存、最后才记下"有新版本"。
+        # 原来固定等 0.2 秒，GitHub 的 Windows 机器上存缓存慢了一点，下一次输入时还没记下，测试就没看到那一句
+        until(lambda: not any(thread.name == "update-check-now" for thread in threading.enumerate()), what="后台的检查做完")
         return ""
 
     term = _terminal(make_config, monkeypatch, fake, [after_the_check, lambda: None])
