@@ -446,7 +446,7 @@ class FakeDingTalk:
 
     # ---- 等 --------------------------------------------------------------------
 
-    def wait_sent(self, predicate=lambda message: True, timeout: float = 10.0, after: int = 0) -> dict:
+    def wait_sent(self, predicate=lambda message: True, timeout: float = 30.0, after: int = 0) -> dict:
         deadline = time.monotonic() + timeout
         with self._changed:
             while True:
@@ -457,7 +457,7 @@ class FakeDingTalk:
                 assert remaining > 0, "等不到机器人发的消息。已经发的：\n" + "\n".join(message["plain"] for message in self.sent) + "\n被拒绝的：\n" + "\n".join(self.rejected)
                 self._changed.wait(remaining)
 
-    def wait_until(self, condition, timeout: float = 10.0):
+    def wait_until(self, condition, timeout: float = 30.0):
         deadline = time.monotonic() + timeout
         while True:
             with self._changed:

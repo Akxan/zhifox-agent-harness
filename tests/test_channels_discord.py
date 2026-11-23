@@ -514,7 +514,8 @@ def test_stop_from_the_command_menu_kills_a_running_command(bot):
     s.wait_reply(stopping, "好，正在停下")
     s.wait_reply(stopping, "已中断。")
     s.idle()
-    assert time.monotonic() - began < 10  # sleep 30 被结束了，不用等它跑完
+    # sleep 30 被结束了，不用等它跑完。留得宽一些：GitHub 的 macOS 机器忙的时候整轮测试慢到平常的四倍（2026-11-23 跑了 19 分钟）
+    assert time.monotonic() - began < 25
     assert len(s.api.requests) == 1
 
 

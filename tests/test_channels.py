@@ -52,7 +52,7 @@ OWNER = "111"  # fake.user_says 默认的发消息的人
 OWNER_NAME = "Akxan (@akxan)"
 
 
-def until(condition, timeout: float = 10, what: str = "条件"):
+def until(condition, timeout: float = 30.0, what: str = "条件"):
     """等到 condition() 返回真值，并返回它。不用固定的 sleep：条件一成立就往下走，测试快，也不会因为机器慢而偶尔失败。"""
     deadline = time.monotonic() + timeout
     while True:
@@ -734,7 +734,7 @@ class Rig:
         self.tg.user_says(message, **options)
         return count
 
-    def wait_reply(self, after: int, contains: str, timeout: float = 10) -> dict:
+    def wait_reply(self, after: int, contains: str, timeout: float = 30.0) -> dict:
         return self.tg.wait_sent(lambda message: contains in message["plain"], timeout=timeout, after=after)
 
     def asked(self, after: int) -> dict:
@@ -953,7 +953,8 @@ def test_stop_kills_a_running_command(bot):
     s.wait_reply(stopping, "好，正在停下")
     s.wait_reply(stopping, "已中断。")
     s.idle()
-    assert time.monotonic() - began < 10  # sleep 30 被结束了，不用等它跑完
+    # sleep 30 被结束了，不用等它跑完。留得宽一些：GitHub 的 macOS 机器忙的时候整轮测试慢到平常的四倍（2026-11-23 跑了 19 分钟）
+    assert time.monotonic() - began < 25
     assert len(s.api.requests) == 1
 
 

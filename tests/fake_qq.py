@@ -404,7 +404,7 @@ class FakeQQ:
         只看提示不够：/help 的回答、"还有一个操作在等你批准"也带着"回复“允许”或“拒绝”"这几个字。"""
         return message["plain"].endswith(HINT) and "工作目录：" in message["plain"]
 
-    def wait_sent(self, predicate=lambda message: True, timeout: float = 10.0, after: int = 0) -> dict:
+    def wait_sent(self, predicate=lambda message: True, timeout: float = 30.0, after: int = 0) -> dict:
         deadline = time.monotonic() + timeout
         with self._changed:
             while True:
@@ -415,7 +415,7 @@ class FakeQQ:
                 assert remaining > 0, "等不到机器人发的消息。已经发的：\n" + "\n".join(message["plain"] for message in self.sent)
                 self._changed.wait(remaining)
 
-    def wait_until(self, condition, timeout: float = 10.0):
+    def wait_until(self, condition, timeout: float = 30.0):
         deadline = time.monotonic() + timeout
         while True:
             with self._changed:

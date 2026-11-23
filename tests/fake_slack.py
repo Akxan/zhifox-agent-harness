@@ -444,7 +444,7 @@ class FakeSlack:
             self._changed.notify_all()
         return 200, f"OK - {len(raw)}"
 
-    def wait_upload(self, predicate: Callable[[dict], bool] = lambda upload: True, timeout: float = 10.0) -> dict:
+    def wait_upload(self, predicate: Callable[[dict], bool] = lambda upload: True, timeout: float = 30.0) -> dict:
         """等机器人发出一个满足 predicate 的文件，返回它。"""
         return self.wait_until(lambda: next((upload for upload in self.uploads if predicate(upload)), None), timeout, "机器人发的文件")
 
@@ -683,7 +683,7 @@ class FakeSlack:
 
     # ---- 等 --------------------------------------------------------------------
 
-    def wait_until(self, condition: Callable[[], object], timeout: float = 10.0, what: str = "条件"):
+    def wait_until(self, condition: Callable[[], object], timeout: float = 30.0, what: str = "条件"):
         deadline = time.monotonic() + timeout
         while True:
             with self._changed:
@@ -694,7 +694,7 @@ class FakeSlack:
                 assert remaining > 0, f"等不到{what}"
                 self._changed.wait(min(remaining, 0.05))
 
-    def wait_sent(self, predicate: Callable[[dict], bool] = lambda message: True, timeout: float = 10.0, after: int = 0) -> dict:
+    def wait_sent(self, predicate: Callable[[dict], bool] = lambda message: True, timeout: float = 30.0, after: int = 0) -> dict:
         try:
             return self.wait_until(lambda: next((message for message in self.sent[after:] if predicate(message)), None), timeout, "机器人发的消息")
         except AssertionError:

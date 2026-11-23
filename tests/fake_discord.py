@@ -279,7 +279,7 @@ class FakeDiscord:
         return 200, {"id": str(self._next_id), "channel_id": chat, "content": content,
                      "attachments": [{"id": f"att-{index}", "filename": record["filename"], "size": len(record["data"])} for index, record in enumerate(records)]}
 
-    def wait_upload(self, predicate=lambda upload: True, timeout: float = 10.0) -> dict:
+    def wait_upload(self, predicate=lambda upload: True, timeout: float = 30.0) -> dict:
         """等机器人发出一个满足 predicate 的文件，返回它。"""
         return self.wait_until(lambda: next((upload for upload in self.uploads if predicate(upload)), None), timeout)
 
@@ -508,12 +508,12 @@ class FakeDiscord:
             fields.update(guild_id="guild-1", member={"user": person})
         return self._interaction(2, fields)
 
-    def callback_of(self, event: dict, timeout: float = 10.0) -> dict:
+    def callback_of(self, event: dict, timeout: float = 30.0) -> dict:
         """等机器人回应这次交互（按钮或者斜杠命令），返回那次回应。"""
         interaction = event["d"]["id"]
         return self.wait_until(lambda: next((item for item in self.callbacks if item["id"] == interaction), None), timeout)
 
-    def wait_sent(self, predicate=lambda message: True, timeout: float = 10.0, after: int = 0) -> dict:
+    def wait_sent(self, predicate=lambda message: True, timeout: float = 30.0, after: int = 0) -> dict:
         deadline = time.monotonic() + timeout
         with self._changed:
             while True:
@@ -524,7 +524,7 @@ class FakeDiscord:
                 assert remaining > 0, "等不到机器人发的消息。已经发的：\n" + "\n".join(message["plain"] for message in self.sent)
                 self._changed.wait(remaining)
 
-    def wait_until(self, condition, timeout: float = 10.0):
+    def wait_until(self, condition, timeout: float = 30.0):
         deadline = time.monotonic() + timeout
         while True:
             with self._changed:

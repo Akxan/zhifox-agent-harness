@@ -48,7 +48,9 @@ class FakePlatform(Protocol):
 
     def press(self, message: dict, allow: bool = True, user: str | None = None) -> None: ...  # 点确认请求上的按钮（没有按钮的平台不实现）
 
-    def wait_sent(self, predicate: Callable[[dict], bool], timeout: float = 10.0, after: int = 0) -> dict: ...
+    # 各个假平台等消息最多等 30 秒（以前是 10 秒）：消息一到马上返回，平常不会多等；GitHub 的 macOS 机器忙的时候
+    # 整轮测试慢到平常的四倍（2026-11-23 跑了 19 分钟），"停下"这类要好几步的，10 秒偶尔不够
+    def wait_sent(self, predicate: Callable[[dict], bool], timeout: float = 30.0, after: int = 0) -> dict: ...
 
     def stop(self) -> None: ...
 
@@ -101,7 +103,7 @@ class ChannelRig:
         self.fake.user_says(text, **options)
         return count
 
-    def wait_reply(self, after: int, contains: str, timeout: float = 10) -> dict:
+    def wait_reply(self, after: int, contains: str, timeout: float = 30.0) -> dict:
         return self.fake.wait_sent(lambda message: contains in message["plain"], timeout=timeout, after=after)
 
     def asked(self, after: int) -> dict:
