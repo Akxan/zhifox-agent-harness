@@ -8,11 +8,16 @@
        1.9 秒 ·······░░░░░░░▓▓▓·············  执行命令 · run_command $ ls · 3.1 秒 · 你允许了（等了 2.9 秒）
          └ 2.0 秒 ··········██·················  模型 claude-sonnet-5-5 · …   （交给子 Agent 的，往里缩一格）
          └ 4.9 秒 ·················▒············  钩子 fmt（PostToolUse）· 0.05 秒 · 放行   （工具调用前后跑的钩子，也缩一格）
+       5.0 秒 ·················▓············  读写文件 · str_replace_based_edit_tool view a.txt · 0.02 秒 · 和另外 1 步同时执行
+       5.0 秒 ·················▓············  读写文件 · str_replace_based_edit_tool view b.txt · 0.03 秒 · 和另外 1 步同时执行
+                                                       （一步里的几次读一起跑的，横条叠在一起，见 ../parallel.py）
 
 图里的一格是这一轮总时长的 1/BAR 那么长：█ 模型在答，▓ 工具在执行，░ 等你确认，▒ 你的钩子在跑。数字由记录器算好（合计），这里只照着写。
 """
 
 from __future__ import annotations
+
+from collections import Counter
 
 from ..i18n import k, number, t
 
@@ -86,18 +91,21 @@ def lines(record: dict | None) -> list[tuple[str, str]]:
     if totals.get("hook_runs"):
         counts = t("{counts}；跑了 {n} 次你的钩子（拦下 {blocked} 次）", counts=counts, n=totals["hook_runs"], blocked=totals.get("hooks_blocked", 0))
     out.append((counts, "info"))
-    for span, depth in _flatten(record.get("spans") or [], 0):
-        out.append((_row(span, depth, wall), "plain" if depth == 0 else "info"))
+    for span, depth, others in _flatten(record.get("spans") or [], 0):
+        out.append((_row(span, depth, wall, others), "plain" if depth == 0 else "info"))
     if record.get("omitted"):
         out.append((t("……还有 {n} 段太多了没有存下来（合计里算着它们）", n=record["omitted"]), "info"))
     return out
 
 
-def _flatten(spans: list, depth: int) -> list[tuple[dict, int]]:
+def _flatten(spans: list, depth: int) -> list[tuple[dict, int, int]]:
+    """[(一段, 缩进几层, 和它同一批同时跑的还有几段)]。同一批只在同一层里认（子 Agent 的编号是它自己数的）。"""
+    batches = Counter(span.get("batch") for span in spans if isinstance(span, dict) and isinstance(span.get("batch"), int))
     rows = []
     for span in spans:
         if isinstance(span, dict):
-            rows.append((span, depth))
+            batch = span.get("batch")
+            rows.append((span, depth, batches[batch] - 1 if isinstance(batch, int) else 0))
             rows += _flatten(span.get("children") or [], depth + 1)
     return rows
 
@@ -120,7 +128,7 @@ def _bar(span: dict, wall: int) -> str:
     return "".join(cells)
 
 
-def _row(span: dict, depth: int, wall: int) -> str:
+def _row(span: dict, depth: int, wall: int, others: int = 0) -> str:
     indent = "  " * depth + ("└ " if depth else "")
     duration = seconds(int(span.get("end", 0)) - int(span.get("start", 0)))
     if span.get("kind") == "model":
@@ -166,6 +174,8 @@ def _row(span: dict, depth: int, wall: int) -> str:
             parts.append(t(SANDBOX[span["sandbox"]]))
         if span.get("redacted"):  # 结果里遮住了几处密钥（见 ../redact.py）。页面上的说法在 page/scripts/trace-chart.js 的 traceRedacted
             parts.append(t("遮住了 1 处密钥") if span["redacted"] == 1 else t("遮住了 {n} 处密钥", n=span["redacted"]))
+        if others:  # 一步里的几次读一起跑的（见 ../parallel.py）。页面上的说法在 page/scripts/trace-chart.js 的 traceTogether，两边一致
+            parts.append(t("和另外 1 步同时执行") if others == 1 else t("和另外 {n} 步同时执行", n=others))
         if span.get("result") in RESULT:
             result = t(RESULT[span["result"]])
             parts.append(t("{result}：{note}", result=result, note=span["note"]) if span.get("note") else result)

@@ -105,6 +105,11 @@
 .trace-lane.is-stopped .trace-bar { background: repeating-linear-gradient(90deg, var(--line-3) 0 4px, transparent 4px 7px); }
 .trace-lane.is-error .trace-lane-time, .trace-lane.is-error .trace-lane-title { color: var(--err); }
 .trace-lane:hover .trace-bar, .trace-lane:focus-visible .trace-bar { transform: scaleY(1.22); }
+/* 一步里同时跑的一批（见 harness/parallel.py）：左边一道青色的细线，从第一行的中间连到最后一行的中间（行与行之间的缝也连上；
+   中间夹着某一次的 PostToolUse 钩子那一行时，线在那一行断开：钩子是缩进画在它下面的，不是这一批里的一段） */
+.trace-lane.in-batch::after { content: ""; position: absolute; left: 1px; top: -2px; bottom: -2px; border-left: 2px solid color-mix(in srgb, var(--teal) 55%, transparent); pointer-events: none; }
+.trace-lane.in-batch.batch-first::after { top: 9px; border-top-left-radius: 2px; }
+.trace-lane.in-batch.batch-last::after { bottom: 9px; border-bottom-left-radius: 2px; }
 .trace-chart.grow-in .trace-bar { animation: trace-grow .7s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 28ms + .12s); }
 
 /* ---- 每一段的详情 ---- */

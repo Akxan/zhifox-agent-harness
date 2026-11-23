@@ -6,6 +6,7 @@
 //   瀑布图    每一段一行：左边是名字，右边是这一轮的时间轴，横条从这一段开始的时刻画到结束的时刻。模型请求的横条前面淡的那一截
 //             是"还没吐出第一个字"；工具调用里画斜线的那一截是在等你确认。交给子 Agent 的那一步，它自己的请求和调用缩进画在下面。
 //             你的钩子每跑一次也是一行（品红）：工具前后跑的缩进画在那次调用下面，你发消息时、一轮答完时跑的单独一行。
+//             一步里同时跑的几次读（同一个 batch，见 harness/parallel.py）横条叠在一起，左边一道青色的细线把这几行连起来。
 //             悬停一行、或者用 Tab / ↑↓ 选中一行，上面那一行字写着它的全部数字；点一下（回车）跳到下面那一段的详情。
 //   每一段    逐段列出数字：哪个模型、多少 token、首字时间、停止原因、多少钱；工具的真名、参数、结果多大、问没问你、出错的原因。
 // 颜色只是帮忙看：每一行都有图标和名字，等你的那一截有斜线，跳过的是虚线框，出错的标着"出错"，不靠颜色也分得清。
@@ -30,12 +31,20 @@ function traceWhen(record) {
   return [when, t(TRACE_ENDED[record.ended]), record.again ? t('重新生成的') : ''].filter(Boolean).join(' · ');
 }
 
-// 每一段一行（子 Agent 的接在它那一步后面，往里缩一格），模型请求按"第几次"编号：主助手和每个子 Agent 各数各的
+// 每一段一行（子 Agent 的接在它那一步后面，往里缩一格），模型请求按"第几次"编号：主助手和每个子 Agent 各数各的。
+// together：和它同一批同时跑的还有几段（同一层里 batch 一样的；子 Agent 的批号是它自己数的，所以只在同一层里认）；
+// first、last：它是不是这一批的第一行、最后一行（左边那道细线从哪儿起、到哪儿止）
 function traceLanes(spans, depth = 0, out = []) {
   let request = 0;
+  const batches = new Map();
+  for (const span of spans) if (span.batch) batches.set(span.batch, [...(batches.get(span.batch) || []), span]);
   for (const span of spans) {
     if (span.kind === 'model') request += 1;
-    out.push({ span, depth, request: span.kind === 'model' ? request : 0, key: String(out.length) });
+    const batch = span.batch ? batches.get(span.batch) : [];
+    out.push({
+      span, depth, request: span.kind === 'model' ? request : 0, key: String(out.length),
+      together: Math.max(0, batch.length - 1), first: batch[0] === span, last: batch[batch.length - 1] === span,
+    });
     if (span.children.length) traceLanes(span.children, depth + 1, out);
   }
   return out;
@@ -70,6 +79,8 @@ function traceTokens(span) {
 
 // 结果里遮住了几处像密钥的东西（见 harness/redact.py；终端 /trace 的说法在 harness/trace/text.py）
 const traceRedacted = (span) => (span.redacted === 1 ? t('遮住了 1 处密钥') : t('遮住了 {n} 处密钥', { n: span.redacted }));
+// 和别的几次同时跑的（见 harness/parallel.py；终端 /trace 的说法也在 harness/trace/text.py，两边一致）
+const traceTogether = (lane) => (lane.together === 1 ? t('和另外 1 步同时执行') : t('和另外 {n} 步同时执行', { n: lane.together }));
 
 // 悬停、选中一行时上面那一行字：这一段的全部数字
 function traceSays(lane) {
@@ -87,6 +98,7 @@ function traceSays(lane) {
     parts.push(((span.name || '') + ' ' + (span.detail || '')).trim(), traceTime(span.end - span.start), traceApproval(span));
     if (TRACE_SANDBOX[span.sandbox]) parts.push(t(TRACE_SANDBOX[span.sandbox]));
     if (span.redacted) parts.push(traceRedacted(span));
+    if (lane.together) parts.push(traceTogether(lane));
     parts.push(span.result === 'ok' ? t('结果 {n} 个字', { n: traceCount(span.size) }) : t(TRACE_RESULT[span.result] || k('没有执行完')));
   }
   return parts.filter(Boolean).join(' · ');
@@ -169,6 +181,7 @@ function traceLane(lane, record, index) {
   const status = span.kind === 'model' ? span.status : span.kind === 'hook' && span.result === 'timeout' ? 'error' : span.result;
   if (status === 'error' || status === 'stopped' || status === 'skipped' || (span.kind === 'hook' && status === 'blocked')) row.classList.add('is-' + status);
   if (span.approval) row.classList.add('was-asked');
+  if (lane.together) row.classList.add('in-batch', ...(lane.first ? ['batch-first'] : []), ...(lane.last ? ['batch-last'] : []));
   const name = row.appendChild(el('span', 'trace-lane-name'));
   name.append(icon(span.kind === 'model' ? 'spark' : span.icon), traceTitleEl('span', 'trace-lane-title', lane));
   // 用的是备用模型（原来那个暂时用不了，见 harness/fallback.py）：模型名后面标一句
@@ -288,6 +301,7 @@ function traceStep(lane, number) {
     if (span.approval) tags.appendChild(traceTag(traceApproval(span), span.approval === 'auto' ? 'auto' : span.approval === 'allowed' ? 'ok' : 'warn'));
     if (TRACE_SANDBOX[span.sandbox]) tags.appendChild(traceTag(t(TRACE_SANDBOX[span.sandbox]), span.sandbox === 'outside' ? 'warn' : 'note'));
     if (span.redacted) tags.appendChild(traceTag(traceRedacted(span), 'note'));
+    if (lane.together) tags.appendChild(traceTag(traceTogether(lane), 'note'));
     if (span.result && span.result !== 'ok') tags.appendChild(traceTag(t(TRACE_RESULT[span.result] || k('没有执行完')), span.result === 'error' ? 'bad' : 'warn'));
     if (span.result === 'skipped') main.appendChild(tel('p', 'trace-step-meta', TRACE_SKIPPED_WHY));
     if (span.note) main.appendChild(el('p', 'trace-note', span.note));

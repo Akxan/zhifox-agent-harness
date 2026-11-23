@@ -7,11 +7,13 @@ agent 循环在几个时刻告诉它一声（"记录点"，agent.py 里每个只
         first_output()                   模型的第一段输出到了（watch 包着界面交给适配层，看到第一段思考或文字时自动调用）
       request_ended(step, cost)          这次请求答完了（cost 是账本记的那一笔，见 ledger.py）
       request_failed(note)               这次请求失败了（模型暂时用不了），循环改用备用模型再发一次
-      tool_began(call, tool)             开始一次工具调用
+      batch_began() → 编号                下面这几次工具调用是同一批、同时跑的（见 ../parallel.py），交回这一批的编号
+      tool_began(call, tool, start, batch)  开始一次工具调用（一批里的那几次：start 是它在线程里真正开始的时刻，batch 是那一批的编号）
         approval_asked()                 要问你：开始等你答复
         approval_decided(decision, why)  你答复了，或者没问你就放行了
         adopt(child, agent)              这次调用交给了子 Agent：把它的那一轮挂在这次调用下面（见 agents/runner.py）
-      tool_ended(text, is_error, images, ran, redacted)  这次调用有结果了（redacted：遮住了几处密钥，见 ../redact.py）
+      tool_ended(text, is_error, images, ran, redacted, end)  这次调用有结果了（redacted：遮住了几处密钥，见 ../redact.py；
+                                         end：一批里的那几次，它在线程里执行完的时刻）
     turn_ended(ended) → 记录              一轮结束
 
     hook_began(event, name) / hook_ended(result, exit, note, added)
@@ -25,6 +27,8 @@ agent 循环在几个时刻告诉它一声（"记录点"，agent.py 里每个只
 钟表时间（wall，默认 time.time）只用来记"这一轮是什么时候开始的"。测试里两样都可以换成假的。
 
 每个助手（主助手、每一次定时任务、每个聊天、每一次子 Agent）各有一个记录器，只在跑这个助手的那一个线程里用，所以不用加锁。
+一步里的只读调用一起跑的时候也是这样：线程里只读一下表（timer），记录点照旧在跑这一轮的线程里、按调用的顺序一个一个调用，
+只是那几次的开始、结束时刻是线程里读到的，所以它们的横条叠在一起（合计怎么算见 _totals）。
 """
 
 from __future__ import annotations
@@ -73,6 +77,7 @@ class Tracer:
         self._request: Span | None = None  # 正在进行的那次请求
         self._tool: Span | None = None  # 正在进行的那次工具调用
         self._hook: Span | None = None  # 正在跑的那个钩子
+        self._batches = 0  # 这一轮里已经有几批一起跑的工具调用（见 batch_began）
 
     # ---- 记录点 -----------------------------------------------------------
 
@@ -82,6 +87,7 @@ class Tracer:
         self._at = self.wall()
         self._again = again
         self._request = self._tool = self._hook = None
+        self._batches = 0
 
     def request_began(self, provider: str, model: str, fallback: str = "") -> None:
         span = Span("model", self.timer(), data={"provider": clean_text(provider)[:40], "model": clean_text(model)[:80]})
@@ -136,7 +142,12 @@ class Tracer:
         if server:
             data["server_tools"] = server
 
-    def tool_began(self, call: Any, tool: Any) -> None:
+    def batch_began(self) -> int:
+        """下面这几次工具调用是同一批、同时跑的（见 ../parallel.py）。交回这一批的编号：这一轮里从 1 数，记在每一段的 batch 上。"""
+        self._batches += 1
+        return self._batches
+
+    def tool_began(self, call: Any, tool: Any, start: float | None = None, batch: int = 0) -> None:
         # 用到时才导入：capabilities 要导入大半个程序，agent.py 一开始就导入它的话会绕成一个圈
         from ..capabilities import label_of
 
@@ -146,13 +157,16 @@ class Tracer:
         detail = described[len(name) :].strip() if described.startswith(name) else described
         if detail == "{}":  # 没有参数的调用（todo_list）：不写一对空括号
             detail = ""
-        data = {"name": name[:80], "group": label.group, "icon": label.icon, "label": label.label, "detail": short(detail, TRACE_SUMMARY_CHARS)}
+        data: dict[str, Any] = {"name": name[:80], "group": label.group, "icon": label.icon, "label": label.label, "detail": short(detail, TRACE_SUMMARY_CHARS)}
         if label.server:
             data["server"] = clean_text(label.server)[:80]
         sandbox = _sandbox(tool, call.input)
         if sandbox:
             data["sandbox"] = sandbox
-        span = Span("tool", self.timer(), data=data)
+        if batch:
+            data["batch"] = int(batch)
+        # 一批里的那几次：记录点在它们执行完以后才按顺序调用，开始的时刻用线程里读到的那一个（还没开始就停下了的，用此刻）
+        span = Span("tool", self.timer() if start is None else start, data=data)
         self.spans.append(span)
         self._tool = span
 
@@ -201,11 +215,12 @@ class Tracer:
         if sandbox:
             span.data["sandbox"] = clean_text(sandbox)[:20]
 
-    def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True, redacted: int = 0) -> None:
+    def tool_ended(self, text: str, is_error: bool, images: int = 0, ran: bool = True, redacted: int = 0, end: float | None = None) -> None:
         span, self._tool = self._tool, None
         if span is None:
             return
-        span.end = self.timer()
+        # 一批里的那几次：结束在它执行完的那一刻（线程里读的）。它的 PostToolUse 钩子之后才在这个线程里跑，画在横条后面
+        span.end = self.timer() if end is None else end
         data = span.data
         data["result"] = "skipped" if not ran else "error" if is_error else "ok"
         data["size"] = len(text)
@@ -308,6 +323,17 @@ def _ms(seconds: float) -> int:
     return max(0, round(seconds * 1000)) if math.isfinite(seconds) else 0
 
 
+def _covered(intervals: list[tuple[float, float]]) -> float:
+    """几段时间（可能叠在一起）一共占了多长：叠着的部分只算一次。"""
+    total, reach = 0.0, -math.inf  # reach：到目前为止算过的最晚的那一刻
+    for begin, end in sorted(intervals):
+        begin = max(begin, reach)  # 和前面叠着的那一截已经算过了
+        if end > begin:
+            total += end - begin
+            reach = end
+    return total
+
+
 def _count(spans: list[Span]) -> int:
     return sum(1 + _count(span.children) for span in spans)
 
@@ -321,6 +347,7 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
     money = {"cost": 0.0, "priced": 0, "unpriced": 0}
 
     def walk(items: list[Span]) -> None:
+        batches: dict[int, list[Span]] = {}  # 同一批同时跑的工具调用（见 ../parallel.py）：编号 → 那几段。只在同一层里认
         for span in items:
             duration = max(0.0, (span.end if span.end is not None else now) - span.start)
             data = span.data
@@ -348,11 +375,22 @@ def _totals(spans: list[Span], wall: float, now: float) -> dict:
             if approval:
                 counts["auto" if approval == "auto" else "asked"] += 1
                 counts[approval] += approval in ("allowed", "refused")
-            # 这次调用自己花的时间：去掉等你答复的那段、去掉交给子 Agent 后它自己的请求和调用、去掉前后跑的钩子（那些算进各自的类别）
-            inner = sum(max(0.0, (child.end if child.end is not None else now) - child.start) for child in span.children)
-            time_in["tools"] += max(0.0, duration - span.waited - inner)
+            batch = data.get("batch")
+            if isinstance(batch, int) and batch > 0:
+                batches.setdefault(batch, []).append(span)  # 同时跑的那几段一起算，见下面
+            else:
+                # 这次调用自己花的时间：去掉等你答复的那段、去掉交给子 Agent 后它自己的请求和调用、去掉前后跑的钩子（那些算进各自的类别）
+                inner = sum(max(0.0, (child.end if child.end is not None else now) - child.start) for child in span.children)
+                time_in["tools"] += max(0.0, duration - span.waited - inner)
             time_in["waiting"] += span.waited
             walk(span.children)
+        for together in batches.values():
+            # 同一批的几段是同时跑的：工具的时间是"这几段一共占了多长的一段时间"，不是各自加起来。三次读文件同时跑了 50 毫秒，
+            # 这一轮在工具上花的就是 50 毫秒，加起来写成 150 的话，几项的合计就超过了这一轮的总时长。
+            # 它们的 PostToolUse 钩子在这一轮的线程里一个一个跑（时间算进钩子），跑钩子的那几段不再算进工具
+            own = [(span.start, span.end if span.end is not None else now) for span in together]
+            hooks = [(child.start, child.end if child.end is not None else now) for span in together for child in span.children]
+            time_in["tools"] += max(0.0, _covered(own + hooks) - _covered(hooks))
 
     walk(spans)
     # 五项各自取整到毫秒的话，零头加起来会和总时长差一两毫秒（页面上那根分段的横条就画不满）。

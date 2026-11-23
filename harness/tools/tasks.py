@@ -16,7 +16,7 @@ import json
 
 from ..i18n import Message, fill
 from ..tasks import TaskError, TaskStore, chinese, describe, local_text
-from .base import Tool, ToolError, function_tool
+from .base import Tool, ToolError, always, function_tool
 
 ADD = "task_add"
 LIST = "task_list"
@@ -133,6 +133,7 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
             properties={},
             required=[],
             function=task_list,
+            parallel=always,  # 只是读（TaskStore.snapshot 拿着它自己的锁拷一份），可以和别的只读调用同时跑（见 ../parallel.py）
         ),
         function_tool(
             name=DELETE,

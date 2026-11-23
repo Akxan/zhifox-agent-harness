@@ -26,7 +26,7 @@ from ..skills.store import (
     read_skill_file,
     walk,
 )
-from .base import Tool, ToolError, function_tool
+from .base import Tool, ToolError, always, function_tool
 
 TOOL_NAME = "skill"
 MAX_CHARS = 100_000  # 一次最多交给模型这么多字；更长的文件让它用命令分段读
@@ -75,6 +75,7 @@ def make_skill_tool(store: SkillStore) -> Tool:
         },
         required=["name"],
         function=run,
+        parallel=always,  # 只能读（见文件开头），可以和同一步里别的只读调用同时跑（见 ../parallel.py）
     )
 
 

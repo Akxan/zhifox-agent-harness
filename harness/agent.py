@@ -24,6 +24,9 @@
 工具的结果一产生就先遮一遍密钥（self.redact，见 redact.py）：在它放进结果、交给 PostToolUse 钩子、到 tool_ended 记录点之前。
 模型、历史、页面、运行记录、你的钩子看到的都是遮好的那一份。
 
+一步里连着几个只读、又不用问你的调用（读几个文件、列待办……），同时跑（见 parallel.py）：线程里只执行工具本身，
+上面这些（界面、记录点、钩子、遮密钥、放进结果）照旧在这个线程里、按调用的顺序一个一个做。别的调用和以前一样一个一个来。
+
 这个循环不关心背后是哪家的模型。和具体厂商打交道的细节（请求怎么发、历史怎么存）
 都在 providers/ 目录里，循环只通过 backend 的几个方法使用它们。
 """
@@ -42,6 +45,7 @@ from .attachments import Attachment
 from .config import Config
 from .hooks import NO_HOOKS, HookRun
 from .i18n import t
+from .parallel import Batch, Job
 from .permissions import Permissions
 from .pricing import usage_key
 from .providers.base import (
@@ -55,7 +59,7 @@ from .providers.base import (
 )
 from .redact import Redaction, Redactor, note, redact_data
 from .safe import clean_text
-from .tools import ToolError, ToolRegistry
+from .tools import Tool, ToolError, ToolRegistry
 from .tools.base import ToolOutput
 from .tools.computer import HALTED as COMPUTER_HALTED
 from .tools.computer import TOOLSET as COMPUTER
@@ -68,6 +72,7 @@ WEEKDAYS = "一二三四五六日"
 # 电脑工具包有它自己的一句（多了一个 computer，见 tools/computer.py 的 HALTED）：后面那个调用是电脑工具包的，就用那一句
 HALTED = "Not executed: an earlier action in this turn failed."
 HALT_TEXTS = {"computer": COMPUTER_HALTED}
+INTERRUPTED = "用户中断了操作，这个工具没有执行完。"  # 被打断、没交出结果的调用补上的结果（见 _run_tools 的 finally）
 
 
 class UI(StreamUI, Protocol):
@@ -309,19 +314,32 @@ class Agent:
     # ---- 执行工具 ---------------------------------------------------------
 
     def _run_tools(self, step: Step) -> None:
-        """依次执行模型要求的工具，并把所有结果追加进历史。
+        """执行模型要求的工具，并把所有结果按调用的顺序追加进历史。
 
         工具包的调用（Claude 的浏览器、电脑工具包）常常是一串连着的动作："点搜索框、输入、按回车"，后一个依赖前一个。
         所以按顺序做，其中一个失败了（包括你拒绝了），这一轮后面的调用都不做，结果写 HALTED 那句话（文档的规定）。
         操作电脑的替身工具（GPT、Gemini 用的 computer_*）也一样：你拒绝了"点这个输入框"，后面的"打字"就不能照样打下去，
         字会进到不知道什么地方。
+
+        连着的几个只读、又不用问你的调用（读几个文件、列待办……）一起跑（_batch_at 挑出来，_run_batch 跑，规矩见 parallel.py）；
+        别的一个一个来。不管怎么跑，界面看到的、交给模型的都按调用的顺序。
         """
-        results: list[ToolResult] = []
+        calls = step.tool_calls
+        results: list[ToolResult | None] = [None] * len(calls)  # 按调用的顺序放（一批里的也是），交给模型时就是这个顺序
         halted = False
         try:
-            for call in step.tool_calls:
+            index = 0
+            while index < len(calls):
+                together = self.config.max_parallel_tools > 1 and not (step.truncated or halted)
+                jobs = self._batch_at(calls, index) if together else []
+                if len(jobs) > 1:
+                    self._run_batch(jobs, results)
+                    index += len(jobs)
+                    continue
+                call = calls[index]
+                tool = self.tools.get(call.name, call.toolset)
                 self.ui.tool_call(call.shown, call.input)
-                self.trace.tool_began(call, self.tools.get(call.name, call.toolset))  # 记录点：开始一次工具调用
+                self.trace.tool_began(call, tool)  # 记录点：开始一次工具调用
                 ran = not (step.truncated or halted)
                 took = None  # 工具真的执行了的话，执行了多久（秒）
                 if step.truncated:
@@ -332,29 +350,75 @@ class Agent:
                 else:
                     output, took = self._run_one(call)
                     halted = output.is_error and (bool(call.toolset) or self._operates_computer(call))
-                text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
-                # 遮住像密钥的东西（见 redact.py）：放进结果之前、交给钩子之前、下面的记录点之前。
-                # 钩子、模型、历史、页面、运行记录看到的都是遮好的这一份
-                text, state, redacted = self._redact(text, output.state)
-                results.append(ToolResult(call.id, text, output.is_error, output.images, state, output.state_only))
-                if took is not None:
-                    # 钩子：PostToolUse（只在真的执行了的调用上）。它补的话接在这条结果后面，这条结果还没进历史。
-                    # 结果先放进去再接：钩子跑到一半被停下，这次调用照样交回它真正的结果，不会被当成"没执行完"
-                    tool = self.tools.get(call.name, call.toolset)
-                    results[-1].text = text = self.hooks.after_tool(self, call, tool, text, output.is_error, took)
-                self.trace.tool_ended(text, output.is_error, len(output.images), ran, redacted)  # 记录点：这次调用有结果了
-                # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言；钩子拦下的也另有给人看的一句
-                shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or text
-                self.ui.tool_result(shown, output.is_error, output.preview)
+                self._deliver(index, call, tool, output, took, ran, results)
+                index += 1
         finally:
             # 每个工具调用都必须有对应的结果，否则下一次请求会被 API 拒绝。
             # 所以即使中途被打断（Ctrl-C 或界面上的"停止"），也要给没做完的调用补上一条结果，
-            # 再把结果追加进历史。写在 finally 里，保证无论怎样退出都会执行。
-            answered = {result.id for result in results}
-            for call in step.tool_calls:
-                if call.id not in answered:
-                    results.append(ToolResult(call.id, "用户中断了操作，这个工具没有执行完。", True))
-            self.backend.add_tool_results(results)
+            # 再把结果追加进历史。写在 finally 里，保证无论怎样退出都会执行
+            answered = [result if result is not None else ToolResult(call.id, INTERRUPTED, True) for call, result in zip(calls, results)]
+            self.backend.add_tool_results(answered)
+
+    def _deliver(
+        self, index: int, call: ToolCall, tool: Tool | None, output: ToolOutput, took: float | None, ran: bool, results: list[ToolResult | None], end: float | None = None
+    ) -> None:
+        """一次调用有结果了：洗一遍、遮密钥、放进结果、PostToolUse 钩子、记录点、告诉界面。一个一个跑的和一批里的都走这里。
+        end：一批里的那一个在线程里执行完的时刻（运行记录用，见 parallel.py）；一个一个跑的是 None（就是此刻）。"""
+        text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
+        # 遮住像密钥的东西（见 redact.py）：放进结果之前、交给钩子之前、下面的记录点之前。
+        # 钩子、模型、历史、页面、运行记录看到的都是遮好的这一份
+        text, state, redacted = self._redact(text, output.state)
+        result = results[index] = ToolResult(call.id, text, output.is_error, output.images, state, output.state_only)
+        if took is not None:
+            # 钩子：PostToolUse（只在真的执行了的调用上）。它补的话接在这条结果后面，这条结果还没进历史。
+            # 结果先放进去再接：钩子跑到一半被停下，这次调用照样交回它真正的结果，不会被当成"没执行完"
+            result.text = text = self.hooks.after_tool(self, call, tool, text, output.is_error, took)
+        self.trace.tool_ended(text, output.is_error, len(output.images), ran, redacted, end=end)  # 记录点：这次调用有结果了
+        # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言；钩子拦下的也另有给人看的一句
+        shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or text
+        self.ui.tool_result(shown, output.is_error, output.preview)
+
+    # ---- 一起跑的只读调用（规矩见 parallel.py）----------------------------------
+
+    def _batch_at(self, calls: list[ToolCall], start: int) -> list[Job]:
+        """从第 start 个调用起，连着的、能一起跑的那几个：工具说这一次只是读（Tool.parallel）、根本不用问你
+        （和一个一个跑时同一段判断：_gate 里的 Tool.check 和 permissions.review）、没有 PreToolUse 钩子要看它。
+        碰到第一个不满足的就停：后面的要等它做完再看（它可能改了什么，后面的问不问也许就不一样了）。"""
+        jobs: list[Job] = []
+        for index in range(start, len(calls)):
+            call = calls[index]
+            tool = self.tools.get(call.name, call.toolset)
+            # 先看工具说不说"能"：不说的（命令、浏览器、电脑、MCP……）不往下查，也就不会提前去看浏览器、屏幕上的情况（FactsTool.look）
+            if tool is None or tool.parallel is None or call.error or not isinstance(call.input, dict) or not tool.parallel(call.input):
+                break
+            gate = self._gate(call)
+            if isinstance(gate, ToolOutput) or gate[1] is not None or self.hooks.looks_before(call, gate[0]):
+                break  # 不用执行就有结果的（参数不对、工具不做）、要问你的、你的钩子要看的：单独跑
+            jobs.append(Job(index, call, gate[0]))
+        return jobs
+
+    def _run_batch(self, jobs: list[Job], results: list[ToolResult | None]) -> None:
+        """一批一起跑。线程里只执行工具（_execute_job）；画卡片、记录点、钩子、遮密钥、放进结果都在这里，按调用的顺序一个一个来：
+        第 k 张卡片画出来以后等第 k 个做完，交出它的结果，再画下一张（见 parallel.py 的"给人看的仍然一个一个来"）。"""
+        batch = self.trace.batch_began()  # 记录点：下面这几次调用是同一批、同时跑的
+        with Batch(jobs, self._execute_job, self.config.max_parallel_tools) as running:
+            for job in jobs:
+                self.ui.tool_call(job.call.shown, job.call.input)  # 你点了"停止"的话，这里就停下（还没开始的不再开始）
+                running.start()  # 第一张卡片画出来以后，整批交给线程；后面几次什么都不做
+                try:
+                    running.wait(job)
+                finally:
+                    # 记录点：开始一次工具调用。在它做完以后才记，开始的时刻用线程里读到的那一个，所以几段横条叠在一起。
+                    # 等它的时候被打断了（Ctrl-C）也记上：一轮结束时这一段按此刻收尾、标成 stopped，和一个一个跑时一样
+                    self.trace.tool_began(job.call, job.tool, start=job.started, batch=batch)
+                assert job.output is not None  # wait 正常返回，就是线程把它填好了
+                self._deliver(job.index, job.call, job.tool, job.output, job.took, True, results, end=job.finished)
+
+    def _execute_job(self, job: Job) -> None:
+        """在线程池的线程里执行一批里的一个调用（见 parallel.py）。只碰 job 和工具本身：不碰界面、不碰记录器（只读一下它的表）。"""
+        job.started = self.trace.timer()
+        job.output, job.took = self._execute(job.call, job.tool)
+        job.finished = self.trace.timer()
 
     def _redact(self, text: str, state: dict | None) -> tuple[str, dict | None, int]:
         """遮住结果里像密钥的东西（见 redact.py）。返回（文字，浏览器的标签页情况，一共遮了几处）。
@@ -374,22 +438,30 @@ class Agent:
         tool = self.tools.get(call.name, call.toolset)
         return tool is not None and tool.stands_in_for == COMPUTER
 
+    def _gate(self, call: ToolCall) -> ToolOutput | tuple[Tool, str | None]:
+        """执行之前的第一关，不碰界面：参数能不能用、有没有这个工具、工具自己肯不肯做（Tool.check）、要不要问你（permissions.review）。
+        不用执行就有结果的，交回那个结果；不然交回（工具，要问你的话；不用问是 None）。
+        一个一个跑（_run_one）和挑出能一起跑的（_batch_at）都用它：问不问你只在这里、按同一套规矩判断。"""
+        if call.error:
+            return ToolOutput(call.error, is_error=True)  # 模型给的参数没法解析，把问题告诉它
+        tool = self.tools.get(call.name, call.toolset)
+        if tool is None or tool.run is None:
+            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True)
+        refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
+        if refusal:
+            return ToolOutput(refusal, is_error=True)  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
+        # 权限这一关。把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
+        return tool, self.permissions.review(call.name, call.input, tool)
+
     def _run_one(self, call: ToolCall) -> tuple[ToolOutput, float | None]:
         """执行一次工具调用，返回结果（给模型看的文字、是否出错、结果里的图片……）和工具执行了多久（秒）。
         没有真的执行（参数不对、你拒绝了、钩子拦下了……）的，时间是 None。"""
-        if call.error:
-            return ToolOutput(call.error, is_error=True), None  # 模型给的参数没法解析，把问题告诉它
-        tool = self.tools.get(call.name, call.toolset)
-        if tool is None or tool.run is None:
-            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True), None
-        refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
-        if refusal:
-            return ToolOutput(refusal, is_error=True), None  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
-
-        # 先过权限这一关
-        question = self.permissions.review(call.name, call.input, tool)  # 把工具本身也给它：MCP 的工具要靠它认出是哪个服务器的
+        gate = self._gate(call)
+        if isinstance(gate, ToolOutput):
+            return gate, None
+        tool, question = gate
         asked = False
-        if question is not None:
+        if question is not None:  # 要问你：看看现在这一档能不能不问
             why = self.permissions.allowance(call.name, call.input, tool)
             if why is not None:
                 self.ui.auto_allowed(why)  # 没有问用户就放行了：告诉界面一声（为什么也说上），记录里要看得出来
@@ -408,7 +480,11 @@ class Agent:
             refused = self._ask(verdict.ask)
             if refused is not None:
                 return refused, None
+        return self._execute(call, tool)
 
+    def _execute(self, call: ToolCall, tool: Tool) -> tuple[ToolOutput, float]:
+        """真的执行这个工具（关卡都过了），返回结果和执行了多久（秒）。一批一起跑的时候，它在线程池的线程里跑（见 parallel.py）。"""
+        assert tool.run is not None  # _gate 查过：没有 run 的工具（服务器上的）根本到不了这里
         # 工具出错不会让程序崩溃：错误信息作为结果返回给模型，由它决定怎么办
         began = time.monotonic()  # 工具执行了多久（交给 PostToolUse 钩子的 duration_ms）
         try:

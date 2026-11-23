@@ -77,6 +77,10 @@ class Tool:
     # 只给看得懂图片的模型：工具全靠截图（操作整台电脑，见 tools/computer.py）。看不了图的模型（DeepSeek）拿不到它，
     # 给了它也只能闭着眼睛乱点
     vision: bool = False
+    # 这一次调用只是读、可以和同一步里别的只读调用同时跑吗（见 ../parallel.py）。给的是一个看参数的函数：文件工具、记忆工具
+    # 只有 view 是读。None（默认）是不能：新加的工具一律当作会改东西，一个一个来，要同时跑得自己写明（opt-in）。
+    # 光"只是读"还不够：浏览器里滚动、截图也只是看，可它们共用一个浏览器，谁先谁后结果不一样，所以浏览器的工具不写它
+    parallel: Callable[[dict], bool] | None = None
 
     @property
     def name(self) -> str:
@@ -144,14 +148,26 @@ def _invalid(reason: str, tool_input: object) -> ToolError:
     return ToolError(json.dumps({"error": reason, "INVALID_JSON": received}, ensure_ascii=False))
 
 
+def always(_tool_input: dict) -> bool:
+    """Tool.parallel 用：这个工具的每一次调用都只是读（列出待办、列出定时任务、读 Skill）。"""
+    return True
+
+
+def views(tool_input: dict) -> bool:
+    """Tool.parallel 用：command 是 view 的那一次只是读（文件工具、记忆工具），别的命令都会改东西。"""
+    return tool_input.get("command") == "view"
+
+
 def function_tool(
     name: str,
     description: str,
     properties: dict,
     required: list[str],
     function: Callable[..., str | ToolOutput],
+    parallel: Callable[[dict], bool] | None = None,
 ) -> Tool:
-    """把一个普通的 Python 函数包装成工具。自定义工具都用它来创建。"""
+    """把一个普通的 Python 函数包装成工具。自定义工具都用它来创建。
+    parallel：只是读、可以和别的只读调用同时跑的工具传 always（见 Tool.parallel）；不传就是一个一个来。"""
     schema = {
         "type": "object",
         "properties": properties,
@@ -173,4 +189,4 @@ def function_tool(
     # 自定义工具的说明书本来就是我们写的，换个包装就能给其他厂商用
     parameters = {key: value for key, value in schema.items() if key != "additionalProperties"}
     portable = {"name": name, "description": description, "parameters": parameters}
-    return Tool(spec=spec, run=run, portable=portable)
+    return Tool(spec=spec, run=run, portable=portable, parallel=parallel)

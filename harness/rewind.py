@@ -113,7 +113,9 @@ _COMPUTER_LOOKS = {"screenshot", "zoom", "cursor_position", "wait"}
 _COMPUTER_STANDINS = {"computer_screenshot", "computer_zoom", "computer_wait"}  # 别家的模型用的替身工具里只是看的
 # 页面在确认里单独写一句"这些撤不回来"的两类：操作过整台电脑、在浏览器里点过输入过（见 operated）
 _OPERATED = ((COMPUTER, (COMPUTER + ".", COMPUTER + "_")), (BROWSER, (BROWSER + ".", BROWSER + "_")))
-# 只是读的工具：读 Skill、列出待办（tools/todo.py）、列出定时任务。交给子 Agent（agent 工具）本身也不算：它自己调用的工具另外看
+# 只是读的工具：读 Skill、列出待办（tools/todo.py）、列出定时任务。交给子 Agent（agent 工具）本身也不算：它自己调用的工具另外看。
+# 一步里能同时跑的调用（Tool.parallel，见 parallel.py）一定都在这里算"只是看"，反过来不一定（浏览器的滚动、截图、子 Agent
+# 只是没改东西，却不能同时跑）。所以那是另一个开关，不是这张名单；tests/test_parallel_tools.py 对着整个工具箱查两边对得上
 _READ_ONLY = {skill.TOOL_NAME, "todo_list", task_tools.LIST, agent_tool.TOOL_NAME}
 # 智狐自己的这几样工具"要么全做、要么不做"：先把参数查好、找到要改的那一处，才一口气写进去（写文件都是先写临时文件
 # 再一步换上去）。所以它们的一次调用出错了，就是什么都没改，不算。执行命令、MCP、浏览器不一样：做到一半出了错，前一半已经做了

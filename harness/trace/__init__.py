@@ -74,6 +74,9 @@
              以及这次调用前后跑的钩子（PreToolUse、PostToolUse）
     sandbox  执行命令时沙箱是哪一档（见 sandbox/）：workspace / network；off 是这次运行没用沙箱（设置里开着沙箱时才写）；
              outside 是请你放行、在沙箱之外运行的那一条。从来没打开过沙箱的人，记录里没有这一项
+    batch    这一次和同一层里 batch 一样的那几次是同一批、同时跑的（一步里的几次读，见 ../parallel.py）：这一轮里的第几批，
+             从 1 数；一个一个跑的没有这一项（后来加的：以前存下的记录里都没有）。同一批的 start、end 是各自在线程里
+             真正开始、执行完的时刻，所以横条叠在一起；它们的 PostToolUse 钩子在执行完以后才跑，画在横条后面
 
   一段钩子（后来加的：以前存下的记录里没有这种段，合计里也没有 hooks 那几项，读的时候当成 0）：
     {"kind": "hook", "start": 1840, "end": 1910, "event": "PreToolUse", "name": "no-rm",
@@ -93,7 +96,7 @@
      "hook_runs": 1, "hooks_blocked": 1}
     model、tools、hooks、waiting、other  这一轮的时间怎么分的（毫秒，加起来是 wall）：模型在答、工具在执行、你的钩子在跑、
              等你确认、别的（存盘、组装请求这些零碎）。子 Agent 那一次调用的时间，按它里面的模型、工具、钩子、等你分别算进去；
-             工具调用前后跑的钩子不算进工具的时间
+             工具调用前后跑的钩子不算进工具的时间。同时跑的一批（batch）算的是它们一共占了多长的一段时间，不是各自加起来
     hook_runs、hooks_blocked  跑了几次钩子、其中几次拦下了
     cost     一共多少钱（只算有价格的）；unpriced 有几次请求没有价格；全都没有价格时 cost 是 null
     cache_hit  输入里命中缓存的比例（0 到 1）；没有输入时是 null
