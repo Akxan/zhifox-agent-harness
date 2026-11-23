@@ -83,10 +83,12 @@
      后面接着 `skills-list.js`、`skills-detail.js`……（`agents-*`、`mcp-*`、`channels-*`、`tasks-*` 也一样），在清单里挨着排、
      保持原来的先后，挂到 `extensionTabs` 的那几行留在最后一个文件的末尾。用前缀、不用子文件夹。拆的时候先单独提交一次
      只搬家，证明 `assemble()` 拼出来的页面一字不差，再另外提交改注释。
-     Python 的模块也一样（`app_*.py`、`browser/session_*.py`、`capabilities_*.py`、`restore_*.py`、`tasks_*.py`、`webui/server_*.py`）：
+     Python 的模块也一样（`app_*.py`、`browser/session_*.py`、`capabilities_*.py`、`restore_*.py`、`tasks_*.py`、`webui/server_*.py`、
+     `commands/rules_*.py`）：
      原来的文件留作入口，开头写清由哪几块拼成，别处照旧从它 import（写在 `__all__` 里）；拆出去的文件只 import 前面的、不 import 入口
      （不然就成了互相导入，先导入哪一个就看运气），所以入口里留的是最上面那一层。一个类太大就拆成混进来的基类，加一个只给 mypy 看的
-     `*_types.py`。测试换名字（`monkeypatch.setattr`）要换在读它的函数所在的那个模块上：函数搬了家，换入口上的名字它看不到。
+     `*_types.py`；拆出去的文件只为类型注解要入口里的东西时，放进 `if TYPE_CHECKING:`（`commands/rules_*.py` 的 `Context`）。
+     测试换名字（`monkeypatch.setattr`）要换在读它的函数所在的那个模块上：函数搬了家，换入口上的名字它看不到。
      只搬家的那一次要证明一字不差（每个定义的原文、注释、每个名字解析到的东西），再另外提交改注释。
    - 同一条规则只写在一处：价格、时间、格式检查这类由助手程序算，页面不再复制一份（页面要用就请程序算好发过来）。
    - 每个功能都有测试；修 bug 先写一个能复现它的测试。
@@ -217,7 +219,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、windows（任务计划程序）和 supervise（自己的看护进程：任务计划程序失败重启时不看退出码）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
-| `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
+| `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`）。规则的写法（`Context`、`Program`）和总表 `RULES` 在 `rules.py`，各类程序自己看一遍的函数按种类在 `rules_system`、`rules_files`、`rules_search`、`rules_text`、`rules_subcommands`、`rules_wrappers` |
 | `harness/capabilities.py`、`harness/capabilities_*.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开。`capabilities.py` 是入口（`overview`），`capabilities_kinds`（格式、`KINDS`、`group_of`、`label_of`）、`capabilities_approval`（问不问你）、`capabilities_context`（`_Context`）、`capabilities_builtin` / `capabilities_switched` / `capabilities_mcp`（每一种功能的状态） |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
@@ -349,7 +351,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `.env` 在任何模式下都碰不了；读 `data/` 在任何模式下都要问（"全部自动允许"除外）。
   `readonly`（只读的命令不用问）排在 ask 和 edits 之间：只放开 `commands.classify` 判为只读的命令、你在 `data/commands.json`
   里加的命令（只在这一档、只在单独一条时算）、读工作目录之外的文件。它不包括改文件，edits 也不包括只读命令。判断必须保守：
-  看不懂的一律不算；改 `commands/rules.py` 之前先看 `tests/test_commands.py`，新发现的绕过先加一行会失败的测试。
+  看不懂的一律不算；改 `commands/rules.py`、`commands/rules_*.py` 之前先看 `tests/test_commands.py`，新发现的绕过先加一行会失败的测试。
   `commands/words.py` 认的写法只多了两样（2026-11-23，真跑评测时三家模型都撞上的）：`;`、`&&`、`||` 连起来的几段（和管道一样每段各自判断，`cd` 不在名单里所以换目录的一串照样问），和只写到 `/dev/null`、只并到另一路的重定向（`2>/dev/null`、`&>/dev/null`、`2>&1`、`>&2`）。之后又加了通配符（同一次评测里三家都写 `du -sk */`）：`words.py` 只把没加引号的 `*`、`?`、`[ab]`、`[!.]` 记成 `Glob`，`commands/globs.py` 照 bash 在命令运行的目录里展开，展开出来的每一个路径照原来的规则查（对不上的原样、`.*` 补上 `.` 和 `..`、超过 `READONLY_GLOB_MAX` 就问；区间、`[^…]`、字符类、命令名里的通配符、你加的命令里的通配符都不认）。写文件的重定向、单独的 `&` 照旧不认，再放宽要有同样的证据。
   `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
   对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。

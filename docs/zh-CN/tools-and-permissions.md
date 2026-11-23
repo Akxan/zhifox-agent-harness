@@ -191,7 +191,10 @@ MCP 的调用也会停下来等你批准。
    `cat .e*` 对上了 `.env`，问；名叫 `-delete` 的文件会让 `find *` 变成 `find -delete …`，问。一个都对不上的原样交给程序（bash 默认就是这样），
    `.*` 也算上 `.` 和 `..`（macOS 自带的 bash 3.2 是这样），展开出来超过 `READONLY_GLOB_MAX` 个就问。区间（`[a-z]`，不同的语言环境下
    bash 理解得不一样）、`[^a]`、字符类（`[:alpha:]`）看不懂，问。命令名字里有通配符的问；你自己加的命令里不能有通配符。
-2. **认程序**（[rules.py](../../harness/commands/rules.py)）。只有内置名单里的程序才算，每个程序一条"哪些选项可以用"的规矩：
+2. **认程序**（[rules.py](../../harness/commands/rules.py)，要自己看一遍的那些按程序的种类各一个文件：
+   [rules_system.py](../../harness/commands/rules_system.py)、[rules_files.py](../../harness/commands/rules_files.py)、
+   [rules_search.py](../../harness/commands/rules_search.py)、[rules_text.py](../../harness/commands/rules_text.py)、
+   [rules_subcommands.py](../../harness/commands/rules_subcommands.py)、[rules_wrappers.py](../../harness/commands/rules_wrappers.py)）。只有内置名单里的程序才算，每个程序一条"哪些选项可以用"的规矩：
    `find` 不能带 `-exec`、`-delete`、`-fprint`；`sed` 不能带 `-i`，脚本也只能由几种最简单的命令组成（不能有 `w`、`r`、`e`）；
    `awk` 的程序里任何地方都不能有 `system`、`getline`、`>`、`|`；`sort` 不能带 `-o`；`git` 只认 `status`、`log`、`diff`、`show`、
    `branch`（列出来）和另外几个，子命令前面不能有选项（`git -c core.pager=…` 能运行任何东西）；`journalctl` 不能带 `--vacuum…`；
