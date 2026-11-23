@@ -363,14 +363,14 @@ def test_installed_eval_explains_where_the_tasks_are(monkeypatch, tmp_path, caps
 
 
 def test_the_wheel_ships_everything_the_program_reads():
-    # 装成工具时只有 harness/ 这个包：运行时读的文件（网页、翻译表、图标）都得在包里面，不能在仓库根目录
+    # 装成工具时只有 harness/ 这个包：运行时读的文件（网页、翻译表、图标、搜索用的拼音表）都得在包里面，不能在仓库根目录
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as file:
         project = tomllib.load(file)
     assert project["project"]["name"] == install.PROJECT_NAME
     assert project["project"]["scripts"] == {"harness": "harness.cli:main"}
     assert project["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == ["harness"]
     package = PROJECT_ROOT / "harness"
-    for name in ("locales/en.json", "locales/es.json", "webui/markdown.js", "webui/page/index.html"):
+    for name in ("locales/en.json", "locales/es.json", "webui/markdown.js", "webui/page/index.html", "search_pinyin.txt"):
         assert (package / name).is_file(), name
 
 

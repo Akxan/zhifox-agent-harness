@@ -129,8 +129,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   channel too, and it refuses to run rather than quietly running unsandboxed where it can't work (Windows, no `bwrap`).
 - 💾 **Local-first.** Conversations, memory, to-dos and settings are plain files on your disk. The web server listens
   on 127.0.0.1 only, and the page loads no external resources.
-- 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
-  search library.
+- 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, and by
+  pinyin (`baogao` finds 报告), without a search library.
 - 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
   renders replies as Markdown (code blocks, tables, lists) with a small hand-written renderer, has light and dark
   themes, and respects reduced-motion settings.
@@ -579,7 +579,7 @@ Each part of the harness has its own file or directory:
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
 | History compaction | [harness/providers/compaction.py](harness/providers/compaction.py) | Resending the whole history every turn gets more expensive and finally exceeds the model's limit. When a GPT, Gemini or DeepSeek conversation gets too long, the model is asked to summarize the earlier part (Claude's API compacts on its own) |
 | Conversation storage | [harness/conversations.py](harness/conversations.py) | History in memory is gone once the program closes. Saving it to a file lets you pick up where you left off |
-| Conversation search | [harness/search.py](harness/search.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches |
+| Conversation search | [harness/search.py](harness/search.py), [harness/search_pinyin.py](harness/search_pinyin.py), [harness/search_pinyin.txt](harness/search_pinyin.txt), [tests/make_pinyin.py](tests/make_pinyin.py) | Once there are many conversations, you can't find anything. The text of every conversation is kept in memory and searched by title and content, allowing near matches and pinyin (`baogao` finds 报告); the pinyin table is generated once from Unicode's Unihan database |
 | Attachments | [harness/attachments.py](harness/attachments.py), [harness/documents.py](harness/documents.py) | Models take only a few kinds of files. Every attachment is checked before anything is sent, and Word, Excel and PowerPoint files are turned into text |
 | Media library | [harness/media.py](harness/media.py) | Keeps the original of every attachment (content-addressed), indexes which conversation and message each one came from, and recovers attachments from older conversations out of their history |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
@@ -1135,7 +1135,7 @@ The index holds: titles, your messages, the assistant's replies, its thinking, t
 (the command that ran, the file path read or written, the web search query), and the first 600 characters of each tool
 result. It leaves out the contents the assistant wrote into files, and error notices and notices such as "Stopped".
 
-**At all.** People often remember only roughly what was said, so matching has three tiers, and stricter matches rank
+**At all.** People often remember only roughly what was said, so matching has five tiers, and stricter matches rank
 higher:
 
 | Tier | Rule | Example |
@@ -1143,11 +1143,43 @@ higher:
 | Exact | The keyword appears as typed. Case-insensitive; full-width and half-width characters count as the same | `HARNESS` finds `harness` |
 | Similar word | An English word of 5 or more letters may have a letter or two wrong. Used only when the word doesn't appear exactly anywhere | `hraness` finds `harness` |
 | Characters in order | Every character of the keyword appears in order, with a few others in between. English keywords need at least 4 letters and must stay within one word; Chinese keywords need at least 2 characters | `周五报告` finds "周五下午交报告" |
+| Pinyin | A keyword made of letters is read as pinyin: at least two whole syllables, matching Chinese characters next to each other. Case, tones and spaces or apostrophes between syllables don't matter, and every reading of a polyphonic character counts | `baogao`, `bao gao` and `BaoGao` find "报告"; `yinhang` finds "银行" and `xingzou` finds "行走" (行 reads both) |
+| Initials | Each letter is the first letter of a character's pinyin (`zh`, `ch`, `sh` count as `z`, `c`, `s`). At least 3 letters, and only in titles | `zbmb` finds a conversation titled "周报模板" |
 
 Separate keywords with spaces. All of them must match, in any order, and they may match in different places. Ranking
 looks at the tier first: conversations where every keyword matched exactly come first, then those that needed a similar
-word, then those that needed characters in order. Within a tier, matches in the title rank above matches in the content,
-and matches in your messages rank above matches in tool output. When relevance is equal, newer conversations come first.
+word, then characters in order, then pinyin, and initials last. Within a tier, matches in the title rank above matches
+in the content, and matches in your messages rank above matches in tool output. When relevance is equal, newer
+conversations come first.
+
+**Pinyin.** Many people type Chinese with a pinyin keyboard, so `baogao` (报告, "report") is quicker to type in the
+search box than the characters. The two pinyin tiers have to stay precise, because a string of letters can also be an
+English word, and they come with a few rules:
+
+- They are tried only when the keyword doesn't appear as typed anywhere, like similar words. `name` splits into na + me
+  (那么, a very common word), but if some conversation literally contains `name`, you are looking for the English word.
+- They rank after the first three tiers, so everything the search found before still appears, in the same order. Pinyin
+  matches are added after them.
+- At least two syllables: one syllable such as `bao` fits dozens of characters, and one-syllable English words like
+  `bang` or `long` would match Chinese text everywhere. Only whole syllables count, so `baog` doesn't find 报告 yet.
+- A lone `a`, `o` or `e` after another syllable needs an apostrophe, as in standard pinyin (`tian'e` for 天鹅). Without
+  that rule `lie` would be read as li + e. Other syllables that start with a vowel don't need one: `xian` finds 西安 and
+  `fangan` finds both 方案 (fang'an) and 反感 (fan'gan).
+- Initials need at least three letters and look only at titles. Two letters match too much (`bg` fits 不过, 不管,
+  宾馆…), and in long text even three letters match nearly every conversation (`zgr` fits every 这个人). Titles are short,
+  and they are what people remember.
+- Keywords that are all letters are also tried joined as one phrase, with the spaces as syllable boundaries, when no
+  conversation contains them all as typed: that is how `bao gao` finds 报告.
+
+ZhiFox doesn't store pinyin for each conversation, since for thousands of long conversations that would take more
+memory than the text itself. It turns the keyword into a regular expression instead, with each syllable replaced by
+the set of characters that have that reading: `baogao` becomes `[包保报宝抱…][高告搞稿糕…]`. Python runs it in C, as fast
+as the characters-in-order tier: tens of milliseconds for ten million characters. When the letters split more than one
+way (`xian` is 先 or 西安), each split becomes a branch of the same expression. The readings come from the Unicode Han
+Database (Unihan): a table of about 44,000 characters in
+[harness/search_pinyin.txt](harness/search_pinyin.txt) (155 KB), generated once by
+[tests/make_pinyin.py](tests/make_pinyin.py) (see [Third-party data](#third-party-data)) and read only by the first
+search that needs pinyin. The matching itself is in [harness/search_pinyin.py](harness/search_pinyin.py).
 
 The server computes where to highlight the matches in the results, and there is a trap here. Browser strings count in
 UTF-16, where an emoji takes two units; Python counts it as one. So the server converts the positions before sending
@@ -2752,7 +2784,8 @@ This starts a small server on your computer and opens the chat page in your brow
   conversations can run at the same time; with three going, sending a fourth message tells you to wait or stop one.
 - **Search** (top of the sidebar, ⌘F or Ctrl+F; ⌘K and Ctrl+K work too, and pressing ⌘F again while you're in the
   search box hands over to the browser's own find-in-page). Searches all saved conversations, titles and content, without needing
-  an exact match. Separate keywords with spaces. Each result shows the passage that matched; open it (or press Enter to
+  an exact match; Chinese can also be found by its pinyin (`baogao` or `bao gao` for 报告, `zbmb` for a title 周报模板).
+  Separate keywords with spaces. Each result shows the passage that matched; open it (or press Enter to
   open the first) and the page scrolls straight to that spot.
 - **Empty state.** Before there is any content, a greeting, the input box and a few clickable examples sit in the middle
   of the page.
@@ -4002,7 +4035,9 @@ read [tests/test_agent.py](tests/test_agent.py). The web UI tests are in [tests/
 where the test code plays the browser; the app icon's manifest and PNGs in
 [tests/test_web_manifest.py](tests/test_web_manifest.py) (token, Host and Origin, the fixed list of names with no way to
 reach another file, headers, the security policy, and the maskable fox staying inside its safe circle). Saving conversations and searching them are covered in
-[tests/test_conversations.py](tests/test_conversations.py) and [tests/test_search.py](tests/test_search.py), and
+[tests/test_conversations.py](tests/test_conversations.py), [tests/test_search.py](tests/test_search.py) and
+[tests/test_search_pinyin.py](tests/test_search_pinyin.py) (pinyin, polyphonic characters, ranking, a 2,000-conversation
+speed check, and the table generator on a small Unihan sample, with no download), and
 compaction for GPT, Gemini and DeepSeek in [tests/test_compaction.py](tests/test_compaction.py); the spending record and
 budget in [tests/test_ledger.py](tests/test_ledger.py) (DeepSeek's peak and off-peak prices with a fixed clock, a
 half-written last line, merging old entries), the export in [tests/test_export.py](tests/test_export.py) (no secret
@@ -4453,9 +4488,10 @@ more often a bug in a task or a check than a fact about the model.
   different parameters.
 - Each command runs in a fresh shell, so `cd` and environment variables don't carry over to the next command.
 - Conversations are saved only in the web UI. Terminal conversations are gone when you close the program.
-- Search doesn't support pinyin (typing `baogao` won't find "报告"). It keeps the text of every conversation in memory,
-  so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
-  searchable until it has been saved.
+- Search keeps the text of every conversation in memory, so a very large number of conversations (thousands of long
+  ones) takes more memory. The conversation in progress isn't searchable until it has been saved. Pinyin search matches
+  whole syllables only: there is no fuzzy pinyin (`z`/`zh`, `n`/`l`), the last syllable can't be left unfinished, and
+  initials are matched in titles only.
 - At most three conversations run at the same time in the web UI (`MAX_PARALLEL_CHATS`), and one that is running can't
   be renamed or deleted until it finishes or you stop it. The terminal UI has one conversation.
 - The web UI renders a subset of Markdown: CommonMark plus GitHub's tables, task lists and strikethrough. Images
@@ -4520,7 +4556,6 @@ more often a bug in a task or a check than a fact about the model.
 - MCP resources and prompts, and OAuth sign-in for remote MCP servers.
 - Computer use on more than the main display, and with a real Claude key on a test machine.
 - A sandbox for commands on Windows (an AppContainer, if its folder permissions and PowerShell can be made to work).
-- Add pinyin matching to search.
 - Add another interface language: write a file in `harness/locales/` modeled on `en.json`, then add it to `LANGUAGES` in
   `harness/i18n.py`.
 
@@ -4623,6 +4658,13 @@ summarizes ZhiFox's security model, and lists what is out of scope.
 ## License
 
 [MIT](LICENSE). You can use, modify and distribute it freely, as long as you keep the copyright notice.
+
+### Third-party data
+
+The pinyin table that conversation search uses ([harness/search_pinyin.txt](harness/search_pinyin.txt)) is generated
+from the [Unicode Han Database (Unihan)](https://www.unicode.org/reports/tr38/), Unicode 18.0.0, © Unicode, Inc., by
+[tests/make_pinyin.py](tests/make_pinyin.py). It is distributed under the
+[Unicode License v3](https://www.unicode.org/license.txt), whose full text is at the top of the file.
 
 ## Star History
 

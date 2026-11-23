@@ -1,6 +1,6 @@
-"""会话搜索的测试：拆关键词、统一写法、三档匹配、排序、摘录，以及会话库怎样让索引跟着文件走。
+"""会话搜索的测试：拆关键词、统一写法、前三档匹配、排序、摘录，以及会话库怎样让索引跟着文件走。
 
-网页上的搜索接口（/api/search）在 test_webui.py 的最后一节里测。
+网页上的搜索接口（/api/search）在 test_webui.py 的最后一节里测；按拼音找（全拼、首字母）在 test_search_pinyin.py 里测。
 """
 
 from __future__ import annotations

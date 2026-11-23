@@ -405,8 +405,8 @@ uv run harness --web
   页面顶上出现一条提示（点它就过去、在那里答复），页面上也说一声；页面在后台的话还会弹系统通知，和你正看着的那一段一样。
   打开它就能看到到现在为止的全部内容，回复接着往下写。最多同时三段在跑；三段都在跑时再发一条，会告诉你先等一等或者停下一段。
 - 搜索（会话栏顶部，快捷键 ⌘F 或 Ctrl+F；⌘K、Ctrl+K 也可以。光标已经在搜索框里时再按一次 ⌘F，
-  就是浏览器自带的"在页面里查找"）：在所有保存过的会话里找，标题和内容都找，不要求一字不差。
-  多个关键词用空格隔开。结果里会显示命中的那段文字，点开（或按回车打开第一条）后页面直接滚到那个位置。
+  就是浏览器自带的"在页面里查找"）：在所有保存过的会话里找，标题和内容都找，不要求一字不差；中文也能用拼音找
+  （`baogao` 或 `bao gao` 找"报告"，`zbmb` 找标题是"周报模板"的会话）。多个关键词用空格隔开。结果里会显示命中的那段文字，点开（或按回车打开第一条）后页面直接滚到那个位置。
 - 空白页：还没有内容时，问候语、输入框和几个可以直接点的例子摆在页面中间。
 - 对话区：回复逐字显示，并按 Markdown 画出来：标题、粗体斜体、列表和任务列表、引用、表格（太宽时在自己的框里
   横向滚动）、代码块（标着语言，有简单的着色和"复制代码"按钮）。链接在新标签页里打开；图片不加载，只显示说明文字和网址。
@@ -897,7 +897,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
 | 压缩历史 | [harness/providers/compaction.py](harness/providers/compaction.py) | 历史每轮整段重发，越聊越贵，最后超出模型的上限。GPT、Gemini、DeepSeek 的对话太长时，请模型把较早的部分写成摘要（Claude 由 API 自己压缩） |
 | 会话存档 | [harness/conversations.py](harness/conversations.py) | 程序关掉后内存里的对话历史就没了。把它存成文件，下次读回来就能接着聊 |
-| 会话搜索 | [harness/search.py](harness/search.py) | 会话多了以后找不到。把每段会话里的文字放进内存，按标题和内容搜，允许不完全一样 |
+| 会话搜索 | [harness/search.py](harness/search.py)、[harness/search_pinyin.py](harness/search_pinyin.py)、[harness/search_pinyin.txt](harness/search_pinyin.txt)、[tests/make_pinyin.py](tests/make_pinyin.py) | 会话多了以后找不到。把每段会话里的文字放进内存，按标题和内容搜，允许不完全一样，也能按拼音找（`baogao` 找到"报告"）；拼音表从 Unicode 的 Unihan 数据库生成一次 |
 | 附件 | [harness/attachments.py](harness/attachments.py)、[harness/documents.py](harness/documents.py) | 模型只收几种文件。每个附件发出去之前都检查一遍，Word、Excel、PowerPoint 先变成文字 |
 | 多媒体库 | [harness/media.py](harness/media.py) | 每个附件的原件按内容存一份；记下它来自哪段会话的哪条消息；旧会话里的附件从对话历史里找回来 |
 | 长期记忆 | [harness/tools/memory.py](harness/tools/memory.py) | 每段会话互相看不到对方的内容。记忆是所有会话共用的，助手自己决定往里写什么 |
@@ -1409,17 +1409,41 @@ t("已换成 {provider} · {model}。对话继续。", provider="DeepSeek", mode
 收进索引的有：标题、你说的话、助手的回复、思考过程、每次工具调用的那一行摘要（运行的命令、读写的文件路径、
 联网搜索的关键词）、每个工具结果开头的 600 个字符。没有收的：助手写进文件的具体内容、出错和"已中断"这类提示。
 
-找得到：人记得的往往只是个大概，所以匹配分三档，越严格的排得越靠前：
+找得到：人记得的往往只是个大概，所以匹配分五档，越严格的排得越靠前：
 
 | 档 | 规则 | 例子 |
 |---|---|---|
 | 原样包含 | 关键词原样出现。不分大小写，全角半角算一样 | `HARNESS` 找到 `harness` |
 | 相近的词 | 5 个字母以上的英文单词允许敲错一两个字母。只在这个词哪儿都原样找不到时才启用 | `hraness` 找到 `harness` |
 | 隔字包含 | 每个字按顺序都出现，中间可以隔几个字。英文要 4 个字母以上，而且不跨单词 | `周五报告` 找到"周五下午交报告" |
+| 全拼 | 字母拼成的关键词按拼音对汉字：至少两个完整的音节，对上挨在一起的几个字。不分大小写、不管声调，音节之间可以有空格或隔音符号；多音字的每个读音都算 | `baogao`、`bao gao`、`BaoGao` 找到"报告"；`yinhang` 找到"银行"，`xingzou` 找到"行走"（"行"两个音都算） |
+| 首字母 | 每个字母是一个字拼音的第一个字母（zh、ch、sh 只算 z、c、s）。至少 3 个字母，只在标题里找 | `zbmb` 找到标题是"周报模板"的会话 |
 
 多个关键词要全部满足，先后顺序不限，也可以分别出现在不同的地方。排序时先看档：每个关键词都原样找到的排最前，
-其次是靠"相近的词"找到的，用到"隔字包含"的排最后。同一档里，标题里的命中排在内容里的前面，
+其次是靠"相近的词"找到的，然后是用到"隔字包含"的、靠拼音找到的，用到"首字母"的排最后。同一档里，标题里的命中排在内容里的前面，
 你说的话排在工具输出前面；一样相关时新的会话在前。
+
+拼音：很多人用拼音输入法打字，在搜索框里敲 `baogao` 比切换输入法再选字快。可一串字母也可能是英文词，
+所以拼音的两档要管得严，有这么几条规矩：
+
+- 和"相近的词"一样，只在这个关键词哪儿都原样找不到时才按拼音试。`name` 拆得成 na + me（"那么"，到处都有），
+  可要是有会话里原样写着 `name`，你找的就是这个英文词。
+- 排在原来三档的后面：原来找得到的会话一个不少、先后不变，按拼音找到的只是接在后面。
+- 至少两个音节：一个音节对得上的字太多（`bao` 能对上几十个字），`bang`、`long` 这样一个音节的英文词也会对上到处都有的汉字。
+  只认完整的音节，所以敲到 `baog` 还找不到"报告"。
+- 单独一个 `a`、`o`、`e` 接在别的音节后面时要写隔音符号，和拼音的正词法一样（`tian'e` 是"天鹅"）；不然 `lie`
+  会被拆成 li + e。别的以元音开头的音节不用：`xian` 找得到"西安"，`fangan` 既找到"方案"（fang'an）也找到"反感"（fan'gan）。
+- 首字母至少 3 个字母，而且只看标题。两个字母对上的太多（`bg` 对得上"不过""不管""宾馆"……），正文又长又多，
+  3 个字母也几乎每段都有（`zgr` 对得上每一个"这个人"）。标题短，也是人最记得住的。
+- 几个关键词都是字母、又没有哪段会话把它们全都原样找到时，再把它们连起来当一串拼音试一次，空格就是音节的分界：
+  `bao gao` 就是这样找到"报告"的。
+
+智狐不给每段会话预先存好拼音（几千段长会话的拼音比原文还占地方），而是反过来，把关键词变成一个正则：每个音节换成
+"读这个音的所有汉字"组成的字符集合，`baogao` 变成 `[包保报宝抱…][高告搞稿糕…]`。正则在 C 里跑，和"隔字包含"一样快，
+1000 万字也只要几十毫秒。一串字母有几种拆法时（`xian` 是"先"也是"西安"），每种拆法都是这个正则里的一条岔路。
+读音来自 Unicode 的汉字数据库 Unihan：[harness/search_pinyin.txt](harness/search_pinyin.txt) 是一张 4 万多个字的表（155 KB），
+由 [tests/make_pinyin.py](tests/make_pinyin.py) 生成一次（见[第三方数据](#第三方数据)），第一次需要按拼音找的时候才读进来。
+怎么对在 [harness/search_pinyin.py](harness/search_pinyin.py) 里。
 
 页面上的搜索结果里标出来的位置是服务器算好的。这里有个容易踩的坑：浏览器里的字符串按 UTF-16 计数，
 一个表情符号占两格，而 Python 里只占一格，所以服务器发给页面之前要把位置换算一遍，否则文字里一有表情，
@@ -3226,7 +3250,7 @@ mypy 要在项目自己的环境里跑（所以是 `uv run --with`，不是 `uvx
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](tests/test_webui.py)，由测试代码扮演浏览器；
 应用图标的清单和几张 PNG 在 [tests/test_web_manifest.py](tests/test_web_manifest.py)（口令、Host 和 Origin，名字只认固定的名单、碰不到别的文件，
-响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
+响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](tests/test_conversations.py) 和 [tests/test_search.py](tests/test_search.py)，按拼音找在 [tests/test_search_pinyin.py](tests/test_search_pinyin.py)（全拼、多音字、排序、2000 段会话上的快慢，以及拼音表的生成脚本：用一小段 Unihan 的样本测，不下载）；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](tests/test_compaction.py)；
 花费账本和预算在 [tests/test_ledger.py](tests/test_ledger.py)（用固定的钟测 DeepSeek 的高峰、闲时价，文件末尾的半行，
 旧明细的合并），导出在 [tests/test_export.py](tests/test_export.py)（压缩包里一个密钥都没有），
 从备份恢复在 [tests/test_restore.py](tests/test_restore.py)、[tests/test_restore_cli.py](tests/test_restore_cli.py)、
@@ -3583,8 +3607,8 @@ say = "改好了。"
 - Claude 的模型只列出程序适配过的三个，Anthropic 的其他模型接受的参数不完全一样。
 - 每条命令都在全新的 shell 里运行，`cd` 和环境变量不会保留到下一条命令。
 - 会话只在网页界面里保存，终端界面的对话关掉程序后不保留。
-- 搜索不支持拼音（比如输入 `baogao` 找不到"报告"）。它把所有会话的文字放在内存里，
-  会话非常多（几千段长对话）时会多占一些内存。正在进行、还没保存过的那一段搜不到。
+- 搜索把所有会话的文字放在内存里，会话非常多（几千段长对话）时会多占一些内存。正在进行、还没保存过的那一段搜不到。
+  按拼音找只认完整的音节：没有模糊音（z 和 zh、n 和 l 不算一样），最后一个音节不能只敲一半，首字母只在标题里找。
 - 网页界面里同时在跑的对话最多三段（`MAX_PARALLEL_CHATS`）；正在跑的那一段要等它跑完或者你停下它，才能改名、删除。终端界面只有一段对话。
 - 网页界面只画 Markdown 的一部分：CommonMark 加上 GitHub 的表格、任务列表和删除线。图片不加载（只显示说明文字和网址），
   HTML 按原文显示成文字，链接只认 http、https、mailto，不支持缩进四格的代码块、引用式链接和脚注。代码着色只认常见语言的
@@ -3632,7 +3656,6 @@ say = "改好了。"
 - 支持 MCP 的资源和提示词，以及远程 MCP 服务器的 OAuth 登录。
 - 操作整台电脑支持主屏幕以外的屏幕，以及在一台测试用的电脑上用真实的 Claude 密钥试一遍。
 - Windows 上命令的沙箱（AppContainer，要是文件夹的权限和 PowerShell 能弄得妥当的话）。
-- 给搜索加上拼音匹配。
 - 再加一种界面语言：在 `harness/locales/` 下照着 `en.json` 写一份，再在 `harness/i18n.py` 的 `LANGUAGES` 里加上它。
 
 ## 关键词
@@ -3655,6 +3678,12 @@ Python · 终端聊天 · 网页界面
 ## 许可证
 
 [MIT](LICENSE)。可以自由使用、修改和分发，保留版权声明即可。
+
+### 第三方数据
+
+会话搜索用的拼音表（[harness/search_pinyin.txt](harness/search_pinyin.txt)）由 [tests/make_pinyin.py](tests/make_pinyin.py)
+从 Unicode 的汉字数据库 [Unihan](https://www.unicode.org/reports/tr38/)（Unicode 18.0.0，© Unicode, Inc.）生成，
+按 [Unicode License v3](https://www.unicode.org/license.txt) 分发，许可声明的全文写在这个文件的开头。
 
 ## Star History
 
