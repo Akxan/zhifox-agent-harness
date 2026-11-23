@@ -1,3 +1,11 @@
+"""网页服务器 · 事件流（Handler 的一组方法，见 server.py 开头）。
+
+_send_events 就是 GET /events：连接一直不关，把你正看着的那一段的事件推给页面。约定（先补发、再发 synced 标记、换着看时发一个
+不带编号的 reset、断线重连时按 Last-Event-ID 接着发）写在它的说明里，CLAUDE.md 的"事件流的约定不能破坏"说的就是这里。
+
+为什么单独一个文件：它是唯一一个不马上回答、一直开着的请求，读的是 sessions.py 里每一段的日志，和别的接口的写法都不一样。
+"""
+
 from __future__ import annotations
 
 from ..safe import to_json
@@ -8,6 +16,8 @@ KEEPALIVE_SECONDS = 15
 
 
 class HandlerEvents(HandlerPart):
+    # ---- 事件流 ----------------------------------------------------------------
+
     def _send_events(self) -> None:
         """事件流（Server-Sent Events）：连接不关闭，有新事件就写过去。
 

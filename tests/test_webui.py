@@ -123,7 +123,7 @@ class Browser:
             elif "event" not in fields:
                 event = json.loads(fields["data"])
                 if "id" not in event:
-                    # 换着看另一段对话时服务器补的那个 reset（见 server.py 的 _send_events）：不进日志、不带编号，
+                    # 换着看另一段对话时服务器补的那个 reset（见 server_events.py 的 _send_events）：不进日志、不带编号，
                     # 也就不能有 id 行（不然浏览器会把它当成"最后收到的那一个"）
                     if event.get("type") != "reset" or "id" in fields:
                         self.problems.append(f"不带编号的事件只能是换着看时补的 reset，收到的是 {event!r}（id 行 {fields.get('id')!r}）")

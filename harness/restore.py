@@ -30,6 +30,16 @@ README-backup.txt 和 backup-manifest.json 只读不写。macOS、Windows 打包
 每个文件都用 safe.write_stream 写（临时文件、fsync、再换上去，权限 600；Windows 上靠文件夹的 ACL，见 safe.private_dir）。
 
 谁也不能在恢复的时候写数据文件夹：网页上由 restore_api.py 先停下对话、定时任务、聊天通道；终端里先占住数据目录的锁（instance.py）。
+
+## 由几个文件拼成
+
+  restore.py         这个文件：真的恢复（apply、Restored：覆盖、合并、出错换回去）和恢复前的自动备份（backup_first）
+  restore_check.py   check：看一遍压缩包（上面那几样查什么都在那里；上限 config.RESTORE_* 也在那里读）
+  restore_plan.py    plan、preview：现在的数据文件夹里有什么、两种方式各会怎样，每一样写成一句话（step_text）
+  restore_keys.py    存着密钥的配置文件：占位符不盖掉现在的密钥
+
+三步一步用一步：restore_plan 用 restore_check 的，这个文件用前两个的，前两个都不 import 这个文件。
+别处照旧 from .restore import …（__all__）；测试要换某个名字，换在读它的那个文件上（比如上限换 restore_check 的）。
 """
 
 from __future__ import annotations
@@ -108,7 +118,7 @@ __all__ = [
 BEFORE = re.compile(r"zhifox-before-restore-\d{8}-\d{6}(-\d{1,3})?\.zip")
 
 
-# ---- 恢复 ----------------------------------------------------------------------
+# ---- 恢复（第三步；前两步在 restore_check.py、restore_plan.py）--------------------
 
 
 @dataclass

@@ -4,7 +4,7 @@
 现在一个文件只讲一件事：styles/ 里一种样子一个文件，scripts/ 里页面的一节一个文件。想改"记忆"，
 就打开 scripts/memory.js 和 styles/memory.css。
 
-为什么又拼回一页：页面的安全策略只认带着一次性 nonce 的内联 <script> 和 <style>（见 server.py 的 _send_page），
+为什么又拼回一页：页面的安全策略只认带着一次性 nonce 的内联 <script> 和 <style>（见 server_page.py 的 _send_page），
 不加载任何外部文件，离线也要能用。所以拆开只是为了好改：发给浏览器的仍然是同一个自给自足的页面，
 不多开一个地址，也不放宽安全策略。
 
@@ -25,7 +25,7 @@ SLOTS 里列出的那几块，按列出的顺序一块接一块，中间空一�
 所以每一块里都不能出现这样的占位符，也不能出现 </script、</style、<!--（浏览器会以为那一段提前结束了），
 测试会查。
 
-助手程序启动时拼一次（server.PAGE）；演示（tests/demo_web.py）每次刷新都重新拼，改完刷新就能看到。
+助手程序启动时拼一次（server_page.PAGE）；演示（tests/demo_web.py）每次刷新都重新拼，改完刷新就能看到。
 """
 
 from __future__ import annotations

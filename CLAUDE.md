@@ -83,6 +83,11 @@
      后面接着 `skills-list.js`、`skills-detail.js`……（`agents-*`、`mcp-*`、`channels-*`、`tasks-*` 也一样），在清单里挨着排、
      保持原来的先后，挂到 `extensionTabs` 的那几行留在最后一个文件的末尾。用前缀、不用子文件夹。拆的时候先单独提交一次
      只搬家，证明 `assemble()` 拼出来的页面一字不差，再另外提交改注释。
+     Python 的模块也一样（`app_*.py`、`browser/session_*.py`、`capabilities_*.py`、`restore_*.py`、`tasks_*.py`、`webui/server_*.py`）：
+     原来的文件留作入口，开头写清由哪几块拼成，别处照旧从它 import（写在 `__all__` 里）；拆出去的文件只 import 前面的、不 import 入口
+     （不然就成了互相导入，先导入哪一个就看运气），所以入口里留的是最上面那一层。一个类太大就拆成混进来的基类，加一个只给 mypy 看的
+     `*_types.py`。测试换名字（`monkeypatch.setattr`）要换在读它的函数所在的那个模块上：函数搬了家，换入口上的名字它看不到。
+     只搬家的那一次要证明一字不差（每个定义的原文、注释、每个名字解析到的东西），再另外提交改注释。
    - 同一条规则只写在一处：价格、时间、格式检查这类由助手程序算，页面不再复制一份（页面要用就请程序算好发过来）。
    - 每个功能都有测试；修 bug 先写一个能复现它的测试。
    - 有意破例的地方（比如压缩会改动前面的历史）在代码注释和本文件里都写明为什么、边界在哪。
@@ -196,11 +201,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/conversations.py` | 会话的保存和读取 |
 | `harness/search.py`、`harness/search_pinyin.py`、`harness/search_pinyin.txt`、`tests/make_pinyin.py` | 会话的全文搜索：内存里的索引，五档匹配（原样、相近的词、隔字、全拼、首字母）；拼音的两档在 `search_pinyin.py`，读音表由 `make_pinyin.py` 从 Unihan 生成一次（Unicode License v3） |
 | `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
-| `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
+| `harness/tasks.py`、`harness/tasks_*.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（不碰线程和网页：`tasks.py` 只有说明和交出去的名字，`tasks_check` 格式检查、`tasks_schedule` 按日历算时间、`tasks_records` 一次运行的记录和提醒、`tasks_store` 的 TaskStore；别处照旧 `from .tasks import …`）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
 | `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥；恢复的白名单 `PARTS` 和写给程序看的 manifest 也在这里） |
-| `harness/restore.py`、`restore_keys.py`、`restore_cli.py`、`harness/webui/restore_api.py` | 从备份恢复：检查压缩包、预览两种方式、先自动备份再恢复（restore.py）；占位符不盖掉现在的密钥（restore_keys.py）；终端的 `harness restore`；网页的上传、确认和原地重新开起来（restore_api.py），页面在 `page/scripts/restore.js` |
+| `harness/restore.py`、`restore_*.py`、`restore_cli.py`、`harness/webui/restore_api.py` | 从备份恢复：检查压缩包（restore_check.py）、预览两种方式（restore_plan.py）、先自动备份再恢复（restore.py，别处照旧 `from .restore import …`）；占位符不盖掉现在的密钥（restore_keys.py）；终端的 `harness restore`；网页的上传、确认和原地重新开起来（restore_api.py），页面在 `page/scripts/restore.js` |
 | `harness/webui/markdown.js` | 回复里的 Markdown → 页面元素；逐字输出时只重画最后一两块 |
 | `harness/mcp/` | MCP 客户端：jsonrpc、stdio、http、client（两代协议）、bridge、manager（快照）、config、importers |
 | `harness/media.py` | 多媒体库：附件原件按内容存在 `data/media/`；哪段会话、哪条消息里有哪些附件；旧会话从对话历史里找回附件 |
@@ -213,7 +218,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、windows（任务计划程序）和 supervise（自己的看护进程：任务计划程序失败重启时不看退出码）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
 | `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`） |
-| `harness/capabilities.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开 |
+| `harness/capabilities.py`、`harness/capabilities_*.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开。`capabilities.py` 是入口（`overview`），`capabilities_kinds`（格式、`KINDS`、`group_of`、`label_of`）、`capabilities_approval`（问不问你）、`capabilities_context`（`_Context`）、`capabilities_builtin` / `capabilities_switched` / `capabilities_mcp`（每一种功能的状态） |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
 | `harness/imports/` | 从其他工具导入：登记表（`registry.py`：哪个工具把 MCP / Skill / Agent 放在哪儿，注明出自哪份文档）、各种格式的读法（readers、yaml_lite、mcp_shapes、agent_formats、agent_tools、refs）、总览（overview）；`mcp/importers.py`、`skills/from_tools.py`、`agents/from_tools.py` 照着它找 |
@@ -234,7 +239,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
-| `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：口令、Host、Origin 的检查，读请求体，路由表（`Handler._route`），回答和安全头，发文件字节的三个接口和导出，启动和退出（开头有全部接口的目录）。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
+| `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：路由表（`Handler._route`）、回答和安全头（`_send`）、发文件字节的三个接口和导出、启动和退出（开头有全部接口的目录）；Handler 的另外几块以基类混进来：`server_gate.py`（口令、Host、Origin 的检查，读请求体）、`server_page.py`（页面的 nonce 和 CSP、清单和图标）、`server_events.py`（事件流），类型见 `server_types.py` 的 `HandlerPart`。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/chat_cli.py`、`harness/history_cli.py` | 终端里的会话：一轮一轮地跑、每一轮存盘、`/retry` `/edit` 倒回、`/undo`、`/new` `/open` 换一段（chat_cli.py）；`/history` 和 `/open` 写出来的那几行（history_cli.py，只管怎么写） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |
 | `harness/app.py`、`harness/app_*.py` | 组装：`build_app`、`run_turn`；App 的字段（全部状态）和你正看着的那一段在 `app.py`，每一组方法一个文件、以基类混进 App（和 WebApp 一样）：`app_chat`（Chat 装着什么、怎么建）、`app_conversations`（会话：新建、打开、分叉、存盘、改名、删除）、`app_tools`（一段对话的工具、`toolbox`）、`app_models`（换模型、提示词、适配层、密钥、自定义接口）、`app_prices`（价格和花费）、`app_runs`（定时任务和聊天通道的一次运行、`UnattendedRun`），类型见 `app_types.py` 的 `AppPart`。别处照旧 `from harness.app import …` |
@@ -571,7 +576,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   - t() 给的是 Message（str 的子类）：和普通字符串放在一起时把容器标成 `list[str]`，不要 `str(t(...))`（会丢掉原文，换语言时没法重译）。
   - 整个 `harness` 包都查，没有哪个模块例外（`harness/webui/` 和 `harness/app.py` 以前不查，2026-11-22 收紧）。混进 WebApp 的那几组方法
     用到的 self 上的东西写在 `harness/webui/webapp_types.py` 的 `WebAppPart` 里（为什么、新的一组怎么写，见那个文件开头），
-    App 的那几组写在 `harness/app_types.py` 的 `AppPart`，BrowserSession 的写在 `harness/browser/session_types.py` 的 `SessionPart`
+    App 的那几组写在 `harness/app_types.py` 的 `AppPart`，BrowserSession 的写在 `harness/browser/session_types.py` 的 `SessionPart`，
+    网页服务器的 Handler 的写在 `harness/webui/server_types.py` 的 `HandlerPart`（标准库 BaseHTTPRequestHandler 的那几样照着 typeshed 抄，原因见那里开头）
     （混进来的方法会整个换掉的属性，要在 Protocol 里写一个值，原因见 `app_types.py` 开头），
     不要在 mixin 里写 `self: Any`、`getattr`，也不要给它们另开 `ignore_errors`。
 - **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
@@ -594,8 +600,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （只认 https，明文的 http 只认本机）。测试里 conftest 把 `updates.fetch` 换成只许连本机的，真的 GitHub 一个请求都到不了；
   要测的对着 `tests/fake_github.py`，演示也一样。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
-  "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
-  新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
+  "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问，见 `capabilities_approval.py`）。
+  新加一种工具，要在 `capabilities_kinds.py` 的 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数（`capabilities_builtin.py` 或 `capabilities_switched.py`，再加进 `overview` 的 builders）；忘了登记的会落到 "other"，照样列出来，不会藏起来。
   "这个工具发不发给这家模型"只看 `Backend.sends`；"这段对话真正有哪些工具"只看 `App.toolbox()`。工具的真名只出现在"技术细节"里，页面测试会查。
 - **浏览器的工具和 MCP 一样算进一段对话开始时的快照**：设置里开着才带上，开始以后不变（中途关掉，工具还在，调用时回答"浏览器关着"）；
   用过浏览器的旧会话照样带上。Claude 用 Anthropic 的 `browser_toolset_20260801`（`Tool.toolset` / `member` / `stands_in_for`，

@@ -1,3 +1,14 @@
+"""智狐能做的事 · 算一份清单要看的东西（见 capabilities.py 开头）。
+
+  _Context   网页上你正看着的这段对话，或者一次定时任务、聊天通道的运行：真正发给模型的工具、角色、开始了没有、
+             在不在聊天软件里……，以及"哪一档都要问"要对照的那一份权限（everywhere）
+  _item      照着 KINDS 写一行（名字、说明、"在这台电脑上执行"）
+  _sample、_missing  一直都在的功能这段对话里却没有：多半是角色没放开它
+
+为什么单独一个文件：capabilities_builtin.py、capabilities_switched.py、capabilities_mcp.py 都要用它们，
+放进入口文件 capabilities.py 里，就成了入口和这几个文件互相导入。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

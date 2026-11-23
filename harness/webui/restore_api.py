@@ -1,4 +1,4 @@
-"""网页上"设置 → 从备份恢复…"背后的接口：/api/restore/……。怎么检查、怎么恢复在 ../restore.py，这里只管网页这一边。
+"""网页上"设置 → 从备份恢复…"背后的接口：/api/restore/……。怎么检查、怎么恢复在 ../restore.py（检查在 restore_check.py、预览在 restore_plan.py），这里只管网页这一边。
 
   POST /api/restore/info      打开窗口时：网页上传最大多大、现在能不能恢复（对话、定时任务、聊天通道在忙就说为什么）、自动备份放在哪儿
   POST /api/restore/upload    上传备份。请求体是压缩包原样的字节（不是 JSON），边读边写进系统的临时文件夹；看过一遍，回答预览

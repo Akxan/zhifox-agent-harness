@@ -1,3 +1,12 @@
+"""智狐能做的事 · 一直带着的几样（见 capabilities.py 开头）：待办、定时任务、记忆、读写文件、执行命令、Skill、交给子 Agent。
+
+这几样只要这段对话带着它的工具就在用（没有的话多半是角色没放开它，见 capabilities_context.py 的 _missing）；
+要说清楚的主要是问不问你，拿有代表性的调用去问（见 capabilities_approval.py）。执行命令那一项另外说命令在沙箱的哪一档里运行
+（_sandbox_facts、_sandbox_reason）、Windows 上为什么每条都问；Skill 和 Agent 还要看装了几个、能用的有几个。
+
+为什么单独一个文件：和 capabilities_switched.py 那几样不同，这里不看设置里的开关，也不看这家模型做不做得了。
+"""
+
 from __future__ import annotations
 
 from typing import Any

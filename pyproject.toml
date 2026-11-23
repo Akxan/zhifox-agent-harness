@@ -93,7 +93,8 @@ dev = [
 # uvx 的环境是隔开的，它们在那里全成了 Any，SDK 的调用就等于没查。
 # 系统相关的代码用 sys.platform 判断（不用 os.name）：mypy 只认前者，--platform 换成哪个系统，就只查那个系统走得到的分支
 # 整个 harness 包都查，没有例外。混进 WebApp 的几组方法（XxxActions）用到的 self 上的东西，见 harness/webui/webapp_types.py；
-# App 的（AppXxx）见 harness/app_types.py，BrowserSession 的（SessionXxx）见 harness/browser/session_types.py
+# App 的（AppXxx）见 harness/app_types.py，BrowserSession 的（SessionXxx）见 harness/browser/session_types.py，
+# 网页服务器的 Handler（HandlerXxx）见 harness/webui/server_types.py
 [tool.mypy]
 python_version = "3.11"
 packages = ["harness"]

@@ -1,3 +1,9 @@
+"""定时任务 · 存在哪：TaskStore，所有任务和还没关掉的提醒，保存在 data/tasks.json（几个线程、两个程序怎么同时用它，见类的说明）。
+
+为什么单独一个文件：这里是唯一读写任务文件、拿锁的地方。任务的格式、时间怎么算、记录长什么样在旁边的
+tasks_check.py、tasks_schedule.py、tasks_records.py，这里只管存：读的时候一条条检查、写的时候整份换上去、每一步在锁里做完。
+"""
+
 from __future__ import annotations
 
 import copy

@@ -1,3 +1,12 @@
+"""从备份恢复 · 第二步：两种方式各会怎样（见 restore.py 开头）。
+
+  - 现在的数据文件夹里每一样有几个（_count_on_disk），存着密钥的配置文件现在是什么样（_current_config）
+  - plan：照着现在的数据文件夹，算出一种方式（覆盖、合并）要做的每一步（Step）；存着密钥的那几样先把现在的密钥填回去（restore_keys.py）
+  - preview：给页面和终端看的预览；count_text、step_text：每一样会怎样，写成一句话（页面换语言时照着重译）
+
+为什么单独一个文件：这一步什么都不写，页面上的预览和终端里 harness restore 打印的预览只用到这里；真的写在 restore.py。
+"""
+
 from __future__ import annotations
 
 import json
@@ -115,7 +124,7 @@ class Step:
 class Plan:
     mode: str
     steps: list[Step]
-    keys: list[dict]  # 存着密钥的配置文件各会怎样（见 _keys_report）
+    keys: list[dict]  # 存着密钥的配置文件各会怎样（见 _plan_secrets）
     size: int  # 要写多少字节
 
     def summary(self) -> dict:

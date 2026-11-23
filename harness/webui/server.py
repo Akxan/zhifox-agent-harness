@@ -1,10 +1,24 @@
 """本地 HTTP 服务器：浏览器和 agent 之间的桥。
 
-这个文件只管 HTTP 这一层：谁能用（口令、Host、Origin，见 Handler._allowed）、读请求体（_read_json）、
-把请求交给谁（Handler._route：整张路由表都在那里，从上往下看就知道每个地址归哪个文件）、怎么回答
-（JSON、页面、事件流、清单和图标，见 _send 和几个 _send_xxx）、出了意料之外的错也给一个回答（do_POST 里的 500），以及启动和退出
-（create_server、run_web）。把文件的字节发给浏览器的接口只有三个（/api/media/file、/api/browser/shot、/api/computer/shot），
-加上导出的 zip（_send_export），也都留在这里，和 _send 挨着：它们的安全头一眼看得全。
+这一层只管 HTTP：谁能用（口令、Host、Origin，见 server_gate.py 的 _allowed）、读请求体（同一个文件的 _read_json）、
+把请求交给谁（Handler._route：整张路由表都在这个文件里，从上往下看就知道每个地址归哪个文件）、怎么回答
+（JSON 和文字见这里的 _send；页面、清单和图标见 server_page.py，事件流见 server_events.py）、出了意料之外的错也给一个回答
+（do_POST 里的 500），以及启动和退出（create_server、run_web）。把文件的字节发给浏览器的接口只有三个（/api/media/file、
+/api/browser/shot、/api/computer/shot），加上导出的 zip（_send_export），都在这个文件里，和 _send 挨着：它们的安全头一眼看得全。
+
+Handler 由几块拼成（和 App、WebApp 一样是混进来的基类，名字照旧是 handler._allowed(...)、Handler._send_page）：
+
+  server.py         Handler：do_GET、do_POST（先过哪道检查、再交给谁）、路由表 _route、发文件字节的三个接口和导出、
+                    _finish / _answer / _send_json / _send_text / _send；还有 create_server、启动和退出
+  server_gate.py    HandlerGate：进门的检查（_allowed）、请求体的上限和读法（_read_json、_discard）
+  server_page.py    HandlerPage：页面（PAGE、MARKDOWN，_send_page 的 nonce、CSP、gzip）、网页应用的清单和图标
+  server_events.py  HandlerEvents：事件流（_send_events：补发、synced、换着看时的 reset、断线重连）
+  server_types.py   HandlerPart：混进来的几块要用的 Handler 的东西，只写给 mypy 看（见那里开头）
+
+为什么这样分：进门的检查、页面的安全策略、事件流的约定各有一段要仔细读的说明，原来挤在路由表两边；分开以后每一块都能单独读完。
+留在这个文件里的有原因：路由表、_send 和发文件字节的接口要在一处（CLAUDE.md 这样规定，安全头才一眼看得全）；
+create_server 和启动、退出要用拼好的 Handler，别处（cli.py、serve.py、测试）又从这里拿它们，放进别的文件就成了互相导入。
+拆出去的几个文件只 import server_types.py，不 import 这个文件。
 
 每个接口查完参数以后怎么做，在各自的文件里：
 
@@ -37,7 +51,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   GET  /               页面本身（page/ 里的几块拼成的一页，见 page/__init__.py）
   GET  /events         事件流。这个连接一直不关，服务器把你正看着的那一段的 WebUI 日志里的新事件不断推过去。
                        刚连上时先补发已有的事件，然后发一个 synced 标记，后面才是实时的事件。
-                       换着看另一段时，先发一个不带编号的 reset，再把那一段的日志从头补发（见 _send_events）
+                       换着看另一段时，先发一个不带编号的 reset，再把那一段的日志从头补发（见 server_events.py 的 _send_events）
   GET  /manifest.webmanifest  网页应用的清单：书签、"创建快捷方式 / 安装成应用"用的名字、图标和打开的地址（见 manifest.py）
   GET  /icons/<名字>   清单和页面头上引用的图标（PNG），只认 manifest.ICONS 里一字不差的文件名
   POST /api/message    用户发了一条消息（可以带附件：图片、PDF、文本文件，见 attachments.py 和 chat_api.py）
@@ -110,8 +124,9 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   4. 页面带有内容安全策略（CSP）：只运行我们自己的脚本，不加载任何外部资源。
      为了能装成应用多放行了两样，都是写死的完整地址：清单那一个（manifest-src），和自带的那几张图标（img-src，见 manifest.py）。
 
-这几条都在这个文件里（create_server、_allowed、_send_page）。所有请求都先过 _allowed（POST 再过 _read_json：大小有上限、
-文字洗过一遍），才交给 _route；拆出去的那些文件只在这之后拿到已经查过、洗过的 body。
+这几条在 create_server（这个文件）、_allowed（server_gate.py）、_send_page（server_page.py）里。所有请求都先过 _allowed
+（POST 再过 _read_json：大小有上限、文字洗过一遍），才交给 _route：这个先后写在这个文件的 do_GET、do_POST 里，一眼看得到；
+*_api.py 那些文件只在这之后拿到已经查过、洗过的 body。
 """
 
 from __future__ import annotations
@@ -398,7 +413,7 @@ class Handler(HandlerGate, HandlerPage, HandlerEvents, BaseHTTPRequestHandler):
         """导出全部数据：把 zip 先写进一个临时文件，再整个发给浏览器（见 export.py）。
 
         页面用 fetch 拿到它、变成一个 Blob，再交给一个带 download 属性的链接去存盘：这样请求照样带着口令、
-        经过上面的检查，地址里不用露出口令，页面的安全策略也不用为下载放宽什么。
+        经过进门的检查（server_gate.py 的 _allowed），地址里不用露出口令，页面的安全策略也不用为下载放宽什么。
         临时文件在系统的临时文件夹里，只有自己的账号能读，发完（或者出错）就删掉，不会留在数据文件夹里。
         """
         config = self.server.web.app.config

@@ -246,7 +246,7 @@ uv run harness --web
 
 状态从不只靠颜色：每个标签都有图标和字，图标块的样子也不一样（实心、虚线框、淡下去）。终端里的 `/tools` 打印的是同一份清单。
 
-为什么这样做（[harness/capabilities.py](../../harness/capabilities.py)）：这是唯一把工具对应到功能的地方，页面只照着它给的画。
+为什么这样做（[harness/capabilities.py](../../harness/capabilities.py) 和旁边的 `capabilities_*.py`）：这是唯一把工具对应到功能的地方，页面只照着它给的画。
 "问不问你"也不是把规矩再抄一份：清单拿几个有代表性的操作（"改工作目录里的一个文件""`ls`""往密码框里输入"）
 一个个去问 [permissions.py](../../harness/permissions.py)，和循环执行工具之前问的是同一个地方，规矩改了，清单自己跟着变。
 认不出来的工具也照样列一行（用它自己的名字），不会因为不认识就藏起来。

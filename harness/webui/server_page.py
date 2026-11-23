@@ -1,3 +1,16 @@
+"""网页服务器 · 发页面、网页应用的清单和图标（Handler 的一组方法，见 server.py 开头）。
+
+  PAGE、MARKDOWN   启动时拼一次的页面（page/__init__.py）和回复的 Markdown 渲染器（markdown.js）。演示（tests/demo_web.py）
+                   每次刷新都重新拼，换的就是这个模块上的 PAGE、MARKDOWN
+  _send_page       每次发页面时填一个新的 nonce、口令、翻译表和渲染器；内容安全策略（CSP）只放行带这个 nonce 的脚本和样式，
+                   为装成应用多放的两样由 manifest.policy 写；浏览器收 gzip 就压缩（为什么不怕 BREACH，见里面）
+  _send_manifest、_send_icon  网页应用的清单（地址里带着口令，不进缓存）和自带的几张图标（只认 manifest.ICONS 里一字不差的名字）
+  accepts_gzip     Accept-Encoding 里有没有 gzip
+
+为什么单独一个文件：这几样都是 GET，发的是智狐自己的东西（页面、图标），不是你的数据；安全策略的说明又长，和路由表挤在一起不好读。
+把你的数据（附件、截图）的字节发给浏览器的接口不在这里，在 server.py 的 _route，和 _send 挨着。
+"""
+
 from __future__ import annotations
 
 import gzip
@@ -14,7 +27,7 @@ from .page import assemble as assemble_page
 from .server_types import HandlerPart
 
 # 页面由 page/ 里的几块拼成（骨架、样式、脚本，见 page/__init__.py），启动时拼一次。
-# 拼好的仍然是一个自给自足的 HTML，里面留着 __NONCE__ 这几处，每次发页面时填（见 Handler._send_page）
+# 拼好的仍然是一个自给自足的 HTML，里面留着 __NONCE__ 这几处，每次发页面时填（见下面的 _send_page）
 PAGE = assemble_page()
 # 回复里的 Markdown 怎么画，单独写在 markdown.js 里（一个文件只讲一件事，也方便用 Node 单独测试）。
 # 发页面时把它原样填进页面里那个带 nonce 的 <script>，所以不用为它另开一个地址，也不用放宽安全策略。
@@ -22,6 +35,8 @@ MARKDOWN = (Path(__file__).parent / "markdown.js").read_text(encoding="utf-8")
 
 
 class HandlerPage(HandlerPart):
+    # ---- 页面、清单和图标 ------------------------------------------------------
+
     def _send_page(self) -> None:
         # nonce 是一个一次性的随机数：只有带着它的 <script> 和 <style> 才会被浏览器执行，
         # 这样即使页面里混进了别的脚本（比如模型输出里夹带的），浏览器也不会运行。

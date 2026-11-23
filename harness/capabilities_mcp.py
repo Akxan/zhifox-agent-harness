@@ -1,3 +1,12 @@
+"""智狐能做的事 · MCP 服务器，每个服务器一行（见 capabilities.py 开头）。
+
+一个服务器都没有时，是"MCP 服务器"这件事本身的一行（_mcp_overall）；有的话每个服务器一行（_server）：连上了没有、有几个工具、
+放没放进这段对话（一段对话最多带几个 MCP 工具，见 mcp/manager.py）、角色挡没挡住它、哪几个工具设成了不用问。
+对话中途删掉的服务器照样列一行，不藏起来。
+
+为什么单独一个文件：MCP 不是 KINDS 里的一种，而是每个服务器一行：名字是你起的，在哪儿执行要看它怎么连（本机的程序还是远处的服务器）。
+"""
+
 from __future__ import annotations
 
 from typing import Any

@@ -1,3 +1,15 @@
+"""网页服务器 · 进门的检查：谁能用、请求体多大、怎么读（Handler 的一组方法，见 server.py 开头）。
+
+  _allowed    每个请求先过这里：Host 只能是 127.0.0.1:端口 或 localhost:端口，带了 Origin 的只能是这两个，口令用 compare_digest 比。
+              不对的回答 403（POST 先把不大的请求体读掉，原因见里面）
+  _read_json  POST 的请求体：大小有上限（下面的 MAX_*；发消息、上传 Skill 的放宽了，由 server.py 的 do_POST 按地址挑），
+              解析成字典，文字在进门的地方洗一遍（safe.clean）
+  _discard    不打算处理的请求体读掉扔了，最多读那么多，免得浏览器只看到"连接断开"
+
+为什么单独一个文件：这是挡住别的网站、别的程序的那道门（见 server.py 开头的"安全"），单独放着才好一眼读完，
+改的时候也清楚自己在改哪道门。先过 _allowed、再过 _read_json、才交给 _route，这个先后写在 server.py 的 do_GET、do_POST 里。
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +23,7 @@ from .skills_api import MAX_UPLOAD_BODY_BYTES
 MAX_BODY_BYTES = 1_000_000
 # 发消息的请求可以带附件（base64 编码后比原文件大三分之一），所以单独放宽到这么多。别的请求都是几行设置，1MB 足够
 MAX_MESSAGE_BODY_BYTES = 64_000_000
-MAX_DISCARD_BYTES = 16_000_000  # 请求体太大时，最多读掉这么多再回答（见 Handler._read_json）
+MAX_DISCARD_BYTES = 16_000_000  # 请求体太大时，最多读掉这么多再回答（见下面的 _read_json）
 
 
 class HandlerGate(HandlerPart):

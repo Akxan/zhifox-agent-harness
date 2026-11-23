@@ -1,3 +1,15 @@
+"""智狐能做的事 · 清单的格式和功能的种类（这份清单是什么、每一项的意思，见 capabilities.py 开头）。
+
+  Rule、Approval、Action、Capability、Overview  overview 交出去的那份清单长什么样
+  Kind、KINDS、MCP_KIND    功能有哪几种、按页面上的顺序；MCP 服务器是另外一类，每个服务器一行（见 capabilities_mcp.py）
+  _GROUP_OF、group_of      一个工具属于哪种功能（浏览器、电脑、MCP 的工具按种类认）；认不出的是 "other"，照样列出来
+  LOCAL                    "在这台电脑上执行"
+  Label、label_of          运行记录（trace/）和钩子（hooks/）给一次工具调用起的名字：和信息栏是同一张表，所以两边的叫法一样
+  technical_names          技术细节里写的、发给模型的名字
+
+为什么单独一个文件：这是另外几块都要用的"词汇"，它自己不依赖它们；运行记录、钩子要的也只是这里的 label_of、KINDS。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -71,7 +83,8 @@ class Kind:
     description: str
 
 
-# 功能的种类，按页面上的顺序。新加一种工具：在这里加一项、在 _GROUP_OF 里登记它的名字、在 overview 里写它的状态
+# 功能的种类，按页面上的顺序。新加一种工具：在这里加一项、在 _GROUP_OF 里登记它的名字，写它的状态函数
+# （capabilities_builtin.py 或 capabilities_switched.py），再加进 capabilities.py 里 overview 的 builders
 KINDS = (
     Kind("todo", "todo", k("待办"), k("记下要做的事和截止日期，做完了替你勾掉。")),
     Kind("tasks", "clock", k("定时任务"), k("到时间提醒你，或者按时自己去做一件事，比如每天早上整理待办。")),

@@ -15,7 +15,7 @@ server.py 再把日志里的事件推送给浏览器，浏览器收到后画出�
 
 网页上同时进行的几段对话各有一个 WebUI（见 sessions.py），事件的编号却从同一个数往下排（EventIds）：
 谁的编号都不会和别人的撞上，确认卡片的编号也就认得出是哪一段在等（见 chat_api.route_confirm）。
-页面只读你正看着的那一段的日志，换着看的时候怎么补发，见 server.py 的 _send_events。
+页面只读你正看着的那一段的日志，换着看的时候怎么补发，见 server_events.py 的 _send_events。
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ class WebUI:
             return self._changed.wait(timeout)
 
     def wake(self) -> None:
-        """叫醒正在等新事件的连接：页面换着看另一段了，事件流要换一份日志读（见 server.py 的 _send_events）。"""
+        """叫醒正在等新事件的连接：页面换着看另一段了，事件流要换一份日志读（见 server_events.py 的 _send_events）。"""
         with self._changed:
             self.wakes += 1
             self._changed.notify_all()

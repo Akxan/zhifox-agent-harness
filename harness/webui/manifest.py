@@ -14,7 +14,7 @@
   GET /manifest.webmanifest?token=…   清单（这次运行的口令填在里面的每个地址上）
   GET /icons/<名字>?token=…           下面 ICONS 里列出的几张 PNG 之一
 
-和页面一样要带口令、经过 Host 和 Origin 的检查（见 server.py 的 _allowed）。图标的名字只认 ICONS 里一字不差的那几个，
+和页面一样要带口令、经过 Host 和 Origin 的检查（见 server_gate.py 的 _allowed）。图标的名字只认 ICONS 里一字不差的那几个，
 是查表，不是拼路径，所以请求里写什么都读不到别的文件。内容是程序自带的固定的几张图，不是你的数据。
 
 清单里的地址都带着口令：浏览器以后从快捷方式打开智狐，用的就是 start_url。后台服务的口令重启前后不变（见 token.py），

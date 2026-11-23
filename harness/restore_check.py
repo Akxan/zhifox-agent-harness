@@ -1,3 +1,13 @@
+"""从备份恢复 · 第一步：看一遍压缩包（三步各做什么、每一项查什么，见 restore.py 开头）。
+
+check 把压缩包的每一项过一遍：路径、种类、大小（config.RESTORE_*）、名字（白名单 export.PARTS）、撞名。有一项不对就整个拒绝
+（RestoreError），什么都不写。交回的 Archive 里是要恢复的文件、导出时写的说明（manifest）、遮过密钥的配置文件、每一样有几个。
+size_text、_reason 是三步都用的两个小工具（给人看的大小、出错的原因）。
+
+为什么单独一个文件：这一步只读压缩包、不碰数据文件夹，压缩包又是不可信的输入，安全检查最集中在这里；
+单独看它，才好确认什么都没漏。上限也在这里读：测试要换上限，换这个模块上的名字。
+"""
+
 from __future__ import annotations
 
 import json
@@ -75,7 +85,7 @@ class Archive:
 
 
 def check(path: Path) -> Archive:
-    """看一遍压缩包（见文件开头）。不能用的话抛出 RestoreError，原因写在里面。"""
+    """看一遍压缩包（每一项查什么见 restore.py 开头）。不能用的话抛出 RestoreError，原因写在里面。"""
     try:
         with zipfile.ZipFile(path) as archive:
             return _check(path, archive)

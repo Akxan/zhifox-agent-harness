@@ -11,13 +11,14 @@
     之后不变（原因见 providers/claude.py），所以设置里中途打开的，这里说"下一段对话开始生效"；
   - 不在的为什么不在：设置里关着、这家模型做不了（联网只有 Claude 有，看不了图片的用不了"操作整台电脑"）、
     这段对话的角色（用一个 Agent 开始的对话）没有放开它、这台电脑上做不了……；
-  - 会不会先问你：这里不另写一份规矩，而是拿几个有代表性的操作去问 permissions.py（见 _probe）：
+  - 会不会先问你：这里不另写一份规矩，而是拿几个有代表性的操作去问 permissions.py（见 capabilities_approval.py 的 _probe）：
     "改工作目录里的一个文件，现在这一档问不问？""ls 呢？"规矩改了，这里的说法自己跟着变。
 
-清单的格式（overview 返回 Overview，里面给人看的话都是 t() 译好的 Message，webui/capabilities_api.py 再换成页面能就地重译的样子）：
+清单的格式（overview 返回 Overview，里面给人看的话都是 t() 译好的 Message，webui/capabilities_api.py 再换成页面能就地重译的样子；
+这几个类写在 capabilities_kinds.py）：
 
   Overview
-    items     [Capability, …]，按下面 KINDS 的顺序，MCP 服务器按名字排在"操作整台电脑"后面
+    items     [Capability, …]，按 KINDS（capabilities_kinds.py）的顺序，MCP 服务器按名字排在"操作整台电脑"后面
     mode      现在的确认方式（ask / readonly / edits / all，名字见 permissions.MODES）
     started   这段对话开始了没有（开始了，工具就定下来了）
     notes     整体的说明（这段对话的角色只放开了一部分、MCP 的工具太多没放进来……）
@@ -45,6 +46,22 @@
   Rule        text 这类操作、outcome：free 直接做 / ask 先问你 / always 哪一档都问 / never 根本不做（比如只许读文件的角色去改文件）
   Action      kind：settings（target 是 browser / computer / sandbox）/ extensions（skills / mcp / agents / channels）/
               models（打开换模型的面板）/ approval / commands / memory / tasks / new（开始新对话）；label 是按钮上的话
+
+## 由几块拼成
+
+这个文件是入口：overview 把一份清单拼起来（还有模型用不了工具时、认不出的工具、整体的说明这几件小事）。
+每一种功能的状态怎么算，按小节写在同一前缀的几个文件里：
+
+  capabilities_kinds.py     清单的格式（上面这几个类）、功能的种类（KINDS）、工具 → 功能（group_of）、运行记录和钩子用的名字（label_of）
+  capabilities_approval.py  问不问你：拿有代表性的调用去问 permissions.py（_probe），几类操作拼成一句话的总结（_approval）
+  capabilities_context.py   算一份清单要看的东西（_Context：这段对话的工具、角色、开始了没有……）和一行的写法（_item、_missing）
+  capabilities_builtin.py   一直带着的几样：待办、定时任务、记忆、读写文件、执行命令、Skill、交给子 Agent
+  capabilities_switched.py  要看设置、看这家模型、看在不在聊天软件里的几样：联网和读网页、浏览器、操作整台电脑、把文件发回聊天
+  capabilities_mcp.py       MCP 服务器：每个服务器一行
+
+它们只往前面的 import（kinds ← approval ← context ← builtin / switched / mcp ← 这个文件），不 import 这个文件。
+新加一种功能：在 capabilities_kinds.py 的 KINDS 里加一项、在 _GROUP_OF 里登记它的工具名，在 builtin 或 switched 里写它的状态函数，
+再把它加进下面 overview 的 builders。别处照旧 from .capabilities import …（__all__），不用管它写在哪个文件里。
 """
 
 from __future__ import annotations

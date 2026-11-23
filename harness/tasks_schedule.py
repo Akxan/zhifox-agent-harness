@@ -1,3 +1,12 @@
+"""定时任务 · 什么时候：按这台电脑的本地时间、按日历算（为什么不是"加 24 小时"，见 tasks.py 开头）。
+
+  next_after  严格晚于某一刻的下一次；count_due 补跑时说"错过了几次"；upcoming、preview 新建任务时先看一眼接下来的几次
+  describe    时间表的一句话说明（"每天 09:00"），确认卡片和工具结果里用；写给模型看的传 chinese，说中文
+  local_text  一个时刻写成本地时间
+
+为什么单独一个文件：这里只有计算，不存任何东西；测试用假的钟、换一个时区，就能把夏令时那几天算一遍。
+"""
+
 from __future__ import annotations
 
 import math

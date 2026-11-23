@@ -1,3 +1,12 @@
+"""定时任务 · 任务是什么：时间表和一个任务的格式检查（几种时间表的写法、两种任务，见 tasks.py 开头）。
+
+用户在页面上填的、模型用工具给的、从 data/tasks.json 读回来的，都先过这里：check_schedule 整理好一份时间表，
+check_task 整理好一个任务（名称、种类、指令、时间表、启用没有、问不问、沙箱）。内容不对抛 TaskError（话用 t() 写，能直接给人看）；
+内容没问题、只是现在做不了的是 TaskRefused（TaskStore 用）。
+
+为什么单独一个文件：检查不碰时间、不碰文件，另外三个文件都用它。
+"""
+
 from __future__ import annotations
 
 import re
@@ -127,7 +136,7 @@ def _approval_modes() -> dict:
     """任务可以选的几档"要不要先问你"，就是对话里的那几档。
 
     定义在 permissions.py（那里讲每一档是什么意思），在这里才导入：permissions.py 也要用这个文件
-    （审查添加任务的工具调用），两边都在文件开头导入对方的话，谁先加载谁就拿不到对方。
+    （经过 tasks.py：审查添加任务的工具调用），两边都在文件开头导入对方的话，谁先加载谁就拿不到对方。
     """
     from .permissions import MODES
 

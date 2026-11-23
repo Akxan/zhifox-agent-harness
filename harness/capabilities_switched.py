@@ -1,3 +1,14 @@
+"""智狐能做的事 · 要看条件的几样（见 capabilities.py 开头）：联网和读网页、浏览器、操作整台电脑、把文件发回聊天。
+
+它们在不在这段对话里，不只看工具：
+  - 联网：Claude 开着联网搜索时在 Anthropic 的服务器上做；别的时候是智狐自己的读网页，设置里能开关（_web、_fetch）
+  - 浏览器、操作整台电脑：设置里的开关和这段对话里有没有，两样合起来是哪种状态（_switched）；电脑还要看这台电脑做不做得了
+    （_NO_DESKTOP，harness doctor 也照着这几句说）、这家模型看不看得了图片，定时任务和聊天通道另有一个开关
+  - 把文件发回聊天：只有在聊天通道里开始的会话才有，而且要真的在聊天软件里
+
+为什么单独一个文件：这几样的状态由设置、模型、这台电脑、在哪儿聊合起来定，和 capabilities_builtin.py 那几样的写法不一样。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

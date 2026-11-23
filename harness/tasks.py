@@ -24,8 +24,18 @@ agent 任务还记着"要不要先问你"（approval）：和对话里的几档�
 或者把一个小时走两遍，按"距离上一次正好 24 小时"去算就会差一个小时。所以这里每次都按日历重新算
 "下一个 9 点是哪一刻"（见 next_after），跳过去的时刻顺延到跳过之后，走两遍的时刻只算第一遍。
 
-这个文件只管"是什么、什么时候"。到时间之后怎么排队、怎么执行、怎么显示进度，在 webui/scheduler.py：
+这几个文件只管"是什么、什么时候、存在哪"。到时间之后怎么排队、怎么执行、怎么显示进度，在 webui/scheduler.py：
 任务只在网页界面开着的时候运行，终端界面不运行它们。
+
+## 由几个文件拼成
+
+  tasks_check.py     任务是什么：时间表和一个任务的格式检查（check_schedule、check_task）、几个上限、两种错误
+  tasks_schedule.py  什么时候：按日历算下一次（next_after）、错过了几次（count_due）、接下来几次（upcoming、preview）、一句话的说明（describe）
+  tasks_records.py   一次运行的记录、一条提醒：新建（new_run）、给人看的话连同原文存下来（said、retell）、从文件读回来时一条条检查
+  tasks_store.py     存在哪：TaskStore（data/tasks.json、锁、增删改、运行的记录）
+
+这个文件只剩这段说明和交出去的名字（__all__）：别处照旧 from .tasks import …，不用管写在哪个文件里。
+后面的只 import 前面的（check ← schedule、records ← store），谁都不 import 这个文件。
 """
 
 from __future__ import annotations

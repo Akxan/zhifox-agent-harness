@@ -1,3 +1,13 @@
+"""定时任务 · 一次运行的记录、一条提醒（每个字段的意思见 webui/scheduler.py 开头）。
+
+  STATUSES、UNFINISHED   一次运行可能处于的状态
+  new_run                新的一次运行的记录；new_id 是任务、运行、提醒共用的编号
+  said、retell           给人看的话连同原文（key、values）一起存下，换了语言还能重新译
+  _restore_run、_restore_reminder  从 data/tasks.json 读回来的时候一条条检查：坏掉的那一条丢掉，别的照常用
+
+为什么单独一个文件：记录长什么样，TaskStore 和 webui/scheduler.py 都要用；读回来的检查又和锁、存盘无关。
+"""
+
 from __future__ import annotations
 
 import math

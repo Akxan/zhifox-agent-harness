@@ -1,3 +1,12 @@
+"""智狐能做的事 · 问不问你（见 capabilities.py 开头）。
+
+这里不另写一份规矩：拿几个有代表性的调用（Probe）去问 permissions.py，和 agent.py 执行一次调用时走同一条路
+（Tool.check → review → allowance，见 _probe）；"哪一档都要问"就是换成"全部自动允许"也照样问。
+几类操作的结果再拼成一句话的总结和一个级别（_rule、_approval）。规矩改了，这里的说法自己跟着变。
+
+为什么单独一个文件：每一种功能都用它，它又只和 permissions.py 打交道，和"这一项在不在、为什么关着"无关。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
