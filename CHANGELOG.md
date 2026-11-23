@@ -73,6 +73,16 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Fixed
 
+- Chat channels no longer lose a reply when the platform can't be reached. Failed sends are sorted in one place (no
+  answer, 5xx, 429 or the platform's own "too fast" are retried up to 4 times, 1-2-4-8 s apart, honouring Retry-After
+  up to 30 s; other 4xx and bad tokens are not). Replies, approval requests and approval edits that still fail are kept
+  per chat, in order, and resent as soon as the channel is back online or a new message arrives. **Extensions →
+  Channels**, approval cards and `/status` show how many messages are waiting and when and why the last send failed;
+  an undelivered approval can be answered on the page. `send_file` retries too and reports a final failure to the
+  model. `/stop` and shutdown don't wait for the backoff. A retry can occasionally duplicate a message whose answer was
+  lost in transit (a documented trade-off: a rare duplicate rather than a lost reply).
+- Telegram shows "online" again within a second or two after a reset instead of about 25 s: the first `getUpdates`
+  after an error no longer long-polls.
 - `web_fetch` folds a long run of list items that are nothing but a link (a language menu, a navigation list) into one
   line. On real Wikipedia pages the language menu sits inside `<main>`, hidden only by CSS, and its 150-odd links came
   before the article and used up the 60 link addresses, so links in the article itself lost theirs.
