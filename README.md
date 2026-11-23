@@ -4484,6 +4484,13 @@ assistant · Claude API · Anthropic SDK · OpenAI-compatible API · GPT · Gemi
 prompt caching · human-in-the-loop approval · agent loop · browser use · computer use · Chrome DevTools Protocol ·
 Python · terminal chat · web UI
 
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up a clone, running
+the tests for free (fake servers, no API key), and the rules a change keeps: tests with every change, three interface
+languages, both READMEs, and macOS, Windows and Linux. Report bugs with the
+[bug report form](https://github.com/Akxan/zhifox-agent-harness/issues/new?template=bug_report.yml).
+
 ## Security
 
 Found a security problem? Please report it privately, not in a public issue: [SECURITY.md](SECURITY.md) explains how,

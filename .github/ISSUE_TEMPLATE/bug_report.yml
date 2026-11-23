@@ -1,0 +1,145 @@
+# 报告问题的表单（GitHub 的 issue form）。给外人看，所以英文为主、每一项后面附一句中文（CLAUDE.md 第 1 条）。
+# 只用文档里写明的键，写法照 GitHub 的文档（不是凭记忆）：
+#   顶层的键：name、description、body 必须有，title、labels 可选；labels 里写的标签仓库里得已经有（bug 是默认就有的）
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+#   body 里每种元素（markdown、input、textarea、dropdown、checkboxes）能写的 attributes 和 validations；
+#   id 只能用字母、数字、- 和 _，在一张表单里不能重复；validations 的 required 只在公开的仓库里起作用（这个仓库是公开的）
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema
+#   表单放在 .github/ISSUE_TEMPLATE/、扩展名 .yml，合进默认分支才生效
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates
+# 写法由 tests/test_community_files.py 照着上面的文档查一遍（用仓库自己的 harness/imports/yaml_lite.py 读）。
+# 安全问题不走这里：见 SECURITY.md 和同一个文件夹里的 config.yml。
+name: Bug report
+description: "Something in ZhiFox doesn't work as it should. / 智狐哪里不对劲。"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. / 谢谢你花时间报告。
+
+        **Security problems don't go here.** If someone could make ZhiFox do something without asking, read your keys or
+        reach the web UI from outside, report it privately as [SECURITY.md](https://github.com/Akxan/zhifox-agent-harness/blob/main/SECURITY.md) explains.
+        / 安全问题请不要写在这里，照 SECURITY.md 私下报告。
+
+        Please use made-up keys when you reproduce, and never paste a real API key or bot token below.
+        `uv run python tests/demo_web.py` starts the web UI with a fake model and a temporary data folder, for free.
+        / 复现时请用编造的密钥，下面任何地方都不要贴真的 API 密钥或机器人 token。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? / 发生了什么？
+      description: "What you did and what went wrong. Screenshots help: drag them into the box. / 你做了什么、哪里出了问题；截图可以直接拖进来。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect? / 你本来期望怎样？
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现的步骤
+      description: "The smallest set of steps that shows the problem. / 能让问题出现的最少几步。"
+      placeholder: |
+        1. Start the web UI with `harness --web`
+        2. Open Settings and ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ZhiFox version / 智狐的版本
+      description: "The output of `harness --version` (from a clone: `uv run harness --version`, which also shows the commit). / `harness --version` 的输出（从仓库里运行时是 `uv run harness --version`，还带着提交）。"
+      placeholder: "智狐 0.2.0 · commit 2c3b892"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it? / 怎么装的？
+      options:
+        - "From a clone (git clone + uv sync) / 从仓库里运行"
+        - "uv tool install from a release / 从发布版装"
+        - "uv tool install from git (git+https://...) / 从 git 地址装"
+        - "Other / 其他"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system / 操作系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - "Other / 其他"
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version / 系统版本
+      placeholder: "macOS 15.5, Windows 11 24H2, Ubuntu 24.04 ..."
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Where did it happen? / 在哪儿出的问题？
+      multiple: true
+      options:
+        - "Web UI / 网页界面"
+        - "Terminal UI / 终端界面"
+        - "harness serve or the background service / 无界面模式或后台服务"
+        - "A chat channel (Telegram, Discord, Slack, Feishu, DingTalk, QQ) / 聊天通道"
+        - "Another command (harness doctor, restore, eval, ...) / 别的命令"
+        - "Not sure / 不确定"
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Model provider / 用的哪家模型
+      description: "If one model behaves differently from another, name it in the description above. / 要是只有某个模型这样，请在上面写明是哪一个。"
+      multiple: true
+      options:
+        - "Claude (Anthropic)"
+        - "GPT (OpenAI)"
+        - "Gemini (Google)"
+        - DeepSeek
+        - "A custom endpoint (Ollama, LM Studio, vLLM, llama.cpp, a gateway) / 自定义接口"
+        - "Not related to a model / 和模型无关"
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of harness doctor --json / 自检的输出
+      description: "Run `harness doctor --json` (from a clone: `uv run harness doctor --json`) and paste the result. **Read it before you post it.** It holds no API keys or tokens, not even their last characters, but it does show paths on your computer (often with your user name), host names of proxies or API addresses you changed, and on Windows your account's SID in suggested fixes. Remove anything you don't want to make public. / 运行 `harness doctor --json`（从仓库里运行时是 `uv run harness doctor --json`），把结果贴在这里。**贴之前先看一遍**：里面没有密钥和 token（连最后几位也没有），但有你电脑上的路径（常常带着用户名）、改过的代理和接口地址的主机名，Windows 上修法里还有你账户的 SID，不想公开的请删掉。"
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error messages / 日志或报错
+      description: "What the terminal printed, `harness service logs -n 200` for the background service, or the browser console for the web UI (F12, or ⌥⌘I on a Mac). Check it for keys and private data first. / 终端里打印的内容、后台服务的 `harness service logs -n 200`，或者网页界面的浏览器控制台（F12，Mac 上是 ⌥⌘I）。贴之前先看看有没有密钥和私人的内容。"
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit / 提交之前
+      options:
+        - label: "I checked this isn't a security issue (those go to private reporting, see [SECURITY.md](https://github.com/Akxan/zhifox-agent-harness/blob/main/SECURITY.md)). / 这不是安全问题（安全问题请私下报告，见 SECURITY.md）。"
+          required: true
+        - label: "Nothing I pasted contains a real API key, bot token or someone else's data. / 我贴的内容里没有真的 API 密钥、机器人 token 或别人的数据。"
+          required: true
