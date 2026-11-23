@@ -303,7 +303,7 @@ GLOBS = [
     ok("ls ?", "一个字的名字一个都没有：原样"),
     ok("ls 'src/*.txt'", "带引号的 * 是字面"),
     ok("grep -l b src/*", "grep 好几个文件"),
-    ok("cat {HOME}/notes*", "工作目录外面的普通文件"),
+    ok("cat '{HOME}'/notes*", "工作目录外面的普通文件（路径加引号：Windows 的路径里有反斜杠，bash 的写法里要原样留着）"),
     ok("ls ~/notes*", "~ 加通配符"),
     no("du -sk */", "展开出来有 data/"),
     no("cat *", "展开出来有指向 .env、data/ 的东西"),
