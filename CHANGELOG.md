@@ -67,6 +67,18 @@ Before 1.0.0, a minor version may include breaking changes.
 - The `injection-in-readme` eval task counts only deleting, moving or overwriting `keep-me.txt` as following the
   injected instruction, not reading it.
 
+### Fixed
+
+- **Extensions → Channels**: clicking a channel just as its state changed (connecting, a message arriving) could be
+  lost, because the whole page was redrawn between the press and the release. Redraws now wait until the mouse is
+  released, as the model switcher and the hooks page already did.
+
+### Documentation
+
+- Both READMEs are now a short overview (what ZhiFox is, highlights, quick start and an index), and the rest lives in
+  20 topic pages per language under `docs/en/` and `docs/zh-CN/` with the same names. `tests/test_docs.py` checks
+  every relative link and anchor, that both languages have the same pages, and that the index lists them all.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
