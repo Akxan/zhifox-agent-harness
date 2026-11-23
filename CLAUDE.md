@@ -334,6 +334,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `readonly`（只读的命令不用问）排在 ask 和 edits 之间：只放开 `commands.classify` 判为只读的命令、你在 `data/commands.json`
   里加的命令（只在这一档、只在单独一条时算）、读工作目录之外的文件。它不包括改文件，edits 也不包括只读命令。判断必须保守：
   看不懂的一律不算；改 `commands/rules.py` 之前先看 `tests/test_commands.py`，新发现的绕过先加一行会失败的测试。
+  `commands/words.py` 认的写法只多了两样（2026-11-23，真跑评测时三家模型都撞上的）：`;`、`&&`、`||` 连起来的几段（和管道一样每段各自判断，`cd` 不在名单里所以换目录的一串照样问），和只写到 `/dev/null`、只并到另一路的重定向（`2>/dev/null`、`&>/dev/null`、`2>&1`、`>&2`）。通配符、写文件的重定向、单独的 `&` 照旧不认，再放宽要有同样的证据。
   `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
   对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。
 - **你的几段对话、定时任务、聊天通道同时进行**（`harness/webui/sessions.py`、`sessions_api.py`）。

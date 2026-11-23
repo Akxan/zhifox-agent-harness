@@ -2730,10 +2730,14 @@ How ZhiFox decides ([harness/commands/](harness/commands/)), step by step:
 
 1. **Words** ([words.py](harness/commands/words.py)). The command is split the way bash would, but only the plainest
    part of bash is understood: words, single quotes, double quotes without `$` or backticks, backslash escapes, a `~` at
-   the start of a word, and `|` between stages. Anything else (`;`, `&&`, `||`, `&`, `>`, `<`, `$(…)`, `` ` ``, `$VAR`,
-   `*`, `?`, `[`, `{`, `NAME=value` in front, comments, newlines, invisible characters such as zero-width spaces) means
-   "can't be read with certainty", and the command asks. Each of these makes what you see differ from what runs:
-   `cat "$(echo .env)"` reads `.env`, `ls; rm -rf ~` is two commands, `echo hi > notes.txt` overwrites a file.
+   the start of a word, `|`, `;`, `&&` and `||` between stages, and output thrown away or merged: `2>/dev/null`,
+   `>/dev/null`, `&>/dev/null`, `>>/dev/null`, `2>&1`, `>&2` (the target exactly `/dev/null`, unquoted). Anything else
+   (a single `&`, any other `>`, `<`, `$(…)`, `` ` ``, `$VAR`, `*`, `?`, `[`, `{`, `NAME=value` in front, comments,
+   newlines, invisible characters such as zero-width spaces) means "can't be read with certainty", and the command asks.
+   Each of these makes what you see differ from what runs: `cat "$(echo .env)"` reads `.env`, `echo hi > notes.txt`
+   overwrites a file, `ls *` depends on what the folder holds at that moment. Chains and `/dev/null` were added after
+   the first real eval runs, where all three models wrote read-only commands such as `du -sk dir 2>/dev/null | sort -rn`
+   and `git log -1 && git show HEAD` and were asked every time.
 2. **Programs** ([rules.py](harness/commands/rules.py)). Only programs on a built-in list count, each with its own
    rule about which options are fine: `find` without `-exec`, `-delete` or `-fprint`; `sed` without `-i`, and only a
    script made of simple commands (no `w`, `r` or `e`); `awk` without `system`, `getline`, `>` or `|` anywhere in the
@@ -2754,7 +2758,9 @@ How ZhiFox decides ([harness/commands/](harness/commands/)), step by step:
    asks, even with a plain `cat`. A command that reads a whole folder (`grep -r`, `rg`, `diff` of two folders) also asks
    if the folder contains any of these, or a symlink to another folder, or is too big to look through
    (`READONLY_SCAN_ENTRIES`); one that only lists names (`find`, `ls -R`, `du`, `tree`) asks if the folder contains `data/`.
-4. **Pipes.** `ps aux | grep nginx` counts only when every stage is read-only on its own.
+4. **Pipes and chains.** `ps aux | grep nginx` and `ls src; git status && git diff` count only when every stage is
+   read-only on its own, so `ls; rm -rf ~` still asks. `cd` isn't on the list, so a chain that changes folder asks too:
+   the later commands would run somewhere other than where their paths were checked.
 
 Why so strict? The two possible mistakes don't cost the same. Asking about a command that was harmless costs you one
 tap. Letting through a command that wasn't can cost a deleted folder or a key sent to a provider. So every unclear case
@@ -4503,7 +4509,8 @@ is used, so editing it in Settings and running the eval again tells you whether 
 >
 > One run each, so the margin of error is about ±20 points. Most misses came from ZhiFox, not the model: read-only
 > commands written with `2>/dev/null` or joined with `&&` still asked for approval, and one check counted *reading* a
-> file as following a prompt injection (since fixed).
+> file as following a prompt injection. Both are fixed since; read-only commands with a wildcard (`du -sh */`) still
+> ask on purpose.
 
 How the estimate works, so you can check it: each task assumes a number of model calls, a context size per call and an
 output size per call (its `[budget]`, or the defaults `EVAL_ASSUMED_*` in [config.py](harness/config.py): 4 calls, 9,000

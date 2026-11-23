@@ -159,9 +159,9 @@ OPERATORS = [
     no("cat `echo .env`", "反引号"),
     no("echo $HOME", "变量"),
     no("echo ${HOME}", "花括号变量"),
-    no("ls; rm -rf ~", "分号"),
-    no("ls && rm x", "&&"),
-    no("ls || rm x", "||"),
+    no("ls; rm -rf ~", "分号后面一段会改东西"),
+    no("ls && rm x", "&& 后面一段会改东西"),
+    no("ls || rm x", "|| 后面一段会改东西"),
     no("ls & rm x", "放到后台"),
     no("ls |& cat", "|&"),
     no("echo hi > f", "重定向写文件"),
@@ -169,8 +169,9 @@ OPERATORS = [
     no("cat < .env", "重定向读文件"),
     no("cat <<< x", "here-string"),
     no("cat <(ls)", "进程替换"),
-    no("ls 2>&1", "重定向文件描述符"),
-    no("ls >/dev/null", "重定向到 /dev/null 也不认"),
+    no("ls 3>&1", "复制别的文件描述符"),
+    no("ls >&-", "关掉文件描述符"),
+    no("ls >& out.txt", ">& 写文件"),
     no("(ls)", "子 shell"),
     no("{ ls; }", "命令组"),
     no("ls *", "通配符 *"),
@@ -254,6 +255,42 @@ WRAPPERS = [
     no("timeout 5 sh -c ls", "timeout 运行 shell"),
     no("timeout 1e3 ls", "看不懂的时长"),
     no("timeout 5 cat .env", "timeout 后面那条命令照样检查路径"),
+]
+
+# 几段命令用 ;、&&、|| 连起来，和管道一样每一段各自判断；输出只许扔进 /dev/null 或者并到另一路（2>&1、>&2）。
+# 2026-11-23 第一次真跑评测时，三家模型写的只读命令都因为这两样被问了：du -sk dir 2>/dev/null | sort -rn、
+# git log -1 --stat && git show HEAD、ls src; ls package.json 2>/dev/null || echo 没有。写到 /dev/null 什么都改不了，
+# 一段接一段地跑几条只读命令也一样只是看。别的重定向（写文件、读文件）、放到后台（单独的 &）照旧看不懂
+CHAINS = [
+    ok("du -sk src docs 2>/dev/null | sort -rn | head -10", "错误输出扔进 /dev/null"),
+    ok("git log -1 --stat && git show HEAD --format= | head -300", "&& 连两条 git"),
+    ok("ls -R src; ls package.json 2>/dev/null || echo \"没有 package.json\"; cat src/a.txt", "评测里的那一串"),
+    ok("ls src >/dev/null 2>&1", "标准输出扔掉、错误并过去"),
+    ok("ls src &>/dev/null", "&> 两路都扔掉"),
+    ok("ls src 2> /dev/null", "> 后面隔着空格"),
+    ok("ls src >>/dev/null", ">> 追加到 /dev/null"),
+    ok("ls src 1>&2", "标准输出并到错误输出"),
+    ok("ls src >&/dev/null", ">& 写到 /dev/null"),
+    ok("cat src/a.txt;cat src/b.txt", "分号两边不带空格"),
+    ok("git status && git diff --stat || echo 不是仓库", "&& 和 || 混着"),
+    no("cat .env 2>/dev/null", "输出扔掉也照样读了 .env"),
+    no("ls; cat .env", "第二段读 .env"),
+    no("ls && cd .. && cat x", "cd 不是只读的（后面的命令换了目录，路径对不上）"),
+    no("ls 2>/dev/null.txt", "写到一个名字像 /dev/null 的文件"),
+    no("ls 2>/dev/nul", "不是 /dev/null"),
+    no('ls >"/dev/null"', "带引号的目标不认"),
+    no("ls 2>x", "错误输出写进文件"),
+    no("ls >/dev/null>out", "/dev/null 后面紧跟着又一个重定向"),
+    no("ls >(cat)", "进程替换"),
+    no("ls 2>&1 >out", "后面又写文件"),
+    no("ls &", "放到后台"),
+    no("ls & ls", "中间放到后台"),
+    no("ls ;; ls", ";; 是 case 的写法"),
+    no("ls;", "分号后面是空的"),
+    no("; ls", "分号前面是空的"),
+    no("ls && && ls", "两个 && 中间是空的"),
+    no("ls &&", "&& 后面是空的"),
+    no("ls || ", "|| 后面是空的"),
 ]
 
 PIPELINES = [
@@ -1053,7 +1090,7 @@ BYPASSES = [
     bypass("du -aL mixed", "du -L 同上"),
 ]
 
-TABLE = [*QUOTING, *OPERATORS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILES, *PATHS, *RECURSIVE, *SED_AWK_JQ, *GIT, *SERVICES, *PROGRAMS, *BYPASSES]
+TABLE = [*QUOTING, *OPERATORS, *CHAINS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILES, *PATHS, *RECURSIVE, *SED_AWK_JQ, *GIT, *SERVICES, *PROGRAMS, *BYPASSES]
 
 
 @pytest.mark.parametrize("command, readonly", TABLE)
@@ -1232,6 +1269,12 @@ def test_unreadable_folders_never_crash(tmp_path):
         ("ls 'a|b' 'a;b' '$HOME'", [["ls", "a|b", "a;b", "$HOME"]]),
         ("ls FOO=1", [["ls", "FOO=1"]]),
         ("grep 错误 日志.txt", [["grep", "错误", "日志.txt"]]),
+        ("a; b && c || d | e", [["a"], ["b"], ["c"], ["d"], ["e"]]),
+        ("ls 2>/dev/null x", [["ls", "x"]]),
+        ("ls x>/dev/null", [["ls", "x"]]),
+        ("ls '2'>/dev/null", [["ls", "2"]]),
+        ("ls >/dev/null 2>&1 | wc", [["ls"], ["wc"]]),
+        ("echo a\\;b", [["echo", "a;b"]]),
     ],
 )
 def test_stages_splits_words(command, expected):
@@ -1241,7 +1284,7 @@ def test_stages_splits_words(command, expected):
 @pytest.mark.parametrize(
     "command",
     [
-        None, 1, "", " \t ", "ls;", "ls &", "a || b", "a |& b", "ls |", "| ls", "a | | b", "ls >x", "ls <x", "ls $x", "ls `x`",
+        None, 1, "", " \t ", "ls;", "ls &", "a ||", "|| b", "a |& b", "a & b", "a ;; b", "ls 2>x", "ls >/dev/nullx", "ls >&3", "ls |", "| ls", "a | | b", "ls >x", "ls <x", "ls $x", "ls `x`",
         "ls (x)", "ls {a,b}", "ls *", "ls ?", "ls [a]", "# x", "ls #x", "ls ~x", "ls ~+", 'ls ~"x"', "'open", '"open', "end\\",
         '"$x"', '"`x`"', '"\\$x"', "FOO=1 ls", "ls | FOO=1 cat", "a+=1 ls", "ls\n", "ls\u200b", "ls\u00a0x",
         "x" * (READONLY_MAX_CHARS + 1),
