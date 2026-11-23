@@ -202,3 +202,36 @@ def test_the_hooks_page_reads_well_in_light_and_dark(page):
         for selector, ratio in page.js(f"({CONTRAST})({LIST_TEXT!r})"):
             assert ratio is not None and ratio >= 4.5, f"{theme}：{selector} 的对比度只有 {ratio}"
         steps.close_extensions(page)
+
+
+# 记下页面取钩子列表的每一次（拿到回答、又过了一会儿，新的列表要画的话已经画了），看得出"新的列表已经回来了"
+WATCH_LIST = """(() => {
+  if (window.__hooksList) return;
+  window.__hooksList = { answered: 0 };
+  const real = window.fetch;
+  window.fetch = (...args) => {
+    const answer = real(...args);
+    if (String(args[0]).includes('/api/hooks/list')) {
+      answer.then((reply) => reply.clone().text()).finally(() => setTimeout(() => { window.__hooksList.answered += 1; }, 50));
+    }
+    return answer;
+  };
+})()"""
+
+
+def test_a_click_on_a_hook_is_not_lost_when_the_list_comes_back_between_press_and_release(page):
+    # GitHub 的机器上碰到过：扩展窗口停在"钩子"这一页上打开（取一次列表），又点了一下"钩子"标签（又取一次）；
+    # 第二次的回答落在点一行的按下和松开之间，列表整个重画，按下的那个按钮已经不在了，浏览器不算这是一次点击，详情没打开
+    steps.save_hook(page, "no-echo", DENY)
+    steps.extensions_tab(page, "hooks")
+    page.js(WATCH_LIST)
+    x, y = page.reach(f"{ROW}[data-name='no-echo'] .hooks-open")
+    page.mouse(x, y)
+    page.call("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1})
+    before = page.js("window.__hooksList.answered")
+    page.js("document.getElementById('tab-hooks').click()")  # 再点一下标签：这一页又去取一次列表
+    page.wait(f"window.__hooksList.answered > {before}", what="又取了一次的列表回来了")
+    page.call("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1})
+    page.wait("document.querySelector('#panel-hooks .hooks-test')", what="这一下点击算数了：钩子的详情打开")
+    steps.idle(page)
+    steps.close_extensions(page)

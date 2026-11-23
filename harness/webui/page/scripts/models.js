@@ -32,10 +32,9 @@ let modelsAsking = null;    // 正在问"换到另一家会开始新对话"的�
 let modelsSwitching = '';   // 正在换过去的那一个（请求还没回来）："家/模型"
 let modelsChecked = '';     // 上一次画的时候打勾的是哪一个：换了的话，新的那个勾"落"一下
 const modelsSyncing = new Set();  // 正在同步模型列表的那几家
-// 鼠标正按在列表里（还没松开）：这时取回来的新目录先不画，松开以后再画（见 refreshModels 和文件末尾）。
+// 鼠标正按在列表里（还没松开）：这时取回来的新目录先不画，松开以后再画（见 hold-redraw.js）。
 // 按下和松开要落在同一个元素上才算一次点击，中间把列表整个换掉，这一下就丢了
-let modelsPressed = false;
-let modelsRedrawLater = false;
+const modelsLater = holdRedraws(modelsMenu);
 
 const modelsFlyout = flyout(modelsPanel, modelButton, {
   sheet: true,
@@ -92,8 +91,8 @@ async function refreshModels() {
     const same = modelsCatalog && JSON.stringify(modelsCatalog) === JSON.stringify(result.data.catalog);
     modelsCatalog = result.data.catalog;
     if (modelsFlyout.isOpen() && !same) {
-      if (modelsPressed) modelsRedrawLater = true;  // 正按着一行：松开、这一下点击送到以后再画（见文件末尾）
-      else drawFreshModels();
+      // 正按着一行：松开、这一下点击送到以后再画；那时面板可能已经关了（点的正是换模型），关了就不画
+      modelsLater(() => { if (modelsFlyout.isOpen()) drawFreshModels(); });
     }
   } else if (modelsFlyout.isOpen() && !modelsCatalog) {
     modelsSay(result.error || t('没能读取模型列表。'), null, 'error');
@@ -334,19 +333,6 @@ async function syncModels(group) {
   else modelsSay(result.error, null, 'error');
   refreshModels();
 }
-
-// 鼠标在列表里按下到松开之间不重画（见 modelsPressed）。松开以后先让这一下点击送到（click 紧跟在 pointerup 后面、
-// 同一个输入事件里派发），再补画：所以放进 setTimeout，不在 pointerup 里直接画
-modelsMenu.addEventListener('pointerdown', () => { modelsPressed = true; });
-const releaseModels = () => {
-  if (!modelsPressed) return;
-  modelsPressed = false;
-  if (!modelsRedrawLater) return;
-  modelsRedrawLater = false;
-  setTimeout(() => { if (modelsFlyout.isOpen()) drawFreshModels(); }, 0);
-};
-document.addEventListener('pointerup', releaseModels);
-document.addEventListener('pointercancel', releaseModels);
 
 modelButton.addEventListener('click', () => (modelsFlyout.isOpen() ? modelsFlyout.close(false) : openModels()));
 modelButton.addEventListener('keydown', (key) => {

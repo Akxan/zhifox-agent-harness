@@ -27,6 +27,9 @@ let hooksDrawn = '';
 let hooksDeleting = null;      // 正在原地确认删除的那个钩子
 const hooksPending = new Set();  // 正在等回答的操作（按名字）。这期间那一行的按钮不能再点
 let hooksSeq = 0;              // 每取一次列表加一。回来得晚的旧列表靠它认出来、丢掉
+// 取回来的列表要重画时，鼠标正按在这一页里就等松开再画（见 hold-redraw.js）：打开这一页、点标签、状态变了都会去取，
+// 回答落在点一行的按下和松开之间，这一下就丢了
+const hooksLater = holdRedraws(hooksPanel);
 
 const hooksFind = (name) => (hooksData ? hooksData.hooks.find((row) => row.name === name) : null);
 const hooksSaid = (said) => (!said ? '' : said.key ? t(said.key, said.values) : String(said.text || ''));
@@ -133,9 +136,11 @@ async function loadHooks(focus) {
     hooksSay(reply.error, 'bad');
     return;
   }
-  hooksData = reply.data;
-  hooksDrawn = '';
-  drawHooks(focus);
+  hooksData = reply.data;  // 数据马上换：这一下点击打开的详情用的就是新的
+  hooksLater(() => {
+    hooksDrawn = '';
+    drawHooks(focus);
+  });
 }
 
 // 一个 POST 请求，等回答的这段时间把这个钩子标成"忙"（按钮暂时不能点）
