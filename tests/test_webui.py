@@ -61,6 +61,11 @@ from harness.webui.server import (
 )
 from harness.webui.ui import MAX_RESULT_CHARS, WebUI, latest_state_only
 
+# 事件流里等一个事件最多等多久（秒）。要盖住一整轮：模型回答、工具、记账（ledger.jsonl）、存盘（ConversationStore.save）。
+# GitHub 的 Windows 机器忙的时候写文件会慢上好几秒：2026-11-23 有一次那台机器跑全部测试用了 11 分半，
+# 6 个测试在原来的 10 秒里没等到一轮结束（停在记账、存盘之前）。等到了马上往下走，平常不会多等；真卡死照样失败
+EVENT_WAIT = 30
+
 
 class Browser:
     """扮演浏览器：一边在后台读事件流，一边发请求。
@@ -130,7 +135,7 @@ class Browser:
     def _check(self) -> None:
         assert not self.problems, "事件流不符合约定：" + "；".join(self.problems)
 
-    def wait_synced(self, timeout: float = 10) -> int:
+    def wait_synced(self, timeout: float = EVENT_WAIT) -> int:
         """等到服务器说"已有的事件补发完了"，返回在那之前收到了多少个事件。"""
         deadline = time.monotonic() + timeout
         with self._arrived:
@@ -142,7 +147,7 @@ class Browser:
             self._check()
             return self.synced_after
 
-    def wait_for(self, type: str, timeout: float = 10) -> dict:
+    def wait_for(self, type: str, timeout: float = EVENT_WAIT) -> dict:
         """等到下一个指定类型的事件出现，并返回它。"""
         deadline = time.monotonic() + timeout
         with self._arrived:
