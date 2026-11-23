@@ -86,6 +86,16 @@ ENDPOINT_PROBE_SECONDS = 8
 # 同步模型列表时，最多为这么多个模型逐个去问"你能做什么"（Ollama 的 /api/show）。再多的照名字猜，不再一个个问
 ENDPOINT_DETECT_MODELS = 40
 
+# 打开一段保存过的会话时（网页和终端都是），它的历史超过这么多个 token 就提醒一句：接着聊的第一条消息要把整段历史
+# 重新发给模型，按这个量计费（之后命中缓存就便宜了）
+LARGE_CONTEXT_TOKENS = 30_000
+
+# 终端界面里的会话（见 chat_cli.py、history_cli.py）：/history 最多列这么多段（新的在前；带上词是搜索，也最多这么多段）；
+# /open 打开以后写出最后这么多条消息（你的和智狐的各算一条），每条最多这么多个字，让你知道聊到哪儿了
+TERMINAL_HISTORY_ROWS = 20
+TERMINAL_RECAP_MESSAGES = 4
+TERMINAL_RECAP_CHARS = 240
+
 # 倒回最后一轮（编辑最后一条消息、重新生成，见 rewind.py）之前，这一轮做过的、可能改动了东西的事要列给你看：
 # 最多列这么多行，再多的合成一句"还有几项"
 MAX_REWIND_EFFECTS = 6

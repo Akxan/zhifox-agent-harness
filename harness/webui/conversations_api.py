@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from .. import i18n
 from ..agents import AgentError
+from ..config import LARGE_CONTEXT_TOKENS
 from ..conversations import ConversationError
 from ..i18n import t
 from ..providers import find, has_key
@@ -36,9 +37,6 @@ if TYPE_CHECKING:
     from .server import Handler
     from .sessions import Session
     from .webapp import WebApp
-
-
-LARGE_CONTEXT_TOKENS = 30_000  # 打开的旧会话超过这么大时，提醒一下接着聊的费用
 
 
 class ConversationActions(WebAppPart):
@@ -145,7 +143,7 @@ class ConversationActions(WebAppPart):
         else:
             self.sessions.forget(conversation_id)  # 后台跑完、你还没看的标记：现在看了
         self._left(session)
-        if conversation.context_tokens >= LARGE_CONTEXT_TOKENS:
+        if conversation.context_tokens >= LARGE_CONTEXT_TOKENS:  # 打开的旧会话很大：提醒一下接着聊的费用（终端的 /open 也照这个数）
             session.ui.hint(
                 t(
                     "这段会话的历史约有 {tokens} 个 token。接着聊的第一条消息需要把它重新发给模型，会按这个量计费。",

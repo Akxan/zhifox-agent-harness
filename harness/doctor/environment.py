@@ -36,6 +36,8 @@ HOLDERS = {
     "serve": k("在终端里或者 systemd 里开着的 harness serve"),
     "service": k("后台服务（harness service）"),
     "channels": k("harness channels pair（正在等配对码）"),
+    "restore": k("harness restore（正在从备份恢复）"),
+    "terminal": k("终端界面（harness）"),
 }
 
 # 用来找程序的函数（测试换成假的，免得看这台电脑上装没装 uv）

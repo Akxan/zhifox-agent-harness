@@ -71,23 +71,16 @@ class RewindActions(WebAppPart):
 
     def _rewind_problem(self, turn: rewind.Turn) -> str:
         """最后一轮为什么倒不回去；能倒回去返回空字符串。"""
-        conversation = self.app.conversation
+        conversation, backend = self.app.conversation, self.app.agent.backend
         if turn.mark is None:
-            if conversation.task:
-                return t("定时任务自己跑的那一轮不能编辑或重新生成：发给模型的指令和这里显示的不一样。可以接着发一条新消息。")
-            return t("这一轮是旧版本的智狐记下的，没有记下倒回去的位置。可以接着发一条新消息。")
+            return rewind.problem(turn, backend, conversation.task)  # 没记下位置（旧版本、定时任务自己跑的）
         platform = self.channels.holder(conversation.id)
         if platform:
             return t("这段会话正在 {platform} 上进行。等那边这一轮结束再试。", platform=platform)
         running = self.tasks.running(conversation.task)
         if running:
             return t("定时任务“{title}”正在运行。等它跑完再编辑或重新生成。", title=running)
-        backend = self.app.agent.backend
-        if backend.turn_at(turn.mark) or backend.mark() == turn.mark:
-            return ""  # 还在历史里；或者这一轮还没答出第一步就失败了，消息已经撤回（见 rewind.py 开头）
-        if backend.mark() > turn.mark:
-            return t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。")
-        return t("这一轮在对话历史里找不到了，倒不回去。可以接着发一条新消息。")
+        return rewind.problem(turn, backend)  # 还在不在历史里（终端也照着它说，见 rewind.problem）
 
     def rewind(
         self, action: str, target: tuple[str, int], text: str = "", keep: list[int] | None = None, confirmed: bool = False, undo_files: bool = False, undo_force: bool = False

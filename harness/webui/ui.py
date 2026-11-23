@@ -436,19 +436,10 @@ class WebUI:
         agent 是哪个子 Agent 在问（卡片上写"某某想要"而不是"助手想要"）；主助手自己问时是空的。"""
         self.end_stream()
         with self._changed:
-            fields = said(description)
-            if agent:
-                fields["agent"] = agent
-            offer = getattr(description, "offer", "")
-            if offer in OFFERS:
-                # 卡片上多给的一个选择（见 permissions.offering）。只有你正在看的这段对话的问题才带着它
-                # （子 Agent 问的也是这段对话的电脑）；定时任务、聊天通道的问题根本不带
-                fields["offer"] = offer
-            if getattr(description, "always", False) is True:
-                fields["always"] = True  # 在任何模式下都要问（见 permissions.always）：页面不放"不想每次都问？"
-            confirm_id = self.publish("confirm", description=fields.pop("text"), **fields)
+            fields = confirm_fields(description, agent)
+            confirm_id = self.publish("confirm", **fields)
             self._waiting_confirm = confirm_id
-            self._waiting_offer = offer if offer in OFFERS else ""
+            self._waiting_offer = fields.get("offer", "")
             self._confirm_answer = None
         self._tell_waiting()
         with self._changed:
@@ -567,6 +558,24 @@ def shot_fields(preview: dict | None) -> dict:
     fields = {"thumb": thumb}
     if isinstance(shot, str) and len(shot) == 64 and all(char in "0123456789abcdef" for char in shot):
         fields["shot"] = shot
+    return fields
+
+
+def confirm_fields(description: str, agent: str = "") -> dict:
+    """一张确认卡片的事件里写什么：要做的事（description，带着原文，换语言时能重译）、哪个子 Agent 在问（agent，主助手自己问时不写）、
+    卡片上多给的一个选择（offer）、是不是在任何模式下都要问（always）。网页的 WebUI.confirm 和终端（../ui.py：终端也记一份
+    同样的事件，存进会话，网页打开时照样画成卡片）都用它，两边存下的卡片一模一样。"""
+    shown = said(description)
+    fields = {"description": shown.pop("text"), **shown}
+    if agent:
+        fields["agent"] = agent
+    offer = getattr(description, "offer", "")
+    if offer in OFFERS:
+        # 卡片上多给的一个选择（见 permissions.offering）。只有你正在看的这段对话的问题才带着它
+        # （子 Agent 问的也是这段对话的电脑）；定时任务、聊天通道的问题根本不带
+        fields["offer"] = offer
+    if getattr(description, "always", False) is True:
+        fields["always"] = True  # 在任何模式下都要问（见 permissions.always）：页面不放"不想每次都问？"
     return fields
 
 

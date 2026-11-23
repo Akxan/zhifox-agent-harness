@@ -131,7 +131,8 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   on 127.0.0.1 only, and the page loads no external resources.
 - 🔎 **Search across past conversations**, by title and content, tolerant of typos and skipped characters, without a
   search library.
-- 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop. The web UI streams over SSE,
+- 🖥️ **One loop, two interfaces.** The terminal UI and the web UI drive the same loop and save to the same conversation
+  store, so a conversation started in one carries on in the other. The web UI streams over SSE,
   renders replies as Markdown (code blocks, tables, lists) with a small hand-written renderer, has light and dark
   themes, and respects reduced-motion settings.
 - 🌐 **Interface in English, 中文 and Español**, switchable mid-conversation without a page reload.
@@ -545,6 +546,7 @@ Each part of the harness has its own file or directory:
 | Capability list | [harness/capabilities.py](harness/capabilities.py), [harness/webui/capabilities_api.py](harness/webui/capabilities_api.py) | Tool names mean nothing to you. One catalog turns the conversation's tools into capabilities: in use or off and why, whether each asks you first (worked out by asking `permissions.py`), where it runs, how to turn it on (see [What ZhiFox can do](#what-zhifox-can-do-the-capability-list)) |
 | Read-only commands | [harness/commands/](harness/commands/) | Asking before every `ls` is tiresome, allowing everything is dangerous. A conservative check decides whether a shell command only looks: a tiny lexer that refuses anything with shell meaning, per-program flag rules, and path checks for secrets; plus your own list of commands that don't ask (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative)) |
 | Interfaces | [harness/ui.py](harness/ui.py) (terminal), [harness/webui/](harness/webui/) (web) | Show you what is happening and pass your input to the loop |
+| Terminal conversations | [harness/chat_cli.py](harness/chat_cli.py), [harness/history_cli.py](harness/history_cli.py) | Closing the terminal shouldn't lose the conversation. The terminal keeps the same event log the web UI keeps and saves every turn to the same store, so a conversation from either one can be listed, searched, opened and continued in the other (`/history`, `/open`; see [Terminal UI](#terminal-ui)) |
 | Markdown in replies | [harness/webui/markdown.js](harness/webui/markdown.js) | Models answer in Markdown. A small hand-written renderer turns it into headings, lists, tables and code blocks while the reply streams, without ever treating model output as HTML |
 | App icon | [harness/webui/manifest.py](harness/webui/manifest.py), [harness/webui/icons/](harness/webui/icons/), [tests/make_icons.py](tests/make_icons.py) | A bookmark, a Chrome shortcut or an installed app needs a large icon and a web app manifest, or it shows a grey letter. The PNGs are drawn once from the logo by headless Chrome and committed; the server hands out only those, behind the token |
 | Sources of web-search answers | [harness/citations.py](harness/citations.py), [harness/webui/page/scripts/citations.js](harness/webui/page/scripts/citations.js) | After a web search, Claude says which page each sentence came from. The citations are numbered per answer, shown as small markers with a list of sources at the end (web page, terminal, chat apps), and saved with the conversation, while the history sent back to the API stays exactly as it came |
@@ -829,6 +831,13 @@ conversation's history and sends it along with the next request. Each conversati
 | `messages` | The model | The history sent to the model, stored exactly in that provider's format. Handed back to the adapter (`restore`) when you open the conversation |
 | `events` | The page | What the interface showed. Sent to the browser again when you open the conversation, so the page can redraw it |
 
+Both interfaces save the same file the same way, after every turn. The terminal has no use for `events` itself (what it
+prints is gone once printed), but it records them anyway, with the class the web UI uses (`WebUI` in
+[webui/ui.py](harness/webui/ui.py)) and the same clean-up before saving. A conversation from the terminal therefore
+opens in the web page as if it had happened there: your messages, the replies as Markdown, tool cards, approvals and
+their outcome, the run trace, the **Changed N files** line. Only what a turn shows is recorded: the terminal's own
+commands (`/help`, `/usage`…) aren't part of the conversation.
+
 An attachment appears in `events` only as a summary: its name, size, a small thumbnail and the SHA-256 of its original
 in `data/media/`. The full content is in `messages` (that's what the model reads) and in the media library. The media
 library builds its index the same way search does: while the conversations are read and saved, so opening the Media tab
@@ -857,9 +866,10 @@ Only the last turn can be rewound, because the history is append-only (see above
 invalidate the cache for everything after it, and every later Claude thinking block is signed against what came
 before it. Cutting from the end leaves the prefix of every remaining block untouched.
 
-**Where to rewind to.** When a turn starts, the web UI records the adapter's position in the history
-(`Backend.mark()`) on the turn's `user` event, and it is saved with the conversation. GPT, Gemini and DeepSeek count
-positions from the start of the conversation, including the messages compaction has replaced; the conversation file
+**Where to rewind to.** When a turn starts, the web UI (and the terminal) records the adapter's position in the history
+(`Backend.mark()`) on the turn's `user` event, and it is saved with the conversation, so `/retry` and `/edit` in the
+terminal and **Regenerate** and **Edit** on the page work on a conversation whichever one it came from. GPT, Gemini
+and DeepSeek count positions from the start of the conversation, including the messages compaction has replaced; the conversation file
 records how many were replaced (`dropped`), so the recorded positions still match after reopening or restarting.
 Before rewinding, the adapter is asked whether that position still holds the turn's user message (`Backend.turn_at`):
 
@@ -931,8 +941,8 @@ run trace.
 **On the page.** Forking switches conversations, so it waits until your own turn is over. It only reads the original
 from disk (under the conversation store's lock, so a half-written file is never seen) and doesn't claim it, so a
 conversation a chat channel is using can be forked too. The request names the conversation and the turn, so a tab that
-is behind is turned away. The terminal UI keeps a single conversation in memory and never saves or opens conversations,
-so there is no original to keep and nowhere to switch to: forking is a web UI feature.
+is behind is turned away. Forking is a web UI feature; a conversation saved from the terminal forks there like any
+other.
 
 ### Undoing a turn's file changes
 
@@ -941,7 +951,8 @@ or overwrote files ends with a compact line, **Changed 2 files +7 −1**. Its **
 one click. Expanded, it lists each file (added, modified or overwritten, lines added and removed); click a file name for
 a line-by-line preview of what the turn did, and undo files one at a time or **Undo all changes from this turn**.
 **Redo** puts back what an undo replaced. In the terminal, `/undo` lists the latest turn's changes and asks before
-undoing them.
+undoing them. The terminal saves the same `file_changes` and `file_undo` events, so a terminal turn shows its line in
+the web page too, and `/undo` knows the changes of a conversation opened with `/open`.
 
 **How it's recorded** ([harness/undo/](harness/undo/)). When a turn starts, the web UI and the terminal open a journal
 for it; the file tool asks before each write whether a journal is open (one line in
@@ -1061,8 +1072,10 @@ The terminal UI and the web UI also drive the same loop. The loop only needs the
 | `confirm` | Your approval is needed; the loop waits here for the answer |
 | `info` / `notice` | There is a message for you |
 
-The terminal UI ([harness/ui.py](harness/ui.py)) turns these calls straight into text on screen. The web UI takes one
-more step, because the loop and the browser are not in the same program:
+The terminal UI ([harness/ui.py](harness/ui.py)) turns these calls straight into text on screen, and also hands each
+one to the same event log the web UI keeps, so its conversations can be saved and opened in the page (see
+[How conversations are saved and restored](#how-conversations-are-saved-and-restored)). The web UI takes one more step,
+because the loop and the browser are not in the same program:
 
 ```
 agent loop ──calls──► WebUI ──events──► local server ──pushes──► page in the browser
@@ -3223,7 +3236,9 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | Command | What it does |
 |---|---|
 | `/help` | Show the list of commands |
-| `/new` | Start a new conversation (memory and to-dos are kept) |
+| `/new` | Start a new conversation (memory and to-dos are kept; the one you leave is already saved) |
+| `/history` | List recent conversations, numbered, with title, model and time (the ones from the web UI too); `/history some words` searches every conversation with the same search as the web UI |
+| `/open` | Open a conversation and carry on with it: `/open 3` (a number from the last `/history`) or `/open` followed by a conversation ID. It prints the last few messages so you know where you are |
 | `/todos` | Show open to-dos |
 | `/tools` | Show what 智狐 can do: what's in use, whether it asks first, how to turn on what's off (the same list as the web UI's info panel) |
 | `/trace` | Show the last turn's run trace: how many model calls, which tools, how long each step took and what it cost, with a small waterfall drawn in block characters (the same numbers as the web UI's run trace) |
@@ -3239,7 +3254,21 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 
 Press Ctrl-C while the model is replying to interrupt it.
 
-The terminal UI doesn't save or open conversations, so forking a conversation is only in the web UI.
+**Conversations are saved.** Every turn is saved to `data/conversations/` the way the web UI saves it (an interrupted
+turn too), so the web UI's sidebar lists terminal conversations, search finds them, and the page can open, continue,
+edit, regenerate and fork them; `/history` and `/open` work the same on conversations from the web page. `/open`
+follows the same rules as opening one in the page: it switches to the provider and model the conversation used, hands
+its history back to the adapter, continues with its custom agent if it had one (and says so if that agent is gone), and
+takes a fresh snapshot of the MCP tools. A conversation whose provider has no key yet isn't opened: you couldn't
+continue it, and opening it would make that provider the one the next start uses.
+
+Only one ZhiFox can write to a data folder at a time (see [Run it in the background](#run-it-in-the-background)), and
+the terminal now takes that lock too. While the web UI or the background service is running, the terminal still chats
+but says it won't save, `/history` still lists, and `/open` is off; while the terminal is open, `harness --web` and the
+service say so and ask you to `/exit` it first. A failed save is reported and tried again before you leave the
+conversation; `/new`, `/open` and `/exit` stop once to warn you before giving up what wasn't saved. A plain `kill`
+(SIGTERM; Ctrl+Break on Windows) stops the current turn, saves and quits.
+
 The terminal UI doesn't run scheduled tasks or chat channels. You can ask the assistant to add or delete tasks here too;
 they run while the web UI or `harness serve` is running.
 
@@ -3296,8 +3325,8 @@ working folder; default: the current folder). Running `install` again is safe: t
 settings stop the old service and start the new one. **Settings → Run in the background** on the web page shows which
 way ZhiFox is running, with the install command to copy when it's tied to a terminal.
 
-**Switching from a ZhiFox you started by hand.** Only one ZhiFox can use a data folder at a time, so stop that one
-first, then install:
+**Switching from a ZhiFox you started by hand.** Only one ZhiFox can use a data folder at a time (the terminal UI
+counts too, since it saves conversations: type `/exit` there), so stop that one first, then install:
 
 ```bash
 # In the terminal where `uv run harness --web` is running, press Ctrl-C.
@@ -3574,7 +3603,7 @@ the error. macOS and Linux don't mind open files when swapping, so there's no re
 | Path | Contents |
 |---|---|
 | `.env` | Your API keys. When you save a key from the web UI, the file is made readable by your account only (on Windows by an ACL, see below) |
-| `data/conversations/` | Every web UI conversation, one JSON file each |
+| `data/conversations/` | Every conversation (web UI, terminal UI, scheduled tasks, chat channels), one JSON file each |
 | `data/media/` | The original of every attachment you sent, named by the SHA-256 of its content, so a file sent ten times is stored once. Originals that no conversation uses any more are removed when you delete a conversation, and at startup |
 | `data/memories/` | The assistant's long-term memory and notes. You can read, edit and delete them in the web UI's info panel, or edit them by hand |
 | `data/skills/` | Installed skills, one folder each. You can manage them under **Extensions → Skill** or by hand |
@@ -3940,6 +3969,11 @@ starts byte for byte like the original, no orphan tool results, earlier thinking
 restart, compaction, which steps count as changes), [tests/test_rewind_web.py](tests/test_rewind_web.py) (the
 endpoints and their refusals, the confirmation, the event stream after a rewind in two tabs, the saved file, search and
 the media library) and [tests/test_rewind_cli.py](tests/test_rewind_cli.py) (`/retry` and `/edit`).
+Saving and opening conversations in the terminal is covered in
+[tests/test_terminal_conversations.py](tests/test_terminal_conversations.py): the saved file and the search index after
+a terminal turn, the web UI opening, continuing and regenerating a terminal conversation (and the terminal opening a
+web one), `/history`, `/open` across providers, `/retry` and `/edit` after `/open`, failed saves, SIGTERM at the prompt
+and mid-turn (in-process, and against a real `python -m harness` on macOS and Linux), and the data folder's lock.
 Undoing file changes is covered in [tests/test_undo.py](tests/test_undo.py) and
 [tests/test_undo_diff.py](tests/test_undo_diff.py) (temporary working folders: copies, every kind of edit, undo and
 redo, hash conflicts, protected paths and links, size limits, reopening after a save, threads that aren't recorded),
@@ -4329,7 +4363,9 @@ more often a bug in a task or a check than a fact about the model.
 - Only the three Claude models the program has been adapted to are listed; other Anthropic models accept slightly
   different parameters.
 - Each command runs in a fresh shell, so `cd` and environment variables don't carry over to the next command.
-- Conversations are saved only in the web UI. Terminal conversations are gone when you close the program.
+- The terminal UI saves conversations only while it holds the data folder: with the web UI or the background service
+  running, a terminal conversation isn't saved and `/open` is off, and with the terminal open, the web UI and the
+  service can't start. `/open` prints the last few messages as plain text, not the whole conversation.
 - Search doesn't support pinyin (typing `baogao` won't find "报告"). It keeps the text of every conversation in memory,
   so a very large number of conversations (thousands of long ones) takes more memory. The conversation in progress isn't
   searchable until it has been saved.
@@ -4391,7 +4427,6 @@ more often a bug in a task or a check than a fact about the model.
 
 ## Roadmap
 
-- Let the terminal UI save and open conversations too.
 - Add a "don't ask again this session" option for common read-only commands (`ls`, `git status`).
 - Add a locally run search tool for models that don't support web search.
 - MCP resources and prompts, and OAuth sign-in for remote MCP servers.

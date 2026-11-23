@@ -45,6 +45,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Any
 
 from . import documents
 from .attachments import Attachment, AttachmentError, from_saved, parse, sniff_image
@@ -87,6 +88,24 @@ def last_turn(events: Sequence[dict], start: int = 0) -> Turn | None:
             number = given_id if isinstance(given_id := event.get("id"), int) else None
             return Turn(start + index, mark_of(event), number, text, from_saved(event.get("attachments")), list(events[index:]))
     return None
+
+
+def problem(turn: Turn, backend: Any, task: str = "") -> str:
+    """最后一轮为什么倒不回去；能倒回去返回空字符串。backend 是这段对话的适配层，task 是这段会话由哪个定时任务运行出来的。
+
+    这里只看这一轮自己和对话历史（见文件开头"倒回去的位置从哪儿来"），网页和终端都照着它说。网页另外还要看
+    这段会话是不是正被聊天通道、定时任务用着（见 webui/rewind_api.py）；终端用不着：它开着的时候，跑聊天通道和
+    定时任务的那个智狐开不起来（见 chat_cli.py 开头）。
+    """
+    if turn.mark is None:
+        if task:
+            return t("定时任务自己跑的那一轮不能编辑或重新生成：发给模型的指令和这里显示的不一样。可以接着发一条新消息。")
+        return t("这一轮是旧版本的智狐记下的，没有记下倒回去的位置。可以接着发一条新消息。")
+    if backend.turn_at(turn.mark) or backend.mark() == turn.mark:
+        return ""  # 还在历史里；或者这一轮还没答出第一步就失败了，消息已经撤回（见文件开头）
+    if backend.mark() > turn.mark:
+        return t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。")
+    return t("这一轮在对话历史里找不到了，倒不回去。可以接着发一条新消息。")
 
 
 def mark_of(event: dict) -> int | None:

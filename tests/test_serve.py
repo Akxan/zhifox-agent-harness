@@ -30,7 +30,7 @@ from processes import ask_to_exit, own_group
 from test_channels import BOT, OWNER, OWNER_NAME, paired_store, stop_later, until
 from test_webui import Browser
 
-from harness import cli, log
+from harness import cli, instance, log
 from harness.channels import cli as channels_cli
 from harness.channels.store import ChannelStore
 from harness.providers import PROVIDERS
@@ -402,6 +402,20 @@ def test_pair_without_waiting_prints_a_code(harness_cli):
     secret = harness_cli.store().pairing("telegram")["secret"]
     assert f"配对码：{secret[:3]} {secret[3:]}（10 分钟内有效）" in out
     assert f"https://t.me/zhifox_test_bot?start={secret}" in out  # 点开就替你把配对码发过去
+
+
+def test_pair_refuses_while_the_terminal_ui_holds_the_data_folder(harness_cli, tmp_path, fake):
+    """终端界面占着数据目录（它也存会话，见 harness/chat_cli.py），却不收聊天的消息：不能等着它去收配对码，说清楚先退出它。"""
+    harness_cli.store().connect("telegram", {"token": TOKEN}, BOT)
+    lock = instance.claim(tmp_path / "cli-data", "terminal")
+    try:
+        code, _, err = harness_cli("channels", "pair", "telegram")
+        status = harness_cli("channels", "status")
+    finally:
+        lock.close()
+    assert code == 1 and "终端界面正开着" in err and "/exit" in err
+    assert fake.calls == []  # 没有自己连上平台去收
+    assert "没有在运行" in status[1]  # 终端开着不算"智狐在运行"：聊天通道没人在收
 
 
 def test_pair_waits_for_the_running_service(harness_cli, monkeypatch):

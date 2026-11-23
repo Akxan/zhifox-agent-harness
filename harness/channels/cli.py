@@ -136,8 +136,8 @@ def _yes(question: str) -> bool:
 
 
 def _running(config: Config) -> bool:
-    """智狐是不是正在运行（网页界面或者服务）：数据目录被占着就是（见 instance.py）。"""
-    return instance.in_use(config.data_dir)
+    """智狐是不是正在运行（网页界面或者服务）：数据目录被占着、占着的又不是终端界面（它不收聊天的消息），见 instance.py。"""
+    return instance.serving(config.data_dir)
 
 
 def _when(moment: float | None) -> str:
@@ -260,6 +260,11 @@ def _pair_here(store: ChannelStore, config: Config, platform: str, before: dict 
     """智狐没开着：自己临时连上平台收配对码，配好（或者过期）就断开。"""
     lock = instance.claim(config.data_dir, "channels")  # 占着数据目录，这期间别人启动不了智狐，不会两处同时收消息
     if lock is None:
+        found = instance.holder(config.data_dir)
+        if found is not None and found.kind == "terminal":
+            # 终端界面占着数据目录、却不收聊天的消息：等下去也没人收你发的配对码
+            print(t("{name}的终端界面正开着（进程 {pid}），它不收聊天的消息。先在那个终端里输入 /exit 退出它，再运行一次这个命令；配对码照样有效。", name=APP_NAME, pid=found.pid), file=sys.stderr)
+            return 1
         return _wait_for_owner(store, platform, before, expires, out)
     channel = FACTORIES[platform](config, store)
     done = threading.Event()

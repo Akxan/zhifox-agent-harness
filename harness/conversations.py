@@ -120,7 +120,7 @@ class ConversationStore:
         # 多媒体库：每段会话里有哪些附件（见 media.py）。和搜索索引一样，读入、保存、删除时跟着更新
         self._media = MediaIndex()
         # 扫描要把每个会话文件都读一遍，会话多了并不便宜，所以等到第一次真的要用列表或搜索时才做（见 _load）。
-        # 终端界面不保存也不打开会话，它就永远不用付这个代价。
+        # 存盘不用等它（见 _save）：终端界面每一轮都存盘，却只在 /history、/open 时才要列表，不用那两个命令就永远不用付这个代价。
         self._loaded = False
         # 网页界面里好几个线程会同时用它：你的对话每一轮结束时存盘，几个定时任务跑完各自存一段，
         # 处理请求的线程在改名、删除、列出会话。"写文件"和"更新内存里的两份目录"要一口气做完：
@@ -151,7 +151,7 @@ class ConversationStore:
         stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
         # 编号是时间（精确到秒）加一段随机数。同一秒里开的两段会话，随机数撞上的机会极小，
         # 可一旦撞上，后存的那段会把先存的文件整个盖掉。所以还是查一下：用过了就再抽一个。
-        # 查的是磁盘上的文件，不用为此把所有会话扫一遍（终端界面从不扫，见 _load）。
+        # 查的是磁盘上的文件，不用为此把所有会话扫一遍（终端界面不用 /history、/open 就不扫，见 _load）。
         with self._lock:
             while True:
                 conversation_id = stamp + "-" + secrets.token_hex(3)
@@ -191,7 +191,8 @@ class ConversationStore:
             self._save(conversation, touch)
 
     def _save(self, conversation: Conversation, touch: bool) -> None:
-        self._load()
+        # 不先扫一遍（_load）：存一段会话只改它自己的那一条。还没扫过的话，以后第一次要用列表时，_load 从磁盘读到的
+        # 就是这里刚写下的内容，记进目录的和现在一样
         path = self._path(conversation.id)  # 先检查编号：格式不对的话什么都不写
         if touch:
             conversation.updated_at = time.time()

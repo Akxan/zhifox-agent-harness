@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import signal
 import sys
-from dataclasses import dataclass
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import capabilities, console, i18n, model_catalog, restore_cli, rewind, version
-from .app import App, build_app, retry_turn, run_turn
+from . import capabilities, console, i18n, instance, model_catalog, restore_cli, version
+from .app import App, build_app
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
 from .config import APP_NAME, Config, load_config
@@ -33,6 +34,7 @@ from .doctor import cli as doctor_cli
 from .doctor import examine as doctor_examine
 from .doctor import text as doctor_text
 from .evals import cli as eval_cli
+from .exits import EXIT_SIGNALS
 from .hooks import cli as hooks_cli
 from .i18n import k, t
 from .permissions import MODES
@@ -43,11 +45,11 @@ from .service import cli as service_cli
 from .settings import Settings
 from .tools.todo import format_todos
 from .trace import text as trace_text
-from .undo.terminal import TerminalChanges
 
 # 终端界面（prompt_toolkit，连带 asyncio，导入要几十毫秒）只有 run_terminal 用，在那里用到时才导入：
 # harness service status、harness hooks list 这些小命令和网页界面都用不到它。这里只给类型标注用
 if TYPE_CHECKING:
+    from .chat_cli import TerminalChat
     from .ui import TerminalUI
 
 SETUP_HELP = k("""\
@@ -62,7 +64,9 @@ API 密钥在 {key_page} 申请。API 按用量计费，和聊天产品的订阅
 
 HELP = k("""\
 /help    显示这段说明
-/new     开始一段新对话（记忆和待办不受影响）
+/new     开始一段新对话（记忆和待办不受影响；这一段已经存好了，/open 能再打开）
+/history 列出最近的会话（网页上聊的也在里面）；/history 加上几个词，是在所有会话里搜索
+/open    打开一段会话接着聊：/open 编号（/history 列出来的），或者 /open 会话的编号
 /todos   查看未完成的待办
 /tools   查看智狐能做的事：哪些在用、会不会先问你、关着的怎么打开
 /trace   查看最后一轮的运行记录：调用了几次模型、用了哪些工具、每一步花了多久、多少钱
@@ -76,7 +80,9 @@ HELP = k("""\
 /doctor  自检：Python、目录的权限、哪几家有密钥、浏览器、沙箱、后台服务……哪些好、哪些有问题、怎么修
 /exit    退出""")
 
-COMMANDS = {"/exit", "/quit", "/help", "/new", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto", "/doctor"}
+# 只是看看、改改设置的命令（handle_command 处理）。动到这段对话本身的（/new、/history、/open、/retry、/edit、/undo、/exit）
+# 由 chat_cli.py 的 TerminalChat 处理，见 run_terminal
+COMMANDS = {"/help", "/todos", "/tools", "/trace", "/usage", "/model", "/mcp", "/auto", "/doctor"}
 
 # MCP 服务器的几种状态，给人看的说法
 MCP_STATUS = {"connecting": k("连接中"), "ready": k("已连接"), "failed": k("连接失败"), "disabled": k("已停用")}
@@ -112,72 +118,6 @@ def set_auto(argument: str, app: App, ui: TerminalUI) -> None:
             ui.error(t(AUTO_RISK))
 
 
-# 倒回去之前，这一轮操作过整台电脑、在浏览器里点过输入过的话，再单独说一句（网页上是同样的两句，见 webui/page/scripts/rewind.js 的 TURN_OPERATED）
-OPERATED = {
-    "computer": k("这一轮操作过整台电脑（点击、拖动、打字、按键）：在别的程序里已经做了的事，撤不回来。"),
-    "browser": k("这一轮在浏览器里点击、输入过：网页上已经提交、发出去的东西，撤不回来。"),
-}
-
-
-@dataclass(frozen=True)
-class LastTurn:
-    """终端里的最后一轮：从历史的哪个位置开始（Backend.mark），你说的话。/retry、/edit 从这里倒回去（见 rewind.py）。"""
-
-    mark: int
-    text: str
-
-
-def ask_turn(app: App, ui: TerminalUI, text: str, changes: TerminalChanges, again: bool = False) -> LastTurn:
-    """跑一轮新的对话，返回记下的这一轮。这一轮文件工具改的文件记下来，/undo 能撤回（见 undo/terminal.py）。
-    again：这是 /retry 把上一次没答出来的那一轮整条再发一次（运行记录上标出来）。"""
-    mark = app.agent.backend.mark()
-    ui.turn_events = []
-    changes.record(lambda: run_turn(app.agent, ui, text, again=again), sends_message=True)
-    return LastTurn(mark, text)
-
-
-def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: LastTurn | None, changes: TerminalChanges) -> LastTurn | None:
-    """/retry：重新生成最后一个回答；/edit：改最后一条消息再发。返回之后的最后一轮（没做成就是原来那一轮）。
-
-    和网页界面一样只能倒最后一轮（原因见 rewind.py 开头）；这一轮做过可能改动了电脑的事，先问一次：
-    倒回去的只是对话，已经执行的命令、改过的文件不会复原。
-    """
-    if last is None:
-        ui.error(t("这段对话里还没有可以重新生成或编辑的消息。"))
-        return last
-    backend = app.agent.backend
-    present = backend.turn_at(last.mark)
-    if not present and backend.mark() != last.mark:
-        ui.error(t("这一轮已经压缩进了摘要（对话太长时较早的内容会写成摘要），倒不回去了。可以接着发一条新消息。"))
-        return last
-    text = last.text
-    if command == "/edit":
-        if not argument and not ui.interactive:
-            ui.error(t("用法：/edit 新的文字"))
-            return last
-        text = (argument or ui.read_input(default=last.text) or "").strip()
-        if not text or text == last.text:
-            ui.info(t("没有改动，已取消。"))
-            return last
-    found = rewind.effects(ui.turn_events)
-    if found:
-        lines = "\n".join(f"    {line}" for line in rewind.shown_effects(found))
-        # 终端里只打印一次、不用重译，所以后面接上一句时直接拼成普通字符串
-        warning: str = t("这一轮做过可能改动了电脑的事：\n{lines}\n倒回去的只是对话，这些已经做了的事不会撤销。", lines=lines)
-        for kind in rewind.operated(ui.turn_events):  # 操作过整台电脑、在浏览器里点过输入过：再单独说一句
-            warning = f"{warning}\n{t(OPERATED[kind])}"
-        if not ui.agree(warning):
-            ui.info(t("已取消。"))
-            return last
-    if command == "/retry" and present:
-        ui.turn_events = []
-        changes.record(lambda: retry_turn(app.agent, ui, last.mark), sends_message=False)
-        return last
-    # 编辑：连那条消息一起倒回去；再试一次（上一次没答出第一步就失败了，消息已经撤回）：本来就不在历史里，什么都不用去掉
-    backend.rollback(last.mark)
-    return ask_turn(app, ui, text, changes, again=command == "/retry")
-
-
 # "智狐能做的事"里每一项的状态，在终端里的说法（网页上的样子见 page/scripts/capabilities.js）
 CAPABILITY_STATUS = {"on": k("在用"), "pending": k("下一段对话开始生效"), "off": k("关着"), "unavailable": k("用不了")}
 CAPABILITY_MARKS = {"on": "●", "pending": "◐", "off": "○", "unavailable": "–"}
@@ -203,18 +143,13 @@ def show_capabilities(app: App, ui: TerminalUI) -> None:
 
 
 def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
-    """处理斜杠命令。返回 False 表示要退出程序。"""
+    """处理只是看看、改改设置的斜杠命令（COMMANDS）。返回 True（不退出：退出是 /exit，见 run_terminal）。"""
     name, _, argument = command.partition(" ")
     if name == "/auto":
         set_auto(argument.strip(), app, ui)
         return True
-    if command in ("/exit", "/quit"):
-        return False
     if command == "/help":
         ui.plain(t(HELP))
-    elif command == "/new":
-        app.agent.reset()
-        ui.info(t("已开始新对话。"))
     elif command == "/todos":
         ui.plain(format_todos(app.todos.items("pending")))
     elif command == "/tools":
@@ -270,10 +205,22 @@ def handle_command(command: str, app: App, ui: TerminalUI) -> bool:
 
 
 def run_terminal(config: Config) -> int:
-    """终端界面的主循环：读一句、答一句。"""
+    """终端界面：占住数据目录（占到了才存会话，见 chat_cli.py 开头），然后读一句、答一句。"""
     from .ui import TerminalUI  # 用到时才导入（见文件开头）
 
-    ui = TerminalUI(history_file=config.data_dir / "input_history")
+    # 同一个数据目录同一时间只给一个智狐用（instance.py）：占到了，这段对话每一轮存盘、能打开保存过的会话；
+    # 网页界面、后台服务开着的时候占不到，照常能聊，只是不存（启动时说清楚是谁占着）
+    lock = instance.claim(config.data_dir, "terminal")
+    try:
+        return _chat(config, TerminalUI(history_file=config.data_dir / "input_history"), saving=lock is not None)
+    finally:
+        if lock is not None:
+            lock.close()
+
+
+def _chat(config: Config, ui: TerminalUI, saving: bool) -> int:
+    from .chat_cli import TerminalChat, busy_lines  # 用到时才导入（和 TerminalUI 一样）
+
     app = build_app(config, ui)
     provider = app.provider
     if not has_key(provider):
@@ -281,43 +228,81 @@ def run_terminal(config: Config) -> int:
         app.close()
         return 1
     ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
+    chat = TerminalChat(app, ui, saving)
+    if not saving:
+        first, *rest = busy_lines(config.data_dir)
+        ui.error(first)
+        for line in rest:
+            ui.info(line)
 
-    last: LastTurn | None = None  # 最后一轮（/retry、/edit 用）
-    changes = TerminalChanges(app, ui)  # 每一轮改了哪些文件（/undo 用）
+    # 普通的 kill（SIGTERM：关机、注销、systemctl、别的程序叫它退出时发的就是它）和 Windows 上的 Ctrl+Break（见 exits.py）
+    # 不该直接把它杀掉：正在进行的一轮当作按了 Ctrl-C 停下（agent.py 收尾，工具调用照样有结果），存好盘再退出。
+    # 信号处理只能在主线程里接；收到第一个之后换回默认的处理：真想马上结束，再发一次就行
+    stopping = threading.Event()
+
+    def interrupted(signum: int, frame: object) -> None:
+        stopping.set()
+        for number in EXIT_SIGNALS:
+            signal.signal(number, signal.SIG_DFL)
+        raise KeyboardInterrupt
+
+    main_thread = threading.current_thread() is threading.main_thread()
+    previous = {number: signal.signal(number, interrupted) for number in EXIT_SIGNALS} if main_thread else {}
     try:
-        while True:
-            text = ui.read_input()
-            if text is None:
-                break
+        while not stopping.is_set():
+            try:
+                text = ui.read_input()
+            except KeyboardInterrupt:
+                continue  # 读输入时收到了 SIGTERM（真的终端里 read_input 自己接住 Ctrl-C，换成空的一行）
+            if text is None:  # Ctrl-D：和 /exit 一样，没存上的先再存一次
+                if chat.leave("/exit"):
+                    break
+                continue
             text = text.strip()
             if not text:
                 continue
-            name, _, argument = text.partition(" ")
-            if text == "/retry" or name == "/edit":  # /edit 可以带上新的文字
-                try:
-                    last = rewind_last(name, argument.strip(), app, ui, last, changes)
-                finally:
-                    app.chat_desktop.release()  # 重新跑的那一轮也一样：结束时松开还按着的鼠标键，屏幕让出来
-                continue
-            if text == "/undo":
-                changes.undo()
-                continue
-            if text in COMMANDS or text.startswith("/auto "):  # /auto 可以带参数
-                if not handle_command(text, app, ui):
-                    break
-                if text == "/new":
-                    last = None
-                    changes = TerminalChanges(app, ui)  # 新的一段对话：/undo 只管这一段改的
-                continue
             try:
-                last = ask_turn(app, ui, text, changes)
-            finally:
-                app.chat_desktop.release()  # 这一轮结束：还按着的鼠标键松开，屏幕让出来（和网页界面一样）
+                if not _dispatch(text, app, ui, chat):
+                    break
+            except KeyboardInterrupt:
+                # 一轮对话里的 Ctrl-C 由 app.run_turn 接住；这里接的是别处（列出会话、存盘……）被打断的
+                if not stopping.is_set():
+                    ui.info(t("已中断。"))
     finally:
-        app.close()  # 关掉启动过的 MCP 服务器
+        for number in previous:
+            signal.signal(number, signal.SIG_IGN)  # 正在收尾：这时再来一个 SIGTERM 不要打断存盘
+        try:
+            chat.close()  # 还有没存上的（被 SIGTERM 打断的那一轮、上一次没存上的），最后再存一次
+        finally:
+            app.close()  # 关掉启动过的 MCP 服务器
+            for number, handler in previous.items():
+                signal.signal(number, handler)
 
     ui.info(t("再见。"))
     return 0
+
+
+def _dispatch(text: str, app: App, ui: TerminalUI, chat: TerminalChat) -> bool:
+    """处理输入的一行。返回 False 表示要退出。"""
+    name, _, argument = text.partition(" ")
+    argument = argument.strip()
+    if text == "/retry" or name == "/edit":  # /edit 可以带上新的文字
+        chat.rewind(name, argument)
+    elif text == "/undo":
+        chat.undo()
+    elif text == "/new":
+        chat.new()
+    elif name == "/history":  # 可以带上要搜的词
+        chat.history(argument)
+    elif name == "/open":
+        chat.open(argument)
+    elif text in ("/exit", "/quit"):
+        return not chat.leave("/exit")
+    elif text in COMMANDS or name == "/auto":  # /auto 可以带参数
+        return handle_command(text, app, ui)
+    else:
+        chat.ask(text)
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:

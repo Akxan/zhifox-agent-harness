@@ -56,6 +56,8 @@ WHO = {
     "serve": k("在终端里或者 systemd 里开着的 harness serve"),
     "service": k("另一个后台服务"),
     "channels": k("harness channels pair（正在等配对码）"),
+    "restore": k("harness restore（正在从备份恢复）"),
+    "terminal": k("终端界面（harness）"),
 }
 # 几个常见的退出码是什么意思（1、2 见 serve.py；78 是 launchd 自己没能开起它）。
 # Windows 上任务计划程序记下的是 supervise.py 的退出码和它自己的几个结果码，另有一张（windows.EXITS），见 _why
@@ -195,7 +197,10 @@ def _refuse(system: System, data_dir: Path, found: instance.Holder | None, again
     system.warn(t("数据目录正被另一个{name}用着：{path}", name=APP_NAME, path=data_dir))
     if found is not None:
         system.warn("  " + t("是{who}，进程 {pid}。", who=t(WHO[found.kind]), pid=found.pid))
-    if isinstance(system.manager, TaskScheduler):
+    if found is not None and found.kind == "terminal":
+        # 终端界面里 Ctrl-C 只是打断这一轮、清掉这一行，不退出（见 cli.py）：退出它要 /exit 或者 Ctrl-D
+        system.warn(t("两个一起运行会互相覆盖对方保存的会话，所以先把它关掉：在那个终端里输入 /exit（或者按 Ctrl-D），再运行一次 {command}。", command=again))
+    elif isinstance(system.manager, TaskScheduler):
         # Windows 上没有 kill -INT：别的程序没法替你在那个终端里按 Ctrl-C（任务管理器里"结束任务"是直接结束，来不及存盘）
         system.warn(t("两个一起运行会互相覆盖对方保存的会话，所以先把它关掉：在开它的终端里按 Ctrl-C（在 Claude Code 里开的，结束那个会话），再运行一次 {command}。", command=again))
     else:
@@ -548,7 +553,7 @@ def open_page(config: Config, system: System, print_only: bool = False) -> int:
     places = [plan.data_dir] if plan is not None else []
     if config.data_dir not in places:
         places.append(config.data_dir)
-    running = [place for place in places if instance.in_use(place)]
+    running = [place for place in places if instance.serving(place)]  # 终端界面开着不算：它没有网页
     url = ""
     for place in running:
         url = _read_address(place / WEB_ADDRESS)

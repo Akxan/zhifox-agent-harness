@@ -656,6 +656,15 @@ def test_start_and_restart_refuse_too(mac, held):
     assert "harness serve" in said(system)[1]
 
 
+def test_install_names_the_terminal_ui_and_how_to_quit_it(mac, held):
+    """终端界面（harness）也占着数据目录（它也存会话）：说清楚是它，退出它要 /exit，不是 Ctrl-C。"""
+    held.append(instance.claim(mac.config.data_dir, "terminal"))
+    assert service_cli.run(args_for("install"), mac.config, mac.system) == 1
+    _, err = said(mac.system)
+    assert "终端界面（harness）" in err and "/exit" in err and "Ctrl-C" not in err
+    assert not mac.manager.file.exists() and mac.fake.verbs() == []
+
+
 def test_an_old_zhifox_without_a_note_gets_the_generic_message(mac, held):
     held.append(hold(mac.config.data_dir, note=False))  # 旧版本只锁住、不写是谁
     assert service_cli.run(args_for("install"), mac.config, mac.system) == 1
@@ -1029,6 +1038,7 @@ def test_busy_lines_say_who_and_what_to_do(tmp_path, held):
         "channels": ["harness channels pair 正在等配对码", "Ctrl-C"],
         "serve": ["已经有一个智狐在运行", "harness serve", "systemctl stop"],
         "web": ["已经有一个智狐的网页界面在运行", f"进程 {os.getpid()}", "Ctrl-C"],
+        "terminal": ["智狐的终端界面正开着", f"进程 {os.getpid()}", "/exit"],  # 终端里 Ctrl-C 不退出，要 /exit
     }
     for kind, phrases in expected.items():
         lock = instance.claim(data, kind)
