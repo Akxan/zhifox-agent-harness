@@ -1,4 +1,4 @@
-"""终端里的 /retry 和 /edit（见 harness/cli.py 的 rewind_last）：和网页一样只倒最后一轮，这一轮做过可能改动电脑的事要先问。
+"""终端里的 /retry 和 /edit（见 harness/chat_cli.py 的 TerminalChat.rewind）：和网页一样只倒最后一轮，这一轮做过可能改动电脑的事要先问。
 
 主循环 run_terminal 照常跑：输入换成写好的几行，模型是本地的假 API（不花钱）。测试里不是交互式终端，
 所以"要继续吗"一律当作不继续；要测回答"继续"的情况，就把界面当作交互式的，并替用户答一句 y。

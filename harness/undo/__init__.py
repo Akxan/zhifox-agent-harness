@@ -8,7 +8,7 @@
 
 怎么记下来（journal.py）
 ------------------------
-一轮开始时，界面（网页的 WebApp._run_turn、终端的 cli.ask_turn）打开一本"这一轮的账"（Journal），
+一轮开始时，界面（网页的 WebApp._run_turn、终端的 chat_cli.TerminalChat._run）打开一本"这一轮的账"（Journal），
 文件工具每次改文件之前问一句"有没有在记账"（journal.watching）：有的话，第一次碰到这个文件时先把它
 改之前的样子留一份底（存在 data/backups/turns/<编号>/ 里），改完再记下改之后的样子。一轮结束时把账合上，
 写一份清单（manifest.json），页面上这一轮的末尾多一行"改了 N 个文件"（一个 file_changes 事件）。

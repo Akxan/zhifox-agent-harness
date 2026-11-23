@@ -19,6 +19,9 @@ kind 有这几种：
   service   harness service install 装的后台服务（launchd、systemd 的用户服务，或者 Windows 任务计划程序里的任务）
   channels  harness channels pair（智狐没开着的时候，命令行自己临时连上平台收配对码）
   restore   harness restore（从备份恢复：恢复完才放开，这期间谁也开不了智狐，见 restore_cli.py）
+  terminal  harness（终端界面）。它也存会话、能打开保存过的会话（见 chat_cli.py），所以和网页界面一样要占着；
+            占不到（网页界面、后台服务开着）的时候它照常能聊，只是不存盘。它不跑定时任务和聊天通道，
+            所以"智狐在不在运行"（serving）不算它
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from .i18n import t
 from .safe import private_dir
 
 LOCK_NAME = ".lock"
-KINDS = ("web", "serve", "service", "channels", "restore")
+KINDS = ("web", "serve", "service", "channels", "restore", "terminal")
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,16 @@ def in_use(data_dir: Path) -> bool:
         return False
 
 
+def serving(data_dir: Path) -> bool:
+    """是不是开着一个会跑定时任务和聊天通道的智狐（网页界面、harness serve、后台服务……）：数据目录被占着，
+    而且占着的不是终端界面。harness channels 和自检靠它说"聊天通道开着没有"；终端开着的时候，聊天通道其实没人在收。
+    旧版本的智狐不写是谁占着，那时只能按占着算。"""
+    if not in_use(data_dir):
+        return False
+    found = holder(data_dir)
+    return found is None or found.kind != "terminal"
+
+
 def holder(data_dir: Path) -> Holder | None:
     """占着数据目录的是谁（读 .lock 里的那一行）。只在 in_use 为真、或者 claim 没占到时才有意义；
     旧版本的智狐不写这一行，那时返回 None。"""
@@ -111,6 +124,11 @@ def busy_lines(data_dir: Path) -> list[str]:
         return [
             t("harness restore 正在从备份恢复（进程 {pid}），占着这个数据目录：{path}", pid=found.pid, path=data_dir),
             t("等它恢复完再启动。"),
+        ]
+    if found is not None and found.kind == "terminal":
+        return [
+            t("{name}的终端界面正开着（进程 {pid}），用的是同一个数据目录：{path}", name=APP_NAME, pid=found.pid, path=data_dir),
+            t("两个一起运行会互相覆盖对方保存的会话。先在那个终端里输入 /exit（或者按 Ctrl-D）退出它，再启动。"),
         ]
     if found is not None and found.kind == "serve":
         return [

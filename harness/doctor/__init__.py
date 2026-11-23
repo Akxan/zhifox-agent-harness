@@ -52,7 +52,7 @@ def examine(config: Config, system: service_cli.System | None = None) -> Report:
     endpoints = EndpointStore(config.endpoints_file)
     channels = ChannelStore(config.channels_file)
     tasks, task_problem = extensions.task_list(config)
-    running = instance.in_use(config.data_dir)
+    running = instance.serving(config.data_dir)  # 定时任务和聊天通道在不在跑：终端界面开着不算（它不跑这两样）
     elsewhere = features.sandbox_users(settings, tasks, extensions.channel_entries(channels))
     found = environment.environment()
     found.checks.insert(2, environment.updates(config, settings))  # 紧跟在"智狐"那一行（版本）后面：有没有新版本，只看缓存

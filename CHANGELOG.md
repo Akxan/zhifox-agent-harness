@@ -18,6 +18,25 @@ Before 1.0.0, a minor version may include breaking changes.
   your install (`git pull` and `uv sync` in a clone; `uv tool upgrade` or `uv tool install --force` with the release's
   wheel for a `uv tool` install; a service restart when it runs in the background; on Windows, stop it first). The
   terminal UI mentions a new version at start, and `harness doctor` shows it from the cache only, never going online.
+- The terminal UI saves conversations too, in the same format and store as the web UI: every turn is saved (an
+  interrupted one too), so the web UI lists, searches, opens, continues, edits, regenerates and forks terminal
+  conversations, and the terminal opens web ones. New commands: `/history` (recent conversations, or a search with
+  `/history words`) and `/open <number|id>` (switches to that conversation's provider and model, like opening it in the
+  web UI, and prints its last few messages). `/retry`, `/edit` and `/undo` work on opened conversations. The terminal
+  now holds the data folder's lock: while the web UI or the background service is running it still chats but doesn't
+  save, and while it is open, `harness --web` and the service ask you to `/exit` it first. SIGTERM (Ctrl+Break on
+  Windows) stops the current turn, saves and quits.
+- Several read-only tool calls in one model step run at the same time: viewing files and folders, viewing memory,
+  listing to-dos and scheduled tasks, and reading skills. Only calls that need no approval at all and that no
+  `PreToolUse` hook matches join a batch; everything else still runs alone and in order. Cards, approvals, hooks and the
+  results sent to the model keep the order of the calls, Stop still answers every call, and the run trace draws a batch
+  as overlapping, linked rows ("ran alongside N other steps") whose time is counted once. `MAX_PARALLEL_TOOLS` (4; 1
+  turns it off).
+- Conversation search matches pinyin: `baogao`, `bao gao` or `BaoGao` finds 报告, every reading of a polyphonic
+  character counts (`yinhang` finds 银行, `xingzou` finds 行走), and three or more initials find a title (`zbmb` finds
+  周报模板). Pinyin is tried only when a keyword doesn't appear as typed, and pinyin matches rank after the other kinds,
+  so earlier results keep their order. The readings come from Unicode's Unihan database (Unicode 18.0.0, Unicode License
+  v3), generated once by `tests/make_pinyin.py` into `harness/search_pinyin.txt` and loaded on the first pinyin search.
 - `CONTRIBUTING.md` (English, then 简体中文), GitHub issue forms for bug reports and feature requests (the bug form asks
   for `harness --version`, how ZhiFox was installed, the system and `harness doctor --json`), and a pull request
   template with a checklist. Blank issues are off, and security reports are pointed to `SECURITY.md`.
