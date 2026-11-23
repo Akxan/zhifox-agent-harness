@@ -8,7 +8,7 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-22
+## [0.2.0] - 2026-11-23
 
 ### Added
 
