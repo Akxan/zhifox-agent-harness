@@ -398,7 +398,9 @@ def test_the_shell_wraps_refuses_and_explains(layout, monkeypatch, place):
     workspace = place[0]
     shell = Shell(workspace, Sandbox(found))
     home = shell.run("echo $HOME")  # 假的后端照原样运行，只是记下来；HOME 已经换成这次运行自己的
-    assert fake.calls[0][1] == ["/bin/bash", "-c", "echo $HOME"] and home == str(fake.calls[0][0].home)
+    argv = fake.calls[0][1]
+    # 命令外面包着记目录的那一层（见 tools/cwd.py），命令本身原样放在最后
+    assert argv[:2] == ["/bin/bash", "-c"] and argv[2].endswith("\necho $HOME") and home == str(fake.calls[0][0].home)
     out = shell.run("echo 'cat: x: Operation not permitted'; exit 1")
     assert "[退出码 1]" in out and "[这条命令是在沙箱里运行的" in out
     fake.problem = "坏了"

@@ -152,6 +152,8 @@ class RewindActions(WebAppPart):
             if action == "edit":
                 self.app.retitle(turn.text, turn.attachments, text, attachments, earlier=self.ui.user_events()[:-1])
             backend.rollback(mark + 1 if kept else mark)
+            # 命令的当前目录也回到这一轮开始时（见 tools/cwd.py）：重新跑的那一轮和原来那一轮从同一个目录开始，和留下的历史对得上
+            session.chat.shell.current.rewind_turn()
             # 这一轮从对话里去掉了：撤回过它改的文件、还没来得及告诉模型的那几句也不用说了（模型本来就不知道它改过）
             self.app.changes.notes.drop(self.app.conversation.id, rewind_sets(turn.events))
             self.ui.rewind(keep_user=action == "retry")

@@ -37,7 +37,17 @@ from pathlib import Path
 
 from ..i18n import Message, fill, k, t
 from . import backend as backends
-from .policy import DEFAULT, LEVEL_SHORT, LEVELS, Policy, build, program_paths, resolve
+from .policy import (
+    DEFAULT,
+    LEVEL_SHORT,
+    LEVELS,
+    Policy,
+    build,
+    inside,
+    program_paths,
+    real,
+    resolve,
+)
 
 # 一次运行是哪一种（卡片上、给模型的话里怎么称呼它）
 SCOPES = {"chat": k("这段对话"), "task": k("这个定时任务"), "channel": k("这个聊天通道")}
@@ -166,9 +176,9 @@ class Sandbox:
             )
         return None
 
-    def enter(self, argv: list[str], env: dict[str, str], unsandboxed: bool = False) -> Jail | None:
+    def enter(self, argv: list[str], env: dict[str, str], unsandboxed: bool = False, cwd: Path | None = None) -> Jail | None:
         """把一条命令包进沙箱：返回包好的命令行和环境变量；沙箱关着、或者这一条已经请你放行在沙箱之外运行，返回 None。
-        不能运行的（见 refusal）抛出 ToolError，什么都不会执行。"""
+        不能运行的（见 refusal）抛出 ToolError，什么都不会执行。cwd：命令从哪个目录开始（不给是工作目录，见 tools/cwd.py）。"""
         # 在这里才导入：导入 tools 会先运行 tools/__init__.py，它又要导入 tools/shell.py，而 shell.py 要用这个文件
         from ..tools.base import ToolError
 
@@ -178,7 +188,7 @@ class Sandbox:
         facts = self.facts(unsandboxed)
         if not facts.on or facts.escapes:
             return None
-        policy = self.policy(facts.level)
+        policy = self.policy(facts.level, cwd)
         found = backends.detect()
         advice = (
             "可以换一个只用工作目录里的文件的办法；如果确实需要碰工作目录之外的东西（或者联网），可以把 unsandboxed 设为 true 再执行一次，"
@@ -189,7 +199,7 @@ class Sandbox:
         )
         return Jail(argv=found.command(policy, argv), env=policy.env(env), level=facts.level, symptoms=found.symptoms, advice=advice)
 
-    def policy(self, level: str) -> Policy:
+    def policy(self, level: str, cwd: Path | None = None) -> Policy:
         home, temp = self._dirs()
         layout = self.layout
         return build(
@@ -202,7 +212,22 @@ class Sandbox:
             temp=temp,
             real_home=layout.home(),
             program=program_paths(),
+            cwd=cwd,
         )
+
+    def reaches(self, path: Path) -> bool:
+        """沙箱开着时，一条命令能不能从 path 这个目录开始：它得在沙箱里你给的地方（能读写的：工作目录、这次运行的 HOME 和
+        临时文件夹、额外允许的路径；只读的额外路径也算，在那里只是写不了），而且不是永远碰不到的地方。沙箱关着时哪儿都行。
+
+        为什么要问：上一条命令可能是在沙箱之外运行的（你放行的那一条，或者沙箱是后来才打开的），cd 到了沙箱里看不到的地方。
+        bwrap 根本进不去那个目录，命令一条都运行不了（连 cd 回来都不行）；sandbox-exec 进得去，可是什么都读不了。
+        所以那时回到工作目录（见 tools/cwd.py）。系统目录（/usr……）不算在内：只看你给的地方，规矩简单、两个系统一样。"""
+        level = self.level()
+        if level == "off":
+            return True
+        policy = self.policy(level)
+        place = real(path)
+        return inside(place, (*policy.write, *policy.read)) and not inside(place, policy.deny)
 
     def _dirs(self) -> tuple[Path, Path]:
         """这次运行自己的 HOME 和临时文件夹：第一条在沙箱里的命令要用时才建，这次运行里的命令共用。

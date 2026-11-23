@@ -84,6 +84,9 @@ class TerminalChat:
     def _run(self, work: Callable[[], None], sends_message: bool) -> None:
         """跑一轮（日志里这一轮已经开始了），收尾：记下改了哪些文件、结束这一轮、让出屏幕、存盘。
         哪一步出了意外都照样往下收尾（finally）：存盘放在最后，这一轮的结尾（turn_end）也存进去。"""
+        # 记下这一轮从哪个目录开始（命令的当前目录，见 tools/cwd.py）：倒回这一轮时回到这里，和网页界面（chat_api._run_turn）一样。
+        # 重新生成时，倒回去的那一下已经回到了原来那一轮开始时的目录，这里记下的还是它
+        self.app.shell.current.start_turn()
         self.dirty = True
         try:
             self.changes.record(work, sends_message=sends_message)  # 这一轮文件工具改的文件记下来，/undo 能撤回
@@ -153,6 +156,8 @@ class TerminalChat:
         if command == "/edit":
             app.retitle(turn.text, turn.attachments, text, attachments, earlier=ui.log.user_events()[:-1])
         backend.rollback(mark + 1 if kept else mark)
+        # 命令的当前目录也回到这一轮开始时（见 tools/cwd.py）：重新跑的那一轮和原来那一轮从同一个目录开始，和留下的历史对得上
+        app.shell.current.rewind_turn()
         # 这一轮从对话里去掉了：撤回过它改的文件、还没来得及告诉模型的那几句也不用说了（模型本来就不知道它改过）
         app.changes.notes.drop(app.conversation.id, sets_in(turn.events))
         ui.log.rewind(keep_user=command == "/retry")

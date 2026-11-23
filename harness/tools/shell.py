@@ -16,6 +16,9 @@ Windows 上的几处不同：
   - CREATE_NO_WINDOW：作为后台服务运行时（没有控制台），每条命令不会闪出一个黑色的窗口。
 
 设置里打开了沙箱的话，命令还会被关进沙箱里运行（见 sandbox/）：确认是第一道关卡，沙箱是第二道。
+
+每个 Shell 记着下一条命令从哪个目录开始（cd 会保留到下一条，见 cwd.py）：命令外面包一层，结束时打出它停在哪个目录，
+我们从输出里取出来、去掉，模型看到的输出和以前一样。
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from typing import Any
 from .. import winjob
 from ..sandbox import Facts, Sandbox
 from .base import FactsTool, ToolError, function_tool
+from .cwd import CurrentDir, marker, take, wrap
 
 TOOL_NAME = "run_command"
 DEFAULT_TIMEOUT = 60
@@ -124,26 +128,51 @@ def _kill(process: subprocess.Popen, job: winjob.Job | None = None) -> None:
 
 
 class Shell:
-    """在工作目录里执行命令，并记住正在运行的那个进程，方便从外面把它结束掉。"""
+    """执行命令，记着下一条命令从哪个目录开始（current，见 cwd.py），并记住正在运行的那个进程，方便从外面把它结束掉。"""
 
     def __init__(self, workspace: Path, sandbox: Sandbox | None = None):
         self.workspace = workspace
         self.sandbox = sandbox  # 这次运行的沙箱（见 sandbox/session.py）；None 是没有沙箱这回事（测试、旧的调用方）
+        self.current = CurrentDir(workspace)  # 下一条命令从哪个目录开始（一开始是工作目录）
         self._running: subprocess.Popen | None = None
         self._job: winjob.Job | None = None  # Windows：正在运行的命令所在的作业
         self._stopped = False  # 正在运行的命令是不是被 kill_running 结束的
 
+    def where(self, unsandboxed: bool = False) -> Path:
+        """下一条命令真正从哪个目录开始（记着的目录不在了、沙箱里看不到，就回到工作目录，见 cwd.py 的 where）。
+        卡片上写的、判断"只读的命令"时用的（permissions.py）、真正运行时用的，都是它。unsandboxed：这一条要在沙箱之外运行。"""
+        sandbox = self.sandbox
+
+        def reaches(path: Path) -> bool:
+            if sandbox is None:
+                return True
+            facts = sandbox.facts(unsandboxed)
+            if not facts.on or facts.escapes or facts.problem is not None:
+                return True  # 不在沙箱里运行（或者根本不会运行，见 check）：哪儿都能开始
+            return sandbox.reaches(path)
+
+        return self.current.where(reaches)
+
     def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT, unsandboxed: bool = False) -> str:
         timeout = max(1, min(timeout_seconds, MAX_TIMEOUT))
+        before = self.current.path
+        here = self.where(unsandboxed)
+        if here != before:
+            # 问你的时候还在，现在不在了（见 cwd.py 的"问你时看的是哪个目录"）：不换个地方悄悄运行
+            raise ToolError(self.current.gone(before))
         env = {key: value for key, value in os.environ.items() if key not in SECRET_ENV_VARS}
-        argv = command_line(command)  # bash，Windows 上是 PowerShell（见 command_line）
+        if not WINDOWS:
+            # bash 照着 PWD 认"现在在哪"（和真正的目录对得上才用它）：经过符号链接 cd 进去的，下一条命令里还是那个写法
+            env["PWD"] = str(here)
+        mark = marker()
+        argv = command_line(wrap(command, mark, WINDOWS))  # bash，Windows 上是 PowerShell（见 command_line）；包的那一层见 cwd.py
         # 沙箱开着就包进去；开着却用不了，这里抛出 ToolError、什么都不运行（不会悄悄在沙箱之外运行，见 sandbox/session.py）
-        jail = self.sandbox.enter(argv, env, unsandboxed) if self.sandbox is not None else None
+        jail = self.sandbox.enter(argv, env, unsandboxed, cwd=here) if self.sandbox is not None else None
         if jail is not None:
             argv, env = jail.argv, jail.env
         process = subprocess.Popen(
             argv,
-            cwd=self.workspace,
+            cwd=here,
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -155,6 +184,7 @@ class Shell:
             start_new_session=not WINDOWS,  # 独立的进程组，超时或中断时可以整组结束
             creationflags=NO_WINDOW,
         )
+        self.current.began = here
         # Windows 上的"进程组"：这条命令和它开的子孙进程都在这个作业里。不设"关掉就结束"：
         # 命令正常结束以后，它故意留在后台的程序（Start-Process）照样留着，和 macOS、Linux 上一样
         job = winjob.Job()
@@ -166,21 +196,25 @@ class Shell:
         except subprocess.TimeoutExpired:
             _kill(process, job)
             output, _ = process.communicate()
-            return f"{_clip(output)}\n[命令运行超过 {timeout} 秒，已被终止]"
+            output, _ = take(output, mark)  # 超时：留在原来的目录（它停在哪儿说不准），记号那一行照样去掉
+            return f"{_clip(output)}\n[命令运行超过 {timeout} 秒，已被终止]{self.current.take_note()}"
         except KeyboardInterrupt:  # 终端里按了 Ctrl-C
             _kill(process, job)
             raise
         finally:
             self._running, self._job = None, None
             job.close()
+        output, place = take(output, mark)
         if self._stopped:
-            raise ToolError(f"命令还没运行完，就被用户停止了。在那之前的输出：\n{_clip(output).rstrip() or '（没有输出）'}")
+            shown = _clip(output).rstrip() or "（没有输出）"
+            raise ToolError(f"命令还没运行完，就被用户停止了。在那之前的输出：\n{shown}{self.current.take_note()}")
+        self.current.moved(place)  # 下一条命令从它停下的目录开始
         result = _clip(output).rstrip("\n") or "（没有输出）"
         if process.returncode != 0:
             result += f"\n[退出码 {process.returncode}]"
             if jail is not None:
                 result += jail.explain(output)  # 像是被沙箱挡住的：告诉模型是怎么回事、能怎么办
-        return result
+        return result + self.current.take_note()
 
     def facts(self, tool_input: dict) -> Facts | None:
         """这次调用在沙箱这件事上是什么情况（permissions.py 照着它写卡片）。没有沙箱这回事时是 None。"""
@@ -208,8 +242,9 @@ def describe() -> tuple[str, str]:
         return (
             (
                 "在用户的电脑上执行一条 bash 命令，返回它的输出（标准输出和标准错误合在一起）。"
-                "每条命令都在工作目录下、全新的 shell 里运行：上一条命令里的 cd 和环境变量不会保留，"
-                "需要时写成 `cd 子目录 && 命令`。命令不能等待键盘输入。"
+                "每条命令都在一个新的 shell 里运行，只有当前目录会接着用：一段对话的第一条命令在工作目录下运行，"
+                "之后每条命令从上一条命令结束时所在的目录开始（cd 会保留）；环境变量（export）、alias、函数不会保留，"
+                "需要时写在同一条命令里。文件工具的相对路径仍然从工作目录算起。命令不能等待键盘输入。"
                 "每条命令执行前都会请用户确认。只是读写文件时，优先用文件工具。"
             ),
             "要执行的 bash 命令",
@@ -219,8 +254,9 @@ def describe() -> tuple[str, str]:
         (
             f"在用户的 Windows 电脑上执行一条 {name} 命令，返回它的输出（标准输出和标准错误合在一起）。"
             "这里没有 bash：请写 PowerShell 的命令（Get-ChildItem、Get-Content、Select-String……），路径用反斜杠或者正斜杠都可以。"
-            "每条命令都在工作目录下、全新的 PowerShell 里运行：上一条命令里的 Set-Location 和 $env: 变量不会保留，"
-            "需要时写成 `Set-Location 子目录; 命令`。命令不能等待键盘输入（Read-Host、确认提示都会失败）。"
+            "每条命令都在一个新的 PowerShell 里运行，只有当前目录会接着用：一段对话的第一条命令在工作目录下运行，"
+            "之后每条命令从上一条命令结束时所在的目录开始（Set-Location 会保留）；$env: 变量、函数、别名不会保留，"
+            "需要时写在同一条命令里。文件工具的相对路径仍然从工作目录算起。命令不能等待键盘输入（Read-Host、确认提示都会失败）。"
             "每条命令执行前都会请用户确认。只是读写文件时，优先用文件工具。"
         ),
         f"要执行的 {name} 命令",

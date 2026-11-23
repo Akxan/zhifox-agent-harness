@@ -1521,6 +1521,7 @@
  "执行命令：\n\n    $ {command}": "ejecutar un comando:\n\n    $ {command}",
  "执行命令：\n\n    $ {command}\n\n沙箱：{level}（{short}）": "ejecutar un comando:\n\n    $ {command}\n\nEspacio aislado: {level} ({short})",
  "执行命令：\n\n    $ {command}\n\n沙箱：关（{who}没有用沙箱，命令直接在这台电脑上运行）": "ejecutar un comando:\n\n    $ {command}\n\nEspacio aislado: desactivado ({who} no usa el espacio aislado; el comando se ejecuta directamente en este ordenador)",
+ "{question}\n\n在这个目录里运行：{path}（之前的命令 cd 到了这里）": "{question}\n\nSe ejecuta en esta carpeta: {path} (un comando anterior hizo cd hasta aquí)",
  "扩展": "Extensiones",
  "扩展的种类": "Tipos de extensión",
  "扩展：Skill、MCP、通道、Agent、钩子": "Extensiones: Skills, MCP, canales, agentes, hooks",

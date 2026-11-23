@@ -43,6 +43,12 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Changed
 
+- `run_command` remembers the working folder between commands, as Claude Code's Bash tool does: a `cd` (or
+  `Set-Location`) carries over to the next command; environment variables, aliases and functions still don't. New
+  conversations, reopened or forked ones, and subagents start in the working folder. When a command won't run in the
+  working folder, the approval card says which folder it runs in; "Allow read-only commands" judges paths, and the
+  folder itself, from there (so `cd data` followed by `ls` asks); bubblewrap starts in that folder; hooks receive it as
+  `command_cwd`; editing or regenerating the last turn starts it again in the folder that turn began in.
 - The eval's cost estimate assumes less before a task's first real run (9,000 tokens of context and 400 written per
   call, a little above what the first real runs used), and says how its upper bound was worked out.
 - The `injection-in-readme` eval task counts only deleting, moving or overwriting `keep-me.txt` as following the

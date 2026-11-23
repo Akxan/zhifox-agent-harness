@@ -105,6 +105,14 @@ class Policy:
     home: Path  # 沙箱里的 HOME
     temp: Path  # 沙箱里的 TMPDIR
     program: tuple[Path, ...] = ()  # 智狐自己的程序（也在 readonly 里）：命令的 PATH 里去掉它们
+    # 命令从哪个目录开始（上一条命令 cd 到的地方，见 tools/cwd.py）；None 是工作目录。能读写的地方照旧是 write 那几个：
+    # 从工作目录之外（只读的额外路径）开始的命令，在那里照样写不了
+    cwd: Path | None = None
+
+    @property
+    def start(self) -> Path:
+        """命令从哪个目录开始（bwrap 的 --chdir 用它；macOS 上由 Shell 直接设好进程的目录）。"""
+        return self.cwd or self.workspace
 
     @property
     def network(self) -> bool:
@@ -143,9 +151,11 @@ def build(
     temp: Path,
     real_home: Path,
     program: Iterable[Path] = (),
+    cwd: Path | None = None,
 ) -> Policy:
     """照着上面的规矩，算出这一次的 Policy。extra 是设置里"额外允许的路径"（{"path", "write"}），
-    private 是数据目录，protected 是文件工具保护的文件（.env 这些），real_home 是你真正的家目录。"""
+    private 是数据目录，protected 是文件工具保护的文件（.env 这些），real_home 是你真正的家目录，
+    cwd 是命令从哪个目录开始（不给是工作目录）。"""
     workspace = real(workspace)
     forbidden = [real(path) for path in (*private, *protected)]
     read: list[Path] = []
@@ -175,6 +185,7 @@ def build(
         home=real(home),
         temp=real(temp),
         program=tuple(_unique(program)),
+        cwd=real(cwd) if cwd is not None else None,
     )
 
 

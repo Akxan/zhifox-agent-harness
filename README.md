@@ -414,7 +414,7 @@ are the differences:
 |---|---|
 | Keyboard shortcuts | Ctrl wherever a Mac says ⌘, Alt for ⌥ (the table below). The page decides by the computer the browser runs on |
 | "Show in Finder" | **Show in File Explorer** (`explorer /select,`); on Linux it's "Show in file manager". The page decides by the computer ZhiFox runs on, since that's where the window opens |
-| Commands (`run_command`) | Run in **PowerShell**: PowerShell 7 (`pwsh`) when it's installed, Windows PowerShell 5.1 otherwise. The tool's description and the system prompt say which, so the model writes `Get-ChildItem` rather than `ls -la`. Your `$PROFILE` is not loaded, your execution policy is left as it is, output is read as UTF-8, and Stop or a timeout ends the command with everything it started (a Windows job object) |
+| Commands (`run_command`) | Run in **PowerShell**: PowerShell 7 (`pwsh`) when it's installed, Windows PowerShell 5.1 otherwise. The tool's description and the system prompt say which, so the model writes `Get-ChildItem` rather than `ls -la`. Your `$PROFILE` is not loaded, your execution policy is left as it is, output is read as UTF-8, and Stop or a timeout ends the command with everything it started (a Windows job object). The folder carries over from one command to the next (`Set-Location` sticks, see [Commands remember their folder](#commands-remember-their-folder)) |
 | **Allow read-only commands** | Doesn't skip any command yet: the read-only check understands bash, not PowerShell, so every command still asks, and your own "commands that don't ask" don't apply (the approval panel, that window and the capability list say so). The mode still reads files outside the working folder without asking |
 | Files only you can read | Windows has no 600/700 permissions. ZhiFox removes the inherited access from `data\` and `.env` and leaves only your account, SYSTEM and Administrators (see [Data and privacy](#data-and-privacy)) |
 | Browser use | Chrome, or Microsoft Edge (every Windows 10/11 has it) when Chrome isn't installed. Still a pipe, never a port (see [Browser use](#browser-use-a-chrome-of-its-own)) |
@@ -575,6 +575,7 @@ Each part of the harness has its own file or directory:
 | Loop | [harness/agent.py](harness/agent.py) | A model replies once per call. The loop keeps calling it until the task is done |
 | Tools | [harness/tools/](harness/tools/) | A model can't act. Tools act for it and report the result back |
 | Reads that run together | [harness/parallel.py](harness/parallel.py) | A model often asks for several things in one step ("read these five files"); one after another, you wait for all of them added up. Consecutive calls that only read and don't need asking run at the same time on a small thread pool, while the cards, approvals, hooks and history stay in call order (see [Several reads in one step run at the same time](#several-reads-in-one-step-run-at-the-same-time)) |
+| Commands' current folder | [harness/tools/cwd.py](harness/tools/cwd.py) | Every command runs in a new shell, so a forgotten `cd` sends the next command to the wrong place. Each shell remembers the folder the last command ended in and starts the next one there; approval cards, the read-only check and the sandbox follow that folder |
 | Provider adapters | [harness/providers/](harness/providers/) | Every provider's API has its own format. The adapters hide the differences, so the loop doesn't care which provider is behind it |
 | Custom model endpoints | [harness/endpoints/](harness/endpoints/), [harness/webui/endpoints_api.py](harness/webui/endpoints_api.py) | The built-in providers all live on someone else's servers. An endpoint is any OpenAI-format URL (Ollama, LM Studio, vLLM, llama.cpp, a company gateway): the URL rules (https, or plain http only on your own network), storage with an optional key, a client that never carries other providers' keys or follows redirects, guessing what each model can do, and testing the connection without spending anything (see [Local models](#local-models-and-your-own-gateway-ollama-lm-studio-vllm-llamacpp)) |
 | Conversation history | Inside the adapters (the format differs per provider) | A model has no memory. Every request resends the whole conversation |
@@ -2231,6 +2232,47 @@ The tunables are in [harness/config.py](harness/config.py): `DESKTOP_MAX_EDGE` (
 `hold_key`), `DESKTOP_COMMAND_TIMEOUT` (15), `DESKTOP_MAX_TYPE_CHARS` (2,000 characters per `type`) and
 `COMPUTER_TOOLSET_MODELS`.
 
+### Commands remember their folder
+
+Every `run_command` call starts a new shell, but the folder carries over, the way Claude Code's Bash tool works: the
+first command of a conversation runs in the working folder, and each later one starts where the previous one ended. So
+`cd sub` in one command and `make` in the next runs `make` in `sub`. Environment variables (`export`, `$env:`), aliases
+and functions still don't carry over, so every command stands on its own; the tool's description says so, and also
+that the file tools' relative paths stay relative to the working folder.
+
+**How ZhiFox knows where a command ended.** The command is wrapped: in bash a `trap … EXIT` set on the line before it,
+in PowerShell `try { … } finally { … }`. When the command ends (normally, with an error, or with `exit`), the shell
+prints one line holding a random marker and its folder (bash's `$PWD`, so a folder entered through a symlink such as
+`/tmp` keeps that spelling; in PowerShell `(Get-Location -PSProvider FileSystem).ProviderPath`). ZhiFox takes that line
+out again, so the model sees exactly the output it saw before, and the exit code is kept (PowerShell's rule, "0 if the
+last command succeeded, 1 if it didn't, unless it called `exit`", is reproduced). Two visible differences: bash error
+messages count one line more (`line 2:`), because the trap sits on the line before the command, and a command that
+redirects its own output to a file (`exec > log`) doesn't get the marker written into your file; ZhiFox then simply
+keeps the previous folder. The model could read the wrapper and print a fake marker, or just `cd` anywhere: that gains
+it nothing, because the folder only decides where the next command starts, and that command is still reviewed in that
+folder (below). See [harness/tools/cwd.py](harness/tools/cwd.py).
+
+**When it goes back to the working folder.** A new conversation. Reopening or forking a saved conversation: the folder
+isn't restored (it may be gone, or no longer where you want it), and if the history ran commands, the first command's
+result tells the model that its earlier `cd` no longer applies. A subagent: its own shell starts in the working folder
+and its `cd` doesn't move its caller (it starts with an empty history, like a new conversation, so the task handed to it
+should say where to work). A remembered folder that has been deleted, or that a sandboxed command may not start in (below): the
+command runs in the working folder and its result says why. A command that times out, is stopped or is killed leaves
+the folder where it was, because where it stopped is anyone's guess.
+
+**Approvals follow the folder.** Whenever a command won't run in the working folder, its approval card adds a line
+"Runs in this folder: …" (web UI, terminal and chat channels). **Allow read-only commands** judges relative paths
+from that folder, and checks the folder itself too: after `cd data`, a plain `ls` lists ZhiFox's data folder, so it
+asks. The card, the read-only check and the run all use the same folder; if it disappears after you were asked, the
+command doesn't quietly run somewhere else: it isn't run, and the model is told to run it again (it will be reviewed in
+the working folder). [Hooks](#hooks-your-own-scripts-at-fixed-moments) get the folder as `command_cwd`; `cwd` stays the
+working folder, where the hook itself runs. With the [sandbox](#sandbox-for-commands-what-a-command-can-reach) on, a
+command can start in the working folder, the run's own home and temp folders, or one of your extra paths (a read-only
+one too, where it still can't write). Any other folder (a system folder, or one left by a command you let run outside
+the sandbox or from before the sandbox was switched on) sends it back to the working folder: bwrap couldn't even enter
+a folder the sandbox doesn't show, and the rule stays the same on both systems. [Editing or regenerating](#editing-the-last-message-and-regenerating) the last turn starts that turn again in the
+folder it originally started in, so the rerun matches the history that's left.
+
 ### Sandbox for commands: what a command can reach
 
 `run_command` runs every command as you, so a command can reach whatever you can: your home folder, your SSH keys,
@@ -2518,7 +2560,7 @@ channels and subagents all use the same switch.
 | Reading files outside the working directory | Asks you first. In **Allow read-only commands** mode it runs directly, unless the path is `data/`, a key file or looks like it holds secrets |
 | Reading files in `data/` (saved conversations, settings) | Asks you first, even when `data/` is inside the working directory |
 | Creating or changing any file | Asks you first, and shows what will be written |
-| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative); on Windows every command still asks). With the sandbox on, the card also says which level the command runs in (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)) |
+| Running any shell command | Asks you first, and shows the full command. In **Allow read-only commands** mode, a command ZhiFox can tell only looks runs directly (see [Read-only commands](#read-only-commands-and-why-the-check-is-conservative); on Windows every command still asks). With the sandbox on, the card also says which level the command runs in (see [Sandbox for commands](#sandbox-for-commands-what-a-command-can-reach)). When an earlier command `cd`'d elsewhere, it says which folder the command runs in, and the read-only check looks at that folder (see [Commands remember their folder](#commands-remember-their-folder)) |
 | Running one command outside the sandbox (`unsandboxed: true`, only while the sandbox is on) | Asks every time, in every mode, Allow everything included, with a warning on the card and no way to stop asking. A scheduled task or chat channel set to Allow everything can't ask at all, so there it is refused |
 | Any command while the sandbox is on but can't work on this computer | Refused without asking; the model is told why and how to fix it or switch the sandbox off |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
@@ -2697,7 +2739,8 @@ instead of `Bash`, `Edit`).
 **The protocol.** The hook receives one JSON object on stdin: `hook_event_name`, `hook_name`, `session_id`, `cwd`,
 `permission_mode` (`ask` / `readonly` / `edits` / `all`), `source` (`chat`, `task` or `channel`), `provider`, `model`,
 `agent_type` (only inside a subagent) and `test` (only for a test run); the tool events add `tool_name`, `tool_group`
-(the capability it belongs to, as in the capability list), `tool_input`, `tool_use_id` and `mcp_server`; `PostToolUse`
+(the capability it belongs to, as in the capability list), `tool_input`, `tool_use_id`, `mcp_server` and, for `run_command`,
+`command_cwd` (the folder the command runs in, which an earlier `cd` may have changed; `cwd` stays the working folder); `PostToolUse`
 adds `tool_response`, `is_error` and `duration_ms`; `UserPromptSubmit` adds `prompt` and `attachments`; `Stop` adds
 `last_assistant_message`, `ended` and `stop_hook_active` (always false). Then:
 
@@ -4520,7 +4563,8 @@ more often a bug in a task or a check than a fact about the model.
 - GPT goes through the Chat Completions API. A new OpenAI model that only supports OpenAI's other API won't work here.
 - Only the three Claude models the program has been adapted to are listed; other Anthropic models accept slightly
   different parameters.
-- Each command runs in a fresh shell, so `cd` and environment variables don't carry over to the next command.
+- Each command runs in a new shell. Only the folder carries over (`cd` sticks); environment variables, aliases and
+  functions don't, and a reopened conversation starts again in the working folder instead of where it was.
 - The terminal UI saves conversations only while it holds the data folder: with the web UI or the background service
   running, a terminal conversation isn't saved and `/open` is off, and with the terminal open, the web UI and the
   service can't start. `/open` prints the last few messages as plain text, not the whole conversation.

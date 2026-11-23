@@ -6,9 +6,32 @@
 
 from __future__ import annotations
 
+import base64
 import os
 
 WINDOWS = os.name == "nt"
+
+
+def script_of(argv: list[str]) -> str:
+    """一条命令交给 shell 的那段脚本：bash 是 -c 后面的那一项，PowerShell 是 -EncodedCommand 解开以后的样子。
+    命令外面包着记目录的那一层（见 harness/tools/cwd.py），所以测试只看命令本身在不在里面、在不在最后。"""
+    if "-EncodedCommand" in argv:
+        return base64.b64decode(argv[argv.index("-EncodedCommand") + 1]).decode("utf-16-le")
+    return argv[-1]
+
+
+def change_dir(path: str) -> str:
+    """换到 path 这个目录（之后的命令从那里开始，见 harness/tools/cwd.py）。"""
+    if WINDOWS:
+        return f"Set-Location -LiteralPath '{path}'"
+    return f"cd '{path}'"
+
+
+def print_dir() -> str:
+    """打出现在在哪个目录。"""
+    if WINDOWS:
+        return "(Get-Location).Path"
+    return "pwd"
 
 
 def mark_then_sleep(marker: str, seconds: int) -> str:

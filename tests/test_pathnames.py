@@ -348,7 +348,7 @@ def test_commands_never_touch_network_or_device_paths(places, monkeypatch, word)
 
 def test_short_names_on_disk_are_unclear(places):
     # 不用 ENV~1：真的 Windows 上它多半就是 .env 的短名字（写它就是写 .env），那样查出来的是"保存密钥的文件"
-    (places.workspace / "NOTES~1.TXT").write_text("可能是别的文件的另一个名字\n", encoding="utf-8")
+    (places.cwd / "NOTES~1.TXT").write_text("可能是别的文件的另一个名字\n", encoding="utf-8")
     with pytest.raises(Unclear, match="短名字"):
         places.check("NOTES~1.TXT")
     places.check("HEAD~1")  # 磁盘上没有这个名字：git 的写法，什么都读不到
@@ -357,7 +357,7 @@ def test_short_names_on_disk_are_unclear(places):
 
 def test_a_link_that_resolve_cannot_follow_is_unclear(places, monkeypatch, symlinks):
     """Windows 上 resolve 碰到绕成圈的链接不报错，原样交回来：交回来的还是链接，就当作看不清。"""
-    (places.workspace / "loop").symlink_to(places.workspace / "loop")
+    (places.cwd / "loop").symlink_to(places.cwd / "loop")
     monkeypatch.setattr(Path, "resolve", lambda self, strict=False: self)  # 像 Windows 那样不报错
     with pytest.raises(Unclear, match="看不清 .* 指的是哪里（符号链接绕成了圈）"):
         places.check("loop")
@@ -383,7 +383,7 @@ def test_microsoft_folders_only_count_on_windows(tmp_path):
 
 def test_a_folder_scan_finds_a_hard_link_with_a_real_lstat(places):
     """Windows 上 DirEntry.stat() 的 st_ino 是 0：grep -r 扫文件夹时要真的 lstat，才认得出密钥文件的另一个名字。"""
-    os.link(places.workspace / ".env", places.workspace / "src" / "notes.txt")
+    os.link(places.cwd / ".env", places.cwd / "src" / "notes.txt")
     with pytest.raises(Unclear, match="另一个名字"):
         places.check_tree("src", contents=True)
 

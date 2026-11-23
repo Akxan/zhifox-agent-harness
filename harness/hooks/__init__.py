@@ -51,6 +51,8 @@
       "tool_input": {"command": "ls"},      模型给的参数，原样
       "tool_use_id": "toolu_…",
       "mcp_server": "github",               只有 MCP 的工具才有
+      "command_cwd": "/Users/me/work/sub",  只有 run_command 才有：命令在哪个目录里运行（上一条命令 cd 到的地方，
+                                            见 tools/cwd.py；PostToolUse 里是它刚才从哪儿开始的）。cwd 照旧是工作目录
 
       PostToolUse 再多：
       "tool_response": "…",                 工具的结果（交给模型的那段文字）
