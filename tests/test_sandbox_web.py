@@ -19,6 +19,7 @@ from conftest import RecordingUI
 from fake_api import reply, text, tool_use
 from fake_sandbox import install as install_fake
 from fake_telegram import TOKEN
+from oscmd import script_of
 from test_channels import rigs
 from test_webui import latest_state, serve  # noqa: F401  serve 是 fixture
 
@@ -307,7 +308,9 @@ def test_the_card_shows_the_sandbox_and_the_command_runs_inside(start, monkeypat
     assert "$ echo hi" in question and "沙箱：只在工作目录里（读写工作目录，不能联网）" in question
     assert h.ui.results[0] == ("hi", False)
     ((policy, argv),) = fake.calls
-    assert argv == command_line("echo hi") and policy.level == "workspace" and not policy.network  # bash，Windows 上是 PowerShell
+    # bash，Windows 上是 PowerShell；命令外面包着记目录的那一层（见 tools/cwd.py），命令本身原样在里面
+    assert argv[:-1] == command_line("echo hi")[:-1] and "echo hi" in script_of(argv)
+    assert policy.level == "workspace" and not policy.network
     real = lambda path: Path(os.path.realpath(path))
     assert real(h.config.data_dir) in policy.deny and real(h.config.env_file) in policy.deny
     assert real(h.config.workspace) == policy.workspace and real(h.config.workspace) in policy.write
@@ -474,7 +477,8 @@ def test_a_subagent_uses_the_callers_sandbox(start, monkeypatch):
     (own,) = shells
     assert own is not h.app.shell and own.sandbox is h.app.shell.sandbox  # 自己的 shell，同一个沙箱
     assert "沙箱：只在工作目录里" in h.ui.confirmations[0] and h.ui.askers == ["代码审查员"]
-    assert [argv for _, argv in fake.calls] == [command_line("echo sub")]
+    ((_, argv),) = fake.calls
+    assert argv[:-1] == command_line("echo sub")[:-1] and "echo sub" in script_of(argv)  # 命令外面包着记目录的那一层（见 tools/cwd.py）
 
 
 def test_a_subagent_of_a_caller_without_commands_has_no_sandbox(start):

@@ -88,7 +88,7 @@ def spot(tmp_path_factory):
     places = _build(root)
 
     def fill(command: str) -> str:
-        return command.replace("{WS}", str(places.workspace)).replace("{HOME}", str(places.home)).replace("{ROOT}", str(root))
+        return command.replace("{WS}", str(places.cwd)).replace("{HOME}", str(places.home)).replace("{ROOT}", str(root))
 
     return places, fill
 

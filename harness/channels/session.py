@@ -37,6 +37,7 @@ from ..i18n import k, message_of, t
 from ..permissions import MODES
 from ..providers import caps, find, has_key
 from ..tasks import retell
+from ..tools.cwd import commands_in
 from ..voice import VoiceError, listen
 from .base import ChannelError, Inbound, Prompt
 from .outbound import Outlet
@@ -452,6 +453,9 @@ class Session:
             self.agent.hooks.session = lambda: self.conversation.id if self.conversation is not None else ""
             if conversation.messages:
                 self.agent.backend.restore(conversation.messages, conversation.dropped)
+                # 接着一段聊过的会话（重启以后、网页上接着聊过以后）：这个 shell 是新的，命令从工作目录开始。
+                # 历史里执行过命令的，第一条命令的结果里说一声之前 cd 到的地方不再算数（见 tools/cwd.py）
+                self.run.shell.current.reset(reopened=commands_in(conversation.events))
             self.agent.usage.context_tokens = conversation.context_tokens
             self.agent.on_usage = self.router.changed
             self.agent.notes.append(_first_note(self.platform, self.router.capabilities(self.platform).buttons))

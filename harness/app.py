@@ -75,6 +75,7 @@ from .tools.browser import make_browser_tools
 from .tools.browser import used_in as browser_used_in
 from .tools.computer import make_computer_tools
 from .tools.computer import used_in as computer_used_in
+from .tools.cwd import commands_in
 from .tools.files import FileEditor
 from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
@@ -281,7 +282,15 @@ class App:
         # 第一条消息之前，手里的工具先按"这段对话会用的"摆好（带上 agent 工具）：信息栏列出来的才对得上。
         # 真正发第一条消息时还会再换一次，带上那一刻的 MCP 快照（见 fresh_tools）
         agent.use_tools(self.conversation_tools(None, chat=chat))
-        agent.on_start = lambda: self.fresh_tools(chat)
+        agent.on_start = lambda: self._fresh_start(chat)
+
+    def _fresh_start(self, chat: Chat) -> None:
+        """一段新对话的第一条消息发出之前（agent.on_start）：换上这段对话的工具（见 fresh_tools），命令从工作目录开始。
+
+        目录在这里回到工作目录，而不是在"新对话"的每一个入口（new_conversation、换到另一家的 select_model、终端的 /new……）
+        各写一遍：凡是历史是空的、要发第一条消息的，都会走到这里，新加的入口也不会漏（见 tools/cwd.py）。"""
+        self.fresh_tools(chat)
+        chat.shell.current.reset()
 
     @property
     def provider(self) -> Provider:
@@ -600,6 +609,8 @@ class App:
         self._fresh_desktop(chat)
         chat.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
         self.fresh_tools(chat)  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
+        # 命令从工作目录重新开始，不恢复当时停在哪儿；历史里执行过命令的，第一条命令的结果里说一声（见 tools/cwd.py）
+        chat.shell.current.reset(reopened=commands_in(conversation.events))
         chat.agent.usage.context_tokens = conversation.context_tokens
         self._remember_choice(conversation.provider, conversation.model)
         return conversation

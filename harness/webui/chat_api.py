@@ -81,6 +81,9 @@ class ChatActions(WebAppPart):
         这一轮里文件工具改的文件记在一本账上（见 undo/journal.py），一轮结束时合上，页面上这一轮末尾多一行"改了 N 个文件"。
         这本账挂在这个线程上（ContextVar），同时在跑的几段各在各的线程里，各记各的。"""
         chat, ui = session.chat, session.ui
+        # 记下这一轮从哪个目录开始（命令的当前目录，见 tools/cwd.py）：倒回这一轮时回到这里。重新生成时，倒回去的那一下已经回到了
+        # 原来那一轮开始时的目录，这里记下的还是它。新对话的第一轮在发第一条消息之前还会回到工作目录（App._fresh_start）
+        chat.shell.current.start_turn()
         journal = self.app.changes.start()
         start = None  # 用户消息放在历史的哪个位置（这一轮发了新的用户消息才有）：附上的"文件撤回过"的说明有没有留住，看它
         try:

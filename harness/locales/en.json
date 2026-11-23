@@ -1521,6 +1521,7 @@
  "执行命令：\n\n    $ {command}": "run a command:\n\n    $ {command}",
  "执行命令：\n\n    $ {command}\n\n沙箱：{level}（{short}）": "run a command:\n\n    $ {command}\n\nSandbox: {level} ({short})",
  "执行命令：\n\n    $ {command}\n\n沙箱：关（{who}没有用沙箱，命令直接在这台电脑上运行）": "run a command:\n\n    $ {command}\n\nSandbox: off ({who} doesn't use the sandbox; the command runs directly on this computer)",
+ "{question}\n\n在这个目录里运行：{path}（之前的命令 cd 到了这里）": "{question}\n\nRuns in this folder: {path} (an earlier command cd'd here)",
  "扩展": "Extensions",
  "扩展的种类": "Kinds of extension",
  "扩展：Skill、MCP、通道、Agent、钩子": "Extensions: Skills, MCP, Channels, Agents, Hooks",

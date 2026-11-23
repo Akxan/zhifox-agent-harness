@@ -94,7 +94,9 @@ def arguments(policy: Policy) -> list[str]:
             # 文件换成 /dev/null。不存在、却在能写的地方（比如还没有 .env）：照样盖上，不然命令可以新建一个 .env，
             # 智狐下次启动时会读它。bwrap 会在那个位置留下一个空文件当挂载点，空的 .env 和没有 .env 是一回事
             args += ["--ro-bind", "/dev/null", str(path)]
-    args += ["--chdir", str(policy.workspace)]
+    # 从哪个目录开始：上一条命令 cd 到的地方（见 tools/cwd.py）。沙箱里看不到的目录到不了这里（Sandbox.reaches 先挡下了），
+    # 不然 bwrap 进不去它，命令一条都运行不了
+    args += ["--chdir", str(policy.start)]
     return args
 
 

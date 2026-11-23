@@ -132,6 +132,7 @@ def ask_turn(app: App, ui: TerminalUI, text: str, changes: TerminalChanges, agai
     again：这是 /retry 把上一次没答出来的那一轮整条再发一次（运行记录上标出来）。"""
     mark = app.agent.backend.mark()
     ui.turn_events = []
+    app.shell.current.start_turn()  # 这一轮从哪个目录开始（命令的当前目录，见 tools/cwd.py）：/retry、/edit 回到这里
     changes.record(lambda: run_turn(app.agent, ui, text, again=again), sends_message=True)
     return LastTurn(mark, text)
 
@@ -169,6 +170,8 @@ def rewind_last(command: str, argument: str, app: App, ui: TerminalUI, last: Las
         if not ui.agree(warning):
             ui.info(t("已取消。"))
             return last
+    # 命令的当前目录回到这一轮开始时（见 tools/cwd.py）：重新跑的那一轮和原来那一轮从同一个目录开始
+    app.shell.current.rewind_turn()
     if command == "/retry" and present:
         ui.turn_events = []
         changes.record(lambda: retry_turn(app.agent, ui, last.mark), sends_message=False)

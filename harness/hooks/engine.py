@@ -40,6 +40,7 @@ from ..config import (
 from ..display import describe_call, short
 from ..i18n import t
 from ..safe import to_json
+from ..tools.shell import ShellTool
 from .config import (
     TOOL_EVENTS,
     HookConfig,
@@ -148,6 +149,8 @@ class Hooks:
         event = entry["event"]
         if event in TOOL_EVENTS:
             fields.update(_sample_tool(entry.get("matcher", "*")))
+            if fields["tool_name"] == "run_command":
+                fields["command_cwd"] = str(self.workspace)  # 真的调用里也有这一项（命令在哪个目录里运行，见 _tool_fields）
         if event == "PostToolUse":
             fields.update(tool_response=_SAMPLE_RESPONSE, is_error=False, duration_ms=12)
         elif event == "UserPromptSubmit":
@@ -341,7 +344,7 @@ class HookRun:
         found = self.hooks.matching("PostToolUse", self.source, call, tool)
         if not found:
             return text
-        fields = {**self._common(agent), **_tool_fields(call, tool), "tool_response": text, "is_error": is_error, "duration_ms": max(0, round(seconds * 1000))}
+        fields = {**self._common(agent), **_tool_fields(call, tool, after=True), "tool_response": text, "is_error": is_error, "duration_ms": max(0, round(seconds * 1000))}
         notes: list[str] = []
         room = HOOK_NOTE_CHARS  # 几个钩子加起来也不超过这么多字
         for name, entry in found:
@@ -407,13 +410,20 @@ class HookRun:
             agent.ui.info(text)
 
 
-def _tool_fields(call: Any, tool: Any) -> dict:
+def _tool_fields(call: Any, tool: Any, after: bool = False) -> dict:
+    """工具事件多的那几项。after：这是 PostToolUse（命令已经跑完了）。"""
     from ..capabilities import label_of  # 用到时才导入，原因见 GROUP_NAMES
 
     label = label_of(tool)
     fields = {"tool_name": call.shown, "tool_group": label.group, "tool_input": call.input, "tool_use_id": call.id}
     if label.server:
         fields["mcp_server"] = label.server
+    # run_command 在哪个目录里运行（上一条命令 cd 到的地方，见 tools/cwd.py）。cwd 那一项照旧是工作目录（钩子自己在那里运行）：
+    # 管"不许删 build"的钩子要靠它才知道命令里的相对路径指的是哪儿。PreToolUse 是它将要从哪儿开始，PostToolUse 是它刚才从哪儿开始的
+    shell = tool.shell if isinstance(tool, ShellTool) else None
+    if shell is not None:
+        place = shell.current.began if after else shell.current.path
+        fields["command_cwd"] = str(place or shell.workspace)
     return fields
 
 

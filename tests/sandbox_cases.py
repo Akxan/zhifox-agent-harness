@@ -145,6 +145,26 @@ def check_leaving_the_sandbox_for_one_command(lab):
         stuck.run("true", unsandboxed=True)
 
 
+def check_cd_carries_over_inside_the_sandbox(lab):
+    # 命令的当前目录（见 harness/tools/cwd.py）：在沙箱里 cd 进去，下一条照样从那里开始（Linux 上是 bwrap 的 --chdir）
+    assert lab.shell.run("cd prog && pwd") == str(lab.workspace / "prog")
+    assert lab.shell.run("cat main.py && pwd") == f"print(1)\n{lab.workspace / 'prog'}"
+
+
+def check_a_read_only_extra_path_as_the_current_directory(lab):
+    lab.extra.append({"path": str(lab.outside), "write": False})
+    lab.shell.run(f"cd '{lab.outside}'")
+    assert lab.shell.run("cat o.txt") == "外面"  # 从工作目录之外开始也行
+    assert failed(lab.shell.run("touch new")) and not (lab.outside / "new").exists()  # 在那里照样写不了
+
+
+def check_a_directory_the_sandbox_cannot_see_is_not_used(lab):
+    assert lab.shell.run(f"cd '{lab.outside}'", unsandboxed=True) == "（没有输出）"  # 你放行过的那一条（这里直接调用）
+    assert lab.shell.where() == lab.workspace  # 下一条在沙箱里：沙箱里看不到那里，回到工作目录（bwrap 根本进不去它）
+    out = lab.shell.run("pwd")
+    assert out.startswith(f"{lab.workspace}\n[注意：") and "命令只能从工作目录和额外允许的路径里开始" in out
+
+
 def check_off_is_todays_behaviour(lab):
     lab.level["value"] = "off"
     assert lab.shell.run(f"cat '{lab.outside / 'o.txt'}'") == "外面"

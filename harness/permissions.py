@@ -17,7 +17,8 @@
   读取工作目录之外的文件            先问用户
   读取助手自己的数据目录里的文件    先问用户（即使它在工作目录里面。见 Permissions 的说明）
   创建、修改任何文件                先问用户
-  执行任何 shell 命令               先问用户。打开了沙箱的话，卡片上写着命令在沙箱里的哪一档运行（见 sandbox/）
+  执行任何 shell 命令               先问用户。打开了沙箱的话，卡片上写着命令在沙箱里的哪一档运行（见 sandbox/）；
+                                    之前的命令 cd 到了别处的话，卡片上写着它在哪个目录里运行（见 tools/cwd.py）
   在沙箱之外执行一条命令            每次都问，在任何模式下（包括"全部自动允许"），卡片上带着警告。
                                     只有沙箱开着时才有这回事；没人看着、又选了"全部自动允许"的定时任务和通道根本不许（见 sandbox/session.py）
   调用 MCP 服务器的工具             先问用户（除非你把这个工具或整个服务器设成了"不用问"）
@@ -193,7 +194,7 @@ class Permissions:
         if self.mode == "edits":
             return "mode" if self._edits_workspace_file(tool_name, tool_input) else None
         if self.mode == "readonly":
-            return self._reads_only(tool_name, tool_input)
+            return self._reads_only(tool_name, tool_input, tool)
         return None
 
     def _computer_allowance(self, facts: DesktopFacts | None) -> str | None:
@@ -205,19 +206,30 @@ class Permissions:
             return WHY_TRUSTED
         return "mode" if self.mode == "all" else None
 
-    def places(self) -> Places:
-        """命令在哪儿运行、哪些地方不能不问就读（给 commands.classify 用）。"""
+    def places(self, cwd: Path | None = None) -> Places:
+        """命令在哪个目录里运行（不给是工作目录）、哪些地方不能不问就读（给 commands.classify 用）。"""
         protected = [*self.editor.protected, *([self.commands.path] if self.commands is not None else [])]
-        return Places(self.editor.workspace, protected=protected, private=self.private)
+        return Places(cwd or self.editor.workspace, protected=protected, private=self.private)
 
-    def _reads_only(self, tool_name: str, tool_input: object) -> str | None:
+    def _reads_only(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
         """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；
-        碰到密钥文件、助手自己的数据目录、~/.ssh 这类地方的不算（见 commands/paths.py）。"""
+        碰到密钥文件、助手自己的数据目录、~/.ssh 这类地方的不算（见 commands/paths.py）。
+        命令里的相对路径从这条命令真正运行的目录算（上一条命令 cd 到的地方，见 _command_dir）。"""
         if self.editor is None or not isinstance(tool_input, dict):
             return None
         if tool_name == shell.TOOL_NAME:
             listed = self.commands.words() if self.commands is not None else []
-            verdict = classify(tool_input.get("command"), self.places(), listed)
+            here = _command_dir(tool_input, tool)
+            places = self.places(here)
+            if here is not None and here != self.editor.workspace:
+                # 不在工作目录里运行（之前的命令 cd 走了）：这个目录本身也要看一眼。不带路径的 ls、git status 看的就是它，
+                # 命令里却一个路径都没有；cd 进了数据目录、~/.ssh 这类地方，那里的什么命令都不算只读。
+                # 在工作目录里运行时不看（和以前一样）：工作目录的路径里碰巧有 secret 这样的词，也不该让每条命令都要问
+                try:
+                    places.check(".")
+                except Unclear:
+                    return None
+            verdict = classify(tool_input.get("command"), places, listed)
             if not verdict.readonly:
                 return None
             return WHY_LISTED if verdict.source == "listed" else WHY_READONLY
@@ -368,17 +380,36 @@ class Permissions:
 
 
 def _review_command(tool_input: dict, tool: object) -> str:
-    """执行一条命令怎么问你：命令本身，打开了沙箱的话加一行沙箱的情况（话在 sandbox/session.py 里写）。
-    要在沙箱之外运行的，换成另一张带警告的卡片，在任何模式下都问。"""
+    """执行一条命令怎么问你：命令本身，打开了沙箱的话加一行沙箱的情况（话在 sandbox/session.py 里写），
+    之前的命令 cd 到了别处的话再加一行它在哪个目录里运行。要在沙箱之外运行的，换成另一张带警告的卡片，在任何模式下都问。"""
     command = tool_input.get("command")
     facts = tool.look(tool_input) if isinstance(tool, ShellTool) else None
+    question: str  # 都是 t() 给的 Message；sandbox/session.py 那两个函数标的是 str
     if facts is None:
         question = t("执行命令：\n\n    $ {command}", command=command)
         # 认不出是哪个 shell（只给了名字）又带着 unsandboxed：宁可当它要出沙箱。认得出、只是没有沙箱这回事的，照常问
-        return always(question) if _escapes(shell.TOOL_NAME, tool_input, tool) else question
-    if facts.escapes:
-        return always(escape_question(facts, command))
-    return command_question(facts, command)
+        escapes = _escapes(shell.TOOL_NAME, tool_input, tool)
+    elif facts.escapes:
+        question, escapes = escape_question(facts, command), True
+    else:
+        question, escapes = command_question(facts, command), False
+    here = _command_dir(tool_input, tool)
+    if here is not None and isinstance(tool, ShellTool) and here != tool.shell.workspace:
+        # 不是工作目录才写：大多数命令就在工作目录里，卡片和以前一样（聊天通道的确认请求另有一行"工作目录"）。
+        # 包一层 t()、把原来那句当作填进去的值，换语言时里外两层都能重译（见 i18n.Message.nested）
+        question = t("{question}\n\n在这个目录里运行：{path}（之前的命令 cd 到了这里）", question=question, path=here)
+    return always(question) if escapes else question
+
+
+def _command_dir(tool_input: dict, tool: object) -> Path | None:
+    """这条命令真正会在哪个目录里运行（Shell.where：记着的目录不在了、沙箱里看不到，当场回到工作目录，见 tools/cwd.py）。
+    卡片上写的、判断"只读的命令"时用的，和真正运行时用的是同一个。
+
+    认不出是哪个 Shell（只给了名字，测试和只按名字判断的地方）：交回 None，按工作目录算。那样的调用方手里没有一个会 cd 的 shell，
+    真正执行命令的 Agent 一定会把工具本身交过来（见 agent.py 的 _run_one）。"""
+    if not isinstance(tool, ShellTool) or tool.shell is None:
+        return None
+    return tool.shell.where(tool_input.get("unsandboxed") is True)
 
 
 def _escapes(tool_name: str, tool_input: object, tool: object) -> bool:

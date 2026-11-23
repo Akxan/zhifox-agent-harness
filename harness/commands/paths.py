@@ -9,7 +9,7 @@ r"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问�
      这一条是猜的（按名字），猜不全，所以只用来多拦一些，从不用来放行。
 
 怎么判断"碰到"：命令里的每一个词都当作可能的路径（选项的值、git 的 HEAD:路径、@文件 也算），
-展开 ~、相对于工作目录、顺着符号链接找到真正的位置，再和上面三种比。多当成路径只会让命令多问一次，
+展开 ~、相对于命令运行的目录（上一条命令 cd 到的地方，不一定是工作目录，见 tools/cwd.py）、顺着符号链接找到真正的位置，再和上面三种比。多当成路径只会让命令多问一次，
 少当成一个就可能漏掉一个，所以宁多勿少。macOS 的文件名不分大小写（.ENV 就是 .env），也不分 Unicode 的
 两种写法（é 可以是一个字符，也可以是 e 加一个音调），所以比较之前两样都先统一。
 同一个文件的另一个名字（硬链接）按"是不是同一个文件"（inode）比，只对密钥文件做（数据目录里的文件太多）。
@@ -75,7 +75,9 @@ def _untouchable(folded: str, windows: bool) -> bool:
 class Places:
     """一条命令运行的地方，以及哪些地方不能不问就读。"""
 
-    workspace: Path
+    # 命令在哪个目录里运行：相对路径从这里算。是 Shell 记着的那个目录（上一条命令 cd 到的地方，见 tools/cwd.py），
+    # 不一定是工作目录。拿错了，cd data 以后的 ls 就会被当成"列工作目录"放过去
+    cwd: Path
     protected: list[Path] = field(default_factory=list)  # 密钥文件、"不用问的命令"清单
     private: list[Path] = field(default_factory=list)  # 智狐的数据目录
     home: Path = field(default_factory=lambda: Path(os.path.expanduser("~")))
@@ -101,7 +103,7 @@ class Places:
         return pathnames.key(path, self.windows)
 
     def resolve(self, raw: str) -> Path:
-        """命令里的一个词，当作路径时指的是哪里（展开 ~、相对于工作目录、顺着符号链接）。"""
+        """命令里的一个词，当作路径时指的是哪里（展开 ~、相对于命令运行的目录、顺着符号链接）。"""
         # 先只按字面看一遍（不碰磁盘）：\\某个主机\共享、/net/某个主机 光是 stat 一下就会去连它，CON 一打开就是设备
         reason = pathnames.word_trick(raw, self.windows)
         if reason:
@@ -110,7 +112,7 @@ class Places:
             raw = str(self.home) + raw[1:]
         path = Path(raw)
         if not path.is_absolute():
-            path = self.workspace / path
+            path = self.cwd / path
         if _untouchable(self._folded(os.path.normpath(path)), self.windows):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         try:
