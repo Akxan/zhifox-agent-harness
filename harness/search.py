@@ -6,7 +6,7 @@
 助手的回复、工具调用……）抽出来放在内存里，这就是"索引"（SearchIndex）。附件只收录文件名。会话保存、改名、删除时
 索引跟着更新，搜索只在内存里进行。
 
-找得到。人记得的往往只是个大概，所以匹配分三档，一档比一档宽松，越严格的结果排得越靠前：
+找得到。人记得的往往只是个大概，所以匹配分五档，一档比一档宽松，越严格的结果排得越靠前：
 
   1. 原样包含   关键词原样出现。不分大小写，全角半角算一样。
   2. 相近的词   5 个字母以上的英文单词允许敲错一两个字母，比如 "hraness" 能找到 "harness"。
@@ -16,12 +16,17 @@
                 这一档最容易对上不相干的东西，所以管得严：英文关键词至少 4 个字母，
                 不能跨过空格（也就是只在一个单词里面找），夹进来的字不能超过关键词长度的一半；
                 中文关键词至少 2 个字，夹进来的字不能比关键词本身还多。
+  4. 全拼       字母拼成的关键词按拼音对汉字："baogao""bao gao"都能找到"报告"，多音字的每个读音都算。
+  5. 首字母     每个字母是一个字拼音的第一个字母，至少 3 个字母，只在标题里找："zbmb"能找到"周报模板"。
+                后两档的细节（为什么至少两个音节、为什么首字母只看标题）见 search_pinyin.py。
+                和"相近的词"一样，只在这个关键词在所有会话里都原样找不到时才启用：搜 name 时有会话里原样写着 name，
+                就是在找这个英文词，不该再把每段里的"那么"（na me）都找出来。
 
 多个关键词用空格隔开，要全部满足，先后顺序不限，也不要求出现在同一句话里。
-排序：每个关键词都原样找到的会话在最前面，然后是用到了"相近的词"的，最后是用到了"隔字包含"的；
+几个关键词都是字母、又没有哪段会话把它们全都原样找到时，再把它们连起来当一串拼音试一次："bao gao"也能找到"报告"。
+排序：先看档，用到的最宽松的那一档越严格越靠前（每个关键词都原样找到的在最前面，用到了"首字母"的在最后）；
 同一档里，命中在标题里的排在只在内容里的前面，一样相关时新的会话在前。
-
-没有做的：按拼音搜索（需要一张很大的汉字拼音对照表）。
+拼音的两档排在原来三档的后面，所以原来找得到的会话一个不少、先后不变，按拼音找到的只是接在后面。
 """
 
 from __future__ import annotations
@@ -31,6 +36,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from itertools import islice
+
+from . import search_pinyin
+from .search_pinyin import Spelled, spellable
 
 MAX_QUERY_CHARS = 200  # 搜索词最长这么多字符
 MAX_TERMS = 8  # 最多几个关键词
@@ -44,8 +52,10 @@ MAX_MARKS = 24  # 一段摘录里最多标出几处
 # 会话里的文字按来源分成几类。同样是命中，出现在标题里比出现在工具输出里更可能是用户要找的，
 # 所以每一类有一个分量，排序时用。
 WEIGHTS = {"title": 1.0, "user": 0.9, "assistant": 0.8, "tool": 0.6, "thinking": 0.45, "result": 0.4}
-# 三档匹配各自的分数。隔字包含还要再乘上"紧凑程度"（关键词的长度 ÷ 命中的那一段的长度）
-EXACT, SIMILAR, LOOSE = 1.0, 0.6, 0.5
+# 五档匹配，从严到宽。排序先看档，同一档里再看分数
+EXACT, SIMILAR, LOOSE, PINYIN, INITIALS = range(5)
+# 每一档的分数。隔字包含还要再乘上"紧凑程度"（关键词的长度 ÷ 命中的那一段的长度）
+GRADES = {EXACT: 1.0, SIMILAR: 0.6, LOOSE: 0.5, PINYIN: 0.5, INITIALS: 0.4}
 
 # 保存下来的界面事件里，哪些类型的哪个字段是可以搜的文字，各算哪一类
 _SEARCHABLE = {
@@ -99,6 +109,8 @@ class Document:
     passages: tuple[Passage, ...]
     letters: frozenset[str]  # 出现过的所有字符，用来快速排除不可能命中的会话
     words: frozenset[str]  # 出现过的英文单词，给"相近的词"用
+    han: bool  # 有没有汉字。没有的话不用按拼音找
+    rare: bool  # 有没有扩展 B 以后的生僻字。有的话按拼音找要用慢一些的正则（见 search_pinyin.py）
 
     @property
     def everywhere(self) -> tuple[Passage, ...]:
@@ -113,6 +125,8 @@ class Needle:
     similar: tuple[str, ...]  # 和它相近的词（多数时候没有）
     loose: re.Pattern | None  # "隔字包含"用的正则；关键词太短或太长时没有
     slack: int  # "隔字包含"时最多可以夹进来几个别的字
+    pinyin: Spelled | None = None  # "全拼"用的正则；不是拼音、或者这个词原样找得到时没有
+    initials: re.Pattern | None = None  # "首字母"用的正则，同上
 
 
 @dataclass(frozen=True)
@@ -122,15 +136,12 @@ class Hit:
     passage: Passage
     start: int
     end: int
-    grade: float  # 是哪一档命中的：EXACT、SIMILAR，或者不超过 LOOSE 的一个数（越紧凑越大）
+    tier: int  # 是哪一档命中的：EXACT、SIMILAR、LOOSE、PINYIN、INITIALS
+    grade: float  # 这一档的分数（隔字包含越紧凑越大）
 
     @property
     def score(self) -> float:
         return self.grade * WEIGHTS[self.passage.kind]
-
-    @property
-    def loose(self) -> bool:
-        return self.grade < SIMILAR
 
 
 def make_passage(kind: str, text: str) -> Passage:
@@ -185,13 +196,17 @@ class SearchIndex:
         heading = make_passage("title", title if isinstance(title, str) else "")
         # 字符和单词各记一份"出现过哪些"，用来快速排除。拼起来的这一长串只是临时用一下，不留在内存里
         everything = "\n".join([heading.folded, *(passage.folded for passage in passages)])
+        letters = frozenset(everything)
+        han, rare = search_pinyin.han_in(letters)
         self._documents[conversation_id] = Document(
             id=conversation_id,
             updated_at=updated_at,
             title=heading,
             passages=tuple(passages),
-            letters=frozenset(everything),
+            letters=letters,
             words=frozenset(_WORD.findall(everything)),
+            han=han,
+            rare=rare,
         )
         self._version += 1
 
@@ -208,28 +223,42 @@ class SearchIndex:
         if not terms or not documents:
             return []
         needles = [self._needle(term, documents, version) for term in terms]
-        found = []
+        # 每段会话：（排序用的值，会话，用的是哪几个关键词，每个关键词的命中）
+        found: dict[str, tuple[tuple[int, float], Document, list[Needle], list[Hit]]] = {}
         for document in documents:
             hits = [hit for needle in needles if (hit := _find(needle, document)) is not None]
             if len(hits) == len(needles):  # 每个关键词都得找到
-                # 越严格的排得越靠前：先看是不是每个关键词都原样找到了，再看有没有用到最宽松的"隔字包含"，
-                # 然后才是分数；一样相关时，新的在前。页面上也是把"全部原样"和其余的分成两组显示的。
-                order = (_all_exact(hits), not any(hit.loose for hit in hits), sum(hit.score for hit in hits) / len(hits))
-                found.append((order, document, hits))
-        found.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
-        return [_result(document, needles, hits) for _, document, hits in found[:limit]]
+                found[document.id] = (_order(hits), document, needles, hits)
+        # 几个关键词连起来当一串拼音（bao gao → 报告）。只在没有哪段会话把它们全都原样找到时才试：
+        # 全都原样找到了，说明这几个词本来就是这么写的（比如英文的 "she can"），不该再按拼音去猜
+        phrase = None if any(_all_exact(hits) for _, _, _, hits in found.values()) else _phrase(terms)
+        if phrase is not None:
+            for document in documents:
+                hit = _find(phrase, document)
+                if hit is not None and (document.id not in found or _order([hit]) > found[document.id][0]):
+                    found[document.id] = (_order([hit]), document, [phrase], [hit])
+        # 越严格的排得越靠前：先看用到的最宽松的那一档，然后才是分数；一样相关时，新的在前。
+        # 页面上是把"每个关键词都原样找到"的和其余的分成两组显示的。
+        ranked = sorted(found.values(), key=lambda item: (item[0], item[1].updated_at), reverse=True)
+        return [_result(document, used, hits) for _, document, used, hits in ranked[:limit]]
 
     def _needle(self, term: str, documents: list[Document], version: int) -> Needle:
+        word = len(term) >= 5 and _WORD.fullmatch(term) is not None
+        # "相近的词"和拼音的两档都只在这个词哪儿都原样找不到时才试（为什么见开头）。
+        # 要看一遍所有的会话才知道，所以只看一次，而且只在这个词用得上其中一档时才看
+        absent = (word or spellable(term)) and not any(_contains(document, term) for document in documents)
         similar: tuple[str, ...] = ()
-        # 相近的词：只对够长的英文单词做，而且只在它哪儿都原样找不到时才做
-        if len(term) >= 5 and _WORD.fullmatch(term) and not any(_contains(document, term) for document in documents):
+        if word and absent:  # 相近的词：只对够长的英文单词做
             similar = tuple(difflib.get_close_matches(term, self._words(documents, version), n=3, cutoff=0.78))
         # 隔字包含：太短的词隔着字去找，几乎什么都能对上（"css"能对上"process"），所以英文至少 4 个字母
         loose, slack = None, 0
         if (4 if term.isascii() else 2) <= len(term) <= LOOSE_MAX:
             loose = re.compile("(?=(" + _loose_pattern(term) + "))")  # 套一层 (?=...)：从每个位置都试一次，重叠的几处都能找出来
             slack = len(term) // 2 if term.isascii() else len(term)
-        return Needle(term, similar, loose, slack)
+        # 拼音的两档。拼音表到这里才第一次读进来（见 search_pinyin._table），平常按中文、英文搜索都走不到这里
+        pinyin = search_pinyin.full(term) if absent else None
+        initials = search_pinyin.initials(term) if absent else None
+        return Needle(term, similar, loose, slack, pinyin, initials)
 
     def _words(self, documents: list[Document], version: int) -> list[str]:
         """这批会话里出现过的所有英文单词。算一次不便宜，所以记下来，索引没变就接着用。"""
@@ -266,35 +295,62 @@ def _loose_pattern(term: str) -> str:
 
 
 def _all_exact(hits: list[Hit]) -> bool:
-    """是不是每个关键词都原样找到了（而不是靠相近的词或隔字包含）。"""
-    return all(hit.grade == EXACT for hit in hits)
+    """是不是每个关键词都原样找到了（而不是靠后面几档猜的）。"""
+    return all(hit.tier == EXACT for hit in hits)
+
+
+def _order(hits: list[Hit]) -> tuple[int, float]:
+    """排序用的值，越大越靠前：先看用到的最宽松的那一档（越严格越好），再看平均分。"""
+    return -max(hit.tier for hit in hits), sum(hit.score for hit in hits) / len(hits)
+
+
+def _phrase(terms: list[str]) -> Needle | None:
+    """几个关键词连起来当一串拼音："bao gao" → "报告"。空格是音节的分界，所以 "xi an" 只能是"西安"。
+
+    只在每个关键词都是字母时才试，而且只试全拼：一个个分开写的字母当首字母（"z g r"）就太牵强了。
+    """
+    if len(terms) < 2 or not all(spellable(term) for term in terms):
+        return None
+    joined = " ".join(terms)
+    pinyin = search_pinyin.full(joined)
+    return Needle(joined, (), None, 0, pinyin) if pinyin is not None else None
 
 
 def _find(needle: Needle, document: Document, body_only: bool = False) -> Hit | None:
-    """在一段会话里找一个关键词，返回最好的那一处；找不到返回 None。
+    """在一段会话里找一个关键词，返回最好的那一处；找不到返回 None。从最严格的一档往下试，用对上的第一档。
 
-    body_only 为真时不看标题，也不用最宽松的那一档：用在"标题已经对上了，看看内容里有没有可以摘录的"。
+    body_only 为真时不看标题，也不用猜得最凶的两档（隔字包含、首字母）：用在"标题已经对上了，看看内容里有没有可以摘录的"。
     """
     everywhere = document.passages if body_only else document.everywhere
     # 第一档：原样包含；第二档：相近的词
-    for word, grade in ((needle.term, EXACT), *((word, SIMILAR) for word in needle.similar)):
+    for word, tier in ((needle.term, EXACT), *((word, SIMILAR) for word in needle.similar)):
         if not document.letters.issuperset(word):
             continue  # 连这几个字符都凑不齐，不用一段段去找了
-        hits = [Hit(passage, at, at + len(word), grade) for passage in everywhere if (at := passage.folded.find(word)) >= 0]
+        hits = [Hit(passage, at, at + len(word), tier, GRADES[tier]) for passage in everywhere if (at := passage.folded.find(word)) >= 0]
         if hits:
             return max(hits, key=lambda hit: hit.score)  # 分数一样时取靠前的那一处
     # 第三档：隔字包含
-    if body_only or needle.loose is None or not document.letters.issuperset(needle.term):
-        return None
-    best = None
-    for passage in everywhere:
-        span = _tightest(needle, passage.folded)
-        if span is None:
-            continue
-        hit = Hit(passage, span[0], span[1], LOOSE * len(needle.term) / (span[1] - span[0]))
-        if best is None or hit.score > best.score:
-            best = hit
-    return best
+    if not body_only and needle.loose is not None and document.letters.issuperset(needle.term):
+        best = None
+        for passage in everywhere:
+            span = _tightest(needle, passage.folded)
+            if span is None:
+                continue
+            hit = Hit(passage, span[0], span[1], LOOSE, GRADES[LOOSE] * len(needle.term) / (span[1] - span[0]))
+            if best is None or hit.score > best.score:
+                best = hit
+        if best is not None:
+            return best
+    # 第四档：全拼。没有汉字的会话不用看
+    if needle.pinyin is not None and document.han:
+        pattern = needle.pinyin.pattern(document.rare)
+        hits = [Hit(passage, match.start(), match.end(), PINYIN, GRADES[PINYIN]) for passage in everywhere if (match := pattern.search(passage.folded))]
+        if hits:
+            return max(hits, key=lambda hit: hit.score)
+    # 第五档：首字母，只看标题
+    if not body_only and needle.initials is not None and document.han and (match := needle.initials.search(document.title.folded)):
+        return Hit(document.title, match.start(), match.end(), INITIALS, GRADES[INITIALS])
+    return None
 
 
 def _tightest(needle: Needle, folded: str) -> tuple[int, int] | None:
@@ -354,14 +410,19 @@ def _marks(passage: Passage, needles: list[Needle], hits: list[Hit], start: int,
     spans: list[tuple[int, int]] = []
     for needle, hit in zip(needles, hits):
         found = [match.span() for word in (needle.term, *needle.similar) for match in re.finditer(re.escape(word), window)]
-        # 隔字的标法只用在"这个关键词在这段会话里确实是靠隔字包含才找到的"时候。
+        # 后面三档的标法只用在"这个关键词在这段会话里确实是靠这一档找到的"时候。
         # 否则会把不相干的地方标出来：搜"git"，回复里原样有"git log"，标题"Debugging it"却被标成了 g…it
-        if not found and hit.loose and needle.loose is not None and (loose := _tightest(needle, window)):
+        if not found and hit.tier == LOOSE and needle.loose is not None and (loose := _tightest(needle, window)):
             at = loose[0]
             for char in needle.term:  # 只标对上的那几个字，不标中间夹着的
                 at = window.index(char, at)
                 found.append((at, at + 1))
                 at += 1
+        if not found and hit.tier == PINYIN and needle.pinyin is not None:
+            # 标出对上的那几个汉字。标题和摘录都很短，用认得生僻字的 wide 也不慢
+            found = [match.span() for match in needle.pinyin.wide.finditer(window)]
+        if not found and hit.tier == INITIALS and needle.initials is not None and passage.kind == "title":
+            found = [match.span() for match in needle.initials.finditer(window)]  # 首字母只在标题里找，也只在标题里标
         spans += found
     merged: list[list[int]] = []
     for first, last in sorted(spans):

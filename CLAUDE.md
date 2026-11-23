@@ -184,7 +184,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tools/` | 工具。`base.py` 里的 `function_tool` 用来创建自定义工具 |
 | `harness/permissions.py` | 哪些操作要先问用户 |
 | `harness/conversations.py` | 会话的保存和读取 |
-| `harness/search.py` | 会话的全文搜索：内存里的索引，三档匹配（原样、相近的词、隔字） |
+| `harness/search.py`、`harness/search_pinyin.py`、`harness/search_pinyin.txt`、`tests/make_pinyin.py` | 会话的全文搜索：内存里的索引，五档匹配（原样、相近的词、隔字、全拼、首字母）；拼音的两档在 `search_pinyin.py`，读音表由 `make_pinyin.py` 从 Unihan 生成一次（Unicode License v3） |
 | `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
 | `harness/tasks.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（tasks.py，不碰线程和网页）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
@@ -567,6 +567,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **会话的索引要和文件保持一致。** `ConversationStore` 里保存、改名、删除都要经过 `_remember` 或
   `_index.remove`，否则搜索结果会和磁盘上的内容对不上。`_remember` 也更新多媒体的索引（`MediaIndex`）；附件的"第几排"按 `attachments.from_saved`
   筛过的数，必须和页面重放时一样，否则"定位到会话"会对不上。发给页面的标记位置按 UTF-16 计数。
+- **按拼音搜索（`harness/search_pinyin.py`）只往后加，不改原来三档。** 全拼、首字母排在"隔字包含"后面，所以原来找得到的结果一个不少、
+  先后不变（`tests/test_search_pinyin.py` 拿关掉拼音的结果对一遍）；和"相近的词"一样只在这个词哪儿都原样找不到时才试。
+  不给会话预先存拼音：关键词编成正则（每个音节换成读这个音的所有汉字），每段会话只多记两个布尔值（`Document.han`、`rare`）。
+  拼音表 `harness/search_pinyin.txt` 是生成的，**不要手改**：改 `tests/make_pinyin.py`（版本和 SHA-256 钉死在里面），运行它再提交；
+  `--check` 核对仓库里那份是不是它生成的。数据来自 Unicode 的 Unihan（kMandarin 定收哪些字，kTGHZ2013、kXHC1983、kHanyuPinlu
+  补上多音字的读音；不用 kHanyuPinyin，古音太多），许可证是 Unicode License v3：声明的全文必须留在文件开头，两份 README 的
+  "Third-party data / 第三方数据"写着出处。表只在第一次需要拼音时才读（`_table`），收录会话、按中文或原样找得到的词搜索都不读。
 - **两家模型的 SDK 用到时才导入。** `anthropic`、`openai` 光导入就要大半秒，只在真正连接模型的地方导入（`providers` 的 `make_client`、`make_backend`、`list_models`，`tools/memory.make_memory_tool`，评测的 `dryrun`、`judge`；适配层 `claude.py`、`openai_compat.py` 和 `endpoints/client.py` 本身就只在连接时才被导入），不要写进 `providers/__init__.py`、`tools/` 这类会被顺路带进来的文件的开头，否则 `harness --help`、`harness service status` 这些用不到模型的命令又要多等大半秒。`tests/test_startup.py` 在干净的子进程里查。
 - 改和 Claude API 有关的代码之前，先读一遍 `claude-api` 这个 skill，不要凭记忆写参数。
 
@@ -597,7 +604,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini、DeepSeek 的压缩历史；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测只做过演习，没有真的跑过（起步任务在真模型上的分数、估算准不准都没核对）。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
 几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
