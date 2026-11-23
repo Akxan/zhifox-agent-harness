@@ -131,3 +131,28 @@ jobs:
         env:
           HARNESS_SANDBOX_REQUIRED: "1"
         run: uv run pytest -q -rs tests/test_sandbox_linux.py tests/test_sandbox.py
+
+  # 打包和试装：和发布时（release.yml 的 build、smoke）一样打出 wheel 和源码包，在三个系统上各装进一个干净的环境里试一次
+  # （tests/smoke_release.py：harness/ 下的文件一个不少、命令能启动）。平常每次推送都跑，免得到了发布那一刻才发现装不上：
+  # 0.2.0 第一次发布就停在 Windows 那一项上（那次是试装脚本自己的 print 在 cp1252 的管道上出错）
+  package:
+    name: package · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build
+        run: uv build --no-sources
+      - name: Install and try the wheel and the source archive
+        run: |
+          version=$(uv version --short)
+          uv run --isolated --no-project --python 3.11 --with "$(ls dist/*.whl)" tests/smoke_release.py "$version"
+          uv run --isolated --no-project --python 3.13 --with "$(ls dist/*.tar.gz)" tests/smoke_release.py "$version"

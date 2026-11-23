@@ -156,7 +156,7 @@ uv run harness --version         # 智狐的版本（从仓库里运行时带着
 3. `git tag -a v0.3.0 -m "v0.3.0"`，`git push origin v0.3.0`。`.github/workflows/release.yml` 接着做：对一遍 tag、版本号和 CHANGELOG
    （`tests/release_notes.py`，同时写出发布说明：英文为主，附一句中文），在干净的检出里打包，三个系统上各试装一次
    （`tests/smoke_release.py`：harness/ 下 git 记着的文件一个不少、命令能启动），再建 GitHub Release、挂上 wheel 和源码包。
-   推完照样稀疏地看结果。哪一步红了：修好、合进 main 以后删掉 tag（`git push origin :refs/tags/v0.3.0`、`git tag -d v0.3.0`）
+   平常每次推送，tests.yml 的 package 那几项也打包、试装一遍，所以第 2 步全绿时这一步一般不会出意外。推完照样稀疏地看结果。哪一步红了：修好、合进 main 以后删掉 tag（`git push origin :refs/tags/v0.3.0`、`git tag -d v0.3.0`）
    重新打；Release 已经建好的，工作流再跑只换安装包。
 4. PyPI 那一项要用户自己设置，之前一直显示为跳过：在 pypi.org 加一个"待定的受信任的发布者"（项目名 harness-assistant、
    Owner Akxan、仓库 zhifox-agent-harness、工作流 release.yml、环境 pypi），在仓库的 Settings → Environments 建 `pypi`，

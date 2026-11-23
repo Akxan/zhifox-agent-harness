@@ -125,6 +125,15 @@ def test_the_release_workflow_runs_the_checks_and_pins_its_actions():
         assert re.search(r"# v\d+\.\d+\.\d+", comment), action
 
 
+def test_the_ordinary_ci_builds_and_tries_the_package_on_three_systems():
+    # 平常每次推送也打包、试装（tests.yml 的 package），装不上的问题不用等到发布时才发现
+    text = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    package = text[text.index("\n  package:") :]
+    assert "os: [ubuntu-latest, macos-latest, windows-latest]" in package
+    assert "uv build --no-sources" in package
+    assert package.count("tests/smoke_release.py") == 2  # wheel 和源码包
+
+
 def test_version_option_prints_the_name_and_the_version(capsys):
     with pytest.raises(SystemExit) as stopped:
         cli.main(["--version"])

@@ -4145,6 +4145,9 @@ Once that commit is on `main` and its tests are green, pushing the tag `v0.3.0` 
 The actions in this workflow are pinned to commit hashes rather than to tags such as `v4`, because the workflow can
 write releases and publish packages; the job that can publish runs none of the repository's code.
 
+The build and the smoke test also run on every push, as the `package` jobs of the ordinary tests, so a package that
+doesn't install or start on one of the systems shows up long before a release.
+
 ## Evals: is the assistant actually any good?
 
 The tests above answer one question: *does the code do what I wrote?* When the fake model says "call `todo_add`", is the

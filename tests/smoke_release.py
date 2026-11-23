@@ -69,6 +69,8 @@ def main(expected: str) -> None:
     # 3. 装好的命令能启动（数据目录、.env 换成临时的）
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "HARNESS_DATA_DIR": str(Path(scratch) / "data"), "HARNESS_ENV_FILE": str(Path(scratch) / ".env")}
+        # 测的是智狐自己怎么处理输出的编码（Windows 上接到管道时换成 UTF-8，见 harness/console.py），不替它设
+        env.pop("PYTHONIOENCODING", None)
         command = shutil.which("harness", path=str(Path(sys.executable).parent))
         if not command:
             fail(f"the harness command isn't next to {sys.executable}")
@@ -92,6 +94,10 @@ def main(expected: str) -> None:
 
 
 if __name__ == "__main__":
+    # 这个脚本自己打印的（"→"、智狐的名字）一律用 UTF-8：Windows 上接到管道时默认是 cp1252 这类老编码，打印中文会出错，
+    # 0.2.0 第一次发布就是这样在 Windows 那一项上停下的（智狐本身没问题，是这个脚本自己的 print 出错）
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     if len(sys.argv) != 2:
         print("usage: smoke_release.py X.Y.Z", file=sys.stderr)
         sys.exit(2)
