@@ -1,0 +1,15 @@
+# "New issue" 那一页（模板选择页）的设置。写法照 GitHub 的文档（不是凭记忆）：
+#   blank_issues_enabled 和 contact_links（每一项 name、url、about），文件放在 .github/ISSUE_TEMPLATE/config.yml，合进默认分支才生效
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+# 关掉空白的 issue：外人只能用两张表单（bug_report.yml、feature_request.yml），表单里问齐了版本、系统、自检的输出；
+# 有写权限的人照样看得到空白的那一项（文档里写的 "Maintainers only"）。
+# 安全问题的链接指向 SECURITY.md 里"怎么私下报告"那一节，而不是直接指向 /security/advisories/new：
+# 那个地址只在仓库打开了 Private vulnerability reporting 时才有，关着的时候外人点进去是 404；SECURITY.md 一直在。
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability / 报告安全问题
+    url: https://github.com/Akxan/zhifox-agent-harness/blob/main/SECURITY.md#reporting-a-vulnerability
+    about: "Please don't open a public issue for a security problem. Report it privately as SECURITY.md explains. / 安全问题请不要开公开的 issue，照 SECURITY.md 私下报告。"
+  - name: Documentation / 文档
+    url: https://github.com/Akxan/zhifox-agent-harness#readme
+    about: "Setup, every feature, troubleshooting with harness doctor, and the FAQ. / 安装、每一项功能、用 harness doctor 排查问题，以及常见问题（中文文档：README.zh-CN.md）。"

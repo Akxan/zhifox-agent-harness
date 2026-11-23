@@ -3551,6 +3551,12 @@ Anthropic SDK · OpenAI 兼容接口 · GPT · Gemini · DeepSeek · 工具调�
 执行前确认（human-in-the-loop） · agent 循环 · 浏览器操作（browser use） · 操作整台电脑（computer use） · Chrome DevTools Protocol ·
 Python · 终端聊天 · 网页界面
 
+## 参与贡献
+
+欢迎报告 bug、提建议和提 pull request。[CONTRIBUTING.md](CONTRIBUTING.md)（英文在前，后面是完整的中文）写了怎么准备环境、怎么不花钱地跑测试
+（假服务器，不需要 API 密钥），以及改动要守住的规矩：每个改动都带测试、三种界面语言、两份 README 一起改、macOS、Windows 和 Linux 都要想到。
+报告 bug 请用 [bug 报告表单](https://github.com/Akxan/zhifox-agent-harness/issues/new?template=bug_report.yml)。
+
 ## 安全
 
 发现了安全问题，请私下报告，不要开公开的 issue：[SECURITY.md](SECURITY.md) 写了怎么报告、智狐的安全模型简述，以及哪些不算漏洞。

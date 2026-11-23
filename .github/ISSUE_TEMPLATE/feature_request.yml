@@ -1,0 +1,73 @@
+# 提建议的表单（GitHub 的 issue form）。英文为主、每一项后面附一句中文（CLAUDE.md 第 1 条）。
+# 写法照 GitHub 的文档（不是凭记忆），每个键能写什么见：
+#   顶层的键（name、description、body 必须有；labels 里的 enhancement 是仓库默认就有的标签）
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+#   body 里的元素（markdown、textarea、dropdown、checkboxes）和它们的 attributes、validations
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema
+#   放在哪儿、扩展名、什么时候生效
+#     https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates
+# 写法由 tests/test_community_files.py 查一遍。
+name: Feature request
+description: "An idea for ZhiFox, or something it should do better. / 给智狐提一个想法或改进。"
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! One idea per issue, please. / 谢谢你的想法！一个 issue 只写一件事。
+
+        ZhiFox is also a teaching project: it uses no agent framework, keeps one job per file and has few dependencies
+        on purpose, so describing the problem you want solved helps more than naming a library.
+        / 智狐也是教学项目：不用 agent 框架、一个文件只讲一件事、依赖很少，所以说清楚想解决什么问题，比指定用哪个库更有帮助。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve? / 想解决什么问题？
+      description: "What you were trying to do, and what got in the way. / 你想做什么，现在卡在哪儿。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution / 你设想的做法
+      description: "How it could work from your side: what you would click, type or see. / 从你这边看它该怎么用：点什么、输入什么、看到什么。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered / 考虑过的其他办法
+      description: "Workarounds you use today, or how other tools do it. / 现在凑合的办法，或者别的工具是怎么做的。"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of ZhiFox? / 关系到哪一部分？
+      multiple: true
+      options:
+        - "Web UI / 网页界面"
+        - "Terminal UI / 终端界面"
+        - "Chat channels / 聊天通道"
+        - "Tools (files, commands, browser, computer use, MCP, skills, agents) / 工具"
+        - "Models and providers / 模型"
+        - "Other / 其他"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else? / 其他补充
+      description: "Sketches, screenshots, links, which operating system it matters on. / 草图、截图、链接，或者只在哪个系统上需要。"
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing / 参与
+      description: "Optional. See [CONTRIBUTING.md](https://github.com/Akxan/zhifox-agent-harness/blob/main/CONTRIBUTING.md). / 可选。"
+      options:
+        - label: "I'd like to work on this myself. / 我愿意自己来做。"
