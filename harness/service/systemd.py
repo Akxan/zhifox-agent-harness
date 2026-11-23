@@ -2,7 +2,7 @@
 
 systemd 管着 Linux 上几乎所有一直开着的程序。每个程序一份 unit 文件（INI 的写法），用户自己的放在
 ~/.config/systemd/user/ 里，由"你这个账号的 systemd"（systemctl --user）管，不用 root，也碰不到系统的服务。
-README 里"部署到服务器"那一节用的是系统服务（/etc/systemd/system/，要 root、可以指定用哪个账号运行），
+docs/zh-CN/background-and-servers.md 里"部署到服务器"那一节用的是系统服务（/etc/systemd/system/，要 root、可以指定用哪个账号运行），
 这里是给自己的电脑用的那一种。unit 里这几行决定了它的样子：
 
     WorkingDirectory=   从哪个文件夹开始运行（工作目录）

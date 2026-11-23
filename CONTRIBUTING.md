@@ -76,7 +76,7 @@ uv run --with mypy==1.19.0 mypy --platform linux   # types; run it for darwin an
 These work the same in zsh, bash and PowerShell. CI runs the tests on Ubuntu, macOS and Windows with Python 3.11 and
 3.13 for every pull request, and mypy for all three platforms. If you have only one system, say so in the pull request;
 CI covers the others. For a different Python version: `uv run --python 3.13 --isolated pytest -q`. More about how the
-tests work: [Testing](README.md#testing).
+tests work: [Testing](docs/en/testing.md).
 
 ## Rules a change must keep
 
@@ -91,8 +91,11 @@ tests work: [Testing](README.md#testing).
   translation added to `harness/locales/en.json` and `es.json`; `tests/test_i18n.py` finds the missing ones. Switching
   the language translates the page in place, without reloading. What the model reads (the system prompt, tool
   descriptions, tool results) stays in Chinese and is not translated.
-- **Both READMEs.** If behavior changes, update [README.md](README.md) (English) and
-  [README.zh-CN.md](README.zh-CN.md) (Chinese) together; they say the same thing.
+- **Both languages of the docs.** The READMEs are an overview; the details are in topic pages, the same set in
+  [docs/en/](docs/en/) (English) and [docs/zh-CN/](docs/zh-CN/) (Chinese), with the same file names. If behavior
+  changes, update the matching page in both folders together (and [README.md](README.md) and
+  [README.zh-CN.md](README.zh-CN.md) if the overview changes); they say the same thing. `tests/test_docs.py` checks
+  that every relative link and `#anchor` resolves and that both folders have the same pages.
 - **Three operating systems.** Think about macOS, Windows and Linux for each change: ⌘ or Ctrl, "Show in Finder", "File
   Explorer" or "file manager", zsh/bash and PowerShell versions of every command in the docs. Code that differs by
   system lives in a few small modules (`filelock`, `pathnames`, `winacl`, `tools/shell`, `webui/reveal` and the others
@@ -201,7 +204,7 @@ uv run --with mypy==1.19.0 mypy --platform linux   # 类型检查；darwin、win
 
 这几条在 zsh、bash 和 PowerShell 里写法一样。每个 pull request 都由 CI 在 Ubuntu、macOS、Windows 上用 Python 3.11 和 3.13 跑测试，
 mypy 三个系统都查。手边只有一个系统的话，在 pull request 里写明，别的交给 CI。换一个 Python 版本：`uv run --python 3.13 --isolated pytest -q`。
-测试是怎么做的，详见 [测试](README.zh-CN.md#测试)。
+测试是怎么做的，详见 [测试](docs/zh-CN/testing.md)。
 
 ### 改动必须守住的几条
 
@@ -213,7 +216,9 @@ mypy 三个系统都查。手边只有一个系统的话，在 pull request 里�
 - **界面有三种语言。** 用户看到的每一句话都用中文写在 `t()` 里（程序里是 [harness/i18n.py](harness/i18n.py)，页面里是
   `harness/webui/page/scripts/i18n.js`），再在 `harness/locales/en.json` 和 `es.json` 里加上译文；`tests/test_i18n.py` 会找出漏掉的。
   换语言时页面原地翻译，不刷新。写给模型看的（系统提示词、工具说明、工具结果）保持中文，不翻译。
-- **两份 README 一起改。** 行为变了，[README.md](README.md)（英文）和 [README.zh-CN.md](README.zh-CN.md)（中文）一起更新，内容一致。
+- **中英两份文档一起改。** 两份 README 只是概览，详细的说明按主题分在 [docs/en/](docs/en/)（英文）和 [docs/zh-CN/](docs/zh-CN/)（中文）里，
+  两边是同样的几页、文件名一样。行为变了，两个文件夹里对应的那一页一起更新（概览变了的话还有 [README.md](README.md) 和
+  [README.zh-CN.md](README.zh-CN.md)），内容一致。`tests/test_docs.py` 会查每个相对链接和 `#锚点` 都找得到、两边的页面一样。
 - **三个系统都要想到。** 每个改动都想一想 macOS、Windows、Linux 上各是什么样：⌘ 还是 Ctrl，"在访达中显示""在文件资源管理器中显示"
   还是"在文件管理器中显示"，文档里的每条命令都给 zsh/bash 和 PowerShell 两种写法。和系统有关的代码只放在几个小模块里（`filelock`、
   `pathnames`、`winacl`、`tools/shell`、`webui/reveal`，以及 CLAUDE.md 里列出的其他几个），复用它们，不要自己判断 `sys.platform`。

@@ -18,7 +18,7 @@ Thanks for contributing! Please read CONTRIBUTING.md first. Security fixes: repo
 - [ ] Tests added or updated; for a bug, a test that fails without the fix comes first. / 加了或改了测试；修 bug 先写一个没修时会失败的测试。
 - [ ] `uv run pytest -q` passes, with no real API, bot or paid service called. / `uv run pytest -q` 通过，没有调用真的 API、机器人或收费服务。
 - [ ] `uvx ruff@0.17.6 check harness tests` and `uv run --with mypy==1.19.0 mypy --platform …` (linux, darwin, win32) pass. / ruff 和 mypy（三个系统）通过。
-- [ ] If behavior changed: both `README.md` and `README.zh-CN.md` are updated and say the same thing. / 行为变了的话，两份 README 都改了，内容一致。
+- [ ] If behavior changed: the matching pages in `docs/en/` and `docs/zh-CN/` (and `README.md` / `README.zh-CN.md` if the overview changed) are updated and say the same thing. / 行为变了的话，docs/ 下中英两份对应的页面（概览变了的话还有两份 README）都改了，内容一致。
 - [ ] New text in the interface is wrapped in `t()`, with translations in `harness/locales/en.json` and `es.json`. / 界面上新的文字包了 `t()`，并在 en.json、es.json 里加了译文。
 - [ ] Considered macOS, Windows and Linux (shortcuts, paths, shell commands, what isn't supported where). / 想过 macOS、Windows、Linux 上各是什么样（快捷键、路径、命令、哪里不支持）。
 - [ ] No secrets, `.env` or `data/` in the diff; only made-up keys in tests and screenshots. / 改动里没有密钥、`.env` 和 `data/`；测试和截图里只有编造的密钥。

@@ -7,7 +7,11 @@
 1. **用中文交流。** 回复、代码注释、文档、提交说明都用中文。用户在通过这个项目学习 agent 和 harness，
    解释概念时要说清楚"为什么"，不要只给结论。
    例外是 GitHub 上给外人看的部分（用户原话："github项目描述用英文来写吧，英文为主，中文为辅"）：
-   `README.md` 是英文的项目主页，`README.zh-CN.md` 是完整的中文文档，两份内容要一致；
+   `README.md` 是英文的项目主页，`README.zh-CN.md` 是中文的主页，两份都只是概览和目录；详细的文档按主题分在
+   `docs/en/`（英文）和 `docs/zh-CN/`（中文）下，两边是同样的几页、文件名一样（2026-11-23 从两份几千行的 README 拆出来的）。
+   **两份 README 和 docs/ 下中英两份对应的页面，内容要一致。** 每一页开头是换语言的一行（链到另一种语言的同一页）、
+   回 README 的一行和标题；`tests/test_docs.py` 查每个相对链接和 `#锚点`（照 GitHub 的规矩算）都找得到、两边页面一样、
+   每页互相链着、README 的目录列着每一页。挪了一节、改了标题，别处指向它的链接要跟着改（测试会找出来）。
    仓库的描述（About）和标签也用英文。许可证是 MIT（用户定的）。
 2. **每次改动都提交并推送。** 改完并通过测试后，直接在 `main` 上提交，推送到 `origin`，然后告诉用户提交编号。
    这是长期有效的规则，不需要每次再问。只做了排查、没有改文件时不用提交。
@@ -18,7 +22,8 @@
 4. **并行、尽快。**（用户原话："高并发，快速做"。）互不依赖的工作拆开并行做，比如让并行的子代理写测试，
    自己同时写功能。几步就能做完的事直接做，不要为了并行而并行。
 5. **按产品的标准做。**（用户原话："能做的专业点最好"。）界面和交互要做完整：空状态、出错提示、
-   需要确认的步骤、深色模式都要考虑到。功能做完要有测试，两份 README 都要同步更新。
+   需要确认的步骤、深色模式都要考虑到。功能做完要有测试，docs/ 下中英两份对应的页面都要同步更新、内容一致
+   （概览变了的话还有两份 README）。
 6. **网页界面要精致，动效要流畅，但不能太吃性能。**（用户原话："网页的动画要流畅，交互、UI、UX 要高级、
    精美，可以参考 https://www.awwwards.com/ ，但是不要太吃性能！大胆点，创新，现代，精致。"）
    - 设计上向 awwwards 上获奖网站的水准看齐：大胆的排版、克制统一的配色、有辨识度的视觉、细腻的微交互。
@@ -87,8 +92,9 @@
    "要针对 windows 用户友好，快捷键啊，指令啊 还有其他的"。）每加一个功能、改一处界面，都要想三个系统上各是什么样，不能只在 Mac 上好用：
    - **快捷键和说法**：Mac 写 ⌘、⌥，Windows 和 Linux 写 Ctrl、Alt（页面里看 `ON_MAC`，不要写死 ⌘）；"在访达中显示"在 Windows 上是
      "在文件资源管理器中显示"，Linux 上是"在文件管理器中显示"（由助手程序告诉页面是哪个系统）。
-   - **命令和文档**：README 里的命令三个系统都给（zsh/bash 和 PowerShell 各一份，比如 `zhifox` 的 alias 和 PowerShell 里的 function），
-     装 uv、加快捷命令、看日志的写法都要有 Windows 的版本。
+   - **命令和文档**：README 和 docs/ 的页面里的命令三个系统都给（zsh/bash 和 PowerShell 各一份，比如 `zhifox` 的 alias 和
+     PowerShell 里的 function），装 uv、加快捷命令、看日志的写法都要有 Windows 的版本；Windows 上不一样的地方另外汇总在
+     `docs/en/windows.md`、`docs/zh-CN/windows.md`。
    - **系统相关的代码只放在一处**：文件锁、路径检查（盘符、反斜杠、设备名、末尾的点和空格这些 Windows 的花招）、执行命令用哪个 shell、
      后台服务（launchd / systemd / 任务计划程序）、"在文件管理器里显示"、文件权限（600 和 Windows 的 ACL）、启动 Chrome 的管道，
      都各有一个小模块按系统分开写，别处只调用它。新加的功能要用到这类东西时，复用它们，不要自己判断 `sys.platform`。
@@ -145,12 +151,13 @@ uv run harness --version         # 智狐的版本（从仓库里运行时带着
 ## 发布新版本
 
 发布是公开的，推出去的 tag、GitHub Release（以后还有 PyPI）别人马上就能装，**用户说了"发"才发**，上一次的同意不能沿用到下一次
-（2026-11-22 用户让发了第一个版本 0.2.0）。做法（两份 README 的"Releases / 发布"一节写给别人看的是同一套）：
+（2026-11-22 用户让发了第一个版本 0.2.0）。做法（`docs/en/testing.md` 和 `docs/zh-CN/testing.md` 的"Releases / 发布"一节写给别人看的是同一套）：
 
 1. 版本号只写在 `pyproject.toml`，只在发布时改：`uv version 0.3.0`（顺手改 `uv.lock`），程序里读它的只有 `harness/version.py`。
    `CHANGELOG.md` 的 `[Unreleased]` 改成 `## [0.3.0] - 日期`，上面另留一个空的 `## [Unreleased]`；文件末尾加
    `[0.3.0]: https://github.com/Akxan/zhifox-agent-harness/releases/tag/v0.3.0`，`[Unreleased]` 的对比链接改成从 v0.3.0 起。
-   两份 README 里写着版本号的安装地址（"装某一个发布版 / Installing a released version"那一段）一起改。
+   `docs/en/installation.md` 和 `docs/zh-CN/installation.md` 里写着版本号的安装地址（"装某一个发布版 / Installing a released version"
+   那一段，和"检查新版本"那张表里的例子）一起改。
    `tests/test_release.py` 会查 pyproject 的版本号在 CHANGELOG 里有没有写着日期的一节和链接。
 2. 提交、推送，等这个提交在 main 上的 CI 全绿。
 3. `git tag -a v0.3.0 -m "v0.3.0"`，`git push origin v0.3.0`。`.github/workflows/release.yml` 接着做：对一遍 tag、版本号和 CHANGELOG
@@ -169,7 +176,9 @@ uv run harness --version         # 智狐的版本（从仓库里运行时带着
 
 一个手写的 agent harness：运行在用户自己电脑上的个人助手，有终端和网页两种界面，支持 Claude、GPT、Gemini、
 DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每个文件只讲一件事，注释写的是"为什么"。
-详细的说明在 `README.md`（英文）和 `README.zh-CN.md`（中文），改了行为就要两份一起更新。
+`README.md`（英文）和 `README.zh-CN.md`（中文）是概览：智狐是什么、亮点、快速开始，和一节列着全部页面的"Documentation / 文档"。
+详细的说明按主题分在 `docs/en/` 和 `docs/zh-CN/` 下（两边是同样的几页、文件名一样），改了行为就要把中英两份对应的页面一起更新。
+哪个主题在哪一页，看 README 的那一节目录；要加一个新主题，两边各加一页、在两份 README 的目录里各加一行。
 每次推送都会由 GitHub Actions 在 Ubuntu、macOS 和 Windows 上跑测试（`.github/workflows/tests.yml`），推送后看一眼结果。
 
 **给人看的名字是"智狐"，英文名 ZhiFox，标志是一只小狐狸**（都是用户定的）。GitHub 仓库名是
@@ -232,6 +241,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/version.py`、`.github/workflows/release.yml`、`tests/release_notes.py`、`tests/smoke_release.py` | 版本号（只写在 pyproject.toml，`harness --version` 和 doctor 都从 `version.py` 拿）和发布（见上面的"发布新版本"） |
 | `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
 | `harness/updates.py`、`harness/updates_cli.py`、`harness/webui/updates_api.py` | 检查新版本（默认关着）：问 GitHub、比版本、缓存（`data/updates.json`）、后台线程、按装法给的升级命令（updates.py，不碰网页）；`harness updates`（updates_cli.py）；设置里那一节的接口和状态（updates_api.py），页面在 `page/scripts/updates.js` |
+| `README.md`、`README.zh-CN.md`、`docs/en/`、`docs/zh-CN/`、`tests/test_docs.py` | 文档：两份 README 是概览和目录（"Documentation / 文档"一节按阅读顺序列着每一页），详细的按主题分页，中英两边文件名一样；每页开头换语言、回 README。`test_docs.py` 不联网地查相对链接、`#锚点`、两边页面一样、代码块关没关上。已经装好的 systemd 服务里写着 `仓库主页#run-it-in-the-background`（`service/systemd.py` 的 `DOCUMENTATION`），README 的目录里为它留着一个同名的 `<a name>` |
 
 ## 改代码时必须守住的几条
 
@@ -572,7 +582,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **检查新版本默认关着，它是智狐唯一一个自己发出去的请求**（`harness/updates.py`）。打开以后最多每 `UPDATE_CHECK_HOURS` 小时
   （没问成的隔 `UPDATE_RETRY_HOURS`）一个 `GET …/repos/Akxan/zhifox-agent-harness/releases/latest`：不登录、不带 cookie，
   User-Agent 只写 `ZhiFox`（不带版本号、不带系统），GitHub 只看得到 IP 和时间；别的什么都不发。以后不要往这个请求里加任何东西，
-  也不要再加别的"自己发出去"的请求；真要加，先问用户、默认关着、在两份 README 里写明发了什么。
+  也不要再加别的"自己发出去"的请求；真要加，先问用户、默认关着、在中英两份文档里写明发了什么（检查新版本写在
+  `docs/en/installation.md`、`docs/zh-CN/installation.md` 的"Updates / 更新"一节）。
   规矩只在 `updates.py`（版本按数字比、草稿和预发布不算、缓存新不新、每一种装法的升级命令 `upgrade`、发布页和 wheel 的地址照 tag 拼，
   不用回答里的网址）；页面（`webui/updates_api.py`、`page/scripts/updates.js`）、终端、`harness doctor`、`harness updates`（`updates_cli.py`）只照着说。
   后台线程只从 `webui/lifecycle.py` 开和关；终端只在设置开着、缓存过期时在后台问一次，不耽误输入。`harness doctor` 只读缓存，不联网。
@@ -640,6 +651,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   （内容里带着时刻、随机数的，比如现打的 zip，要给 `ids=`，否则各个进程收集到的测试对不上，整轮跑不起来）；线程里要认出
   "是不是那个线程"时按名字认，不要拿启动后才赋值的变量去比（机器忙时线程可能先跑到）。会抢同一样系统资源的
   （比如 Xvfb 的屏幕编号）在 CI 里单独用 `-n 0` 跑。
+- 改了文档（两份 README、`docs/` 下的页面、CONTRIBUTING、SECURITY）：跑 `uv run pytest tests/test_docs.py`（不联网，一秒以内：
+  每个相对链接和 `#锚点` 都找得到，两边的页面一样，每页第一行链到另一种语言的同一页，README 的目录列着每一页，代码块都关上了）。
+  外面的网址它不查。中英两份对应的页面改完对照着读一遍，看说的是不是同一件事；表格、代码块在 GitHub 上画出来对不对，提交前看一眼预览。
 - 改了页面：先跑 `uv run pytest tests/test_page.py`（清单、能不能内联、每一块和拼好的整段脚本的 `node --check`；单查一块用
   `node --check harness/webui/page/scripts/xxx.js`），再跑页面测试 `uv run pytest -m ui`（`tests/ui/`，一分钟左右；默认的 `uv run pytest`
   也会跑，没有 Chrome 时跳过；CI 里 `HARNESS_UI_REQUIRED=1`，找不到 Chrome 算失败）。它用无界面的 Chrome（我们自己的 CDP 客户端）
