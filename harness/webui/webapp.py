@@ -76,6 +76,7 @@ from .settings_api import SettingsActions
 from .skills_api import SkillsAPI
 from .tasks_api import TodoActions
 from .ui import WebUI
+from .updates_api import UpdatesAPI
 from .voice_api import VoiceAPI
 
 
@@ -113,6 +114,8 @@ class WebApp(
         self.browser = BrowserAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # 设置里"浏览器"一节的接口
         self.computer = ComputerAPI(self)  # 设置里"操作整台电脑"一节的接口
         self.voice = VoiceAPI(self)  # 设置里"语音转文字"一节的接口（聊天里发来的语音，见 ../voice/）
+        # 设置里"检查新版本"一节的接口（默认关着，见 ../updates.py）。后台线程由 lifecycle.py 开和关
+        self.updates = UpdatesAPI(self)
         self.commands = CommandsAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # "不用问的命令"窗口的接口
         self.hooks = HooksAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # "扩展 → 钩子"一页的接口
         self.sandbox = SandboxAPI(self, lambda path: reveal.reveal_in_file_manager(path))  # 设置里"沙箱"一节的接口
@@ -236,6 +239,8 @@ class WebApp(
             computer=self.computer.state(),
             # 语音转文字：设置、实际会用哪一种、有没有 OpenAI 的密钥（只说有没有）、每个模型每分钟多少钱（见 voice_api.py）
             voice=self.voice.state(),
+            # 检查新版本：开没开、上一次什么时候问的、没问成的原因、有新版本时是哪一版和怎么升级（见 updates_api.py）
+            updates=self.updates.state(),
             # 最后一轮能不能编辑、重新生成（见 _rewind_state）。页面上的按钮照着它画，能不能、为什么不能都由这里说了算
             rewind=self._rewind_state(),
             # 每一轮上的"分叉"能不能点、这段会话是从哪儿分叉来的（见 fork_api.py）

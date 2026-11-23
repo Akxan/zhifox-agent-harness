@@ -14,7 +14,7 @@ MCP 的配置写着 npx，这台电脑却没装 Node.js；Linux 上没装 bubble
 规矩（这个文件夹里的每一个检查都守着）：
   - 只看不改：不改任何文件、权限、设置，不启动 MCP 服务器、Chrome，不碰屏幕。数据目录的占用只是"试着锁一下马上放开"。
     目录的检查排在最前面，别的检查也都只读不写，所以看到的权限就是原来的样子，不会被谁顺手改对了。
-  - 不发任何网络请求：网络那一节只看设置（代理、改过的接口地址）。
+  - 不发任何网络请求：网络那一节只看设置（代理、改过的接口地址）；有没有新版本只看上一次检查的结果（data/updates.json）。
   - 不写出任何密钥：只说有没有、从哪儿来，连最后几位也不写。
   - 判断照着原来的那一处（capabilities.py、model_catalog.py、providers.has_key、各个后端的 detect），不另写一份规矩：
     这里说"能用"的，真用的时候也能用。
@@ -54,8 +54,10 @@ def examine(config: Config, system: service_cli.System | None = None) -> Report:
     tasks, task_problem = extensions.task_list(config)
     running = instance.in_use(config.data_dir)
     elsewhere = features.sandbox_users(settings, tasks, extensions.channel_entries(channels))
+    found = environment.environment()
+    found.checks.insert(2, environment.updates(config, settings))  # 紧跟在"智狐"那一行（版本）后面：有没有新版本，只看缓存
     sections = [
-        environment.environment(),
+        found,
         folders,
         environment.occupancy(config),
         keys.keys(config, settings, endpoints),

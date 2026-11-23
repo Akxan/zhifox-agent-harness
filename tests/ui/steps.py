@@ -282,6 +282,15 @@ def voice_local(page: Page) -> None:
     idle(page)
 
 
+def updates_news(page: Page) -> None:
+    """设置 → 检查新版本：打开它（演示里问的是假的 GitHub，它说有一个更新的版本，见 tests/demo_web.py 的 --release），
+    等"有新版本"那一块（发布说明、怎么升级的命令）和齿轮上的小点画出来。调用之前设置窗口要开着。"""
+    status, reply = page.demo.api("/api/updates", {"enabled": True})
+    assert status == 200, reply
+    page.wait("document.querySelector('#updates-card.news .service-command') && !document.getElementById('settings-news').hidden", what="有新版本那一块画出来")
+    idle(page)
+
+
 # 系统通知（page/scripts/notify.js）：测试里不弹真的系统通知，也不真的把窗口藏到后面去。
 #   window.Notification 换成一个只记下调用的假货：window.__notes 是弹过的每一条（title、options、closed、onclick），
 #     权限是 window.__permission（granted / default / denied），requestPermission 记一次数（window.__asked），

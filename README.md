@@ -191,6 +191,8 @@ uv tool uninstall harness-assistant    # remove the program; your data folder st
 ```
 
 If ZhiFox runs as a [background service](#run-it-in-the-background), run `harness service restart` after updating.
+ZhiFox can also tell you when a new version is out, and which of these lines fits your install: see
+[Updates](#updates) (off by default).
 
 **Installing a released version.** The lines above install the latest code on `main`. Each
 [release](https://github.com/Akxan/zhifox-agent-harness/releases) also has a ready-built package attached, which
@@ -263,6 +265,66 @@ its own `pyproject.toml` means a clone; inside a `site-packages` folder means in
 Either way, the first time, the middle of the page tells you there is no API key yet. Click **Open settings** in that
 notice (or the button at the top right), enter a key for at least one provider, and start chatting. For the terminal
 UI, run `harness` (from a clone: `uv run harness`) once a key is set.
+
+### Updates
+
+How to update depends on how you got ZhiFox: in a clone, `git pull` and then `uv sync` in the project folder; installed
+with one command, see [Install with one command](#install-with-one-command). A ZhiFox that is already running keeps the
+old code until you restart it (`harness service restart` for the background service).
+
+**Being told about new versions (off by default).** ZhiFox can check once a day whether a newer release is out. It stays
+off until you turn it on, in **Settings → Check for updates** (the switch *Tell me when there's a new version*) or from
+the command line:
+
+```bash
+harness updates on       # turn it on, and check once right away (in a clone: uv run harness updates on)
+harness updates          # what the last check found (same as harness updates status); doesn't go online
+harness updates check    # ask GitHub once, now
+harness updates off
+```
+
+The lines are the same in PowerShell. Exactly what it sends: at most once every 24 hours (three hours after a failed
+attempt), one request,
+
+```
+GET https://api.github.com/repos/Akxan/zhifox-agent-harness/releases/latest
+```
+
+with no login, no cookies, and a User-Agent of just `ZhiFox` (no version number, no system). GitHub sees your IP
+address and the time of the request. Nothing else is sent: not your version, settings, conversations or keys, and no ID
+that links one check to the next. It is the only request ZhiFox makes on its own; everything else goes out because you
+asked for it (a message, **Sync models**, a chat channel you connected). That's why it's off until you say so. Drafts and
+pre-releases are ignored, and turning it on checks right away.
+
+Who checks: the web UI and `harness serve`, in a background thread. The terminal UI only reads the last result when it
+starts; if the setting is on and that result is more than a day old, it checks in the background without delaying the
+prompt, and tells you before your next input. `harness doctor` shows what the last check found and never goes online.
+The result is kept in `updates.json` in the data folder (when it checked, the newest release, why the last attempt
+failed). It's only a cache: **Export all data** leaves it out, a restore never writes it, and deleting it is harmless.
+
+When a newer version is known, the settings gear gets a small dot, and **Settings → Check for updates** shows the
+version, a link to its release page, and the commands for *this* install:
+
+| How ZhiFox was installed | What it tells you to run |
+|---|---|
+| A clone (`git clone`) | `git pull`, then `uv sync`, in the project folder. A folder without `.git` (a downloaded zip) is told to download the new source instead |
+| `uv tool install git+https://…`, no version | `uv tool upgrade harness-assistant` |
+| `uv tool install git+https://…@v0.2.0`, pinned to a version | `uv tool install --force git+https://github.com/Akxan/zhifox-agent-harness@v0.3.0` |
+| The release's wheel or a zip, or it can't tell | `uv tool install --force https://github.com/Akxan/zhifox-agent-harness/releases/download/v0.3.0/harness_assistant-0.3.0-py3-none-any.whl`, which works for any install. When it can't tell how you installed, it says so plainly and mentions `uv tool upgrade` as the other way |
+
+It tells them apart by reading `direct_url.json`, the standard file (PEP 610) that uv and pip write into a package
+installed from an address. Each command is on a line of its own, never joined with `&&` (Windows PowerShell 5 doesn't
+accept it), so they're the same in zsh, bash and PowerShell. Running as a background service, it adds
+`harness service restart`. On Windows it tells you to stop the running ZhiFox first (`harness service stop`, then
+`harness service start` afterwards): Windows can't replace the files of a program that is running.
+
+If a check fails (offline, a timeout, GitHub's limit of 60 requests an hour per IP address for requests without a login,
+an answer it can't read), ZhiFox writes one line in its log, Settings says it couldn't check and why, and nothing else
+is held up; it tries again three hours later. The rules are in [harness/updates.py](harness/updates.py). The address
+can be changed only with the `HARNESS_UPDATE_API` environment variable (`https://` only, or plain `http://` to this
+computer), which the tests and the demo point at a local fake: in `uv run python tests/demo_web.py`, turn the switch on
+to see the new-version state without any network (`--release 0.9.0` picks the version the fake announces; by default
+it's one minor version above yours).
 
 ### Supported models
 
@@ -409,7 +471,7 @@ Windows the same `icacls '…\data' /inheritance:r /grant:r '*S-1-5-21-…:(OI)(
 
 | Section | What it looks at |
 |---|---|
-| Environment | Python's version and path (and whether it's the project's `.venv`), ZhiFox's version and git commit, the system, whether `uv` is on the PATH |
+| Environment | Python's version and path (and whether it's the project's `.venv`), ZhiFox's version and git commit, whether a newer release is out (from the last [update check](#updates)'s saved result, never online), the system, whether `uv` is on the PATH |
 | Folders | The working folder is writable; `data/` and `.env` can be read by your account only: 700 and 600 on macOS and Linux (and owned by you, not by root after a `sudo` run), the access list on Windows (read with `icacls /save`, never changed) |
 | In use | Whether another ZhiFox holds the data folder (the web UI, `harness serve`, the background service, `channels pair`) and its process ID |
 | API keys | Which providers have a key and where it comes from (`.env`, an environment variable, the Anthropic login); an empty variable hiding the key in `.env`; a variable that overrides a different key in `.env`; the selected model; custom endpoints |
@@ -563,6 +625,7 @@ Each part of the harness has its own file or directory:
 | Assembly | [harness/app.py](harness/app.py), [harness/cli.py](harness/cli.py), [harness/config.py](harness/config.py) | Wire everything together and read the configuration |
 | Version and releases | [harness/version.py](harness/version.py), [release.yml](.github/workflows/release.yml) | Which version this is (`harness --version`, `harness doctor`): read from the installed package, or from `pyproject.toml` plus the git commit in a clone. Pushing a version tag builds the release: checked against `CHANGELOG.md`, smoke-tested on three systems, attached to the GitHub Release (see [Releases](#releases)) |
 | Where it's installed | [harness/install.py](harness/install.py) | Running from a clone or installed with `uv tool install`: decided in one place, and with it the default data folder, `.env` and the command ZhiFox tells you to run (`uv run harness` or `harness`) |
+| Update check | [harness/updates.py](harness/updates.py), [harness/updates_cli.py](harness/updates_cli.py), [harness/webui/updates_api.py](harness/webui/updates_api.py) | Off by default, because it's the only request ZhiFox sends on its own: once a day, one GET to GitHub's latest-release address, nothing personal in it. Comparing versions as numbers, the cache, and the upgrade commands for each way of installing are in one module; the page, the terminal, `harness doctor` and `harness updates` only show what it says (see [Updates](#updates)) |
 | Platform differences | [filelock.py](harness/filelock.py), [pathnames.py](harness/pathnames.py), [winacl.py](harness/winacl.py), [winjob.py](harness/winjob.py), [console.py](harness/console.py), [exits.py](harness/exits.py), [machine.py](harness/machine.py), [tools/shell.py](harness/tools/shell.py), [browser/chrome.py](harness/browser/chrome.py), [service/windows.py](harness/service/windows.py) | macOS, Linux and Windows lock files, name paths, protect files, end process trees, encode output and run shells differently. Each difference lives in one small module (or one function of the module that uses it), and the rest of the code just calls it |
 
 Suggested reading order: `agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`.
@@ -3582,7 +3645,7 @@ the error. macOS and Linux don't mind open files when swapping, so there's no re
 | `data/agents/` | Your custom agents, one Markdown file each (the Claude Code subagent format). You can manage them under **Extensions → Agent** or by hand |
 | `data/todos.json` | To-dos |
 | `data/tasks.json` | Scheduled tasks with the last 20 runs of each, and reminders you haven't dismissed yet. If it can't be read, it is kept as `tasks.broken.json` and ZhiFox starts with an empty list |
-| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), the command sandbox (`"sandbox": {"level", "paths"}`), backup models (`"fallbacks": {provider: [models]}`), `"redact_secrets": false` if you turned off masking secrets in tool results, and voice to text (`"voice": {"provider", "model", "url", "local_model", "endpoint"}`, written only once you change it). No keys |
+| `data/settings.json` | The model you chose, the synced model lists, prices you entered, the interface language, your monthly budget, the browser and computer use settings (`"computer": {"enabled", "unattended", "blocked"}`), the command sandbox (`"sandbox": {"level", "paths"}`), backup models (`"fallbacks": {provider: [models]}`), `"redact_secrets": false` if you turned off masking secrets in tool results, voice to text (`"voice": {"provider", "model", "url", "local_model", "endpoint"}`, written only once you change it), and `"update_check": true` if you turned on the [update check](#updates). No keys |
 | `data/ledger.jsonl` | The spending record: one line per model call (date, provider, model, chat, scheduled task or subagent, tokens, estimated cost), and one per transcribed voice message (source `voice`, no tokens, with its length in `seconds`). Entries older than 90 days are merged into one line per day, model and source |
 | `data/mcp.json` | The MCP servers you added, in Claude Desktop's format, plus ZhiFox's own fields (`enabled`, `approval`, `timeout`). May contain the servers' secrets, so it is readable by your account only, and the assistant's file tool can't open it |
 | `data/hooks.json` | Your [hooks](#hooks-your-own-scripts-at-fixed-moments): name → event, matcher, program and arguments, time limit, `onFailure`, `runsIn`, `enabled`. Arguments may hold tokens, so it is readable by your account only, the assistant's file tool can't open it, and exports mask it |
@@ -3594,6 +3657,7 @@ the error. macOS and Linux don't mind open files when swapping, so there's no re
 | `data/backups/` | The previous version of any file the assistant overwrote completely |
 | `data/backups/turns/` | One folder per turn whose files the file tool changed: a manifest of the files and copies of how each was before (and after) the turn, plus the copies undo keeps for redo. Readable by your account only; deleted after 30 days |
 | `data/input_history` | What you typed in the terminal UI (press the up arrow to bring it back) |
+| `data/updates.json` | What the last [update check](#updates) found: when it asked, the newest release (version, tag, date, whether it has a wheel), and why the last attempt failed. Public information only. A cache: never exported, never written by a restore, safe to delete |
 | `data/restore-backups/` | The automatic backup made before each restore from a backup (`zhifox-before-restore-<date>-<time>.zip`, secrets masked, the newest 5 kept). Never exported (see [Backup and restore](#backup-and-restore)) |
 | `data/logs/` | The background service's log on macOS and Windows, `service.log`, plus up to three older ones (see [Run it in the background](#run-it-in-the-background)) |
 | `data/.web-address`, `data/.web-token` | The background service's web token (kept across restarts, deleted when the service is uninstalled) and the page's address with it, written by `harness serve --web` when there's no terminal to print it in (the background service). Readable by your account only, deleted on exit, never exported |
@@ -3606,7 +3670,9 @@ the full key is never sent back to the browser.
 
 Conversation content is sent to the API of the provider you chose, so the model can process it, and saved in
 `data/conversations/` on your own computer. It is not uploaded anywhere else. Deleting a conversation in the sidebar
-deletes its file too. With the browser on, the pages the assistant opens are fetched from those sites by ZhiFox's own
+deletes its file too. The only request ZhiFox sends on its own, without you asking for something, is the
+[update check](#updates), and it is off by default: once a day it asks GitHub for the latest release, which shows
+GitHub your IP address and nothing else. With the browser on, the pages the assistant opens are fetched from those sites by ZhiFox's own
 Chrome, and what it reads there goes to the model provider like any other tool result. With computer use on, every
 screenshot taken (one you approved, one allowed for the conversation, or one under Allow everything) is a picture of
 your whole screen, and it goes to the model provider too.
@@ -3824,6 +3890,7 @@ Set these in `.env`. All of them are optional:
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Where voice messages are sent for transcription with your OpenAI key (and where OpenAI's SDK sends chat requests). Only `https://`, or plain `http://` to this computer |
 | `HARNESS_CHROME` | Found automatically | Full path of the Chrome (or Chromium, Edge, Brave) to use for browser use. A path entered in **Settings → Browser** takes precedence |
+| `HARNESS_UPDATE_API` | `https://api.github.com` | Where the [update check](#updates) asks for the latest release (the tests and the demo point it at a local fake). Only `https://`, or plain `http://` to this computer |
 
 ## Build your own tool
 
@@ -4420,7 +4487,8 @@ the provider. With computer use on (off by default), the screenshots of your scr
 provider as well. With a custom endpoint on this computer or your local network (Ollama, LM Studio…), all of this stays
 on your network. Saved
 conversations, memory, to-dos, settings and keys stay in plain files on your disk and are not uploaded anywhere else.
-The web UI's server accepts connections from your own machine only. See
+If you turn on the [update check](#updates) (off by default), ZhiFox asks GitHub once a day for the latest release;
+GitHub sees your IP address, and nothing else is sent. The web UI's server accepts connections from your own machine only. See
 [Data and privacy](#data-and-privacy).
 
 ### Which models does it support?

@@ -241,7 +241,8 @@ __STYLES__
             <div id="language-options" class="lang-options" role="menu" aria-labelledby="languages-title"></div>
             <p class="lang-note" data-i18n>换的是界面上的文字。助手用什么语言回答，取决于你用什么语言和它说话。</p>
           </div>
-          <button id="settings-open" class="icon-button" type="button" title="设置" aria-label="设置" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
+          <!-- 有新版本时齿轮的右上角多一个小点（scripts/updates.js）。点只是给眼睛看的：按钮的提示（title）里也写着"有新版本"，读屏软件把它当作说明读出来 -->
+          <button id="settings-open" class="icon-button" type="button" title="设置" aria-label="设置" data-i18n-title data-i18n-aria-label aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg><span id="settings-news" class="settings-news" aria-hidden="true" hidden></span></button>
           <button id="theme" class="icon-button theme" type="button" title="外观和动效" aria-label="外观和动效" data-i18n-title data-i18n-aria-label aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance">
             <svg class="icon t-auto" aria-hidden="true"><use href="#i-auto"/></svg>
             <svg class="icon t-light" aria-hidden="true"><use href="#i-sun"/></svg>
@@ -632,6 +633,20 @@ __STYLES__
     <section id="service-section" hidden>
       <h3 data-i18n>后台运行</h3>
       <div id="service-card" class="service-card"></div>
+    </section>
+    <!-- 检查新版本（scripts/updates.js）：默认关着，打开以后每天问一次 GitHub。规矩、问到了什么、怎么升级都由助手程序给（state.updates，
+         见 harness/updates.py），页面只照着画 -->
+    <section id="updates-section" hidden>
+      <h3><span data-i18n>检查新版本</span> <small id="updates-state"></small></h3>
+      <div class="browser-option updates-option">
+        <div class="browser-option-words">
+          <b id="updates-title" data-i18n>有新版本时告诉我</b>
+          <span id="updates-note" class="browser-note" data-i18n>每天一次，向 GitHub 发一个请求，问智狐最新的正式版本是哪一个。GitHub 看得到你的 IP 地址；除此之外什么都不发：不发你用的版本、设置、会话和密钥。</span>
+        </div>
+        <button id="updates-enabled" class="browser-switch" type="button" role="switch" aria-checked="false" aria-labelledby="updates-title" aria-describedby="updates-note"></button>
+      </div>
+      <div id="updates-card" class="updates-card" aria-live="polite" hidden></div>
+      <p id="updates-current" class="hint"></p>
     </section>
     <section>
       <h3 data-i18n>备份和恢复</h3>

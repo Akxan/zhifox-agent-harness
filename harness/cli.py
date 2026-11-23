@@ -11,6 +11,7 @@
     harness eval ...              评测：让智狐做一组真实的小事并打分（默认是不花钱的演习，见 evals/）
     harness doctor [--json]       自检：一屏看清智狐在这台电脑上的情况（不联网，不改任何东西，见 doctor/）
     harness restore 备份.zip       从备份恢复：先看预览，输入 yes 才恢复（见 restore_cli.py）
+    harness updates [on|off|check] 检查新版本（默认关着）：看一眼、打开、关上、马上问一次 GitHub（见 updates_cli.py）
 
 --workspace 指定工作目录（助手读写文件、执行命令的地方），不给的话是现在所在的目录。
 """
@@ -24,7 +25,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import capabilities, console, i18n, model_catalog, restore_cli, rewind, version
+from . import (
+    capabilities,
+    console,
+    i18n,
+    model_catalog,
+    restore_cli,
+    rewind,
+    updates_cli,
+    version,
+)
 from .app import App, build_app, retry_turn, run_turn
 from .channels import cli as channels_cli
 from .commands import cli as commands_cli
@@ -44,6 +54,7 @@ from .settings import Settings
 from .tools.todo import format_todos
 from .trace import text as trace_text
 from .undo.terminal import TerminalChanges
+from .updates import Updater, news_line
 
 # 终端界面（prompt_toolkit，连带 asyncio，导入要几十毫秒）只有 run_terminal 用，在那里用到时才导入：
 # harness service status、harness hooks list 这些小命令和网页界面都用不到它。这里只给类型标注用
@@ -281,11 +292,22 @@ def run_terminal(config: Config) -> int:
         app.close()
         return 1
     ui.banner(f"{provider.label} · {app.settings.model}", config.workspace)
+    # 检查新版本（默认关着，见 updates.py）：启动时只看上一次的结果，有新版本就说一行。打开着、上一次又是一天以前，
+    # 就在后台问一次（不耽误你打字），问到了在下一次输入之前说
+    updater = Updater(config, app.settings)
+    known = updater.status().newer
+    if known is not None:
+        ui.info(news_line(known, updater.current))
+    if updater.due():
+        updater.check_soon()
 
     last: LastTurn | None = None  # 最后一轮（/retry、/edit 用）
     changes = TerminalChanges(app, ui)  # 每一轮改了哪些文件（/undo 用）
     try:
         while True:
+            found = updater.take_news()
+            if found is not None:
+                ui.info(news_line(found, updater.current))
             text = ui.read_input()
             if text is None:
                 break
@@ -345,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     eval_cli.add_parser(commands)
     doctor_cli.add_parser(commands)
     restore_cli.add_parser(commands)
+    updates_cli.add_parser(commands)
     # "harness hooks add 名字 --event … -- 程序 参数"：-- 后面的原样交给那个命令。自己先在第一个 -- 处切开，再交给 argparse：
     # Python 3.11 的 argparse 不认子命令里一个位置参数后面跟着的 --（3.12 起才认），钩子的命令在 3.11 上就加不进去（GitHub 的测试抓到的）
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -382,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
         return doctor_cli.run(args, config)
     if args.command == "restore":
         return restore_cli.run(args, config)
+    if args.command == "updates":
+        return updates_cli.run(args, config)
     if args.web:
         from .webui.server import run_web  # 用到时才导入，终端版不需要它
 

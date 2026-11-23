@@ -123,6 +123,8 @@ def _sweep(page) -> dict[str, list[str]]:
     look("设置 · 备用模型", ["#fallback-section"])
     steps.voice_local(page)  # 语音转文字：选了"你自己运行的兼容服务"以后多出来的那几格和说明
     look("设置 · 语音转文字（你自己运行的服务）", ["#voice-section"])
+    steps.updates_news(page)  # 检查新版本：打开以后，假的 GitHub 说有新版本（发布说明、怎么升级、齿轮上的小点）
+    look("设置 · 检查新版本（有新版本）", ["#updates-section"])
     page.demo.api("/api/commands/add", {"command": "npm test"})
     page.click("#commands-open")
     page.wait(f"{steps.is_open('commands-dialog')} && document.querySelector('#commands-list li.cmd-row')", what="不用问的命令窗口打开")

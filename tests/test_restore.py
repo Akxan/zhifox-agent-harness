@@ -730,10 +730,10 @@ def test_an_unknown_mode_is_refused(tmp_path):
 
 def test_every_place_the_program_keeps_data_is_restorable(tmp_path):
     """白名单（export.PARTS）要盖住程序放数据的每一个地方：不然新加的功能的备份恢复不了（会被当成"不认识的东西"整个拒绝）。
-    Config 里每一个指向数据文件夹里的路径，要么是一样东西，要么是导出本来就不带的（口令、锁、恢复前的自动备份）。"""
+    Config 里每一个指向数据文件夹里的路径，要么是一样东西，要么是导出本来就不带的（口令、锁、恢复前的自动备份、检查新版本的缓存）。"""
     data = tmp_path / "data"
     config = Config(effort="medium", max_tokens=1000, max_steps=5, workspace=tmp_path, data_dir=data, env_file=tmp_path / ".env", web=False)
-    never_exported = {config.web_address_file}
+    never_exported = {config.web_address_file, config.updates_file}
     for name in dir(Config):
         value = getattr(config, name)
         if not isinstance(value, Path) or value == data or not value.is_relative_to(data) or value in never_exported:

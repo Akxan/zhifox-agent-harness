@@ -8,6 +8,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import anthropic
 import openai
@@ -20,11 +21,12 @@ from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
 from harness import commands as commands_module
-from harness import i18n, providers, winacl
+from harness import i18n, providers, updates, winacl
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
 from harness.imports import places as import_places
+from harness.net.http import NetError
 from harness.service import base as service_base
 from harness.service import cli as service_cli
 
@@ -216,6 +218,25 @@ def isolated_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(service_base, "run_command", forbidden)
     monkeypatch.setattr(service_base, "run_attached", forbidden)
     monkeypatch.setattr(service_cli, "_open_browser", forbidden)
+
+
+@pytest.fixture(autouse=True)
+def no_real_github(monkeypatch):
+    """检查新版本（harness/updates.py）：测试里一个请求都到不了真的 GitHub。只放行这台电脑自己（tests/fake_github.py）；
+    别的地址一律不发，当作连不上，并且让这个测试失败：默认的 Config.update_api 就是 https://api.github.com，
+    哪个测试忘了把它指向假的 GitHub，在这里就会被抓到，而不是悄悄地连了外网。"""
+    real = updates.fetch
+    blocked: list[str] = []
+
+    def guarded(url: str):
+        if urlsplit(url).hostname not in ("127.0.0.1", "localhost", "::1"):
+            blocked.append(url)
+            raise NetError(i18n.t("连不上 {host}（{error}）", host=urlsplit(url).hostname or "?", error="测试里不许连外网"))
+        return real(url)
+
+    monkeypatch.setattr(updates, "fetch", guarded)
+    yield
+    assert not blocked, f"测试想去问真的 GitHub：{blocked}"
 
 
 @pytest.fixture

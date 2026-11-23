@@ -48,11 +48,13 @@ HARNESS_DATA_DIR、HARNESS_ENV_FILE 永远优先（见 config.load_config），�
 
 from __future__ import annotations
 
+import importlib.metadata
+import json
 import ntpath
 import os
 import posixpath
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType
 
@@ -65,6 +67,14 @@ INSTALLED_FOLDERS = ("site-packages", "dist-packages")
 FOLDER = "ZhiFox"
 LINUX_FOLDER = "zhifox"
 ENV_NAME = ".env"
+
+
+# 装成工具时，当初是从哪儿装的（见 origin）。检查到新版本时，照着它告诉你用哪一条命令升级（见 updates.py）
+GIT = "git"  # git+https://…，没指定版本：uv tool upgrade 会拉 main 上最新的代码
+GIT_PINNED = "git-pinned"  # git+https://…@v0.2.0：钉在一个 tag（或提交）上，uv tool upgrade 不会动它
+WHEEL = "wheel"  # 发布页上现成的 .whl
+ARCHIVE = "archive"  # GitHub 打包的代码（archive/refs/heads/main.zip）
+UNKNOWN = ""  # 看不出来
 
 
 def from_source(root: Path) -> bool:
@@ -121,3 +131,38 @@ def command(source: bool) -> str:
     装成工具是 harness（装的时候放进了 PATH，在哪个文件夹里都能用）。
     装成工具时不写 uv run harness：在别人的 uv 项目里运行它，uv 会先替那个项目建 .venv、装依赖。"""
     return "uv run harness" if source else "harness"
+
+
+def wheel_name(version: str) -> str:
+    """发布页上那个 wheel 的文件名：hatchling 打出来的，包名里的 - 换成 _（PEP 427），纯 Python、哪个系统都能用。
+    发布（tests/release_notes.py）和检查到新版本时的升级命令（updates.py）都照它写，所以只写在这一处。"""
+    return f"{PROJECT_NAME.replace('-', '_')}-{version}-py3-none-any.whl"
+
+
+def _direct_url() -> str | None:
+    """装好的包里的 direct_url.json（PEP 610）。从一个网址装的时候 uv 和 pip 都会写它；从包的索引装的、没装过的没有。"""
+    try:
+        return importlib.metadata.distribution(PROJECT_NAME).read_text("direct_url.json")
+    except (importlib.metadata.PackageNotFoundError, OSError):
+        return None
+
+
+def origin(read: Callable[[], str | None] = _direct_url) -> str:
+    """装成工具时，当初是从哪儿装的（GIT、GIT_PINNED、WHEEL、ARCHIVE，看不出来是 UNKNOWN）。
+
+    看的是 direct_url.json（PEP 610，标准的格式，不是 uv 自己的文件）：git 装的有 vcs_info（指定了 @v0.2.0 的还有 requested_revision），
+    从一个文件装的有 archive_info 和那个文件的网址。不运行 uv、git，只读一个小文件。
+    read 只给测试用：返回那个文件的内容（没有就是 None）。"""
+    try:
+        data = json.loads(read() or "null")
+    except (ValueError, RecursionError):
+        return UNKNOWN
+    if not isinstance(data, dict) or not isinstance(data.get("url"), str):
+        return UNKNOWN
+    vcs = data.get("vcs_info")
+    if isinstance(vcs, dict) and vcs.get("vcs") == "git":
+        return GIT_PINNED if vcs.get("requested_revision") else GIT
+    if isinstance(data.get("archive_info"), dict):
+        path = data["url"].split("?", 1)[0].split("#", 1)[0].lower()
+        return WHEEL if path.endswith(".whl") else ARCHIVE
+    return UNKNOWN

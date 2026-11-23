@@ -129,6 +129,7 @@ uv tool uninstall harness-assistant    # 卸掉程序；你的数据文件夹原
 ```
 
 装成了[后台服务](#在后台一直运行)的话，更新以后运行一次 `harness service restart`。
+智狐也可以在有新版本时告诉你，并且告诉你这几行里哪一行适合你的装法：见[更新](#更新)（默认关着）。
 
 **装某一个发布版。** 上面几行装的是 `main` 上最新的代码。每一个[发布版](https://github.com/Akxan/zhifox-agent-harness/releases)还附着打好的安装包，
 装的就是那一版，不需要 Git，macOS、Linux、Windows 都一样：
@@ -191,6 +192,57 @@ uv run harness --web    # 启动网页界面，会自动在浏览器里打开
 
 不管哪种装法，第一次打开时页面中间都会提示还没有 API 密钥。点提示里的“去设置”（或右上角的按钮），填写至少一家的密钥，就可以开始对话了。
 想用终端界面的话，填好密钥后运行 `harness`（从仓库里运行是 `uv run harness`）。
+
+### 更新
+
+怎么更新看你是怎么装的：从仓库里运行的，在项目文件夹里先 `git pull`、再 `uv sync`；一行命令装上的，见[一行命令装上](#一行命令装上)。
+已经开着的智狐在重启之前用的还是旧代码（后台服务用 `harness service restart` 重启）。
+
+**有新版本时告诉你（默认关着）。** 智狐可以每天看一次有没有新的正式版本。你打开之前它一直关着：在**设置 → 检查新版本**里打开
+"有新版本时告诉我"这个开关，或者在命令行里：
+
+```bash
+harness updates on       # 打开，并且马上查一次（从仓库里运行是 uv run harness updates on）
+harness updates          # 上一次查到了什么（和 harness updates status 一样）；不联网
+harness updates check    # 现在就问 GitHub 一次
+harness updates off
+```
+
+PowerShell 里也是这几行。它到底发了什么：最多每 24 小时（上一次没查成的话隔 3 小时）一个请求，
+
+```
+GET https://api.github.com/repos/Akxan/zhifox-agent-harness/releases/latest
+```
+
+不登录、不带 cookie，User-Agent 只写 `ZhiFox`（不写版本号、不写系统）。GitHub 看得到的是你的 IP 地址和请求的时间。
+别的什么都不发：不发你用的版本、设置、会话和密钥，也没有任何编号能把两次检查连起来。这是智狐唯一一个自己发出去的请求；
+别的请求都是因为你叫它做了什么（发一条消息、点"同步模型"、连上一个聊天通道）。所以你不说，它就不开。
+草稿和预发布不算；打开的时候马上查一次。
+
+谁来查：网页界面和 `harness serve`，在一个后台线程里。终端界面启动时只看上一次的结果；开着这个设置、上一次的结果又超过了一天，
+就在后台查一次，不耽误你打字，查到新版本在你下一次输入之前说一声。`harness doctor` 只显示上一次查到的，永远不联网。
+结果存在数据文件夹里的 `updates.json`（什么时候查的、最新的正式版本、上一次没查成的原因）。它只是一份缓存：
+**导出全部数据**不带它，恢复备份也不写它，删掉了也没关系。
+
+知道有新版本以后，右上角的齿轮上多一个小圆点，**设置 → 检查新版本**里写着是哪一版、它的发布页，以及按*你这一种*装法怎么升级：
+
+| 智狐是怎么装的 | 让你运行什么 |
+|---|---|
+| 从仓库里运行（`git clone`） | 在项目文件夹里先 `git pull`，再 `uv sync`。没有 `.git` 的文件夹（下载的 zip）会让你去下载新版本的源代码 |
+| `uv tool install git+https://…`，没写版本 | `uv tool upgrade harness-assistant` |
+| `uv tool install git+https://…@v0.2.0`，钉在了某一版上 | `uv tool install --force git+https://github.com/Akxan/zhifox-agent-harness@v0.3.0` |
+| 发布页上的 wheel、zip，或者看不出来 | `uv tool install --force https://github.com/Akxan/zhifox-agent-harness/releases/download/v0.3.0/harness_assistant-0.3.0-py3-none-any.whl`，哪种装法都能用。看不出你是怎么装的时候，会明说看不出来，并且提一句也可以用 `uv tool upgrade` |
+
+它是看 `direct_url.json` 分出来的：uv 和 pip 从一个地址装包的时候都会写这个标准的文件（PEP 610）。每条命令单独一行，
+不用 `&&` 连起来（Windows PowerShell 5 不认它），所以 zsh、bash 和 PowerShell 里都一样。作为后台服务运行的，还会加上
+`harness service restart`。在 Windows 上，它会让你先停下开着的智狐（`harness service stop`，装好以后 `harness service start`）：
+Windows 换不掉一个正在运行的程序的文件。
+
+没查成的时候（没有网、超时、GitHub 对不登录的请求每个 IP 每小时只给 60 次、回答看不懂），智狐在日志里写一行，
+设置里写没能检查和原因，别的什么都不耽误；隔 3 小时再试。规矩都在 [harness/updates.py](harness/updates.py) 里。
+问的地址只能用环境变量 `HARNESS_UPDATE_API` 改（只认 `https://`，明文的 `http://` 只认这台电脑自己），测试和演示把它指向本地的假服务器：
+在 `uv run python tests/demo_web.py` 里打开这个开关，不联网就能看到"有新版本"的样子（`--release 0.9.0` 指定假服务器说的是哪一版；
+不写的话，比你现在的高一个小版本）。
 
 ### 支持的模型
 
@@ -324,7 +376,7 @@ $LASTEXITCODE
 
 | 一节 | 看什么 |
 |---|---|
-| 环境 | Python 的版本和路径（是不是项目里的 `.venv`）、智狐的版本和 git 提交、系统、PATH 里有没有 `uv` |
+| 环境 | Python 的版本和路径（是不是项目里的 `.venv`）、智狐的版本和 git 提交、有没有新版本（只看上一次[检查新版本](#更新)存下的结果，不联网）、系统、PATH 里有没有 `uv` |
 | 目录 | 工作目录能不能写；`data/` 和 `.env` 是不是只有你自己的账号能读：macOS、Linux 上看 700 和 600（还要属于你，用 `sudo` 运行过一次的话会变成 root 的），Windows 上看访问控制列表（用 `icacls /save` 读，从不改） |
 | 占用 | 数据目录现在是不是被另一个智狐占着（网页界面、`harness serve`、后台服务、`channels pair`），进程编号是多少 |
 | 密钥 | 哪几家有密钥、从哪儿来（`.env`、环境变量、Anthropic 的登录信息）；环境变量设成了空的、把 `.env` 里的密钥盖住了；环境变量里的和 `.env` 里的不一样；现在选的模型；自定义接口 |
@@ -891,6 +943,7 @@ function zhifox { uv run --project "C:\这个项目的完整路径\zhifox-agent-
 | 组装 | [harness/app.py](harness/app.py)、[harness/cli.py](harness/cli.py)、[harness/config.py](harness/config.py) | 把上面这些拼起来，读取配置 |
 | 版本和发布 | [harness/version.py](harness/version.py)、[release.yml](.github/workflows/release.yml) | 这是哪一版（`harness --version`、`harness doctor`）：装好的包里读，从仓库里运行时读 `pyproject.toml` 再加上 git 提交。推一个版本的 tag 就发布：先对一遍 `CHANGELOG.md`，在三个系统上试装，再挂到 GitHub Release 上（见[发布](#发布)） |
 | 装在哪儿 | [harness/install.py](harness/install.py) | 从仓库里运行，还是用 `uv tool install` 装上的：只在这一处判断，数据文件夹和 `.env` 的默认位置、智狐让你运行的命令（`uv run harness` 还是 `harness`）都跟着它 |
+| 检查新版本 | [harness/updates.py](harness/updates.py)、[harness/updates_cli.py](harness/updates_cli.py)、[harness/webui/updates_api.py](harness/webui/updates_api.py) | 默认关着：这是智狐唯一一个自己发出去的请求，每天一次、一个 GET 问 GitHub 最新的发布版，里面没有任何属于你的东西。按数字比较版本、缓存、每一种装法的升级命令都在这一个模块里；页面、终端、`harness doctor` 和 `harness updates` 只照着说（见[更新](#更新)） |
 | 系统之间的差别 | [filelock.py](harness/filelock.py)、[pathnames.py](harness/pathnames.py)、[winacl.py](harness/winacl.py)、[winjob.py](harness/winjob.py)、[console.py](harness/console.py)、[exits.py](harness/exits.py)、[machine.py](harness/machine.py)、[tools/shell.py](harness/tools/shell.py)、[browser/chrome.py](harness/browser/chrome.py)、[service/windows.py](harness/service/windows.py) | macOS、Linux、Windows 锁文件、写路径、保护文件、结束进程树、给输出编码、执行命令的办法都不一样。每一处差别只放在一个小模块里（或者用到它的那个模块的一个函数里），别处只调用它 |
 
 建议的阅读顺序：`agent.py` → `tools/base.py` → `tools/todo.py` → `permissions.py` → `providers/base.py`，其余的按兴趣看。
@@ -2882,7 +2935,7 @@ macOS 和 Linux 上替换不在乎文件开没开着，不重试。
 | `data/agents/` | 你定制的 Agent，一个一个 Markdown 文件（Claude Code 的 subagent 格式）。可以在"扩展 → Agent"里管理，也可以手动改 |
 | `data/todos.json` | 待办事项 |
 | `data/tasks.json` | 定时任务，每个任务最近 20 次运行的记录，以及还没关掉的提醒。读不出来时原文件改名为 `tasks.broken.json` 留着，从空的任务列表开始 |
-| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），备用模型（`"fallbacks": {提供方: [模型]}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`，以及语音转文字（`"voice": {"provider", "model", "url", "local_model", "endpoint"}`，改过了才写）。不含密钥 |
+| `data/settings.json` | 你选的模型、同步到的模型列表、自己填的价格、界面语言、每月预算，浏览器和操作整台电脑的设置（`"computer": {"enabled", "unattended", "blocked"}`），命令的沙箱（`"sandbox": {"level", "paths"}`），备用模型（`"fallbacks": {提供方: [模型]}`），关掉了"遮住工具结果里的密钥"的话还有 `"redact_secrets": false`，语音转文字（`"voice": {"provider", "model", "url", "local_model", "endpoint"}`，改过了才写），以及打开了[检查新版本](#更新)的话的 `"update_check": true`。不含密钥 |
 | `data/ledger.jsonl` | 花费账本：每调用一次模型一行（日期、哪一家、哪个模型、对话还是定时任务还是子 Agent、token 数、估算的金额），每转一条语音也一行（来源 `voice`，没有 token，`seconds` 是语音的长短）。超过 90 天的明细合并成每天、每个模型、每种来源一行 |
 | `data/mcp.json` | 你接入的 MCP 服务器，格式和 Claude Desktop 的一样，另外有几项智狐自己的（`enabled`、`approval`、`timeout`）。里面可能有服务器的密钥，所以只有你的账号能读，助手的文件工具也打不开它 |
 | `data/hooks.json` | 你的[钩子](#你的钩子在固定的时刻运行你自己的脚本)：名字 → 事件、matcher、程序和参数、时限、`onFailure`、`runsIn`、`enabled`。参数里可能有令牌，所以只有你的账号能读，助手的文件工具打不开它，导出时遮住 |
@@ -2894,6 +2947,7 @@ macOS 和 Linux 上替换不在乎文件开没开着，不重试。
 | `data/backups/` | 助手整个覆盖某个文件之前，旧版本的备份 |
 | `data/backups/turns/` | 文件工具改过文件的每一轮一个文件夹：一份清单，每个文件这一轮之前（和之后）的样子，撤回时为重做留的那一份。只有你的账号能读，30 天后删掉 |
 | `data/input_history` | 你在终端版里输入过的话（按上方向键可以找回） |
+| `data/updates.json` | 上一次[检查新版本](#更新)查到了什么：什么时候问的、最新的正式版本（版本号、tag、日期、有没有 wheel）、上一次没查成的原因。只有公开的信息。它只是缓存：导出时不带，恢复时不写，删掉也没关系 |
 | `data/restore-backups/` | 每次从备份恢复之前自动留的备份（`zhifox-before-restore-日期-时间.zip`，密钥遮住，最多留最新的 5 份）。从不导出（见"备份和恢复"） |
 | `data/logs/` | macOS 上后台服务的日志 `service.log`，以及最多三份旧的（见"在后台一直运行"） |
 | `data/.web-address`、`data/.web-token` | 后台服务的网页口令（重启前后不变，卸载服务时删掉），和带着它的网页地址。`harness serve --web` 没有终端可以打印的时候（后台服务）写在这里。只有你的账号能读，退出时删掉，导出时不带 |
@@ -2909,6 +2963,8 @@ macOS 和 Linux 上替换不在乎文件开没开着，不重试。
 和别的工具结果一样发给模型的厂商。
 打开了操作整台电脑的话，截下的每一张图（你允许的、这段对话里不再问的、"全部自动允许"下截的）都是你整个屏幕的图，它们也会发给模型的厂商。
 在会话栏里删除一段会话，对应的文件也会被删掉。
+智狐唯一一个不是你叫它做、自己发出去的请求是[检查新版本](#更新)，而且默认关着：打开以后每天问一次 GitHub 最新的发布版，
+GitHub 看得到的只有你的 IP 地址。
 
 想直接看某段会话的文件，点会话栏里它那一行上的"在访达中显示"。这些"在访达中显示"按钮（会话、记忆、定时任务、待办、
 提示词、MCP 服务器、Skill、多媒体里每一项上的，以及记忆、Skill 和浏览器配置文件夹的按钮），除了下面说的一个例外，是页面上仅有的会让电脑启动别的程序
@@ -3078,6 +3134,7 @@ DeepSeek 把中国法定节假日也算作闲时，这些日子没有内置，�
 | `HARNESS_PROVIDER`、`HARNESS_MODEL` | `anthropic`、`claude-opus-5-5` | 还没在界面上选过模型时用哪一个。选过之后以界面上的选择为准 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 用你的 OpenAI 密钥转语音时发到哪里（OpenAI 的 SDK 发对话请求也认它）。只能是 `https://`，或者连这台电脑自己的明文 `http://` |
 | `HARNESS_CHROME` | 自动查找 | 浏览器用哪个 Chrome（或者 Chromium、Edge、Brave）的完整路径。"设置 → 浏览器"里填了路径的话，以那里为准 |
+| `HARNESS_UPDATE_API` | `https://api.github.com` | [检查新版本](#更新)去哪儿问最新的发布版（测试和演示把它指向本地的假服务器）。只认 `https://`，明文的 `http://` 只认这台电脑自己 |
 
 ## 动手试试：加一个自己的工具
 

@@ -33,6 +33,8 @@ def _surfaces(page):
         ("设置 · 备用模型", lambda: _fallbacks(page), ["#settings"], None),
         # 语音转文字：选了"你自己运行的兼容服务"以后多出来的地址、模型名和那一行说明（左边一列名字，窄屏上改成上下两行）
         ("设置 · 语音转文字（你自己运行的服务）", lambda: steps.voice_local(page), ["#settings"], "settings"),
+        # 检查新版本：有新版本时那一块（"在智狐的文件夹（很长的路径）里运行"要折行，"复制命令"在窄屏上挪到下面）
+        ("设置 · 检查新版本（有新版本）", lambda: (steps.open_dialog(page, "#settings-open", "settings"), steps.updates_news(page)), ["#settings"], "settings"),
         # 顶栏上的小面板：窄屏上从底下升起来（见 page/scripts/flyouts.js）
         ("换模型", lambda: steps.open_models(page), ["#models"], lambda: steps.escape_closes_flyout(page, "models", "#model")),
         ("语言", lambda: steps.open_flyout(page, "#language", "languages"), ["#languages"], lambda: steps.escape_closes_flyout(page, "languages", "#language")),

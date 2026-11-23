@@ -4,7 +4,7 @@
 
   data/settings.json   当前用哪家的哪个模型、同步到的模型列表、自己填的价格、界面语言、每月预算、浏览器和"操作整台电脑"的开关、
                        命令的沙箱（哪一档、额外允许的路径）、备用模型、遮不遮工具结果里的密钥、
-                       语音转文字用哪一种（见 voice/settings.py）。不含任何密钥。
+                       语音转文字用哪一种（见 voice/settings.py）、检查不检查新版本（见 updates.py）。不含任何密钥。
   .env                 各家的 API key。这个文件助手自己读不到（见 tools/files.py），
                        执行命令时也看不到里面的内容（见 tools/shell.py），并且不会被提交到 git。
 """
@@ -64,6 +64,9 @@ class Settings:
         self.fallbacks: dict[str, list[str]] = fallback_settings(saved.get("fallbacks"))
         # 语音转文字（见 voice/）：用哪一种、哪个模型、本机服务的地址。默认"自动"：有 OpenAI 的密钥就用它
         self.voice: dict = voice_settings(saved.get("voice"))
+        # 检查新版本（见 updates.py）：每天问一次 GitHub。默认关着：只有明明白白写了 true 才算打开（这是智狐唯一一个
+        # 不是你叫它做事、它自己发出去的请求，所以要你自己打开）
+        self.update_check: bool = saved.get("update_check") is True
 
     def save(self) -> None:
         with self._lock:
@@ -147,6 +150,12 @@ class Settings:
             self.voice = voice_settings({**self.voice, **changes})
             self._write()
 
+    def set_update_check(self, enabled: bool) -> None:
+        """开、关"检查新版本"（见 updates.py）。"""
+        with self._lock:
+            self.update_check = bool(enabled)
+            self._write()
+
     def _write(self) -> None:
         """写回文件。调用的人要先拿到 self._lock。"""
         private_dir(self.path.parent)
@@ -174,6 +183,8 @@ class Settings:
             data["fallbacks"] = self.fallbacks
         if self.voice != VOICE_DEFAULTS:
             data["voice"] = self.voice
+        if self.update_check:  # 默认关着：只有打开了才写
+            data["update_check"] = True
         write_file(self.path, to_json(data, readable=True, indent=2))
 
 
