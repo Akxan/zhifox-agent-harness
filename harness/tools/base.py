@@ -71,8 +71,10 @@ class Tool:
     # 模型调用时用成员的名字（member），并带上 toolset_name（见 providers/claude.py）
     toolset: str = ""
     member: str = ""
-    # 这个工具是哪个工具包的"替身"：模型用不了那个工具包时（别家的模型、不支持它的 Claude 模型）才用它，
-    # 用得了的时候不发。比如浏览器：Claude 用工具包，GPT 用我们自己写的 browser_* 函数工具
+    # 这个工具是谁的"替身"：模型用不了那一个时（别家的模型、不支持它的 Claude 模型）才用它，用得了的时候不发。
+    # 可以是一个工具包，比如浏览器：Claude 用工具包，GPT 用我们自己写的 browser_* 函数工具；
+    # 也可以是 Anthropic 服务器上的一个工具（写它的名字），比如读网页：Claude 开着联网搜索时用服务器上的 web_fetch，
+    # 别家用我们自己写的那一个（见 tools/fetch.py）
     stands_in_for: str = ""
     # 只给看得懂图片的模型：工具全靠截图（操作整台电脑，见 tools/computer.py）。看不了图的模型（DeepSeek）拿不到它，
     # 给了它也只能闭着眼睛乱点
@@ -84,8 +86,12 @@ class Tool:
 
     @property
     def key(self) -> str:
-        """在工具箱里的编号。工具包的成员前面加上包名：成员的名字（navigate、find……）可能和普通工具重名"""
-        return f"{self.toolset}:{self.member}" if self.toolset else self.spec["name"]
+        """在工具箱里的编号。工具包的成员前面加上包名：成员的名字（navigate、find……）可能和普通工具重名。
+        服务器工具前面加上 server:：它们从不在本地执行（循环不会按名字来找它们），而有的和本地的替身同名
+        （Anthropic 服务器上的 web_fetch 和 tools/fetch.py 的那一个）。按名字找到的永远是本地的那一个"""
+        if self.toolset:
+            return f"{self.toolset}:{self.member}"
+        return f"server:{self.spec['name']}" if self.run is None else self.spec["name"]
 
 
 @dataclass(frozen=True)

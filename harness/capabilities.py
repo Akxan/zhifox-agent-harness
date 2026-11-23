@@ -76,6 +76,8 @@ from .tools.browser import TOOLSET as BROWSER
 from .tools.browser import BrowserTool, is_browser
 from .tools.computer import TOOLSET as COMPUTER
 from .tools.computer import DesktopTool, is_computer
+from .tools.fetch import TOOL_NAME as FETCH
+from .tools.fetch import FetchFacts, FetchTool
 from .tools.send import SendFacts, SendTool
 from .tools.shell import ShellTool
 
@@ -525,18 +527,47 @@ def _sandbox_reason(facts: Any) -> str:
 
 
 def _web(context: _Context) -> Capability:
+    """联网：Claude 开着联网搜索时是 Anthropic 服务器上的搜索和读网页；别的时候（别家的模型、HARNESS_WEB=0）是智狐自己的读网页
+    （tools/fetch.py：只读你给的网址，不能搜索），设置里能开关。两种不会同时在一段对话里（见 Backend.sends）。"""
     here = context.here("web")
     provider = context.provider
-    where = {"where": "provider", "where_text": t("在 {provider} 的服务器上执行", provider="Anthropic")}
-    if here:
+    if here and all(tool.run is None for tool in here):
+        where = {"where": "provider", "where_text": t("在 {provider} 的服务器上执行", provider="Anthropic")}
         rules = [context.rule(k("联网搜索、读网页"), [Probe("web_search", {"query": "…"})], k("搜索、读网页直接做"), k("搜索前会问你"))]
         return _item("web", "on", approval=_approval(rules), tools=technical_names(here), **where)
-    if not context.app.config.web:
-        return _item("web", "unavailable", t("联网搜索在启动时关掉了（HARNESS_WEB=0）。"), **where)
-    if not provider.web:
-        reason = t("只有 Claude 能联网搜索、读网页，现在用的是 {provider}。", provider=provider.label)
-        return _item("web", "unavailable", reason, actions=[Action("models", "", t("换模型"))], **where)
-    return _missing(context, "web", _sample("web_search"), _sample("web_fetch"))
+    searches = provider.web and context.app.config.web  # 这家模型本来能在服务器上搜索（那就不会走到下面）
+    if not here and searches:
+        return _missing(context, "web", _sample("web_search"), _sample(FETCH))
+    if not here and context.blocked(_sample(FETCH)):
+        return _item("web", "unavailable", context.persona_reason())
+    return _fetch(context, here, provider)
+
+
+def _fetch(context: _Context, here: list[Tool], provider: Any) -> Capability:
+    """智狐自己的读网页：设置里的开关、这段对话里有没有（开始时定下），合起来是哪种状态（和浏览器一样，见 _switched）。"""
+
+    def approval() -> Approval:
+        def look(facts: FetchFacts) -> Probe:
+            return Probe(FETCH, {"url": facts.url}, FetchTool(spec={"name": FETCH}, stands_in_for=FETCH, facts=lambda _: facts))
+
+        known = [look(FetchFacts(url="https://example.com/", site="https://example.com"))]
+        new = [look(FetchFacts(url="https://example.com/", site="https://example.com", new_site=True))]
+        rules = [
+            context.rule(k("读这段对话里读过的网站"), known, k("读过的网站直接读"), k("读网页前会问你")),
+            context.rule(k("读一个新的网站"), new, k("新网站直接读"), k("每个新网站第一次读之前会问你")),
+        ]
+        note = k("这台电脑、局域网里的地址一律不读；网页里的脚本不执行，不带 Cookie。")
+        return _approval(rules, note=note)
+
+    where = t("在这台电脑上，直接连那个网站（不经过浏览器）")
+    item = _switched(context, "web", here, context.app.settings.web_fetch, "fetch", approval, where_text=where)
+    if item.status == "on":
+        if provider.web and not context.app.config.web:
+            item.reason = t("联网搜索在启动时关掉了（HARNESS_WEB=0），只能读你给的网址。")
+        else:
+            item.reason = t("只能读你给的网址，不能搜索：只有 Claude 能联网搜索，现在用的是 {provider}。", provider=provider.label)
+            item.actions.append(Action("models", "", t("换模型")))  # 要搜索的话：换成 Claude
+    return item
 
 
 def _skill(context: _Context) -> Capability:

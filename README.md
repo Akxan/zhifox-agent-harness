@@ -40,7 +40,8 @@ this LLM agent, from the loop to the provider adapters, is hand-written and live
 
 "ZhiFox" is the English name; in the app itself the name stays "智狐" in every interface language. The repository is
 `zhifox-agent-harness`, but the Python package and the command are still called `harness`, because the project is about
-what a harness is. Web search is available with Claude only. Every web UI conversation is saved automatically on your
+what a harness is. Web search is available with Claude only; the other models can read a page whose address they
+have (`web_fetch`). Every web UI conversation is saved automatically on your
 computer, and you can reopen it from the sidebar or search it by title and content.
 
 ## Highlights
@@ -51,7 +52,7 @@ computer, and you can reopen it from the sidebar or search it by title and conte
 - 🔌 **Four providers, two adapters.** Claude goes through the native Anthropic Messages API; GPT, Gemini and DeepSeek
   share one OpenAI Chat Completions adapter.
 - 🛠️ **Tools that do real work:** to-dos, long-term memory shared by all conversations, reading and writing files,
-  shell commands, and web search (Claude only).
+  shell commands, web search (Claude only), and reading a web page by its address with any provider.
 - 🧭 **Browser use, in a browser of its own.** Turn it on in Settings and the assistant opens pages, reads them, clicks,
   types and takes screenshots in a separate Chrome that ZhiFox launches with its own profile: never your everyday
   browser or its logins. A hand-written DevTools Protocol client talks to it over a pipe, with no debugging port anyone
@@ -521,6 +522,7 @@ Each part of the harness has its own file or directory:
 | Media library | [harness/media.py](harness/media.py) | Keeps the original of every attachment (content-addressed), indexes which conversation and message each one came from, and recovers attachments from older conversations out of their history |
 | Long-term memory | [harness/tools/memory.py](harness/tools/memory.py) | Conversations can't see each other. Memory is shared by all of them, and the assistant decides what to write there |
 | MCP | [harness/mcp/](harness/mcp/) | Tools written by other people live in separate programs. A hand-written MCP client starts or connects to them, lists their tools, calls them for the model, and keeps each conversation's tool list fixed (see [MCP](#mcp-tools-written-by-someone-else)) |
+| Reading web pages | [harness/fetch/](harness/fetch/), [harness/tools/fetch.py](harness/tools/fetch.py) | Only Claude can go online on its own, and the browser needs Chrome. A small read-only fetcher downloads one public `http(s)` page, refuses this computer, your network and cloud metadata addresses (checked after DNS and on every redirect, connecting to the address it checked), and turns the HTML into readable text with the standard library's `html.parser` (see [Reading a web page](#reading-a-web-page-without-a-browser-web_fetch)) |
 | Browser | [harness/browser/](harness/browser/), [harness/tools/browser.py](harness/tools/browser.py), [harness/webui/browser_api.py](harness/webui/browser_api.py) | Web search finds pages, but can't use a site: search it, click through it, fill in a form. ZhiFox starts a separate Chrome of its own and drives it with a hand-written DevTools Protocol client over a pipe; the page is turned into numbered lines the model acts on (see [Browser use](#browser-use-a-chrome-of-its-own)) |
 | Computer use | [harness/desktop/](harness/desktop/), [harness/tools/computer.py](harness/tools/computer.py), [harness/webui/computer_api.py](harness/webui/computer_api.py) | Some jobs aren't in a browser at all: a desktop app, a system dialog, a file to drag from one window to another. As an advanced option that is off by default, the assistant looks at screenshots of your whole screen and moves your mouse and keyboard, asking before each step unless you loosen it (per conversation on the approval card, or Allow everything); screenshots are scaled down and the model's coordinates mapped back to the screen (see [Computer use](#computer-use-your-whole-desktop-advanced)) |
 | Memory panel | [harness/memories.py](harness/memories.py) | You can't see what the assistant remembers. The web UI lists, shows, edits and deletes the memory files, and never lets a path the browser sends leave the memory folder |
@@ -714,7 +716,7 @@ and DeepSeek all support it at different server addresses, so one piece of code 
 | System prompt | A separate parameter | The first message in the history |
 | Tool calls | A "content block" in the reply | A `tool_calls` field on the assistant message; the arguments are a JSON string |
 | Tool results | All results in one message | One message per result |
-| Web search | Yes, run on Anthropic's servers | No |
+| Web search | Yes, run on Anthropic's servers | No. ZhiFox's own `web_fetch` reads a page by its address, but can't search (see [Reading a web page](#reading-a-web-page-without-a-browser-web_fetch)) |
 | Very long conversations | Anthropic's API condenses earlier content into a summary on its servers | ZhiFox asks the model for a summary and replaces the earlier content (see the next section) |
 | Caching | We mark it in the request | Each provider handles it automatically |
 
@@ -1198,7 +1200,8 @@ sources, so they are no longer dropped:
   else (a tool call, a notice, your next message, the end of the turn) ends it. Live streaming goes through the same
   code, so a reply that resumes after `pause_turn` looks the same live and after a refresh.
 
-GPT, Gemini and DeepSeek have no web search, so their answers never carry sources.
+GPT, Gemini and DeepSeek have no web search, so their answers never carry sources (a page read with `web_fetch` isn't
+turned into citations either).
 
 ### Several conversations at once
 
@@ -1439,7 +1442,7 @@ The difference is who writes the spec and who runs the tool:
 
 | Kind | Spec written by | Runs on | Examples here |
 |---|---|---|---|
-| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)), sending a file into the chat (chat channels only, [send.py](harness/tools/send.py)) |
+| Custom tools | Us | Your computer | To-dos ([todo.py](harness/tools/todo.py)), scheduled tasks ([tasks.py](harness/tools/tasks.py)), running commands ([shell.py](harness/tools/shell.py)), reading skills ([skill.py](harness/tools/skill.py)), reading a web page for models without web tools ([fetch.py](harness/tools/fetch.py)), sending a file into the chat (chat channels only, [send.py](harness/tools/send.py)) |
 | Anthropic-defined tools | Anthropic | Your computer | Reading and writing files ([files.py](harness/tools/files.py); viewing an image returns the image itself, decided by its first bytes rather than its extension; models that can't see images, like DeepSeek, get a note instead), memory ([memory.py](harness/tools/memory.py)), the browser and computer use for Claude ([browser.py](harness/tools/browser.py), [computer.py](harness/tools/computer.py)) |
 | Server tools | Anthropic | Anthropic's servers | Web search ([web.py](harness/tools/web.py)) |
 
@@ -1740,6 +1743,61 @@ environment variables and headers never reach the browser, only their last 4 cha
 in [registry.py](harness/imports/registry.py), plus a reader in [mcp_shapes.py](harness/imports/mcp_shapes.py) or
 [agent_formats.py](harness/imports/agent_formats.py) when its format is new. YAML is read by a small, safe subset parser
 ([yaml_lite.py](harness/imports/yaml_lite.py)) rather than a new dependency: anchors, aliases and tags are refused.
+
+### Reading a web page without a browser (`web_fetch`)
+
+Claude reads the web through two tools that run on Anthropic's servers: web search and web fetch. GPT, Gemini, DeepSeek
+and models on custom endpoints have nothing like that, and the browser needs Chrome and a switch in Settings. Very
+often the model only wants to read the address you just pasted. For that ZhiFox has a small read-only tool of its own,
+`web_fetch`, in [harness/fetch/](harness/fetch/): it downloads one `http` or `https` page, keeps the readable text and
+hands it to the model. It doesn't run scripts and sends no cookies, no login and no key. **It is not a search**: the
+model has to know the address (one you gave it, or a link on a page it has read).
+
+| File | What it does |
+|---|---|
+| [guard.py](harness/fetch/guard.py) | Which addresses it never goes to, and what a URL means (only `http`/`https`; a user name or password in the address, or an odd numeric host like `2130706433` or `0x7f.1`, is refused) |
+| [client.py](harness/fetch/client.py) | The request: resolve the name once, check every address, connect to the one it checked, follow redirects itself and check each hop again; limits on time, size and redirects |
+| [charset.py](harness/fetch/charset.py) | Bytes into text: the BOM, the `Content-Type` header, the page's own `<meta charset>`, then UTF-8 or windows-1252, with the browser's aliases (gb2312 read as gb18030…) |
+| [readable.py](harness/fetch/readable.py) | HTML into readable text with the standard library's `html.parser`: title and description first, then headings, paragraphs, lists, tables and `<pre>`, a capped number of links as "text (url)"; scripts, styles, navigation, footers and hidden elements are dropped (hidden text is a favourite hiding place for instructions aimed at the model) |
+| [content.py](harness/fetch/content.py) | Picks a reader by type: web pages, plain text and JSON, Word / Excel / PowerPoint (the same reader as attachments). PDFs, images and other files are refused with a reason |
+| [session.py](harness/fetch/session.py) | One run's state: the sites allowed in this conversation and how many pages this message has read |
+| [tools/fetch.py](harness/tools/fetch.py) | What the model sees: a fixed description, one `url` parameter, and a result that starts by saying the page is third-party material, not instructions |
+
+**Who gets it.** GPT, Gemini, DeepSeek and custom endpoints. Claude with web search on already has Anthropic's
+`web_fetch`, so ZhiFox's one isn't sent to it (they share the name, so `WebFetch` in an Agent file means whichever one
+the conversation has). With `HARNESS_WEB=0` Claude gets ZhiFox's one too. It is on by default; turn it off in
+**Settings → Read web pages**. Like the browser, it belongs to a conversation from its start: switched off later, the
+tool stays and answers that it's off, and a conversation that used it gets it back when reopened.
+
+**The security boundary.** This is a hard rule with no switch; for pages on your own computer or network, use the
+[browser](#browser-use-a-chrome-of-its-own).
+
+- Every address a name resolves to must be public. Loopback (127.0.0.0/8, `::1`), private networks (10/8, 172.16/12,
+  192.168/16, `fc00::/7`), link-local (169.254/16, where the cloud metadata address 169.254.169.254 lives, and
+  `fe80::/10`), carrier-grade NAT (100.64/10), multicast, reserved and unspecified addresses (`0.0.0.0`, `::`) are
+  refused. An IPv4 address hidden in IPv6 (`::ffff:127.0.0.1`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) is judged by
+  the IPv4 inside. If a name resolves to one public and one private address, nothing is fetched. The list is ZhiFox's
+  own, not Python's `is_private`, whose answers changed between Python versions.
+- The address that was checked is the address it connects to: the name is resolved once, so a second DNS answer
+  (DNS rebinding) can't swap in 127.0.0.1. TLS still checks the certificate against the name, and the `Host` header
+  carries the name.
+- ZhiFox follows redirects itself, at most 5, and checks every hop from scratch: a public site can't bounce the request
+  to `http://169.254.169.254/`.
+- It doesn't go through `HTTP(S)_PROXY`: behind a proxy, the proxy resolves and connects, and the check would mean
+  nothing.
+- Limits, in [config.py](harness/config.py): 5 MB downloaded (counted after decompression, so a gzip bomb stops there),
+  20 seconds for the whole fetch including redirects (a watchdog cuts off a server that sends one byte at a time),
+  30,000 characters handed to the model (with a note saying how much was left out), and the per-message cap shared
+  with Claude's web search (`HARNESS_MAX_SEARCHES`, 5 by default). The request is a plain `GET` with
+  `User-Agent: ZhiFox/<version>`; no `Accept-Language` either, since that says something about you.
+
+**Asking you.** An address can carry data out: a model misled by a page could fetch `evil.example/?data=your mail`.
+So the first fetch from each site in a conversation asks you, and the card shows the full address. Once allowed, that
+site doesn't ask again in the conversation (a redirect to another host doesn't allow that host); a new conversation
+asks again. Allow everything doesn't ask; Allow read-only commands and Allow file edits still ask, because this sends
+something out rather than reading your computer. Scheduled tasks and chat channels follow their own approval mode.
+Text in the page that looks like a key is masked like any other tool result, and rewinding a turn counts a fetch as
+"only looked".
 
 ### Browser use: a Chrome of its own
 
@@ -2374,6 +2432,8 @@ channels and subagents all use the same switch.
 | Running one command outside the sandbox (`unsandboxed: true`, only while the sandbox is on) | Asks every time, in every mode, Allow everything included, with a warning on the card and no way to stop asking. A scheduled task or chat channel set to Allow everything can't ask at all, so there it is refused |
 | Any command while the sandbox is on but can't work on this computer | Refused without asking; the model is told why and how to fix it or switch the sandbox off |
 | Web search | Runs directly (on Anthropic's servers, without touching your computer), with a cap on the number of searches |
+| Reading a web page (`web_fetch`, models without web tools): a site already read in this conversation | Runs directly |
+| Reading a web page: a site not yet read in this conversation | Asks you first, and shows the full address (it is sent to that site). Once allowed, that site doesn't ask again in this conversation. Allow read-only commands and Allow file edits still ask; Allow everything doesn't. Addresses on this computer or your network are refused without asking (see [Reading a web page](#reading-a-web-page-without-a-browser-web_fetch)) |
 | Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
 | Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
 | Browser: opening a site already visited in this conversation; back, forward, reload | Runs directly |
@@ -2940,7 +3000,8 @@ chat. Each row says:
 - **whether this conversation can use it**: *in use*, *next chat* (turned on in Settings after the conversation
   started: a conversation's tools are fixed when it starts, so it takes effect in the next one), *off* (with the reason
   and a button that opens the right place: the Browser or Computer use section of Settings, the Skills / MCP / Agents
-  tab of Extensions, or **Start a new conversation**), or *unavailable here* (only Claude can search the web; a model
+  tab of Extensions, or **Start a new conversation**), or *unavailable here* (only Claude can search the web, and the
+  other models show *Read web pages* in that row instead; a model
   that can't see images, like DeepSeek, can't use computer use; this computer has no desktop to control; the persona of
   this conversation doesn't allow it; sending files only exists in chat channels; when another model would do, a
   **Switch model** button opens the model switcher). Unavailable rows are folded away at the bottom.
@@ -2950,7 +3011,8 @@ chat. Each row says:
   and the labels change with it. Computer use, for example, has three lines (clicking, typing and keys; screenshots;
   dangerous key combinations): its label is *Asks first* in Ask every time, and *Asks some* under Allow everything or
   once you've stopped being asked in the conversation, because dangerous key combinations still ask.
-- **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server. With the
+- **where it runs**: on this computer, on Anthropic's servers (web search), or in a third-party MCP server (reading a
+  web page with `web_fetch` runs on this computer, connecting straight to the site). With the
   [sandbox](#sandbox-for-commands-what-a-command-can-reach) on, **Run commands** also says which level its commands run
   in, or, in red, that the sandbox can't be used on this computer and commands will be refused, with a **Sandbox**
   button that opens Settings there.
@@ -3750,7 +3812,9 @@ What the program does to keep cost under control:
 - **Monthly budget.** Optional, in Settings. Passing it shows one reminder and never stops anything, including
   scheduled tasks.
 - **Search caps.** For each message you send, Claude can search the web at most 5 times and fetch at most 5 pages; past
-  that, it answers with what it has. The API enforces this cap. Each web search costs $0.01 on top of tokens.
+  that, it answers with what it has. The API enforces this cap. Each web search costs $0.01 on top of tokens. ZhiFox's
+  own `web_fetch` (models without web tools) has the same cap of 5 pages per message, enforced by ZhiFox, and costs
+  only the tokens of the text it hands over.
 - **Caching.** Parts that are sent again and again cost far less once they hit the cache (for Claude, about a twentieth
   of the normal input price). The cache lasts only a few minutes, so when you come back to a long old conversation after
   a while, the first message is billed at the full price for the whole history. Opening an old conversation of more than
@@ -3817,8 +3881,8 @@ Set these in `.env`. All of them are optional:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HARNESS_MAX_SEARCHES` | `5` | Maximum web searches per message; `0` means no limit |
-| `HARNESS_WEB` | `1` | Set to `0` to turn off web search completely |
+| `HARNESS_MAX_SEARCHES` | `5` | Maximum web searches per message, and page reads (Claude's web fetch, and ZhiFox's `web_fetch` for the other models); `0` means no limit |
+| `HARNESS_WEB` | `1` | Set to `0` to turn off web search on Anthropic's servers completely. Claude then gets ZhiFox's `web_fetch` instead (switch that off in **Settings → Read web pages**) |
 | `HARNESS_EFFORT` | `medium` | How hard Claude thinks: `low` / `medium` / `high` / `xhigh` / `max` |
 | `HARNESS_DATA_DIR` | The project's `data/`; installed with one command, the folder of your account (see [Install with one command](#install-with-one-command)) | Where memory, to-dos, settings and other data are stored |
 | `HARNESS_PROVIDER`, `HARNESS_MODEL` | `anthropic`, `claude-opus-5-5` | Which model to use before you've chosen one in the interface. Once you have, your choice takes precedence |
@@ -4313,7 +4377,11 @@ more often a bug in a task or a check than a fact about the model.
 - The evals (`harness eval`) have only been run as dry runs against the local fake servers; no real run has been done
   yet, so the starter tasks' scores and the cost estimate haven't been checked against a real model. The served model
   isn't checked against the one asked for (a server-side fallback after a refusal shows up only as a note in the trace).
-- With GPT, Gemini and DeepSeek there is no web search.
+- With GPT, Gemini and DeepSeek there is no web search. They can read a page whose address they already have
+  (`web_fetch`), but fetching is not searching. It doesn't run JavaScript, so pages that build their content with
+  scripts come out empty or partial (use the browser for those), it reads no PDFs, and it doesn't use a proxy, so a
+  site you can only reach through `HTTPS_PROXY` can't be read. It has only been tested against local fake sites, not
+  real ones (TLS included).
 - Custom model endpoints have been tested only against local fake servers that imitate Ollama, LM Studio and partial
   OpenAI-format servers, not a real Ollama, LM Studio, vLLM, llama.cpp or gateway. A server that doesn't report usage
   while streaming shows no token counts and its conversations aren't compacted. PDFs reach a custom endpoint only in
@@ -4414,7 +4482,8 @@ file. Use it to learn how an LLM agent works, or as a starting point you underst
 
 Only what the model needs to answer. Your messages, the conversation history and tool results (for example, the contents
 of a file the assistant reads) go to the API of the provider you chose; with Claude, web searches also run on Anthropic's
-servers. If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
+servers. With another model, a page read with `web_fetch` is fetched from this computer: that site sees the address,
+your IP address and `ZhiFox/<version>`, and nothing else (no cookies, no language, no key). If you connect MCP servers, the arguments of each MCP tool call you approve go to that server. With browser
 use on, the sites the assistant opens see an ordinary visit from ZhiFox's own Chrome, and what it reads there goes to
 the provider. With computer use on (off by default), the screenshots of your screen that you approve go to the
 provider as well. With a custom endpoint on this computer or your local network (Ollama, LM Studio…), all of this stays

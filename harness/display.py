@@ -30,6 +30,8 @@ def describe_call(name: str, tool_input: object) -> str:
         return short(f"{name} {tool_input.get('name')} · {' '.join(str(tool_input.get('task') or '').split())}", 200)
     if name == "send_file":  # 往聊天里发一个文件：send_file screen.png
         return short(f"{name} {tool_input.get('path')}", 200)
+    if name == "web_fetch" and isinstance(tool_input.get("url"), str):  # 读一个网页：web_fetch https://example.com/page
+        return short(f"{name} {tool_input['url']}", 200)
     if name == "skill":  # 读一个 Skill：skill pdf，或者 skill pdf references/FORMS.md
         return short(f"{name} {tool_input.get('name')} {tool_input.get('file') or ''}".rstrip(), 200)
     if name.startswith(("browser.", "browser_")):  # 浏览器：browser.navigate https://…、browser.left_click ref_12

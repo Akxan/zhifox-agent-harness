@@ -60,6 +60,8 @@ class Settings:
         self.sandbox: dict = sandbox_settings(saved.get("sandbox"))
         # 遮住工具结果里像密钥的东西（见 redact.py）。默认开着：只有明明白白写了 false 才算关掉
         self.redact_secrets: bool = saved.get("redact_secrets") is not False
+        # 读网页（web_fetch，见 fetch/）：给没有联网工具的模型用。默认开着（每个新网站照样先问你）：只有明明白白写了 false 才算关掉
+        self.web_fetch: bool = saved.get("web_fetch") is not False
         # 备用模型（见 fallback.py）：{提供方: [模型, …]}，一个模型暂时用不了时按顺序改用。默认没有：不换
         self.fallbacks: dict[str, list[str]] = fallback_settings(saved.get("fallbacks"))
         # 语音转文字（见 voice/）：用哪一种、哪个模型、本机服务的地址。默认"自动"：有 OpenAI 的密钥就用它
@@ -135,6 +137,12 @@ class Settings:
             self.redact_secrets = bool(enabled)
             self._write()
 
+    def set_web_fetch(self, enabled: bool) -> None:
+        """开、关"读网页"（见 fetch/）。"""
+        with self._lock:
+            self.web_fetch = bool(enabled)
+            self._write()
+
     def set_fallbacks(self, provider: str, models: list[str]) -> None:
         """记下一家的备用模型（按顺序；空的列表表示这一家不用备用模型）。"""
         with self._lock:
@@ -170,6 +178,8 @@ class Settings:
             data["sandbox"] = self.sandbox
         if not self.redact_secrets:  # 默认开着：只有关掉了才写
             data["redact_secrets"] = False
+        if not self.web_fetch:  # 也是默认开着
+            data["web_fetch"] = False
         if self.fallbacks:
             data["fallbacks"] = self.fallbacks
         if self.voice != VOICE_DEFAULTS:

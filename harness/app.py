@@ -38,6 +38,8 @@ from .desktop.manager import DesktopManager
 from .desktop.session import DesktopSession
 from .endpoints import PREFIX as ENDPOINT_PREFIX
 from .endpoints import EndpointError, EndpointStore
+from .fetch.client import Fetcher
+from .fetch.session import FetchSession
 from .hooks import HookConfig, HookRun, Hooks
 from .i18n import t
 from .ledger import Ledger
@@ -75,6 +77,8 @@ from .tools.browser import make_browser_tools
 from .tools.browser import used_in as browser_used_in
 from .tools.computer import make_computer_tools
 from .tools.computer import used_in as computer_used_in
+from .tools.fetch import FetchTool, make_fetch_tool
+from .tools.fetch import used_in as fetch_used_in
 from .tools.files import FileEditor
 from .tools.send import make_send_tool
 from .tools.shell import Shell, make_shell_tool
@@ -117,6 +121,8 @@ class Chat:
     tools: ToolRegistry  # 它自己的那一套基本工具：和 App.tools 一样，只是 run_command 用的是它自己的 shell
     browser: BrowserSession  # 它用的浏览器：它自己的标签页、这段对话里允许过的网站。换一段对话就换一个
     desktop: DesktopSession  # 它的电脑操作："这段对话里截图不再问""点击、打字不再问"记在它上面。换一段对话就换一个
+    # 它读网页（见 fetch/）的那一份：这段对话里允许过的网站、这条消息里读了几次。换一段对话就换一个
+    fetch: FetchSession = field(default_factory=FetchSession)
     owner: object | None = None  # 它的 MCP 调用记在谁名下（见 McpManager.call）：一开始的那一段是 None，后来开的每段各一个
     # 这段对话的适配层用的是哪一版提示词。和 App.system_prompt 不一样，说明用户改过了：
     # 这一段照旧用它开始时的那版，下一段新对话（或者打开另一段会话）时换上新的
@@ -154,6 +160,8 @@ class App:
     permissions: Permissions
     redact: Any = None  # 遮密钥（见 redact.py）：你的每段对话、定时任务、聊天通道、子 Agent 都用这同一个
     fallbacks: Callable[[str, str], list[str]] | None = None  # 备用模型的名单（见 fallback.py），每次现读设置
+    # 读网页时真正去取的那一个（见 fetch/client.py）。程序里从来不换；测试换成一个能连本地假网站的（不在设置里，模型也碰不到）
+    fetcher: Fetcher = field(default_factory=Fetcher)
     chat: Chat = None  # type: ignore[assignment]  # 你正看着的这一段（见 Chat）。build_app 建好以后才有
     # 此刻活着的每一段（包括正看着的这一段）。网页界面换成它自己的那份名单（见 webui/sessions.py）；终端只有 chat 这一段
     live: Callable[[], Sequence[Chat]] | None = None
@@ -451,7 +459,11 @@ class App:
         # 聊天通道里的会话还有 send_file（发到这个聊天里）。放的位置和网页上打开这段会话时一样（见 conversation_tools）：
         # 两边的工具清单一字不差，在网页上接着聊也照样命中缓存
         own_send = [make_send_tool(self.permissions.editor, outlet)] if source == "channel" else []
-        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_browser, *own_desktop, *own_send])
+        # 读网页：这次运行自己的一份（允许过的网站、这条消息里读了几次）。聊天通道里一段会话跑很多轮，一直用这一份：
+        # 这段会话里允许过的网站不再问。放的位置和网页上一样（见 conversation_tools），两边的工具清单才对得上
+        fetch_session = FetchSession()
+        own_fetch = [self._fetch_tool(lambda: fetch_session, lambda: agent.turns)] if self.settings.web_fetch else []
+        tools = ToolRegistry([*self.tools.replaced(make_shell_tool(shell)), *own_fetch, *own_browser, *own_desktop, *own_send])
         backend = self._backend_for(provider_id, model, persona)
         agent = Agent(backend=backend, config=self.config, tools=tools, permissions=permissions, ui=ui, clock=self.agent.clock)
         # 也能把事情交给子 Agent：它的 agent 工具由它自己来"叫"（确认按这次运行的那一档，停止只停这次运行，见 agents/runner.py）
@@ -533,6 +545,7 @@ class App:
         chat.agent.usage.context_tokens = 0
         self._fresh_browser(chat)
         self._fresh_desktop(chat)
+        self._fresh_fetch(chat)
         # 手里的工具换成新的这一段会用的（它还没开始，换了不丢任何东西）：角色只放开的那些、上一段中途打开的浏览器……
         # 上一段是网页上打开的聊天通道会话的话，新的这一段不在聊天软件里，不带 send_file。
         # 信息栏里"智狐能做的事"照着手里的工具画（见 toolbox），不换的话第一条消息之前列的还是上一段的
@@ -598,6 +611,7 @@ class App:
         chat.persona = persona
         self._fresh_browser(chat)
         self._fresh_desktop(chat)
+        self._fresh_fetch(chat)
         chat.conversation = conversation  # 先换上：它的工具要看它是不是在聊天通道里开始的（见 conversation_tools）
         self.fresh_tools(chat)  # 接着聊也算这一次运行里"开始"的一段对话：用此刻的 MCP 工具，之后不再变
         chat.agent.usage.context_tokens = conversation.context_tokens
@@ -639,8 +653,21 @@ class App:
         # 操作整台电脑也一样：设置里开着才带上（工具包的说明书每次请求约 4500 个 token），用过它的旧会话也带上
         desktop = make_computer_tools(lambda: chat.desktop, lambda: self.desktop.enabled) if self._wants_computer(chat) else []
         send = [make_send_tool(self.permissions.editor, None)] if channel else []
-        tools = [*chat.tools, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
+        # 读网页（见 tools/fetch.py）：和浏览器一样，设置里开着才带上，用过它的旧会话也带上。Claude 开着联网搜索时不发给它
+        # （服务器上本来就有一个，见 Backend.sends）。它的那一份状态每次调用时现找：换一段对话时 chat 换上新的（见 _fresh_fetch）
+        fetch = [self._fetch_tool(lambda: chat.fetch, lambda: chat.agent.turns)] if self._wants_fetch(chat) else []
+        tools = [*chat.tools, *fetch, *browser, *desktop, *send, *([delegate] if delegate else []), *mcp_tools]
         return ToolRegistry(agent_tools.allowed(persona.spec.tools, tools) if persona is not None else tools)
+
+    def _fetch_tool(self, session: Callable[[], FetchSession], turn: Callable[[], object]) -> FetchTool:
+        """读网页的工具。开没开每次现看设置；每条消息最多读几次和 Claude 的联网搜索共用一个数（HARNESS_MAX_SEARCHES）。"""
+        return make_fetch_tool(session, lambda: self.settings.web_fetch, lambda: self.fetcher, turn, self.config.max_searches)
+
+    def _wants_fetch(self, chat: Chat) -> bool:
+        if self.settings.web_fetch:
+            return True
+        backend = chat.agent.backend
+        return fetch_used_in(backend.export()) if backend is not None else False
 
     def _wants_browser(self, chat: Chat) -> bool:
         if self.browser.enabled:
@@ -659,6 +686,10 @@ class App:
         old, chat.desktop = chat.desktop, self.desktop.session(desktop_labels.CHAT, attended=True)
         old.close()
 
+    def _fresh_fetch(self, chat: Chat) -> None:
+        """换了一段对话：读网页时"允许过的网站"不再算数，新的这一段从头再问。"""
+        chat.fetch = FetchSession()
+
     def _fresh_browser(self, chat: Chat) -> None:
         """换了一段对话：上一段的浏览器标签页关掉，"允许过的网站"也不再算数。新的这一段用一个新的。"""
         old, chat.browser = chat.browser, self.browser.session("chat")
@@ -670,7 +701,7 @@ class App:
         threading.Thread(target=chat.browser.close, daemon=True).start()  # 和 _fresh_browser 一样：不让别人等它
 
     def refresh_tools(self, chat: Chat | None = None) -> None:
-        """设置里开、关了浏览器（或者"操作整台电脑"）：这段对话还没开始的话，马上换上（信息栏里的工具清单跟着变）；开始了的不动（见 conversation_tools）。"""
+        """设置里开、关了浏览器（或者"操作整台电脑"、读网页）：这段对话还没开始的话，马上换上（信息栏里的工具清单跟着变）；开始了的不动（见 conversation_tools）。"""
         chat = chat or self.chat
         if not chat.agent.backend.export():
             chat.agent.use_tools(self.conversation_tools(chat.persona, chat=chat))

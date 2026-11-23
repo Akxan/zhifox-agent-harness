@@ -22,6 +22,9 @@
                                     只有沙箱开着时才有这回事；没人看着、又选了"全部自动允许"的定时任务和通道根本不许（见 sandbox/session.py）
   调用 MCP 服务器的工具             先问用户（除非你把这个工具或整个服务器设成了"不用问"）
   联网搜索                          直接执行（在 Anthropic 的服务器上进行，不碰你的电脑）
+  读网页（web_fetch）：这段对话里读过的网站   直接执行
+  读网页：一个新的网站              先问用户，卡片上是完整的网址。允许以后，这段对话里再读这个网站不再问。
+                                    这台电脑、局域网里的地址一律不读（不问你，工具直接回答，见 fetch/）
   浏览器：读页面、截图、滚动、换标签页   直接执行
   浏览器：打开这段对话里去过的网站  直接执行（后退、前进、刷新也是）
   浏览器：打开一个新的网站          先问用户。允许以后，这段对话里再去这个网站不再问
@@ -47,7 +50,7 @@
   ask        每次都问
   readonly   只读的命令不用问：只是看、不改东西的命令（ls、cat、grep、df、git status、journalctl……，
              怎么判断见 commands/），加上读工作目录之外的文件，不问就做；你自己加的"不用问的命令"（commands/allowlist.py）
-             也在这一档里不问。改文件、别的命令、MCP、浏览器、发文件照常问。
+             也在这一档里不问。改文件、别的命令、MCP、浏览器、读网页、发文件照常问。
              读 .env 这类密钥文件、助手自己的数据目录、~/.ssh 这类地方，哪怕只是 cat，也照常问
   edits      改工作目录里的文件不用问（不算助手自己的数据目录）。命令一律照常问，包括只读的
   all        全部自动允许
@@ -66,6 +69,12 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 "打开 evil.com/?data=你的邮件"）。点页面上已有的链接不问：链接是页面自己的，带不走它不知道的东西。
 密码和银行卡永远要你亲眼看一下，哪怕你选了"全部自动允许"：被网页带偏的模型最想要的就是这两样。
 "这段对话里允许过的网站"记在这段对话自己的浏览器上（BrowserSession.allowed_sites），换一段对话就从头再问。
+
+读网页（web_fetch，给没有联网工具的模型用，见 fetch/）是同一个道理，只是更简单：它只会 GET 一个网址、不输入不点击，
+所以要问的只有"去一个新的网站"这一件：网址本身就能把东西带出去（被网页里的一句话带偏的模型去读 evil.com/?data=你的邮件），
+卡片上写着完整的网址，你看得到带出去的是什么。允许过的网站记在这次运行自己的 FetchSession 上（fetch/session.py），
+和浏览器的那一份分开；换一段对话从头再问。"只读的命令不用问""改工作目录里的文件不用问"两档都不放开它：它不是读你的电脑，
+是往外发；"全部自动允许"不问。定时任务和聊天通道按它们自己的那一档。这台电脑、局域网里的地址不归这里管：一律不读（见 fetch/guard.py）。
 
 操作整台电脑的规矩为什么是这样（见 desktop/__init__.py）：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，
 而智狐只看得到像素，没法像浏览器那样替你判断"点下去会不会提交什么"。所以默认除了"等一等"，每一步都要你亲眼看一下，
@@ -119,6 +128,7 @@ from .tools import tasks as task_tools
 from .tools.base import ToolError
 from .tools.browser import BrowserTool
 from .tools.computer import DesktopTool
+from .tools.fetch import FetchFacts, FetchTool
 from .tools.files import FileEditor
 from .tools.send import SendFacts, SendTool
 from .tools.shell import ShellTool
@@ -277,6 +287,8 @@ class Permissions:
             return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0] or "?", tool=found[1], args=_preview(shown, 40))
         if isinstance(tool, BrowserTool):
             return review_browser(tool.look(tool_input))
+        if isinstance(tool, FetchTool):
+            return review_fetch(tool.look(tool_input))
         if isinstance(tool, DesktopTool):
             return review_computer(tool.look(tool_input))
         if isinstance(tool, SendTool):
@@ -516,6 +528,22 @@ def review_browser(facts: Facts) -> str | None:
             return t("在网页上按回车，会按下“{name}”（{role}），可能会提交表单。\n\n  网页：{page}", name=facts.name or "?", role=_role(facts), page=_page(facts))
         return None
     return None
+
+
+# ---- 读网页 --------------------------------------------------------------------
+
+
+def review_fetch(facts: FetchFacts) -> str | None:
+    """读一个网页要不要问你（规矩见文件开头）：这段对话里第一次读一个网站之前问。读不了的（不是 http(s)、写法古怪……）不问：
+    工具会直接把原因告诉模型（Tool.check），什么都不会发出去。卡片上是完整的网址：带出去的就是它。"""
+    if facts.refusal or not facts.url or not facts.new_site:
+        return None
+    return t(
+        "读一个网页（这个网址会原样发给那个网站）：\n\n    {url}\n\n这段对话里还没读过 {site} 的网页。网址里的每一段（包括 ? 后面的）那个网站都看得到。"
+        "允许以后，这段对话里再读这个网站就不再问。",
+        url=urls.shown(facts.url, urls.MAX_URL_CHARS),
+        site=facts.site,
+    )
 
 
 # ---- 操作整台电脑 --------------------------------------------------------------

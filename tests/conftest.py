@@ -24,6 +24,7 @@ from harness import i18n, providers, winacl
 from harness.app import build_app
 from harness.config import Config
 from harness.desktop import backend as desktop_backend
+from harness.fetch import client as fetch_client
 from harness.imports import places as import_places
 from harness.service import base as service_base
 from harness.service import cli as service_cli
@@ -197,6 +198,12 @@ def isolated_environment(monkeypatch, tmp_path):
     # 操作整台电脑：测试永远碰不到真的屏幕、鼠标和键盘。"这台电脑上用哪个后端"一律回答"用不了"，
     # 要测的换成假的（fake_desktop.install）；只在虚拟屏幕（Xvfb）上测真的后端（test_desktop_x11.py 自己建它）
     monkeypatch.setattr(desktop_backend, "detect", lambda: (None, desktop_backend.PLATFORM))
+    # 读网页（harness/fetch/）：测试永远不解析真的域名、不连真的网站。要测的给 Fetcher 一个假的 resolve
+    # （和只放行本地假网站的 policy，见 tests/fetch_rig.py）；真的地址规矩只拿地址本身测（tests/test_fetch_guard.py）
+    def no_dns(host, port):
+        raise OSError(f"测试里不许解析真的域名：{host}")
+
+    monkeypatch.setattr(fetch_client, "system_resolve", no_dns)
     # 命令的沙箱：测试里默认用假的（能用，只记下"本该在沙箱里"，命令照原样运行），不建真的沙箱。
     # 真的 sandbox-exec、bwrap 只在 test_sandbox_macos.py、test_sandbox_linux.py 里测
     fake_sandbox.install(monkeypatch)

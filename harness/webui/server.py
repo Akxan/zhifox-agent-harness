@@ -80,6 +80,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
                        测试连接和同步模型（请求从这里发出去，页面从来不直接连那个地址）、在访达中显示 endpoints.json（见 endpoints_api.py）
   POST /api/fallbacks  用户排好了一家的备用模型（模型暂时用不了时改用的同一家的模型，见 fallback_api.py）
   POST /api/redact     用户开、关"遮住工具结果里的密钥"（见 redact.py 和 settings_api.py）
+  POST /api/web-fetch  用户开、关"读网页"（给没有联网工具的模型用，见 fetch/ 和 settings_api.py）
   POST /api/task/save、delete、toggle           新建或修改、删除、打开或关掉一个定时任务（见 tasks.py、scheduler.py 和 tasks_api.py）
   POST /api/task/run、stop                      立即运行一次（回答里的 queued 说明是不是在排队）、停下正在排队或者正在运行的那一次
   POST /api/task/confirm                        答复定时任务停在那里等的确认（没人看着时它要你批准才动手）
@@ -316,6 +317,8 @@ class Handler(BaseHTTPRequestHandler):
             settings_api.route_budget(self, web, body)
         elif path == "/api/redact":
             settings_api.route_redact(self, web, body)
+        elif path == "/api/web-fetch":
+            settings_api.route_web_fetch(self, web, body)
         elif path == "/api/export/info":
             self._send_json(200, {"ok": True, **web.export_info()})
         elif path == "/api/export":

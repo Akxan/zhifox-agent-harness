@@ -1,8 +1,9 @@
-"""设置里别的几样：界面语言、"要不要每次都问"、遮住工具结果里的密钥、每月预算，以及花费明细和导出之前的信息。
+"""设置里别的几样：界面语言、"要不要每次都问"、遮住工具结果里的密钥、读网页、每月预算，以及花费明细和导出之前的信息。
 
   POST /api/language     换界面语言（不刷新页面，见 set_language）
   POST /api/approval     更改"要不要每次都问"（只记在内存里）
   POST /api/redact       开、关遮密钥（见 ../redact.py）
+  POST /api/web-fetch    开、关读网页（见 ../fetch/）
   POST /api/budget       填写或清除每月预算（见 ../budget.py）
   POST /api/ledger、/api/export/info   各是一行，在 server.py 的 _route 里：spend_report、export_info
   （模型、密钥、价格在 models_api.py；导出本身发一个 zip，在 server.py 的 _send_export）
@@ -42,6 +43,17 @@ class SettingsActions(WebAppPart):
         下一个工具的结果就按新的来。"""
         self.app.settings.set_redact(enabled)
         self.publish_state()
+
+    def set_web_fetch(self, enabled: bool) -> str:
+        """开、关"读网页"（见 fetch/）。和浏览器一样：你正看着的这段对话还没开始的话马上换上（信息栏跟着变），
+        已经开始了的工具不变（说明书在一段对话里不变），关掉以后再用会回答"关着"。交回要提醒你的一句话（没有是空的）。"""
+        before = self.app.settings.web_fetch
+        self.app.settings.set_web_fetch(enabled)
+        warning = ""
+        if before != enabled and self.refresh_tools():
+            warning = t("这段对话已经开始了，读网页从下一段新对话开始生效。") if enabled else t("这段对话里读网页的工具还在，但再用会告诉助手“读网页关着”。")
+        self.publish_state()
+        return warning
 
     def spend_report(self) -> dict:
         """"花费明细"窗口要的全部数字。只读内存里的汇总，对话进行中也可以看。"""
@@ -104,6 +116,18 @@ def route_budget(handler: Handler, web: WebApp, body: dict) -> None:
         web.set_budget(None if amount is None else float(amount))
         # 带上存完以后的花费：设的预算比这个月已经花的还少时，页面当场就能说清楚（提示框会被设置面板挡住）
         handler._send_json(200, {"ok": True, "spend": web.app.spending()})
+
+
+def route_web_fetch(handler: Handler, web: WebApp, body: dict) -> None:
+    if not isinstance(body.get("enabled"), bool):
+        handler._send_json(400, {"error": t("要说清楚开还是关（enabled 是 true 或 false）")})
+        return
+    try:
+        warning = web.set_web_fetch(body["enabled"])
+    except OSError as exc:
+        handler._send_json(409, {"error": t("没能保存设置：{error}", error=str(exc))})
+        return
+    handler._send_json(200, {"ok": True, "warning": warning})
 
 
 def route_redact(handler: Handler, web: WebApp, body: dict) -> None:

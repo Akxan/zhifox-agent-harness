@@ -7,7 +7,8 @@ tools 里写的是这些名字（和 Claude Code 的叫法一样，所以那边�
   Edit         读、写文件                                 str_replace_based_edit_tool
   Bash         执行命令                                   run_command
   WebSearch    联网搜索（只有 Claude 有）                 web_search
-  WebFetch     读网页（只有 Claude 有）                   web_fetch
+  WebFetch     读网页                                     web_fetch（Claude 开着联网搜索时是 Anthropic 服务器上的那一个，
+                                                          别的时候是智狐自己的，见 tools/fetch.py；两个同名）
   Memory       长期记忆                                   memory
   TodoWrite    待办                                       todo_add、todo_list、todo_update、todo_delete
   Schedule     定时任务                                   task_add、task_list、task_delete
@@ -150,11 +151,14 @@ def _mcp_allowed(tool: Tool, wanted: frozenset[str]) -> bool:
     return bool(server) and (server_prefix(server) in wanted or MCP_PREFIX + server in wanted)
 
 
-def builtin_names(web: bool) -> list[str]:
-    """页面上清单里列的那几样。web：这个程序开没开联网（关了就不列 WebSearch 和 WebFetch）。"""
-    return [name for name in BUILTIN if web or name not in ("WebSearch", "WebFetch")]
+def builtin_names(web: bool, fetch: bool = False) -> list[str]:
+    """页面上清单里列的那几样。web：这个程序开没开联网搜索（关了就不列 WebSearch）；fetch：设置里开没开智狐自己的读网页
+    （两样都关着才不列 WebFetch）。"""
+    hidden = ([] if web else ["WebSearch"]) + ([] if web or fetch else ["WebFetch"])
+    return [name for name in BUILTIN if name not in hidden]
 
 
 def has_web(tools: Iterable[Tool]) -> bool:
-    """这一套工具里有没有联网搜索（决定提示词里写不写"能联网"那一行）。"""
-    return any(tool.name in ("web_search", "web_fetch") for tool in tools)
+    """这一套工具里有没有 Anthropic 服务器上的联网搜索、读网页（决定提示词里写不写"能联网"那一行）。
+    智狐自己的读网页（tools/fetch.py，也叫 web_fetch）不算：它只能读网址、不能搜索，它的说明书里已经写清楚了怎么用。"""
+    return any(tool.run is None and tool.name in ("web_search", "web_fetch") for tool in tools)

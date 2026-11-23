@@ -53,6 +53,7 @@ from .i18n import t
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .media import OFFICE_TYPES, MediaError, MediaStore, content_of, entries_of
 from .tools import agent as agent_tool
+from .tools import fetch as fetch_tool
 from .tools import files, skill
 from .tools import tasks as task_tools
 from .tools.browser import TOOLSET as BROWSER
@@ -113,8 +114,9 @@ _COMPUTER_LOOKS = {"screenshot", "zoom", "cursor_position", "wait"}
 _COMPUTER_STANDINS = {"computer_screenshot", "computer_zoom", "computer_wait"}  # 别家的模型用的替身工具里只是看的
 # 页面在确认里单独写一句"这些撤不回来"的两类：操作过整台电脑、在浏览器里点过输入过（见 operated）
 _OPERATED = ((COMPUTER, (COMPUTER + ".", COMPUTER + "_")), (BROWSER, (BROWSER + ".", BROWSER + "_")))
-# 只是读的工具：读 Skill、列出待办（tools/todo.py）、列出定时任务。交给子 Agent（agent 工具）本身也不算：它自己调用的工具另外看
-_READ_ONLY = {skill.TOOL_NAME, "todo_list", task_tools.LIST, agent_tool.TOOL_NAME}
+# 只是读的工具：读 Skill、列出待办（tools/todo.py）、列出定时任务。交给子 Agent（agent 工具）本身也不算：它自己调用的工具另外看。
+# 读网页（tools/fetch.py）和浏览器的"去一个网址"一样算看：只是 GET 一个网页，网址带走的东西在读之前已经问过你了
+_READ_ONLY = {skill.TOOL_NAME, "todo_list", task_tools.LIST, agent_tool.TOOL_NAME, fetch_tool.TOOL_NAME}
 # 智狐自己的这几样工具"要么全做、要么不做"：先把参数查好、找到要改的那一处，才一口气写进去（写文件都是先写临时文件
 # 再一步换上去）。所以它们的一次调用出错了，就是什么都没改，不算。执行命令、MCP、浏览器不一样：做到一半出了错，前一半已经做了
 _ALL_OR_NOTHING = {files.TOOL_NAME, "memory", "todo_add", "todo_update", "todo_delete", task_tools.ADD, task_tools.DELETE}

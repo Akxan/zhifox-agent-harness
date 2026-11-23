@@ -128,6 +128,8 @@ class Agent:
         # 上一轮是怎么结束的：done 答完了，refused 被拒绝，truncated 回复被截断，steps 用完了 max_steps 次。
         # 主助手用不上它（这些情况都已经在界面上说了）；把任务交给子 Agent 的那一边要靠它告诉主助手"做完没有"
         self.outcome = ""
+        # 这个助手开始过几轮（重新生成也算新的一轮）。"每条消息最多几次"的工具拿它认"是不是新的一轮"（读网页，见 tools/fetch.py）
+        self.turns = 0
 
     def use_tools(self, tools: ToolRegistry) -> None:
         """换一套工具（循环执行的、和发给模型的说明书一起换）。只在一段对话开始之前用。"""
@@ -152,6 +154,7 @@ class Agent:
         # 所以在入口处换掉（见 safe.py）
         user_text = clean_text(user_text)
         self.trace.turn_began(again)  # 记录点：一轮开始（从这里算起，包括下面拍 MCP 快照的时间）
+        self.turns += 1
         if self.on_start is not None and not self.backend.export():
             self.on_start()
         start = self.backend.mark()
@@ -183,6 +186,7 @@ class Agent:
         后面每一块思考的签名也都对不上了，API 会拒绝请求（原因见 providers/claude.py 开头的规矩）。
         """
         self.trace.turn_began(again=True)  # 记录点：一轮开始（重新生成的）
+        self.turns += 1
         self.backend.rollback(start + 1)
         self.outcome = ""
         self._finish_turn(start)
