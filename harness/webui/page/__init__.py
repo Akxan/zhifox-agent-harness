@@ -90,6 +90,7 @@ STYLES = (
     "styles/voice.css",  # 语音转文字：设置里的一节、消息上的小标记
     "styles/trace.css",  # 运行记录：每一轮上的入口、滑出来的窗口（合计、瀑布图、逐段的详情）
     "styles/service.css",  # 设置里的"后台运行"
+    "styles/updates.css",  # 设置里的"检查新版本"、齿轮上的小点（命令那一行沿用 service.css 的 .service-command，所以排在它后面）
     "styles/notify.css",  # 设置 · 系统通知：浏览器允许了没有、怎么允许的那一块（沿用 browser.css 的开关，所以排在它后面）
     "styles/reduce-motion.css",  # 换外观的交叉淡化、减少动态效果（必须在最后）
 )
@@ -180,6 +181,7 @@ SCRIPTS = (
     "scripts/computer.js",  # 操作整台电脑
     "scripts/voice.js",  # 语音转文字：设置里的一节、消息上的小标记
     "scripts/service.js",  # 设置里的"后台运行"：作为后台服务开着，还是跟着终端
+    "scripts/updates.js",  # 设置里的"检查新版本"和齿轮上的小点（规矩和升级的命令在 harness/updates.py；用 service.js 的 serviceCommand）
     "scripts/keyboard.js",  # 键盘
     "scripts/start.js",  # 开始：连上事件流
 )

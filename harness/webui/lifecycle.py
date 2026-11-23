@@ -1,4 +1,4 @@
-"""一直在后台开着的东西：定时任务的调度线程、聊天通道。什么时候开，什么时候关。
+"""一直在后台开着的东西：定时任务的调度线程、聊天通道、检查新版本的线程（默认关着，见 ../updates.py）。什么时候开，什么时候关。
 
 它们只在智狐作为一个长期运行的程序开着的时候工作，有两种开法，用的是这同一处：
 
@@ -29,10 +29,12 @@ _started: weakref.WeakSet[WebApp] = weakref.WeakSet()
 
 
 def start(web: WebApp) -> None:
-    """开始运行定时任务和聊天通道。刚启动时调度器会先看一眼：程序关着的时候错过的任务，补跑一次。"""
+    """开始运行定时任务和聊天通道。刚启动时调度器会先看一眼：程序关着的时候错过的任务，补跑一次。
+    检查新版本的线程也开起来：设置里没打开的话它只是等着，一个请求都不发；打开着、上次问过不到一天，也只是等着。"""
     _started.add(web)
     web.tasks.start()
     web.channels.start()
+    web.updates.updater.start()
 
 
 def started(web: WebApp) -> bool:
@@ -47,6 +49,7 @@ def stop(web: WebApp, wait: float, holding_turn: bool = False) -> None:
     网页上的对话一段都不会在跑，不用叫它们停、也不用等（等的话要等满 wait 秒：锁就在调用的人手里）。"""
     _started.discard(web)
     app = web.app
+    web.updates.updater.stop()  # 不再问 GitHub（正在问的那一次不等：它只是一个提醒，最多一秒）
     web.tasks.close()  # 排队的不跑了，正在跑的各自停下（连同它们自己的命令）
     if not holding_turn:
         web.stop_all()  # 网页上的每一段都停下（连同它们各自正在运行的命令，见 sessions_api.py）

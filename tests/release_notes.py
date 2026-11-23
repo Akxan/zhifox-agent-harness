@@ -19,7 +19,10 @@ import sys
 import tomllib
 from pathlib import Path
 
-from harness.install import PROJECT_NAME, REPOSITORY
+from harness.install import (  # wheel 的文件名只写在 install.py：检查到新版本时的升级命令也照它写
+    REPOSITORY,
+    wheel_name,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 _HEADING = re.compile(r"^## \[(?P<version>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?\s*$")
@@ -34,11 +37,6 @@ def project_version(root: Path = ROOT) -> str:
     """pyproject.toml 里的版本号。"""
     with open(root / "pyproject.toml", "rb") as file:
         return str(tomllib.load(file)["project"]["version"])
-
-
-def wheel_name(version: str) -> str:
-    """hatchling 打出来的 wheel 的文件名：包名里的 - 换成 _（PEP 427），纯 Python、哪个系统都能用。"""
-    return f"{PROJECT_NAME.replace('-', '_')}-{version}-py3-none-any.whl"
 
 
 def section(changelog: str, version: str) -> tuple[str, str]:

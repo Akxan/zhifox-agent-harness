@@ -1,4 +1,6 @@
-"""自检的前三节：环境（Python、智狐的版本、系统）、目录（工作目录、数据目录、.env）、占用（数据目录现在被谁占着）。
+"""自检的前三节：环境（Python、智狐的版本、有没有新版本、系统）、目录（工作目录、数据目录、.env）、占用（数据目录现在被谁占着）。
+
+有没有新版本只看上一次检查的结果（data/updates.json，见 updates.py），自检自己从不去问 GitHub：自检不联网。
 
 "只有你自己能读"怎么看：
   - macOS、Linux 上看权限位和属于谁。数据目录要 700，.env 和数据目录里存密钥的那几个文件要 600（safe.py 就是这样建的）；
@@ -15,11 +17,14 @@ import platform
 import shutil
 import stat
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .. import instance, machine, winacl
+from .. import updates as update_check
 from ..config import COMMAND, FROM_SOURCE, PROJECT_ROOT, Config, env_file_names
 from ..i18n import Message, k, t
+from ..settings import Settings
 from ..version import (  # 智狐的版本和提交只在 harness/version.py 里算（harness --version 也用它）
     commit,
     version,
@@ -85,6 +90,32 @@ def environment() -> Section:
         detail = t("找不到 uv：这份说明里的命令（uv run harness …）都要用它。")
         checks.append(Check("uv", "uv", PROBLEM, detail, [fixes.install_uv(), t("装好以后另开一个终端窗口。")], {"path": ""}))
     return Section("environment", t("环境"), checks)
+
+
+def updates(config: Config, settings: Settings) -> Check:
+    """有没有新版本：只读上一次检查的结果（缓存），不联网。有新版本不算"有问题"（智狐照样好好的），
+    升级的命令写在修法那几行里（照着这一种装法写，见 updates.upgrade）。"""
+    status = update_check.status_of(settings, update_check.read_cache(config.updates_file), version())
+    when = datetime.fromtimestamp(status.checked_at).strftime("%Y-%m-%d %H:%M") if status.checked_at else ""
+    facts: dict = {"enabled": status.enabled, "checked_at": status.checked_at, "latest": status.latest.version if status.latest else None,
+                   "newer": bool(status.newer)}
+    if not status.enabled:
+        detail = t("没打开（默认关着）。打开以后每天问一次 GitHub 有没有新的正式版本：GitHub 看得到你的 IP 地址，别的什么都不发。")
+        return Check("updates", t("新版本"), UNUSED, detail, [fixes.harness("updates", "on")], facts)
+    found = status.newer
+    if found is not None:
+        plan = update_check.upgrade(found, update_check.UNKNOWN)
+        # "在哪儿运行"由 fixes 按这台电脑的 shell 写在每一行里；只有要先自己换一份代码的（不是用 git 下载的文件夹），先说怎么换
+        lines: list[str] = [*plan.before, *([plan.lead] if plan.manual else [])]
+        lines += [fixes.in_project(line) if plan.in_project else fixes.run(line) for line in plan.commands]
+        lines += [*plan.notes, t("发布说明：{url}", url=found.page)]
+        return Check("updates", t("新版本"), OK, t("有新版本 {version}（{time}检查的）", version=found.version, time=when), lines, facts)
+    if status.problem is not None:
+        failed: str = t("没能检查：{problem}", problem=status.problem) + (" " + t("（{time}）", time=when) if when else "")
+        return Check("updates", t("新版本"), OK, failed, [], facts)
+    if when:
+        return Check("updates", t("新版本"), OK, t("已经是最新的版本（{time}检查的）", time=when), [], facts)
+    return Check("updates", t("新版本"), OK, t("打开了，还没有检查过：开着的智狐（网页界面、后台服务）会去问"), [], facts)
 
 
 # ---- 目录 ------------------------------------------------------------------------

@@ -124,6 +124,7 @@ class Demo:
             ("/api/model", {"provider": "anthropic", "model": "claude-opus-5-5"}),
             ("/api/fallbacks", {"provider": "anthropic", "models": []}),  # 备用模型：测试里选过的不留给下一个测试
             ("/api/voice/settings", {"provider": "auto", "model": "gpt-transcribe", "url": "", "local_model": "", "endpoint": ""}),  # 语音转文字（test_ui_voice.py 会改）
+            ("/api/updates", {"enabled": False}),  # 检查新版本（test_ui_updates.py 会打开）：后面的测试里齿轮上不该有小点
         ):
             answers: list = []
 

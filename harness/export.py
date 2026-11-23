@@ -15,7 +15,8 @@
   - 符号链接（替身）不导出：它可能指向数据文件夹外面的任何地方，比如你的 ~/.ssh。
   - 浏览器的配置文件夹（browser/profile，见 browser/）不导出：里面是你在智狐的浏览器里登录过的网站的 cookie，
     拿到它就能冒充你登录那些网站，和密钥一样不该被带出去；剩下的只是缓存，恢复以后重新登录就行。截图（browser/shots）照样导出。
-  - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock、*.lock）、写到一半的临时文件（*.tmp）。
+  - 程序运行时自己用的东西不导出，也不提：占住数据目录的锁（.lock、*.lock）、写到一半的临时文件（*.tmp），
+    检查新版本的缓存（updates.json，见 updates.py：只是上一次问 GitHub 的结果，删了下次再问）。
 
   - 恢复之前自动留的备份（restore-backups/，见 restore.py）不导出：每一份都是整个数据文件夹，带进去会越套越大。
 
@@ -47,6 +48,7 @@ from .config import (
     APP_NAME_LATIN,
     RESTORE_BACKUPS_DIR,
     SERVICE_STOP_REQUEST,
+    UPDATE_CACHE,
     WEB_ADDRESS,
     WEB_TOKEN,
 )
@@ -221,8 +223,10 @@ def is_secret_file(name: str) -> bool:
 def _is_scratch(relative: str, name: str) -> bool:
     """程序运行时自己用的东西：锁、写到一半的临时文件、上一次导出时放进去的说明（解压回来以后就在数据文件夹里）。"""
     # .web-address、.web-token：网页的口令（serve --web 写的地址，后台服务存着的口令，见 webui/token.py），不带出去。
-    # .service-stop：Windows 上请后台服务停下的那个文件（见 service/supervise.py），只在那一会儿有
-    return relative in (".lock", NOTE, MANIFEST, WEB_ADDRESS, WEB_TOKEN, SERVICE_STOP_REQUEST) or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
+    # .service-stop：Windows 上请后台服务停下的那个文件（见 service/supervise.py），只在那一会儿有。
+    # updates.json：上一次检查新版本的结果（见 updates.py），只是缓存：带到另一台电脑、另一个版本上没有意义，删了下次再问
+    scratch = (".lock", NOTE, MANIFEST, WEB_ADDRESS, WEB_TOKEN, SERVICE_STOP_REQUEST, UPDATE_CACHE)
+    return relative in scratch or name.endswith((".tmp", ".lock"))  # channels.json.lock：改设置时用的文件锁
 
 
 def plan(data_dir: Path, secrets: Iterable[Path] = ()) -> Plan:

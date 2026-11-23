@@ -228,6 +228,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/app.py`、`cli.py`、`config.py`、`settings.py`、`pricing.py` | 组装、入口、配置、用户设置、计价 |
 | `harness/version.py`、`.github/workflows/release.yml`、`tests/release_notes.py`、`tests/smoke_release.py` | 版本号（只写在 pyproject.toml，`harness --version` 和 doctor 都从 `version.py` 拿）和发布（见上面的"发布新版本"） |
 | `harness/install.py` | 两种运行方式：从仓库里运行（git clone + uv sync），还是装成了工具（uv tool install）；装成工具时数据和 `.env` 的默认位置、说给用户听的命令 |
+| `harness/updates.py`、`harness/updates_cli.py`、`harness/webui/updates_api.py` | 检查新版本（默认关着）：问 GitHub、比版本、缓存（`data/updates.json`）、后台线程、按装法给的升级命令（updates.py，不碰网页）；`harness updates`（updates_cli.py）；设置里那一节的接口和状态（updates_api.py），页面在 `page/scripts/updates.js` |
 
 ## 改代码时必须守住的几条
 
@@ -542,6 +543,16 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   说给用户听的命令写成 `{command}`、填 `config.COMMAND`（`uv run harness` / `harness`），叫人修好安装的填 `config.REPAIR`，
   不要再写死 `uv run harness`（还没改的：`cli.py` 的 SETUP_HELP 和两句提示、`server.py` 的一句、页面上"后台运行"那一节）。
   运行时读的文件只能放在 `harness/` 包里（wheel 只带它）；用到 `PROJECT_ROOT` 的只有说明过的几处（`tests/test_install_location.py` 会查）。
+- **检查新版本默认关着，它是智狐唯一一个自己发出去的请求**（`harness/updates.py`）。打开以后最多每 `UPDATE_CHECK_HOURS` 小时
+  （没问成的隔 `UPDATE_RETRY_HOURS`）一个 `GET …/repos/Akxan/zhifox-agent-harness/releases/latest`：不登录、不带 cookie，
+  User-Agent 只写 `ZhiFox`（不带版本号、不带系统），GitHub 只看得到 IP 和时间；别的什么都不发。以后不要往这个请求里加任何东西，
+  也不要再加别的"自己发出去"的请求；真要加，先问用户、默认关着、在两份 README 里写明发了什么。
+  规矩只在 `updates.py`（版本按数字比、草稿和预发布不算、缓存新不新、每一种装法的升级命令 `upgrade`、发布页和 wheel 的地址照 tag 拼，
+  不用回答里的网址）；页面（`webui/updates_api.py`、`page/scripts/updates.js`）、终端、`harness doctor`、`harness updates`（`updates_cli.py`）只照着说。
+  后台线程只从 `webui/lifecycle.py` 开和关；终端只在设置开着、缓存过期时在后台问一次，不耽误输入。`harness doctor` 只读缓存，不联网。
+  缓存 `data/updates.json` 不导出、不恢复（`export._is_scratch`），删了下次再问。地址只能用环境变量 `HARNESS_UPDATE_API` 改
+  （只认 https，明文的 http 只认本机）。测试里 conftest 把 `updates.fetch` 换成只许连本机的，真的 GitHub 一个请求都到不了；
+  要测的对着 `tests/fake_github.py`，演示也一样。
 - **"智狐能做的事"只有一处判断。** 工具属于哪种功能、为什么关着、问不问你，都在 `capabilities.py` 里算，页面和终端只照着画。
   "问不问你"不另写规矩，而是拿有代表性的调用去问 `permissions`（`Tool.check` → `review` → `allowance`，"哪一档都问"就是换成 `all` 也问）。
   新加一种工具，要在 `KINDS` 和 `_GROUP_OF` 里登记，并写它的状态函数；忘了登记的会落到 "other"，照样列出来，不会藏起来。
@@ -598,7 +609,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
 - 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
-几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。
+几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

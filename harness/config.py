@@ -416,6 +416,23 @@ VOICE_TIMEOUT = 120  # 转一条最多等多久（秒）。一条十分钟的语
 VOICE_TEXT_CHARS = 20_000  # 转出来的文字最多留这么多个字（一个出了毛病的服务器不能把一大堆东西塞进对话）
 
 
+# ---- 检查新版本（见 updates.py，默认关着）----------------------------------------------------
+# 打开以后，隔这么多小时问一次 GitHub 有没有新的正式版本。一天一次足够：发布没有那么勤，
+# GitHub 对不带登录的请求每个 IP 每小时只给 60 次，同一个网络里别的程序也在用这个额度
+UPDATE_CHECK_HOURS = 24
+# 上一次没查成（连不上、被限流、回答看不懂）时，隔这么多小时再试，不用等满一天：早上开机时网络还没连上很常见
+UPDATE_RETRY_HOURS = 3
+UPDATE_TIMEOUT = 10  # 一次请求最多等这么多秒；等不到算"没查成"，什么都不耽误
+# GitHub 的回答最多读这么多字节：一个 release 的 JSON 带着整段发布说明（GitHub 允许 12.5 万字），平常十几 KB
+UPDATE_MAX_BYTES = 1_000_000
+# 后台线程最多睡这么多秒就醒来看一眼钟：电脑睡眠的时候，线程等待用的钟（monotonic）不一定在走，
+# 只靠"睡 24 小时"的话，合上盖子过一夜就会晚很久
+UPDATE_WAKE_SECONDS = 3600
+# 上一次检查的结果存在数据目录里的这个文件（只有公开的信息：哪一版、什么时候查的、没查成的原因）。
+# 它只是一份缓存，删掉了下次再查，所以导出不带它、恢复也不写它（见 export.py 的 _is_scratch）
+UPDATE_CACHE = "updates.json"
+
+
 # Claude 思考的力度能选的几档，从浅到深（见 Config.effort）
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -448,6 +465,9 @@ class Config:
     # 语音转文字用的 OpenAI 接口（见 voice/transcribe.py）。和上面的一样只能用环境变量改（OPENAI_BASE_URL，
     # 和 OpenAI 的 SDK 认的是同一个）：OpenAI 的 API key 会发到这里去。测试把它指向本地的假服务器
     transcribe_api: str = "https://api.openai.com/v1"
+    # 检查新版本问的 GitHub 接口（见 updates.py）。只能用环境变量 HARNESS_UPDATE_API 改（测试和演示指向本地的假服务器），
+    # 页面上改不了；只认 https://，明文的 http:// 只认这台电脑自己
+    update_api: str = "https://api.github.com"
 
     @property
     def todo_file(self) -> Path:
@@ -530,6 +550,11 @@ class Config:
         .env 和 mcp.json、channels.json、commands.json、endpoints.json、hooks.json——里面是密钥，或者改了它就能让智狐运行别的东西、
         不再问你、把请求发到别处、在固定的时刻运行任何命令（钩子，见 hooks/）。"""
         return [self.env_file, self.mcp_file, self.channels_file, self.commands_file, self.endpoints_file, self.hooks_file]
+
+    @property
+    def updates_file(self) -> Path:
+        """上一次检查新版本的结果（见 updates.py）。只是缓存：导出不带它，恢复也不写它。"""
+        return self.data_dir / UPDATE_CACHE
 
     @property
     def web_address_file(self) -> Path:
@@ -615,6 +640,7 @@ def load_config(workspace: Path | None = None) -> Config:
         default_model=os.environ.get("HARNESS_MODEL", "claude-opus-5-5"),
         telegram_api=(os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/"),
         transcribe_api=(os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
+        update_api=(os.environ.get("HARNESS_UPDATE_API") or "https://api.github.com").rstrip("/"),
         # 只有 API_BASES 里那几个字段（都是字符串）。mypy 看不出一个字典里有哪些键，会拿它去对 Config 的每一个参数，所以这一行要 ignore
         **{name: (os.environ.get(env) or default).rstrip("/") for name, env, default in API_BASES},  # type: ignore[arg-type]  # 见上一行
     )

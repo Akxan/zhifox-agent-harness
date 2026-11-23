@@ -24,7 +24,7 @@
   settings_api.py      别的设置：语言、问不问、遮密钥、预算、花费明细、导出之前的信息
   reveal.py            在系统的文件管理器里显示（访达、文件资源管理器、xdg-open）。整个程序只有这里会启动文件管理器
   skills_api.py、agents_api.py、endpoints_api.py、browser_api.py、computer_api.py、voice_api.py、commands_api.py、
-  hooks_api.py、sandbox_api.py、changes_api.py、fallback_api.py、capabilities_api.py   各自那一页或那一节（见各文件开头）
+  hooks_api.py、sandbox_api.py、changes_api.py、fallback_api.py、capabilities_api.py、updates_api.py   各自那一页或那一节（见各文件开头）
 
 交到 *_api.py 的有两种写法。较早的那几个（skills_api.py 这些）是 WebApp 上的一个对象，route(action, body) 交回
 （状态码，回答），这里照着发出去。从这个文件里拆出去的（chat_api.py……settings_api.py、reveal.py）是模块里的函数
@@ -97,6 +97,7 @@ web 是 WebApp。两种的约定一样：参数不对回答 400，现在做不�
   POST /api/computer/settings、stop、trust、permission  操作整台电脑：开关和设置、停下、这段对话里截图（或者点击、打字）不再问、打开 macOS 系统设置里的那一页（见 computer_api.py）
   POST /api/computer/shot                        一张电脑截图的大图（和浏览器的一样：只收编号，回答 image/jpeg）
   POST /api/voice/settings                       语音转文字：用哪一种、哪个模型、本机服务的地址（见 voice_api.py 和 ../voice/）
+  POST /api/updates、/api/updates/check           检查新版本：打开、关上、马上问一次（默认关着，见 updates_api.py 和 ../updates.py）
 
 安全。这个服务器能让助手在你的电脑上执行命令，所以必须保证只有你自己打开的那个页面能用它。
 你平时访问的任何网站，都可以让浏览器向 127.0.0.1 发请求，所以光靠"只在本机"是不够的：
@@ -373,6 +374,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         elif path.startswith("/api/voice/"):
             status, payload = web.voice.route(path.removeprefix("/api/voice/"), body)
+            self._send_json(status, payload)
+        elif path == "/api/updates" or path.startswith("/api/updates/"):
+            status, payload = web.updates.route(path.removeprefix("/api/updates").strip("/"), body)
             self._send_json(status, payload)
         else:
             self._send_json(404, {"error": "not found"})

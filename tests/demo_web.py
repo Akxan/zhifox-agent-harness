@@ -53,6 +53,9 @@
     （卡片上带着危险按键的警告，可以拒绝看看一串操作怎么停下）。顶栏上会出现"智狐正在控制这台电脑"和"停止"。
     这一段的回复也不占下面那一串（见 computer_reply）。
 
+  - 检查新版本（设置 → 检查新版本）问的是一个假的 GitHub（tests/fake_github.py，只在这台电脑上），和正式程序一样默认关着：
+    打开开关，就能看到"有新版本"的样子（齿轮上的小点、发布说明的链接、怎么升级）。假的 GitHub 说最新的是哪一版用 --release 改，
+    默认比现在这一版高一个小版本；写成现在这一版就是"已经是最新的"。
   - 自定义模型接口（设置 → 自定义模型接口）预先加好了一个假的"本机 Ollama"（也是 tests/fake_openai.py，只在这台电脑上）：
     qwen3:8b 能用工具，llava:13b 看得懂图片，gemma2:2b 什么工具都用不了。在换模型的面板里能换过去聊（回复是它自己那一串）；
     编辑它、点"测试连接""同步模型"，看得到智狐认出它是 Ollama、猜出每个模型能做什么（nomic-embed-text 是向量模型，会被去掉）。
@@ -98,6 +101,7 @@ parser.add_argument("--browser-window", action="store_true", help="浏览器演�
 parser.add_argument("--service", choices=("terminal", "launchd", "systemd", "taskscheduler"), default="terminal", help="设置里\"后台运行\"一节显示哪一种：跟着终端（默认，和 harness --web 一样），或者作为后台服务运行")
 parser.add_argument("--platform", choices=("mac", "windows", "linux"), default="", help="当作助手程序在哪种电脑上运行（状态里的 platform）：按钮上写\"访达\"\"文件资源管理器\"还是\"文件管理器\"；windows 时\"操作整台电脑\"也显示成暂时不支持。默认是这台电脑真正的系统")
 parser.add_argument("--no-sandbox", action="store_true", help="当作这台电脑上用不了沙箱（像没装 bubblewrap 的 Linux），看页面上怎么说")
+parser.add_argument("--release", default="", help="假的 GitHub 说最新的正式版本是哪一个（检查新版本用，默认比现在这一版高一个小版本）")
 parser.add_argument("--script", default="", help="没写暗号的对话也按 tests/demo_scripts.py 里这段剧本回答（比如 readme：截 README 的图时消息里不出现 [ui:…]）")
 options = parser.parse_args()
 
@@ -118,6 +122,7 @@ import openai
 from demo_phone import Phone
 from fake_api import _events, reply, text, thinking, tool_use, web_cite
 from fake_desktop import FakeDesktop, install, window_or_desktop
+from fake_github import FakeGitHub
 from fake_mcp import FakeMcpHttp
 from fake_openai import FakeOpenAI, call, chat
 from fake_telegram import TOKEN, FakeTelegram
@@ -137,6 +142,7 @@ from harness.providers import make_client
 from harness.sandbox import backend as sandbox_backend
 from harness.sandbox import linux as sandbox_linux
 from harness.tasks import new_run
+from harness.version import version as current_version
 from harness.webui import lifecycle
 from harness.webui.page import assemble as assemble_page
 from harness.webui.ui import WebUI
@@ -781,6 +787,9 @@ for name, body in {
 
 # 假的 Telegram：机器人的 token 是编造的（tests/fake_telegram.py 里的 TOKEN），消息只在这台电脑上转
 telegram = FakeTelegram(max_poll=1.0).start(options.telegram_port)
+# 检查新版本问的假 GitHub：默认说有一个比现在高一个小版本的新版（0.2.0 → 0.3.0），打开开关就能看到"有新版本"的样子
+_numbers = [int(part) for part in re.findall(r"\d+", current_version() or "0.0.0")[:2]] + [0, 0]
+github = FakeGitHub(options.release or f"{_numbers[0]}.{_numbers[1] + 1}.0").start()
 # 别的几家：都是编造的凭据，消息只在这台电脑上转（心跳慢一点，像真的那样）
 others = {
     "discord": fake_discord.FakeDiscord(heartbeat_ms=20_000).start(),
@@ -801,6 +810,7 @@ config = Config(
     env_file=root / "env-file",  # 在页面上保存的密钥写到这里，不是项目里真正的 .env
     web=True,
     telegram_api=telegram.base_url,  # 通道连的是上面那个假的 Telegram，不是 api.telegram.org
+    update_api=github.base_url,  # 检查新版本问的是上面那个假的 GitHub，不是 api.github.com
     **{key: value for fake in others.values() for key, value in fake.config().items()},  # 别的几家也连本地的假服务器
 )
 
@@ -901,6 +911,7 @@ except KeyboardInterrupt:
 finally:
     lifecycle.stop(server.web, 3)  # 停下通道和任务（也会关掉启动过的假 MCP 服务器进程）
     telegram.stop()
+    github.stop()
     phone.stop()
     for fake in others.values():
         fake.stop()

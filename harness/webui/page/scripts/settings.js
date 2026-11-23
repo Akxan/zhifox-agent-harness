@@ -1,6 +1,6 @@
 // ---- 设置面板 ------------------------------------------------------------
 // 右上角齿轮打开的设置面板：填或清除密钥、改这个模型的价格，以及在面板里说结果的 say()。面板里浏览器、操作整台电脑、
-// 后台运行、预算、系统通知和导出那几节，各自在 browser.js、computer.js、service.js、spending.js、notify.js 里画。
+// 后台运行、检查新版本、预算、系统通知和导出那几节，各自在 browser.js、computer.js、service.js、updates.js、spending.js、notify.js 里画。
 // 换模型不在这里：顶上的模型按钮打开专门的面板（models.js）。这里的"当前模型"只写现在用的是哪个，给一个去那儿的按钮，
 // 规矩（同一家接着聊、换到另一家开始新对话）只在那边和程序里各写一处。
 
@@ -150,6 +150,7 @@ function openSettings() {
   voicePicked = '';
   drawVoiceSettings(true);  // "语音转文字"一节（见 voice.js）
   renderService();  // "后台运行"一节（见 service.js）
+  drawUpdates(true);  // "检查新版本"一节（见 updates.js）
   drawNotifySettings();  // "系统通知"一节（见 notify.js）：浏览器的权限可能在别处改过
   settings.showModal();
 }
@@ -161,7 +162,10 @@ $('settings-open').addEventListener('click', openSettings);
 retitleSettingsButton();
 
 function retitleSettingsButton() {
-  $('settings-open').title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
+  const title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
+  // 有新版本时（见 updates.js）提示里也写上：齿轮上的小点只是给眼睛看的，读屏软件读这一句
+  const news = state && state.updates && state.updates.latest;
+  $('settings-open').title = news ? title + ' · ' + t('有新版本：智狐 {version}', { version: news.version }) : title;
 }
 
 // 打开设置，翻到"API 密钥"，焦点放在这一家的密钥输入框里（换模型的面板里"填写 API 密钥 →"用的）
