@@ -158,14 +158,18 @@ function openSettings() {
 // 顶栏上专门的"设置"按钮（齿轮）。以前设置藏在模型按钮里，看起来只是"现在用的模型"，用户找不到设置在哪儿
 // （"我的设置在哪里 没看见啊"）；现在模型按钮只管换模型（models.js）。快捷键 ⌘, / Ctrl+, 见 keyboard.js
 $('settings-open').addEventListener('click', openSettings);
+// 齿轮提示里写着的新版本：由 updates.js 的 renderUpdates 交来，和齿轮上的小点照着同一份画。以前这里另读全局的 state，
+// 关掉"检查新版本"时小点照着请求的回答马上没了，提示却要等下一次状态才改（GitHub 的 Windows 机器上测出来的）
+let settingsNews = null;
 // 齿轮的提示里写上快捷键：Mac 上是 ⌘,，别的系统是 Ctrl+,
 retitleSettingsButton();
 
-function retitleSettingsButton() {
+// news：有新版本时是那一版（updates.js 交来）；不给就是照上一次的（换语言时只重译，见 language.js）
+function retitleSettingsButton(news) {
+  if (news !== undefined) settingsNews = news || null;
   const title = t('设置（{key}）', { key: forKeys('⌘,', 'Ctrl+,') });
-  // 有新版本时（见 updates.js）提示里也写上：齿轮上的小点只是给眼睛看的，读屏软件读这一句
-  const news = state && state.updates && state.updates.latest;
-  $('settings-open').title = news ? title + ' · ' + t('有新版本：智狐 {version}', { version: news.version }) : title;
+  // 有新版本时提示里也写上：齿轮上的小点只是给眼睛看的，读屏软件读这一句
+  $('settings-open').title = settingsNews ? title + ' · ' + t('有新版本：智狐 {version}', { version: settingsNews.version }) : title;
 }
 
 // 打开设置，翻到"API 密钥"，焦点放在这一家的密钥输入框里（换模型的面板里"填写 API 密钥 →"用的）

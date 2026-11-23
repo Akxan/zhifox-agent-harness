@@ -19,7 +19,7 @@ function renderUpdates(info) {
   const appeared = Boolean(news) && dot.hidden;
   dot.hidden = !news;
   if (appeared && isLive()) play(dot, [{ opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'none' }], 320);
-  retitleSettingsButton();  // 齿轮的提示里也写上"有新版本"（见 settings.js）
+  retitleSettingsButton(news || null);  // 齿轮的提示里也写上"有新版本"，和小点照着同一份（见 settings.js）
   $('updates-section').hidden = !updatesInfo;
   if (settings.open) drawUpdates();
 }
