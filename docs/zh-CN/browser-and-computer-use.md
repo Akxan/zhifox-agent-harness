@@ -80,7 +80,9 @@ Claude 联网靠 Anthropic 服务器上的两个工具：联网搜索和读网�
 | [chrome.py](../../harness/browser/chrome.py) | 找到 Chrome（或者 Chromium、Edge、Brave），用智狐自己的配置文件夹启动它，关的时候连同它的子进程一起关掉 |
 | [cdp.py](../../harness/browser/cdp.py) | 手写的 Chrome DevTools Protocol 客户端，走管道：按编号对上请求和回答、事件、超时、按"主人"取消请求 |
 | [manager.py](../../harness/browser/manager.py) | 大家共用的那一个 Chrome：第一次用时打开、闲着和退出时关掉、拒绝下载、自动取消网页弹的对话框 |
-| [session.py](../../harness/browser/session.py) | 一次运行用的浏览器：它自己的标签页、这段对话里允许过的网站、每一个动作（打开、点击、输入、滚动、截图……）和"停止" |
+| [session.py](../../harness/browser/session.py) | 一次运行用的浏览器（`BrowserSession`）：它自己的标签页、这段对话里允许过的网站、"停止"、Chrome 在读线程里交来的事、每个动作的收尾。动作按小节分在下面几个文件里，混进它 |
+| [session_tabs.py](../../harness/browser/session_tabs.py)、[session_page.py](../../harness/browser/session_page.py) | 开一个标签页、连上、挑一个，管标签页的四个动作；调用 page.js、等页面安静下来、截图 |
+| [session_look.py](../../harness/browser/session_look.py)、[session_input.py](../../harness/browser/session_input.py)、[session_facts.py](../../harness/browser/session_facts.py) | 去哪一页、看这一页（打开、截图、放大、读页面、找元素、等）；鼠标和键盘（点击、拖动、滚动、输入、按键、填表单）；动作之前先看一眼，交给 permissions.py 决定问不问 |
 | [page.js](../../harness/browser/page.js) | 放进每个网页的一小段脚本：把屏幕上的东西整理成带编号的一行一行，给模型读 |
 | [urls.py](../../harness/browser/urls.py)、[keys.py](../../harness/browser/keys.py)、[shots.py](../../harness/browser/shots.py) | 哪些地址能打开、两个地址算不算同一个网站；按键的名字换成键盘事件；截图存在磁盘上 |
 | [tools/browser.py](../../harness/tools/browser.py) | 模型看到的工具：给 Claude 的是 Anthropic 的浏览器工具包，给别家的是 12 个手写的工具 |
