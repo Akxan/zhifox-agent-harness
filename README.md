@@ -96,7 +96,10 @@ computer, and you can reopen it from the sidebar or search it by title and conte
   hand-written RFC 6455 client; Feishu and DingTalk use their official SDKs, installed only if you want them). Only the
   account you pair with a 6-digit code is served, and every command or file change it wants to make arrives in the chat
   with Allow / Deny buttons where the platform has them (a "reply allow or deny" message where it doesn't), or on the
-  web page, whichever you answer first. WhatsApp and WeCom need a public URL and come later.
+  web page, whichever you answer first. A dropped connection doesn't lose a reply: a failed send is retried, and if the
+  platform stays unreachable it's kept and delivered in order once the channel is back, with the page showing what's
+  waiting (see [When a message can't be delivered](docs/en/chat-channels.md#when-a-message-cant-be-delivered)).
+  WhatsApp and WeCom need a public URL and come later.
 - 🖧 **Runs on a server.** `harness serve` runs the chat channels and scheduled tasks with no browser, logs in a
   journald-friendly format, stops cleanly on SIGTERM, and comes with a systemd unit; set it up and pair it with
   `harness channels setup` / `pair`, then do server chores from your chat app.

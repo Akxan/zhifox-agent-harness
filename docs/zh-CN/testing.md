@@ -85,7 +85,10 @@ MCP 的测试在 [tests/test_mcp.py](../../tests/test_mcp.py) 和 [tests/test_mc
 请求的开头在几轮之间、重启以后、到网页上接着聊都一个字节不差：[tests/test_send_file.py](../../tests/test_send_file.py)），
 以及 token 和密钥从不出现在页面、日志、出错信息和导出里
 （[tests/test_channels.py](../../tests/test_channels.py)、[tests/test_channels_web.py](../../tests/test_channels_web.py)、`tests/test_channels_<平台>.py`、
-[tests/test_channels_platforms.py](../../tests/test_channels_platforms.py)）。装了 SDK 的时候，飞书的事件分发器和真的钉钉 Stream 客户端
+[tests/test_channels_platforms.py](../../tests/test_channels_platforms.py)）。发不出去的情况，让假 Telegram 接下来几次一个字都不回就关掉连接、
+回答 500、429 或 403 来测：按顺序再试、一直的失败不再试、留着等通道重新在线时补发、页面上和 `/status` 里看得到、`/stop` 和退出不等退避、
+send_file 的失败如实告诉模型、连接被重置以后马上显示"在线"（[tests/test_channels_delivery.py](../../tests/test_channels_delivery.py)、
+[tests/ui/test_ui_channel_delivery.py](../../tests/ui/test_ui_channel_delivery.py)）。装了 SDK 的时候，飞书的事件分发器和真的钉钉 Stream 客户端
 也会对着假服务器跑一遍；没装就跳过这几个。WebSocket 客户端和 HTTPS 帮手有自己的测试，对着本地的假服务器和假代理
 （[tests/test_websocket.py](../../tests/test_websocket.py)、[tests/test_net_http.py](../../tests/test_net_http.py)）。
 服务器模式和命令行在 [tests/test_serve.py](../../tests/test_serve.py)，其中有一个测试启动真实的 `harness serve` 进程，再用 SIGTERM 停下它。

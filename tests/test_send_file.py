@@ -517,7 +517,8 @@ def test_a_file_still_waiting_in_the_queue_is_not_sent_after_stop():
     """排在发送队列里、还没轮到的文件：/stop 以后轮到它也不发（router.send_file 返回 skipped）。"""
     import threading
 
-    from harness.channels.router import Outbox, Router
+    from harness.channels.outbox import Job, Outbox
+    from harness.channels.router import Router
 
     router = Router.__new__(Router)
     router._lock = threading.Lock()
@@ -528,8 +529,8 @@ def test_a_file_still_waiting_in_the_queue_is_not_sent_after_stop():
             sent.append(item.name)
 
     gate = threading.Event()
-    outbox = Outbox("test")
-    outbox.put(lambda: gate.wait(10))  # 前面有一条话卡着（网络慢）
+    outbox = Outbox("telegram", lambda: router._channels.get("telegram"))
+    outbox.put(Job("say", OWNER, lambda channel: gate.wait(10)))  # 前面有一条话卡着（网络慢）
     router._outboxes, router._channels = {"telegram": outbox}, {"telegram": Channel()}
     cancelled = threading.Event()
     answer: list[str] = []

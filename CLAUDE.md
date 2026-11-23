@@ -212,7 +212,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
 | `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
 | `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
-| `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、session、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
+| `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、outbox（发送队列：再试、留着补发）、session、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
 | `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
@@ -443,6 +443,19 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   HTTP 一律走 `net/http.py`（有超时、换了域名的重定向不带 token、回答有大小上限），WebSocket 走 `net/websocket.py`
   （明文 ws:// 只许连本机）。`ask` 必须返回非空的编号，没有按钮的平台给一个合成的，否则打字的"允许"不算数。
   新平台的测试照 `tests/channel_rig.py` 的 FakePlatform 写一个假服务器，组装和演示的"手机"页面（`tests/demo_phone.py`）就都能对着它跑。
+  平台的错误要如实填上 `ChannelError.status`（HTTP 状态码；连不上、超时、连接被重置这类根本没得到回答的填 0，`NetError.status` 原样交过去）、
+  `retry_after`，平台自己说"太快了"的错误编号设 `busy`；"再试有没有用"只在 `base.retry_delay` 判断，平台里不另写。
+  `settle` 这类改消息的：暂时的失败原样抛出（`base.transient`），改成了才从记着的消息里拿掉，改不了的一直的失败才另发一条。
+  平台里被限流时等的那一下用 `base.pause`，不用 `time.sleep`（退出时要能马上醒过来）。
+- **发到聊天里的东西不悄悄丢掉**（`channels/outbox.py`，2026-11-23 加的：真实日志里 Telegram 的连接每十分钟左右被重置一次，落在里面的回答就丢了）。
+  暂时的失败（没得到回答、5xx、429、平台的"太快了"）等一会儿再试（`CHANNEL_SEND_RETRIES` 次，间隔从 `CHANNEL_SEND_RETRY_SECONDS` 翻倍，
+  `Retry-After` 最多听 `CHANNEL_SEND_RETRY_AFTER_MAX` 秒），一直的失败（别的 4xx、token 不对）不再试。试完了还是不行的回答、确认请求、
+  确认的结果按聊天、按顺序留在内存里（每个聊天最多 `CHANNEL_UNDELIVERED_MAX` 条），通道变回在线（hub 的 `_status_of` → `router.status_changed`）、
+  这个聊天又来了消息、通道一直在线时每 `CHANNEL_UNDELIVERED_RETRY_SECONDS` 秒按顺序补发；这个聊天之后的都排在它们后面。
+  没发到的确认请求在 `Waiting.delivery` 上记一笔，页面上写明、网页上照样能答。页面那一行（`delivery`）和 `/status` 写着还有几条、最后一次失败；
+  `/status` 的回答不排在留着的后面（outbox 的 `status` 一种）。send_file 再试但不留着：结果如实交给模型。`/stop` 不等重试，退出时（`Outbox.close`）
+  不等退避，每样再试一次，还是不行的写进日志。**有意的取舍**：请求到了平台、只是回答丢了的，再试会让聊天里多一条一样的；
+  拆成几条发的长回答中间失败，前面几条会再发一遍。宁可偶尔重复，也不丢回答。新加"要发到聊天里的东西"，在 `outbox.KINDS` 里写明再不再试、留不留着。
 - **官方 SDK 只用来收消息，而且是可选的**：`lark-oapi`（飞书）和 `dingtalk-stream`（钉钉）只在各自模块的 Listener 里、用到时才导入；
   发消息、改卡片、下载文件手写 HTTP。没装时 connect 拒绝，并给出 `uv sync --extra …`。我们用到了 SDK 内部的名字，
   所以 pyproject 里有版本上限，升级前先重新看源码。SDK 的事件处理函数里不做慢事，交给 `PushChannel._hand_off`。
@@ -682,7 +695,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；发不出去时的重试和补发只对着假 Telegram（不回答就关掉连接、500、429、403）和假通道测过，没在真的断网、真的平台故障里试过；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
 几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；

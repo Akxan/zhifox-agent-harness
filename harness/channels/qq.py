@@ -34,7 +34,7 @@ from functools import partial
 from typing import Any
 
 from .. import log
-from ..config import CHANNEL_DOWNLOAD_BYTES, Config
+from ..config import CHANNEL_DOWNLOAD_BYTES, CHANNEL_SEND_RETRY_AFTER_MAX, Config
 from ..i18n import t
 from ..net import http
 from . import markup
@@ -46,6 +46,7 @@ from .base import (
     InboundFile,
     Prompt,
     PushChannel,
+    pause,
 )
 from .gateway import FATAL, IDENTIFY_NEXT, RESUME_NEXT, SLOW_DOWN, Fatal, Gateway, Rules
 
@@ -60,10 +61,15 @@ PASSIVE_EXPIRED = {40034128, 40034005, 304103, 40054005}
 logger = logging.getLogger("harness.channels.qq")
 
 
+# QQ 用自己的错误编号说"发得太快了"（HTTP 状态不一定是 429）：发送队列过一会儿再试，见 base.retry_delay
+RATE_LIMITED = {40034100}
+
+
 class QQError(ChannelError):
-    def __init__(self, message: str, status: int = 0, code: int = 0):
-        super().__init__(message)
-        self.status = status
+    """status 是 HTTP 状态码（0：没得到回答；None：不是一次请求出的错，见 base.ChannelError）。"""
+
+    def __init__(self, message: str, status: int | None = None, code: int = 0, retry_after: float = 0.0):
+        super().__init__(message, status=status, retry_after=retry_after, busy=code in RATE_LIMITED)
         self.code = code
 
 
@@ -72,7 +78,7 @@ def _explain(status: int, code: int, message: str) -> str:
         return t("QQ 不认这个 AppID 和 AppSecret：可能抄错了，或者 AppSecret 已经重新生成过。")
     if code == 40054013:
         return t("这个 QQ 用户不接收机器人的消息。")
-    if status == 429 or code == 40034100:
+    if status == 429 or code in RATE_LIMITED:
         return t("发得太快，被 QQ 限流了，过一会儿会自动重试。")
     return t("QQ 回答了一个错误：{error}", error=message or code or status)
 
@@ -107,7 +113,7 @@ class OpenAPI:
             try:
                 reply = http.request("POST", f"{self.base}/app/getAppAccessToken", body={"appId": self.app_id, "clientSecret": self.secret}, hide=self.secrets)
             except http.NetError as exc:
-                raise QQError(t("连不上 QQ（{error}）", error=str(exc))) from None
+                raise QQError(t("连不上 QQ（{error}）", error=str(exc)), exc.status) from None
             data = reply.data if isinstance(reply.data, dict) else {}
             if not data.get("access_token"):
                 code = int(data.get("code") or 0)
@@ -130,18 +136,18 @@ class OpenAPI:
             try:
                 reply = http.request(method, self.base + path, headers={"Authorization": f"QQBot {token}"}, body=body, hide=self.secrets)
             except http.NetError as exc:
-                raise QQError(t("连不上 QQ（{error}）", error=str(exc))) from None
+                raise QQError(t("连不上 QQ（{error}）", error=str(exc)), exc.status) from None
             data = reply.data if isinstance(reply.data, dict) else {}
             if reply.status == 401 and attempt == 0:
                 fresh = True  # access_token 可能刚好过期了
                 continue
             if reply.status == 429 and attempt < MAX_RETRIES:
-                time.sleep(min(max(reply.retry_after(), 1.0), 30.0))
+                pause(min(max(reply.retry_after(), 1.0), CHANNEL_SEND_RETRY_AFTER_MAX))
                 continue
             code = int(data.get("err_code") or data.get("code") or 0) if not reply.ok or "err_code" in data else 0
             if reply.ok and not code:
                 return reply.data
-            raise QQError(_explain(reply.status, code, http.scrub(str(data.get("message") or reply.text), self.secrets)), reply.status, code)
+            raise QQError(_explain(reply.status, code, http.scrub(str(data.get("message") or reply.text), self.secrets)), reply.status, code, reply.retry_after())
         return None
 
 

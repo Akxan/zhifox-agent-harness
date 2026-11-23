@@ -205,6 +205,18 @@ CHANNEL_UPLOAD_TIMEOUT = 120  # 上传一个文件的超时（秒）。比普通
 CHANNEL_THUMB_EDGE = 480
 CHANNEL_THUMB_BYTES = 400_000  # 预览图最多下载这么大（800 像素的 JPEG 一般一百来 KB）
 CHANNEL_SHUTDOWN_SECONDS = 5  # 退出时最多等聊天里正在进行的几轮这么久，让它们收尾存盘
+# 往聊天里发东西失败了（见 channels/outbox.py）。连接被重置、超时、平台出故障（5xx）、被限流（429）这类"过一会儿多半就好"的，
+# 再试几次：第一次等 CHANNEL_SEND_RETRY_SECONDS 秒，之后每次翻倍（1、2、4、8 秒，加起来 15 秒，够等过一次连接重置）。
+# 平台说了"过多久再来"（Retry-After）就听它的，但最多等 CHANNEL_SEND_RETRY_AFTER_MAX 秒
+CHANNEL_SEND_RETRIES = 4
+CHANNEL_SEND_RETRY_SECONDS = 1.0
+CHANNEL_SEND_RETRY_AFTER_MAX = 30.0
+# 再试了几次还是发不出去的回答、确认请求：不丢掉，留在内存里，等通道重新连上时按顺序补发。每个聊天最多留这么多条，
+# 再多的话最早的那条不再补发（记进日志，页面上算进"没能发出去"）
+CHANNEL_UNDELIVERED_MAX = 50
+# 有留着没发出去的、通道看起来又是在线的（Telegram 的长轮询一直通，只是发消息那一下被重置了）：每隔这么久再试一次。
+# 通道重新连上、聊天里又来了消息时不等这个，马上试
+CHANNEL_UNDELIVERED_RETRY_SECONDS = 30.0
 # Discord、QQ 的网关断开以后重连：间隔从 1 秒起每次翻倍，最多隔这么久。比别的长，是因为 Discord 一天只许
 # "登录"（Identify）1000 次，超了会把机器人的 token 作废（见 channels/gateway.py）：隔 120 秒，一天最多 720 次
 GATEWAY_RETRY_SECONDS = 120

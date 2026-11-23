@@ -8,15 +8,14 @@
             ├─ 有确认请求在等，回的是"允许""拒绝" → 当作答复
             └─ 别的                           → 交给这个聊天的 Session，排队跑一轮（见 session.py）
 
-要发到聊天里的话（回答、确认请求、提示，还有助手用 send_file 发的文件）不在这里直接发，而是排进这个平台的发送队列（Outbox），
-由一个单独的线程按顺序发出去：网络可能慢，agent 循环和收消息的线程都不该等它；顺序也不能乱，
-一段回答和紧跟着它的确认请求，在聊天里也得是这个顺序。
+要发到聊天里的话（回答、确认请求、提示，还有助手用 send_file 发的文件）不在这里直接发，而是排进这个平台的发送队列
+（outbox.py 的 Outbox），由一个单独的线程按顺序发出去：网络可能慢，agent 循环和收消息的线程都不该等它；顺序也不能乱，
+一段回答和紧跟着它的确认请求，在聊天里也得是这个顺序。发不出去的过一会儿再试、还是不行就留着等连上了补发，也在那里。
 """
 
 from __future__ import annotations
 
 import logging
-import queue
 import re
 import threading
 import time
@@ -38,6 +37,7 @@ from .base import (
     Press,
     Prompt,
 )
+from .outbox import Job, Outbox
 from .platforms import label
 from .session import Session, Waiting
 from .store import ChannelStore
@@ -75,55 +75,6 @@ def help_text(abilities: Capabilities | None = None) -> str:
     )
 
 
-class Outbox:
-    """一个平台的发送队列：一个线程按顺序做排进来的事（发消息、发确认请求、显示"正在输入"）。"""
-
-    def __init__(self, name: str):
-        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue()
-        self._typing: set[str] = set()  # 已经排着一次"正在输入"的聊天：不重复排
-        self._lock = threading.Lock()
-        self._thread = threading.Thread(target=self._run, daemon=True, name=f"outbox-{name}")
-        self._thread.start()
-
-    def put(self, job: Callable[[], None]) -> None:
-        self._queue.put(job)
-
-    def typing(self, chat: str, job: Callable[[], None]) -> None:
-        with self._lock:
-            if chat in self._typing:
-                return
-            self._typing.add(chat)
-
-        def run() -> None:
-            with self._lock:
-                self._typing.discard(chat)
-            job()
-
-        self._queue.put(run)
-
-    def flush(self, timeout: float) -> bool:
-        """等排着的都做完（最多等 timeout 秒）。测试和退出时用。"""
-        done = threading.Event()
-        self._queue.put(done.set)
-        return done.wait(timeout)
-
-    def close(self, timeout: float) -> None:
-        self.flush(timeout)
-        self._queue.put(None)
-
-    def _run(self) -> None:
-        while True:
-            job = self._queue.get()
-            if job is None:
-                return
-            try:
-                job()
-            except ChannelError as exc:
-                logger.warning("发送失败：%s", exc)
-            except Exception:
-                logger.exception("发送时出错")
-
-
 class Router:
     def __init__(self, app: Any, store: ChannelStore, claims: Claims, changed: Callable[[], None], saved: Callable[[str], None]):
         self.app = app
@@ -141,8 +92,8 @@ class Router:
     def attach(self, platform: str, channel: Channel) -> None:
         with self._lock:
             self._channels[platform] = channel
-            if platform not in self._outboxes:
-                self._outboxes[platform] = Outbox(platform)
+            if platform not in self._outboxes:  # 通道换了（换 token、关掉又打开），发送队列和它留着没发出去的还是那一份
+                self._outboxes[platform] = Outbox(platform, lambda: self._channels.get(platform), self.changed)
 
     def detach(self, platform: str) -> None:
         with self._lock:
@@ -168,80 +119,87 @@ class Router:
         with self._lock:
             return self._outboxes.get(platform)
 
-    def _later(self, platform: str, job: Callable[[Channel], None]) -> None:
-        """排进发送队列。真正发的时候才去找通道：这期间换了 token、通道重开了，用的是新的那一个。"""
+    def _later(self, platform: str, job: Job) -> None:
+        """排进发送队列（真正发的时候才去找通道，见 outbox.Job）。"""
         outbox = self._outbox(platform)
-        if outbox is None:
-            return
-
-        def run() -> None:
-            channel = self._channels.get(platform)
-            if channel is not None:
-                job(channel)
-
-        outbox.put(run)
+        if outbox is not None:
+            outbox.put(job)
 
     def say(self, platform: str, chat: str, text: str, markdown: bool = False) -> None:
-        self._later(platform, lambda channel: channel.send(chat, str(text), markdown))
+        self._later(platform, Job("say", chat, lambda channel: channel.send(chat, str(text), markdown)))
+
+    def report(self, platform: str, chat: str, compose: Callable[[], str]) -> None:
+        """/status 的回答：轮到它发的时候才写（compose），写的是那一刻的样子；不排在这个聊天没发出去的那些后面（见 outbox.KINDS）。"""
+        self._later(platform, Job("status", chat, lambda channel: channel.send(chat, str(compose()))))
 
     def ask(self, platform: str, chat: str, prompt: Prompt, waiting: Waiting) -> None:
         def run(channel: Channel) -> None:
             waiting.handle = channel.ask(chat, prompt)
 
-        self._later(platform, run)
+        self._later(platform, Job("ask", chat, run, waiting=waiting))
 
     def settle(self, platform: str, chat: str, waiting: Waiting, outcome: str) -> None:
-        # waiting.handle 是发确认请求的那一步填上的。两步排在同一个队里，到这里时它一定已经发完了
-        self._later(platform, lambda channel: channel.settle(chat, waiting.handle, outcome) if waiting.handle else None)
+        # waiting.handle 是发确认请求的那一步填上的。两步排在同一个队里，到这里时它已经发完了；它没发出去、还留着的话，
+        # 这一步也跟着留着，补发时排在它后面（见 outbox.py）
+        self._later(platform, Job("settle", chat, lambda channel: channel.settle(chat, waiting.handle, outcome) if waiting.handle else None))
 
     def send_file(self, platform: str, chat: str, outgoing: OutboundFile, cancelled: threading.Event, timeout: float) -> str:
         """把一个文件排进发送队列，等它发完（send_file 工具要知道发没发出去，见 outbound.py）。
 
         排在队列里、而不是直接发：助手发文件之前说的话可能还没发出去，聊天里的顺序要和它做的一样。
+        连不上这类暂时的失败，发送队列会再试几次（和别的消息一样，见 outbox.py），但不留着以后补发：模型在等结果。
         返回 sent（发出去了）、skipped（还没轮到就被 /stop 了，没有发）、pending（/stop 了或者等了 timeout 秒，
-        这时它可能正在上传：不知道发没发出去）。平台拒绝了、连不上，抛出 ChannelError。
+        这时它可能正在上传：不知道发没发出去；之后也不再试）。平台拒绝了、再试几次还是连不上，抛出 ChannelError。
         """
         outbox = self._outbox(platform)
         if outbox is None or not self.attached(platform):
             raise ChannelError(t("{platform} 现在没有连着。", platform=label(platform)))
-        done = threading.Event()
+        finished = threading.Event()
+        gave_up = threading.Event()  # 等了 timeout 秒还没结果：发送队列那边也别再试了（模型已经被告知"不知道发没发出去"）
         outcome: dict[str, Any] = {}
 
-        def run() -> None:
-            try:
-                if cancelled.is_set():
-                    outcome["state"] = "skipped"
-                    return
-                channel = self._channels.get(platform)
-                if channel is None:
-                    raise ChannelError(t("{platform} 现在没有连着。", platform=label(platform)))
-                channel.send_file(chat, outgoing)
-                outcome["state"] = "sent"
-            except ChannelError as exc:
-                outcome["error"] = exc
-            except Exception:  # 平台的代码里有 bug：记进日志，给模型一句话，不让发送队列停下
-                logger.exception("%s: 发文件时出错", platform)
-                outcome["error"] = ChannelError(t("发文件时出错了，详细的原因写在智狐的日志里。"))
-            finally:
-                done.set()
+        def done(state: str, error: ChannelError | None) -> None:
+            outcome.update(state=state, error=error)
+            finished.set()
 
-        outbox.put(run)
+        def stopped() -> bool:
+            return cancelled.is_set() or gave_up.is_set()
+
+        outbox.put(Job("file", chat, lambda channel: channel.send_file(chat, outgoing), cancelled=stopped, done=done))
         deadline = time.monotonic() + timeout
-        while not done.wait(0.1):
+        while not finished.wait(0.1):
             if cancelled.is_set() or time.monotonic() > deadline:
+                gave_up.set()
                 return "pending"
-        if "error" in outcome:
-            raise outcome["error"]
+        error = outcome.get("error")
+        if error is not None:
+            raise error
         return outcome.get("state", "sent")
 
     def typing(self, platform: str, chat: str) -> None:
         outbox = self._outbox(platform)
-        channel = self._channels.get(platform)
-        if outbox is not None and channel is not None:
-            outbox.typing(chat, lambda: channel.typing(chat))
+        if outbox is not None and platform in self._channels:
+            outbox.typing(chat, lambda channel: channel.typing(chat))
 
     def set_commands(self, platform: str) -> None:
-        self._later(platform, lambda channel: channel.set_commands(commands()))
+        self._later(platform, Job("menu", "", lambda channel: channel.set_commands(commands())))
+
+    def status_changed(self, platform: str) -> None:
+        """这个平台的通道状态变了（hub.py 告诉的）。变成在线：没发出去的马上按顺序补发，正在等着再试的马上试。"""
+        channel = self._channels.get(platform)
+        outbox = self._outbox(platform)
+        if channel is not None and outbox is not None and channel.status.state == "online":
+            outbox.resume()
+
+    def delivery(self, platform: str) -> dict:
+        """这个平台还有几条没发出去、几条不再补发了、最后一次失败的时间和原因（页面上通道那一行照着写，见 Outbox.summary）。"""
+        outbox = self._outbox(platform)
+        return outbox.summary() if outbox is not None else {"waiting": 0, "lost": 0, "failed_at": None, "error": ""}
+
+    def undelivered(self, platform: str, chat: str) -> int:
+        """这个聊天还有几条没发出去。"""
+        outbox = self._outbox(platform)
+        return outbox.waiting(chat) if outbox is not None else 0
 
     def flush(self, timeout: float = 5.0) -> None:
         """等所有平台排着的话都发完（测试里用）。"""
@@ -255,6 +213,9 @@ class Router:
     def deliver(self, event: Event) -> None:
         """通道交来一条消息或者一次按钮（在通道收消息的线程里调用）。"""
         self.store.refresh()  # 命令行里可能刚生成了配对码、换了确认方式
+        outbox = self._outbox(event.platform)
+        if outbox is not None:
+            outbox.resume()  # 收得到消息，多半也发得出去：没发出去的马上再试
         if isinstance(event, Press):
             self._press(event)
         else:
@@ -279,7 +240,7 @@ class Router:
             stopped = session.stop()
             self.say(platform, message.chat, t("好，正在停下。") if stopped else t("现在没有在进行的事。"))
         elif command == "/status":
-            self.say(platform, message.chat, session.status_text())
+            self.report(platform, message.chat, session.status_text)
         elif (waiting := _answerable(session)) is not None and _word(text) in ALLOW_WORDS | DENY_WORDS and not message.files:
             allowed = _word(text) in ALLOW_WORDS
             # 用上面拿到的这一个：再读一遍 session.waiting 的话，网页可能刚好在这中间答掉了它（变成 None）
@@ -327,6 +288,9 @@ class Router:
                 sessions = [self._sessions.pop(key) for key in old]
             for session in sessions:
                 session.close()
+            outbox = self._outbox(message.platform)
+            if outbox is not None:
+                outbox.forget(lambda chat: chat != message.chat)  # 以前那个账号的聊天里没发出去的，也不再发
         if reply:
             self.say(message.platform, message.chat, reply)
         if outcome != "hint":
@@ -378,15 +342,18 @@ class Router:
             return [session for (name, _), session in self._sessions.items() if name == platform]
 
     def forget(self, platform: str) -> None:
-        """这个平台被删掉了：停下它的聊天，忘掉它们。"""
+        """这个平台被删掉了、解除了绑定：停下它的聊天，忘掉它们，没发出去的也不再补发。"""
         with self._lock:
             gone = [key for key in self._sessions if key[0] == platform]
             sessions = [self._sessions.pop(key) for key in gone]
         for session in sessions:
             session.close()
+        outbox = self._outbox(platform)
+        if outbox is not None:
+            outbox.forget(lambda chat: True)
 
     def close(self, timeout: float) -> None:
-        """退出：停下所有聊天里正在进行的一轮，等它们存好盘（最多 timeout 秒），把排着的话发完。"""
+        """退出：停下所有聊天里正在进行的一轮，等它们存好盘（最多 timeout 秒），把排着的话发完（不再等着重试，见 Outbox.close）。"""
         with self._lock:
             sessions = list(self._sessions.values())
             outboxes = list(self._outboxes.values())

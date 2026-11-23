@@ -890,7 +890,6 @@
  "发得太快，被 Slack 限流了，过一会儿会自动重试。": "Sending too fast: Slack is rate-limiting the bot. It will retry automatically in a moment.",
  "发得太快，被 Telegram 限流了，过一会儿会自动重试。": "Sending too fast: Telegram is rate-limiting the bot. It will retry automatically in a moment.",
  "发得太快，被钉钉限流了，过一会儿会自动重试。": "Sending too fast: DingTalk is rate-limiting the bot. It will retry automatically in a moment.",
- "发文件时出错了，详细的原因写在智狐的日志里。": "Something went wrong sending the file. The details are in 智狐's log.",
  "发文件直接做": "Sends files without asking",
  "发给模型的工具名": "Tool names sent to the model",
  "发送": "Send",
@@ -3753,5 +3752,16 @@
  "（附件：{names}）": "(attachments: {names})",
  "没有打开：这段会话用的是 {provider}，还没有设置 {provider} 的 API 密钥。": "Not opened: this conversation uses {provider}, and no {provider} API key is set yet. ",
  "这段对话用的是 {provider}，还没有设置 {provider} 的 API 密钥。": "This conversation uses {provider}, and no {provider} API key is set yet. ",
- "在 {env_file} 里加上一行 {key_env}=你的key（或者在网页界面 {command} --web 的“设置”里填），再重新启动终端。": "Add a line {key_env}=your-key to {env_file} (or enter it under Settings in the web UI, {command} --web), then restart the terminal."
+ "在 {env_file} 里加上一行 {key_env}=你的key（或者在网页界面 {command} --web 的“设置”里填），再重新启动终端。": "Add a line {key_env}=your-key to {env_file} (or enter it under Settings in the web UI, {command} --web), then restart the terminal.",
+ "前面还有 {n} 条消息没发到聊天里（{reason}），所以这个文件也没有发。": "Earlier messages not yet delivered to the chat: {n} ({reason}), so this file wasn't sent either.",
+ "发送时出错了，详细的原因写在智狐的日志里。": "Something went wrong while sending. The details are in 智狐's log.",
+ "还没发到这里的消息：{n} 条（连上以后会按顺序补发）": "Messages not delivered here yet: {n} (they'll be sent in order once the connection is back)",
+ "没能发出去的消息：{n} 条": "Messages that couldn't be delivered: {n}",
+ "最后一次失败：{when}（{reason}）": "Last failure: {when} ({reason})",
+ "还没发到聊天里（{reason}），连上以后会补发。也可以在这里答复。": "Not delivered to the chat yet ({reason}); it will be sent once the connection is back. You can also answer here.",
+ "没能发到聊天里（{reason}）。请在这里答复。": "Couldn't be delivered to the chat ({reason}). Please answer here.",
+ "还没发到聊天里的消息：{n} 条（连上以后会按顺序补发）": "Messages not delivered to the chat yet: {n} (sent in order once the connection is back)",
+ "没能发到聊天里的消息：{n} 条": "Messages that couldn't be delivered to the chat: {n}",
+ "还没发到聊天里": "Not delivered to the chat yet",
+ "没能发到聊天里": "Couldn't be delivered to the chat"
 }

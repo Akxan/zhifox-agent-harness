@@ -61,6 +61,7 @@ from ..config import (
     CHANNEL_IDLE_SECONDS,
     CHANNEL_RETRY_SECONDS,
     CHANNEL_SEND_BYTES,
+    CHANNEL_SEND_RETRY_AFTER_MAX,
     CHANNEL_TIMEOUT,
     CHANNEL_UPLOAD_TIMEOUT,
     Config,
@@ -82,6 +83,8 @@ from .base import (
     PushChannel,
     Uploads,
     backoff,
+    pause,
+    transient,
 )
 from .guides import SLACK_COMMAND
 
@@ -93,15 +96,19 @@ MAX_RETRIES = 3
 COMMANDS = ("new", "stop", "status", "help", "start")
 # token 坏了、被收回了这类：再试也没用，等你换 token
 BAD_TOKEN = {"invalid_auth", "not_authed", "account_inactive", "token_revoked", "token_expired", "not_allowed_token_type"}
+# Slack 回答 200、ok 却是 false，错误名说的是"现在不行，过一会儿再来"：被限流、它自己出了故障、超时
+# （https://docs.slack.dev/reference/methods/chat.postMessage 的 Errors 一节）。发送队列会再试，见 base.retry_delay
+BUSY = {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}
 
 logger = logging.getLogger("harness.channels.slack")
 
 
 class SlackError(ChannelError):
-    def __init__(self, message: str, error: str = "", status: int = 0):
-        super().__init__(message)
+    """status 是 HTTP 状态码（0：没得到回答；None：不是一次请求出的错，见 base.ChannelError）。"""
+
+    def __init__(self, message: str, error: str = "", status: int | None = None, retry_after: float = 0.0):
+        super().__init__(message, status=status, retry_after=retry_after, busy=error in BUSY)
         self.error = error  # Slack 自己的错误名（invalid_auth……）
-        self.status = status
 
 
 def _explain(error: str, method: str, needed: str = "") -> str:
@@ -144,16 +151,16 @@ class WebAPI:
             try:
                 reply = http.request(verb, url, headers={"Authorization": f"Bearer {token}"}, body=payload, form=form, hide=self.secrets)
             except http.NetError as exc:
-                raise SlackError(t("连不上 Slack（{error}）", error=str(exc))) from None
+                raise SlackError(t("连不上 Slack（{error}）", error=str(exc)), status=exc.status) from None
             data = reply.data if isinstance(reply.data, dict) else {}
             if (reply.status == 429 or data.get("error") == "ratelimited") and attempt < MAX_RETRIES:
-                time.sleep(min(max(reply.retry_after(), 1.0), 30.0))
+                pause(min(max(reply.retry_after(), 1.0), CHANNEL_SEND_RETRY_AFTER_MAX))
                 continue
             if data.get("ok") is True:
                 return data
             # 错误名原样写进说明（"Slack 回答了一个错误：…"）、进日志：万一里面带着 token（出了毛病的代理把请求头弹了回来），先遮住
             error = http.scrub(str(data.get("error") or (f"HTTP {reply.status}" if not reply.ok else "?")), self.secrets)
-            raise SlackError(_explain(error, method, http.scrub(str(data.get("needed") or ""), self.secrets)), error, reply.status)
+            raise SlackError(_explain(error, method, http.scrub(str(data.get("needed") or ""), self.secrets)), error, reply.status, reply.retry_after())
         return {}
 
 
@@ -471,7 +478,7 @@ class SlackChannel(PushChannel):
             # 不带 token：上传地址本身就是这一次的凭证（文档的例子也不带）
             reply = http.request("POST", url, headers={"Content-Type": "application/octet-stream"}, content=outgoing.data, timeout=CHANNEL_UPLOAD_TIMEOUT, hide=self.api.secrets)
         except http.NetError as exc:
-            raise SlackError(t("连不上 Slack（{error}）", error=str(exc))) from None
+            raise SlackError(t("连不上 Slack（{error}）", error=str(exc)), status=exc.status) from None
         if not reply.ok:
             raise SlackError(t("把文件传到 Slack 失败了（HTTP {status}）。", status=reply.status), "upload_failed", reply.status)
         caption = outgoing.caption.strip()
@@ -509,15 +516,19 @@ class SlackChannel(PushChannel):
         return handle
 
     def settle(self, chat: str, handle: str, outcome: str) -> None:
-        blocks = self._asked.pop(handle, None)
+        # 连不上这类暂时的失败原样抛出，由发送队列再改一次（所以改成了才从 _asked 里拿掉，见 telegram.py 的 settle）
+        blocks = self._asked.get(handle)
         if not handle or blocks is None:
             return
         shown = markup.slack_escape(outcome)
         done = [*blocks, {"type": "section", "text": {"type": "mrkdwn", "text": f"*{shown}*"}}]
         try:
             self.api.call("chat.update", {"channel": chat, "ts": handle, "text": shown, "blocks": done})
-        except SlackError:
+        except SlackError as exc:
+            if transient(exc):
+                raise
             self._post(chat, shown)  # 改不了：另发一条说明结果
+        self._asked.pop(handle, None)
 
 
 def _pieces(text: str, markdown: bool) -> list[str]:

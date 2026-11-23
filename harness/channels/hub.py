@@ -156,11 +156,20 @@ class ChannelHub:
                     self.router.detach(platform)
                 if wanted and platform not in self._running:
                     channel = self.factories[platform](self.config, self.store)
-                    channel.on_status = self._changed
+                    channel.on_status = self._status_of(platform)
                     self.router.attach(platform, channel)
                     channel.start(self.router.deliver)
                     self.router.set_commands(platform)
                     self._running[platform] = (channel, entry["credentials"])
+
+    def _status_of(self, platform: str) -> Callable[[], None]:
+        """一个通道的状态变了要做的事：告诉 router（重新连上了的话，没发出去的马上补发，见 outbox.py），再刷新页面。"""
+
+        def changed() -> None:
+            self.router.status_changed(platform)
+            self._changed()
+
+        return changed
 
     def close(self) -> None:
         """退出：关掉所有通道，停下聊天里正在进行的一轮，等它们存好盘。"""
@@ -253,6 +262,9 @@ class ChannelHub:
                 entry["buttons"] = abilities.buttons  # 确认请求是按钮还是回复文字（向导里的说明照着它写）
                 entry["commands"] = abilities.spell("{name}")  # 命令在这个平台上怎么写（Slack 是 /zhifox new）
                 entry["status"] = {"state": status.state, "message": retell(status.message), "since": status.since} if status else {"state": "off", "message": "", "since": None}
+                # 发不出去的：还有几条留着等补发（waiting）、几条不再补发了（lost）、最后一次失败的时间和原因（见 outbox.py）
+                delivery = self.router.delivery(item["id"])
+                entry["delivery"] = {**delivery, "error": retell(delivery["error"])}
                 chats = [session.snapshot() for session in self.router.sessions(item["id"])]
                 entry["chats"] = chats
                 for chat in chats:
