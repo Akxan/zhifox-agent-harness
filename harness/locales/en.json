@@ -3648,5 +3648,7 @@
  "「{title}」回复完了": "“{title}” has finished replying",
  "点这里打开这段对话。": "Click here to open this conversation.",
  "{n} 段对话在等你确认": "{n} conversations need your approval",
- "显示智狐的版本，然后退出": "show 智狐's version and exit"
+ "显示智狐的版本，然后退出": "show 智狐's version and exit",
+ "大约 {low}，最多 {high}（上一次每个任务花得最多的那一遍，再乘 {margin}）": "About {low}, at most {high} (each task's costliest trial in the last real run, times {margin})",
+ "大约 {low}，最多 {high}（照上一次估的任务：那次花得最多的一遍再乘 {margin}；照假定估的任务：缓存一点都没命中、每一步都用满）": "About {low}, at most {high} (tasks estimated from the last real run: their costliest trial times {margin}; tasks estimated from assumed usage: no cache hits at all and every step using the full assumed usage)"
 }

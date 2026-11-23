@@ -329,9 +329,12 @@ EVAL_MAX_REPEAT = 20  # --repeat 最大是多少（每个任务跑几遍）。�
 #   context   每次请求带着多少个 token 的上下文：系统提示词和工具的说明书（数过一次，大约五六千个；Claude 自带的文件、
 #             记忆工具另有一段看不见的说明书），加上到目前为止的对话和工具的结果。取得偏高：宁可估多，不要估少
 #   output    每次回复写多少个 token（思考也算在里面）
+# 2026-11-23 第一次真跑了起步的 22 个任务（Sonnet 5.5、Opus 5.5、DeepSeek flash 各一遍），实际是：每遍调用模型约 3 次，
+# 每次的上下文约 4,000–8,000 个 token，每次写约 120–180 个 token。原来假定的 4 次 × 12,000 × 1,000 把"大约"估高了 3 到 9 倍，
+# 所以按实际的往上留一些余量：仍然宁可估多（新任务、会多想的模型），只是不再离谱
 EVAL_ASSUMED_REQUESTS = 4
-EVAL_ASSUMED_CONTEXT = 12_000
-EVAL_ASSUMED_OUTPUT = 1_000
+EVAL_ASSUMED_CONTEXT = 9_000
+EVAL_ASSUMED_OUTPUT = 400
 # 估算"大约"时，第一次请求之后的输入假定有这么多命中缓存（命中的部分便宜得多，Claude 约是原价的二十分之一）。
 # "最多"那个数按一点都没命中算
 EVAL_CACHE_HIT = 0.8

@@ -4205,13 +4205,24 @@ is used, so editing it in Settings and running the eval again tells you whether 
 > **⚠ A real run costs money.** Nothing is sent to a model's API unless you write `--real`. Then ZhiFox first prints an
 > estimate and waits: add `--yes`, or type `yes` in the terminal, or nothing happens (run from a script without `--yes`,
 > it refuses). Real runs are refused outright in CI (when `CI` is set). The money spent is recorded in your
-> spending record with the source `eval`, so it counts toward your monthly budget. Rough cost of the 22 starter tasks,
-> run once each: **about $3 (at most $5) on Claude Opus 5.5, about $1.60 (at most $2.60) on Sonnet 5.5, about $0.20
-> (at most $0.31) on DeepSeek Flash**, plus about $0.02 if you turn on the judge.
+> spending record with the source `eval`, so it counts toward your monthly budget. What the 22 starter tasks actually
+> cost, run once each (2026-11-23): **$1.18 on Claude Opus 5.5, $0.57 on Sonnet 5.5, $0.02 on DeepSeek Flash**, plus
+> about $0.02 if you turn on the judge.
+>
+> | Model (2026-11-23, 0.2.0) | Trials that passed every check | Checks passed | Cost |
+> |---|---|---|---|
+> | Claude Sonnet 5.5 | 21 of 22 | 98% | $0.57 |
+> | Claude Opus 5.5 | 20 of 22 | 97% | $1.18 |
+> | DeepSeek Flash | 17 of 21 (it can't see the image) | 94% | $0.02 |
+>
+> One run each, so the margin of error is about ±20 points. Most misses came from ZhiFox, not the model: read-only
+> commands written with `2>/dev/null` or joined with `&&` still asked for approval, and one check counted *reading* a
+> file as following a prompt injection (since fixed).
 
 How the estimate works, so you can check it: each task assumes a number of model calls, a context size per call and an
-output size per call (its `[budget]`, or the defaults `EVAL_ASSUMED_*` in [config.py](harness/config.py): 4 calls, 12,000
-tokens of context, 1,000 tokens out). *At most* prices all input as uncached; *about* assumes the first call writes the
+output size per call (its `[budget]`, or the defaults `EVAL_ASSUMED_*` in [config.py](harness/config.py): 4 calls, 9,000
+tokens of context, 400 tokens out, set a little above what the first real runs used: about 3 calls of 4,000–8,000
+tokens each, writing 120–180 tokens). *At most* prices all input as uncached; *about* assumes the first call writes the
 cache and 80% of later input hits it. Once you have done a real run of a task on a model, the estimate for that task uses
 what it actually cost last time instead, which beats any assumption. A model without a price can't be estimated, and
 the estimate says so.
@@ -4310,15 +4321,17 @@ more often a bug in a task or a check than a fact about the model.
 - GPT and Gemini have not been tested with real keys (see [Supported models](#supported-models)).
 - Voice to text has only been tested against a local fake of OpenAI's transcription endpoint, never the real API; in
   particular, OpenAI's docs list the OGG container but don't mention the Opus codec Telegram voice notes use.
-- The evals (`harness eval`) have only been run as dry runs against the local fake servers; no real run has been done
-  yet, so the starter tasks' scores and the cost estimate haven't been checked against a real model. The served model
+- The evals (`harness eval`) have been run for real once on each of Claude Sonnet 5.5, Claude Opus 5.5 and DeepSeek
+  Flash (see [Evals](#evals-is-the-assistant-actually-any-good)); one trial per task is too few for fine comparisons,
+  and GPT and Gemini haven't been run. The served model
   isn't checked against the one asked for (a server-side fallback after a refusal shows up only as a note in the trace).
 - With GPT, Gemini and DeepSeek there is no web search.
 - Custom model endpoints have been tested only against local fake servers that imitate Ollama, LM Studio and partial
   OpenAI-format servers, not a real Ollama, LM Studio, vLLM, llama.cpp or gateway. A server that doesn't report usage
   while streaming shows no token counts and its conversations aren't compacted. PDFs reach a custom endpoint only in
   OpenAI's own format, which local servers generally don't read.
-- Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself and hasn't been tested with real keys. A summary
+- Compaction for GPT, Gemini and DeepSeek is done by ZhiFox itself; it has been tested with a real key only on
+  DeepSeek (a lowered threshold, two compactions in a row, and the model still knew what was said before them). A summary
   inevitably loses detail. The cut can only fall between turns, so a single turn that by itself exceeds the model's
   limit (say, one that reads many large files) can't be compacted. Models not listed in `config.py` are all assumed
   to have a 128K-token window, so models with a larger window are compacted earlier than they need to be. After you

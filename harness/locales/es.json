@@ -3648,5 +3648,7 @@
  "「{title}」回复完了": "«{title}» ha terminado de responder",
  "点这里打开这段对话。": "Haz clic aquí para abrir esta conversación.",
  "{n} 段对话在等你确认": "{n} conversaciones esperan tu aprobación",
- "显示智狐的版本，然后退出": "muestra la versión de 智狐 y sale"
+ "显示智狐的版本，然后退出": "muestra la versión de 智狐 y sale",
+ "大约 {low}，最多 {high}（上一次每个任务花得最多的那一遍，再乘 {margin}）": "Unos {low}, como máximo {high} (el intento más caro de cada tarea en la última ejecución real, por {margin})",
+ "大约 {low}，最多 {high}（照上一次估的任务：那次花得最多的一遍再乘 {margin}；照假定估的任务：缓存一点都没命中、每一步都用满）": "Unos {low}, como máximo {high} (tareas estimadas con la última ejecución real: su intento más caro por {margin}; tareas estimadas con el uso supuesto: sin ningún acierto de caché y cada paso gastando todo el uso supuesto)"
 }

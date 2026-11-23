@@ -33,6 +33,7 @@ from ..config import (
     EVAL_ASSUMED_CONTEXT,
     EVAL_ASSUMED_OUTPUT,
     EVAL_ASSUMED_REQUESTS,
+    EVAL_ESTIMATE_MARGIN,
     EVAL_JUDGE_MODEL,
     EVAL_MAX_REPEAT,
     EVAL_PARALLEL,
@@ -339,7 +340,18 @@ def estimate_lines(found: Estimate) -> list[str]:
         cost = money(found.judge_cost) if found.judge_cost is not None else t("算不出（没有价格）")
         lines.append("  " + t("评分员（{model}）：{n} 次评分，约 {cost}", model=found.judge_model, n=found.judge_calls, cost=cost))
     if found.priced:
-        lines.append(t("大约 {low}，最多 {high}（缓存一点都没命中、每一步都用满假定的用量时）", low=money(found.low), high=money(found.high)))
+        # "最多"是怎么来的，看每个任务按什么估的（见 estimate.py 开头）：照上一次实际花的，是那次花得最多的一遍乘 EVAL_ESTIMATE_MARGIN；
+        # 照假定的，是缓存一点都没命中、每一步都用满。两种都有就两句都说
+        low, high = money(found.low), money(found.high)
+        if not found.measured:
+            lines.append(t("大约 {low}，最多 {high}（缓存一点都没命中、每一步都用满假定的用量时）", low=low, high=high))
+        elif not assumed:
+            lines.append(t("大约 {low}，最多 {high}（上一次每个任务花得最多的那一遍，再乘 {margin}）", low=low, high=high, margin=EVAL_ESTIMATE_MARGIN))
+        else:
+            lines.append(t(
+                "大约 {low}，最多 {high}（照上一次估的任务：那次花得最多的一遍再乘 {margin}；照假定估的任务：缓存一点都没命中、每一步都用满）",
+                low=low, high=high, margin=EVAL_ESTIMATE_MARGIN,
+            ))
     else:
         lines.append(t("这个模型没有价格，算不出要花多少钱（可以在网页界面的设置里填上它的价格）。上面的 token 数照样会用掉。"))
     provider = find(found.target.provider)
