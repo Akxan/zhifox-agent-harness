@@ -27,7 +27,7 @@ from harness import commands as commands_module
 from harness.commands import Places, Unclear, classify
 from harness.commands import paths as paths_module
 from harness.commands.options import allow, deny, names, parse
-from harness.commands.words import stages
+from harness.commands.words import Glob, stages
 from harness.config import READONLY_MAX_CHARS
 
 # ---- 工作目录 -----------------------------------------------------------------
@@ -174,9 +174,6 @@ OPERATORS = [
     no("ls >& out.txt", ">& 写文件"),
     no("(ls)", "子 shell"),
     no("{ ls; }", "命令组"),
-    no("ls *", "通配符 *"),
-    no("ls ?", "通配符 ?"),
-    no("ls [ab]", "通配符 ["),
     no("ls a{b,c}", "花括号展开"),
     no("ls # x", "注释"),
     no("ls ~root", "~user"),
@@ -291,6 +288,34 @@ CHAINS = [
     no("ls && && ls", "两个 && 中间是空的"),
     no("ls &&", "&& 后面是空的"),
     no("ls || ", "|| 后面是空的"),
+]
+
+# 通配符：照 bash 的规矩，在命令运行的那个目录里先展开，展开出来的每一个路径照样检查（2026-11-23 三家模型都写过
+# du -sk */ 2>/dev/null | sort -rn 这样的命令）。一个都对不上时原样交给程序；方括号只认 [ab]、[!.] 这种最简单的
+GLOBS = [
+    ok("cat src/*.txt", "展开成 a.txt、b.txt"),
+    ok("ls src/*", "列出 src 里的"),
+    ok("wc -l src/?.txt", "问号"),
+    ok("ls src/[ab].txt", "方括号"),
+    ok("ls src/[!a].txt", "方括号取反"),
+    ok("du -sk src/* docs/* 2>/dev/null | sort -rn | head -10", "评测里那种写法，只是不在根目录"),
+    ok("ls nothing*", "一个都对不上：原样交给程序"),
+    ok("ls ?", "一个字的名字一个都没有：原样"),
+    ok("ls 'src/*.txt'", "带引号的 * 是字面"),
+    ok("grep -l b src/*", "grep 好几个文件"),
+    ok("cat {HOME}/notes*", "工作目录外面的普通文件"),
+    ok("ls ~/notes*", "~ 加通配符"),
+    no("du -sk */", "展开出来有 data/"),
+    no("cat *", "展开出来有指向 .env、data/ 的东西"),
+    no("cat .*", "展开出来有 .env"),
+    no("cat .e*", "对上 .env"),
+    no("cat ~/.ssh/*", "主目录的 .ssh 里的私钥"),
+    no("ls src/[a-z].txt", "方括号里的区间（不同语言环境下 bash 的理解不一样）"),
+    no("ls src/[^a].txt", "^ 取反（bash 认、Python 不认）"),
+    no("ls src/[[:alpha:]].txt", "字符类"),
+    no("ls src/[a", "方括号没关上"),
+    no("* src", "通配符当命令的名字"),
+    no("src/* x", "通配符当命令的名字（带目录）"),
 ]
 
 PIPELINES = [
@@ -1090,7 +1115,7 @@ BYPASSES = [
     bypass("du -aL mixed", "du -L 同上"),
 ]
 
-TABLE = [*QUOTING, *OPERATORS, *CHAINS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILES, *PATHS, *RECURSIVE, *SED_AWK_JQ, *GIT, *SERVICES, *PROGRAMS, *BYPASSES]
+TABLE = [*QUOTING, *OPERATORS, *CHAINS, *GLOBS, *INVISIBLE, *WRAPPERS, *PIPELINES, *SYSTEM, *FILES, *PATHS, *RECURSIVE, *SED_AWK_JQ, *GIT, *SERVICES, *PROGRAMS, *BYPASSES]
 
 
 @pytest.mark.parametrize("command, readonly", TABLE)
@@ -1275,6 +1300,7 @@ def test_unreadable_folders_never_crash(tmp_path):
         ("ls '2'>/dev/null", [["ls", "2"]]),
         ("ls >/dev/null 2>&1 | wc", [["ls"], ["wc"]]),
         ("echo a\\;b", [["echo", "a;b"]]),
+        ("ls src/*.txt '*' \\?", [["ls", "src/*.txt", "*", "?"]]),
     ],
 )
 def test_stages_splits_words(command, expected):
@@ -1285,7 +1311,7 @@ def test_stages_splits_words(command, expected):
     "command",
     [
         None, 1, "", " \t ", "ls;", "ls &", "a ||", "|| b", "a |& b", "a & b", "a ;; b", "ls 2>x", "ls >/dev/nullx", "ls >&3", "ls |", "| ls", "a | | b", "ls >x", "ls <x", "ls $x", "ls `x`",
-        "ls (x)", "ls {a,b}", "ls *", "ls ?", "ls [a]", "# x", "ls #x", "ls ~x", "ls ~+", 'ls ~"x"', "'open", '"open', "end\\",
+        "ls (x)", "ls {a,b}", "* x", "ls [a-z]", "ls [^a]", "ls [a", "ls [[:alpha:]]", "# x", "ls #x", "ls ~x", "ls ~+", 'ls ~"x"', "'open", '"open', "end\\",
         '"$x"', '"`x`"', '"\\$x"', "FOO=1 ls", "ls | FOO=1 cat", "a+=1 ls", "ls\n", "ls\u200b", "ls\u00a0x",
         "x" * (READONLY_MAX_CHARS + 1),
     ],
@@ -1352,3 +1378,37 @@ def test_allow_needs_full_names():
     for words in (["--recur"], ["-R"], ["--recursive=yes", "-x"]):
         with pytest.raises(Unclear):
             allow(parse(words), allowed)
+
+
+def test_unquoted_wildcards_are_marked_for_expansion_and_quoted_ones_are_not():
+    words = stages("ls src/*.txt '*' \\? a[!b]c")[0]
+    assert [isinstance(word, Glob) for word in words] == [False, True, False, False, True]
+    assert words[1].pattern == "src/*.txt" and words[4].pattern == "a[!b]c"
+    mixed = stages("ls 'a*'b*")[0][1]  # 引号里的 * 是字面：展开的样子里写成 [*]
+    assert isinstance(mixed, Glob) and mixed == "a*b*" and mixed.pattern == "a[*]b*"
+
+
+def test_a_wildcard_that_expands_to_an_option_is_judged_as_that_option(tmp_path):
+    # bash 展开 * 时，名叫 -delete 的文件就成了 find 的一个参数：find * 实际是 find -delete …，会删东西
+    (tmp_path / "-delete").write_text("", encoding="utf-8")
+    (tmp_path / "a.txt").write_text("", encoding="utf-8")
+    assert classify("find *", Places(tmp_path)).readonly is False
+    assert classify("ls *.txt", Places(tmp_path)).readonly is True
+
+
+def test_too_many_matches_is_not_judged(tmp_path, monkeypatch):
+    from harness.commands import globs
+
+    for n in range(5):
+        (tmp_path / f"f{n}.txt").write_text("", encoding="utf-8")
+    assert classify("ls *.txt", Places(tmp_path)).readonly is True
+    monkeypatch.setattr(globs, "READONLY_GLOB_MAX", 3)
+    verdict = classify("ls *.txt", Places(tmp_path))
+    assert verdict.readonly is False and "超过" in verdict.reason
+
+
+def test_a_listed_command_cannot_contain_a_wildcard():
+    from harness.commands.allowlist import CommandListError, check_entry
+
+    with pytest.raises(CommandListError):
+        check_entry("npm test *")

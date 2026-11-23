@@ -55,7 +55,11 @@ Before 1.0.0, a minor version may include breaking changes.
 - "Allow read-only commands" also accepts read-only commands joined with `;`, `&&` or `||` (each part judged on its
   own, as with pipes) and output thrown away or merged (`2>/dev/null`, `>/dev/null`, `&>/dev/null`, `>>/dev/null`,
   `2>&1`, `>&2`). The first real eval runs showed all three models writing such commands and being asked every time.
-  Any other redirection, a single `&`, wildcards and `cd` in a chain still ask.
+  Any other redirection, a single `&` and `cd` in a chain still ask.
+- "Allow read-only commands" also understands wildcards (`*`, `?`, `[ab]`, `[!.]`): they are expanded the way bash
+  would, in the folder the command runs in, and every resulting path is checked like any other, so `du -sk */` runs
+  without asking in a project folder but asks if one of the folders is `data/`, and `cat .e*` asks because it matches
+  `.env`. Ranges, `[^…]`, character classes and a wildcard in the program's name still ask.
 - `run_command` remembers the working folder between commands, as Claude Code's Bash tool does: a `cd` (or
   `Set-Location`) carries over to the next command; environment variables, aliases and functions still don't. New
   conversations, reopened or forked ones, and subagents start in the working folder. When a command won't run in the

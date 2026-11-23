@@ -230,12 +230,19 @@ How ZhiFox decides ([harness/commands/](../../harness/commands/)), step by step:
    part of bash is understood: words, single quotes, double quotes without `$` or backticks, backslash escapes, a `~` at
    the start of a word, `|`, `;`, `&&` and `||` between stages, and output thrown away or merged: `2>/dev/null`,
    `>/dev/null`, `&>/dev/null`, `>>/dev/null`, `2>&1`, `>&2` (the target exactly `/dev/null`, unquoted). Anything else
-   (a single `&`, any other `>`, `<`, `$(…)`, `` ` ``, `$VAR`, `*`, `?`, `[`, `{`, `NAME=value` in front, comments,
-   newlines, invisible characters such as zero-width spaces) means "can't be read with certainty", and the command asks.
-   Each of these makes what you see differ from what runs: `cat "$(echo .env)"` reads `.env`, `echo hi > notes.txt`
-   overwrites a file, `ls *` depends on what the folder holds at that moment. Chains and `/dev/null` were added after
-   the first real eval runs, where all three models wrote read-only commands such as `du -sk dir 2>/dev/null | sort -rn`
-   and `git log -1 && git show HEAD` and were asked every time.
+   (a single `&`, any other `>`, `<`, `$(…)`, `` ` ``, `$VAR`, `{`, `NAME=value` in front, comments, newlines,
+   invisible characters such as zero-width spaces) means "can't be read with certainty", and the command asks. Each of
+   these makes what you see differ from what runs: `cat "$(echo .env)"` reads `.env`, `echo hi > notes.txt` overwrites
+   a file. Chains and `/dev/null` were added after the first real eval runs, where all three models wrote read-only
+   commands such as `du -sk dir 2>/dev/null | sort -rn` and `git log -1 && git show HEAD` and were asked every time.
+   **Wildcards** (`*`, `?` and plain brackets such as `[ab]` or `[!.]`, unquoted) are expanded first, the way bash is
+   about to, in the folder the command runs in ([globs.py](../../harness/commands/globs.py)), and every path they turn
+   into is checked like any other: `du -sk */` is fine in a project folder and asks if one of the folders is `data/`;
+   `cat .e*` asks because it matches `.env`; a file named `-delete` turns `find *` into `find -delete …`, which asks. A
+   pattern that matches nothing is passed on as it is (bash's default), `.*` also counts `.` and `..` (as the bash 3.2
+   on macOS does), and more than `READONLY_GLOB_MAX` matches asks. Ranges (`[a-z]`, which bash reads differently per
+   locale), `[^a]` and character classes (`[:alpha:]`) aren't understood and ask. A wildcard in the program's name asks,
+   and commands you add yourself can't contain one.
 2. **Programs** ([rules.py](../../harness/commands/rules.py)). Only programs on a built-in list count, each with its own
    rule about which options are fine: `find` without `-exec`, `-delete` or `-fprint`; `sed` without `-i`, and only a
    script made of simple commands (no `w`, `r` or `e`); `awk` without `system`, `getline`, `>` or `|` anywhere in the

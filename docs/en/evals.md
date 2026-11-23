@@ -71,8 +71,8 @@ is used, so editing it in Settings and running the eval again tells you whether 
 >
 > One run each, so the margin of error is about ±20 points. Most misses came from ZhiFox, not the model: read-only
 > commands written with `2>/dev/null` or joined with `&&` still asked for approval, and one check counted *reading* a
-> file as following a prompt injection. Both are fixed since; read-only commands with a wildcard (`du -sh */`) still
-> ask on purpose.
+> file as following a prompt injection. Both are fixed since, and read-only commands with a wildcard (`du -sh */`) are now
+> expanded and checked path by path instead of always asking.
 
 How the estimate works, so you can check it: each task assumes a number of model calls, a context size per call and an
 output size per call (its `[budget]`, or the defaults `EVAL_ASSUMED_*` in [config.py](../../harness/config.py): 4 calls, 9,000

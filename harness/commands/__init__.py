@@ -30,6 +30,7 @@ import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from .globs import expand
 from .paths import Places
 from .rules import RULES, Context
 from .words import Unclear, stages
@@ -51,7 +52,8 @@ def classify(command: object, places: Places, listed: Iterable[Sequence[str]] = 
     if WINDOWS:
         return Verdict(False, reason="Windows 上的命令是 PowerShell，这里看不准它的写法，每条都问（见开头的说明）")
     try:
-        found = stages(command)
+        # 通配符先在命令运行的那个目录里展开（globs.py），下面的规则、你加的命令看到的都是展开以后的路径
+        found = [expand(words, places) for words in stages(command)]
         if len(found) == 1:
             words = found[0]
             for entry in listed:

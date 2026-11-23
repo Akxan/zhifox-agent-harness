@@ -12,7 +12,9 @@
 
 接受的只有：普通的词；单引号（里面的东西原样不动）；双引号（里面不能有 $ 和反引号，bash 会在双引号里展开它们）；
 反斜杠转义一个字符；词开头的 ~（你的主目录）；把几段连起来的 |（管道）、;、&&、||（一段接一段地跑），每一段另外判断；
-以及只往 /dev/null 写、或者把一路输出并到另一路的重定向（2>/dev/null、>/dev/null、&>/dev/null、>>/dev/null、2>&1、>&2）。
+以及只往 /dev/null 写、或者把一路输出并到另一路的重定向（2>/dev/null、>/dev/null、&>/dev/null、>>/dev/null、2>&1、>&2）；
+没带引号的通配符 * ? 和最简单的方括号（[ab]、[!.]）：这里只记下"这个词要展开"（Glob），真正的展开在 globs.py，
+照 bash 的规矩在命令运行的那个目录里展开，展开出来的每一个路径照样检查。
 后两样是 2026-11-23 第一次真跑评测以后加的：三家模型写的只读命令都常常带着它们（du -sk dir 2>/dev/null | sort -rn、
 git log -1 && git show HEAD），每次都问你只是在打扰。写到 /dev/null 什么都改不了；几条只读命令一条接一条地跑，也一样只是看
 （cd 不在只读的名单里，所以带着 cd 的一串照样问：后面的命令换了目录，这里按原来的目录看路径就对不上了）。
@@ -22,7 +24,9 @@ git log -1 && git show HEAD），每次都问你只是在打扰。写到 /dev/nu
 
 from __future__ import annotations
 
+import glob
 import unicodedata
+from typing import Self
 
 from ..config import READONLY_MAX_CHARS
 
@@ -31,12 +35,30 @@ class Unclear(Exception):
     """这条命令看不懂，或者看懂了但它不是只读的。args[0] 是一句给人看的原因（中文，测试和排查用）。"""
 
 
+class Glob(str):
+    """带着没加引号的通配符的一个词。字符串本身是这个词照字面的样子（bash 一个都对不上时交给程序的就是它），
+    pattern 是交给 glob 展开用的样子：引号里、反斜杠转义的 * ? [ 写成 [*] [?] [[]（glob.escape），只有没加引号的那几个是通配符。"""
+
+    pattern: str
+
+    def __new__(cls, text: str, pattern: str) -> Self:
+        word = super().__new__(cls, text)
+        word.pattern = pattern
+        return word
+
+
+# 方括号里只认这些字符（加上开头的一个 !）：区间（a-z）在不同的语言环境下 bash 的理解不一样，^ 取反 Python 的 glob 不认，
+# [:alpha:] 这类字符类、转义、引号、空白都不认（见开头：宁可多问一次）
+def _plain_in_brackets(char: str) -> bool:
+    return char.isalnum() or char in "._"
+
+
 # 不在引号里时，碰到这些就说看不懂。每一个在 bash 里都有特殊含义：
 #   < 重定向（读文件）                ( ) 子 shell、函数
 #   $ 变量、命令替换、算术            ` 命令替换                    { } 花括号展开、命令组
-#   * ? [ 通配符（展开成什么要看文件夹里此刻有什么）
 # ; & > 在 stages 里单独看：; && || 连起来的几段各自判断，> 只认写到 /dev/null（见开头），单独的 &（放到后台）照旧看不懂
-OPERATORS = set("<()$`{}*?[")
+# * ? [ 是通配符，也在 stages 里单独看：记下这个词要展开（Glob），展开成什么要看文件夹里此刻有什么，交给 globs.py
+OPERATORS = set("<()$`{}")
 DEV_NULL = "/dev/null"
 # 重定向的目标后面只能紧跟着这些（或者命令结束）：/dev/null.txt、/dev/null>x 都不是写到 /dev/null
 _AFTER_TARGET = set(" \t|;&")
@@ -70,14 +92,26 @@ def stages(command: object) -> list[list[str]]:  # 什么都可以给：不是�
     word: list[str] = []
     started = False  # 这个词开始了没有（'' 这样的空引号也算一个词）
     quoted = False  # 这个词里用过引号或者反斜杠（"2">x 的 2 是参数，不是文件描述符）
+    pattern: list[str] = []  # 这个词交给 glob 展开时的样子（见 Glob）
+    globbed = False  # 这个词里有没加引号的通配符
     index, size = 0, len(command)
 
     def finish() -> None:
-        nonlocal started, quoted
+        nonlocal started, quoted, globbed
         if started:
-            found[-1].append("".join(word))
+            if globbed:
+                if not found[-1]:
+                    raise Unclear("命令的名字里有通配符")
+                found[-1].append(Glob("".join(word), "".join(pattern)))
+            else:
+                found[-1].append("".join(word))
         word.clear()
-        started = quoted = False
+        pattern.clear()
+        started = quoted = globbed = False
+
+    def literal(since: int) -> None:
+        """word 里从 since 起新加的几段是照字面的（引号里的、转义的、普通的字）：展开的样子里也照字面写"""
+        pattern.append(glob.escape("".join(word[since:])))
 
     def next_stage(what: str) -> None:
         """| ; && || 处：这一段结束，下一段开始。两边都不能是空的。"""
@@ -94,18 +128,38 @@ def stages(command: object) -> list[list[str]]:  # 什么都可以给：不是�
             end = command.find("'", index + 1)
             if end < 0:
                 raise Unclear("单引号没有配对")
+            since = len(word)
             word.append(command[index + 1 : end])
+            literal(since)
             started = quoted = True
             index = end
         elif char == '"':
+            since = len(word)
             index = _double_quoted(command, index + 1, word)
+            literal(since)
             started = quoted = True
         elif char == "\\":
             if index + 1 >= size:
                 raise Unclear("命令以反斜杠结尾")
+            since = len(word)
             word.append(command[index + 1])
+            literal(since)
             started = quoted = True
             index += 1
+        elif char in "*?":
+            word.append(char)
+            pattern.append(char)
+            started = globbed = True
+        elif char == "[":
+            end = command.find("]", index + 1)
+            inside = command[index + 1 : end] if end > index else ""
+            body = inside.removeprefix("!")
+            if end < 0 or not body or not all(_plain_in_brackets(one) for one in body):
+                raise Unclear("通配符的方括号里有看不准的写法（只认 [ab]、[!.] 这样的）")
+            word.append(command[index : end + 1])
+            pattern.append(command[index : end + 1])
+            started = globbed = True
+            index = end
         elif char == "|":
             following = command[index + 1 : index + 2]
             if following == "&":
@@ -145,9 +199,11 @@ def stages(command: object) -> list[list[str]]:  # 什么都可以给：不是�
             if following not in ("", "/", " ", "\t", "|"):
                 raise Unclear("用了 ~ 的特殊写法")
             word.append("~")
+            pattern.append("~")
             started = True
         else:
             word.append(char)
+            pattern.append(glob.escape(char))
             started = True
         index += 1
     finish()

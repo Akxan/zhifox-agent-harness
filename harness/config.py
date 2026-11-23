@@ -330,6 +330,8 @@ COMPUTER_TOOLSET_TOKENS = 4500
 # "只读的命令不用问"那一档（见 commands/ 和 permissions.py）。
 # 一条命令最长这么多个字符还去判断它是不是只读的；再长的一律照常问：看懂一条很长的命令本来就难，人也很难一眼看清
 READONLY_MAX_CHARS = 2000
+# 只读的命令里一个通配符（*、?、[ab]）最多展开成这么多个路径（见 commands/globs.py）：再多就不一个个查了，照常问你
+READONLY_GLOB_MAX = 200
 # 会把一个文件夹里的文件内容整个读一遍的命令（grep -r、rg、diff -r），先把那个文件夹看一遍有没有像密钥的文件
 # （.env、私钥、凭据……）。最多看这么多项，看不完的（文件夹太大）就照常问，不去猜剩下的里面有没有
 READONLY_SCAN_ENTRIES = 3000

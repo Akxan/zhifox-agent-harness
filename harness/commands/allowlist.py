@@ -32,7 +32,7 @@ from ..config import (
 )
 from ..i18n import k, t
 from ..safe import clean_text, private_dir, to_json, write_file
-from .words import Unclear, stages
+from .words import Glob, Unclear, stages
 
 # 能运行任何命令的程序：加进清单就等于全部自动允许，不许加
 RUNNERS = {
@@ -67,6 +67,8 @@ def check_entry(text: object) -> list[str]:
     if len(found) != 1:
         raise CommandListError(t(UNCLEAR))
     words = found[0]
+    if any(isinstance(word, Glob) for word in words):  # 清单里是一条写死的命令：通配符展开成什么要看那一刻的文件夹，不认
+        raise CommandListError(t(UNCLEAR))
     program = os.path.basename(words[0]).casefold()
     if program in RUNNERS:
         raise CommandListError(t("“{program}”能运行任何命令，加进来就等于全部自动允许。真要这样，请选“全部自动允许”那一档。", program=words[0]))
