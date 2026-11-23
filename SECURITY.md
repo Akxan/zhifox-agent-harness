@@ -41,28 +41,28 @@ These are the safeguards ZhiFox promises. A way around any of them is a vulnerab
   from the page address and pass Host and Origin checks, so other websites open in your browser and other accounts on
   the computer can't drive it. The page loads nothing from outside, its scripts run under a nonce-based Content
   Security Policy, and text from the model or a tool is inserted as text, never parsed as HTML. See
-  [One loop, two interfaces](README.md#one-loop-two-interfaces) and, for the background service's token,
-  [How launchd and systemd keep it running](README.md#how-launchd-and-systemd-keep-it-running).
+  [One loop, two interfaces](docs/en/web-ui.md#one-loop-two-interfaces) and, for the background service's token,
+  [How launchd and systemd keep it running](docs/en/background-and-servers.md#how-launchd-and-systemd-keep-it-running).
 - **You are asked first.** By default every command and every file write waits for your approval. The looser modes
   only decide when not to ask; they never open anything else: `.env` is off-limits in every mode, reading ZhiFox's own
   `data/` asks in every mode except Allow everything, the read-only check is deliberately conservative, and tasks the
   assistant creates always ask. Your hooks can make a step stricter, never looser. See
-  [Permissions](README.md#permissions) and [Hooks](README.md#hooks-your-own-scripts-at-fixed-moments).
+  [Permissions](docs/en/tools-and-permissions.md#permissions) and [Hooks](docs/en/sandbox-and-hooks.md#hooks-your-own-scripts-at-fixed-moments).
 - **An optional sandbox for commands**, as a second safeguard (macOS `sandbox-exec`, Linux bubblewrap). When a level is
   on, a command can't reach `data/` or `.env`, and where the sandbox can't work ZhiFox refuses to run the command rather
-  than running it outside. See [Sandbox for commands](README.md#sandbox-for-commands-what-a-command-can-reach).
+  than running it outside. See [Sandbox for commands](docs/en/sandbox-and-hooks.md#sandbox-for-commands-what-a-command-can-reach).
 - **Secrets in tool results are masked** before they reach the model, the history, the page, your hooks or the run
   trace. This is a safety net, not a guarantee: a key the model deliberately rewrote won't be recognized. See
-  [Masking secrets in tool results](README.md#masking-secrets-in-tool-results).
+  [Masking secrets in tool results](docs/en/sandbox-and-hooks.md#masking-secrets-in-tool-results).
 - **Keys don't reach the browser.** API keys, bot tokens and MCP secrets are never sent to the page (it shows only the
   last 4 characters); commands, MCP servers and hooks don't get the model API keys in their environment; exports mask
-  them. See [Data and privacy](README.md#data-and-privacy).
+  them. See [Data and privacy](docs/en/data-and-privacy.md).
 - **Chat channels answer their paired owner only**; messages from anyone else and from group chats are ignored. See
-  [Chat channels](README.md#chat-channels-talking-to-zhifox-from-your-chat-app).
+  [Chat channels](docs/en/chat-channels.md#chat-channels-talking-to-zhifox-from-your-chat-app).
 - **Browser use and computer use have their own rules**: ZhiFox's Chrome is driven over a pipe with no debugging port,
   passwords and card details always ask, downloads are refused, and computer use is off until you accept its risks. See
-  [Browser use](README.md#browser-use-a-chrome-of-its-own) and
-  [Computer use](README.md#computer-use-your-whole-desktop-advanced).
+  [Browser use](docs/en/browser-and-computer-use.md#browser-use-a-chrome-of-its-own) and
+  [Computer use](docs/en/browser-and-computer-use.md#computer-use-your-whole-desktop-advanced).
 
 ## What is not a vulnerability
 
@@ -106,20 +106,20 @@ These are the safeguards ZhiFox promises. A way around any of them is a vulnerab
 
 - **网页界面只给这台电脑用**：服务器只监听 `127.0.0.1`；每个请求都要带页面地址里的口令，并通过 Host 和 Origin 检查，浏览器里开着的别的网站、
   这台电脑上的别的账户都驱动不了它；页面不加载任何外部资源，脚本只在带 nonce 的内容安全策略下运行，模型和工具输出的文字只当作文字放进页面，
-  从不当作 HTML 解析。见 [一个循环，两种界面](README.zh-CN.md#一个循环两种界面)，后台服务的口令见
-  [launchd 和 systemd 是怎么让它一直开着的](README.zh-CN.md#launchd-和-systemd-是怎么让它一直开着的)。
+  从不当作 HTML 解析。见 [一个循环，两种界面](docs/zh-CN/web-ui.md#一个循环两种界面)，后台服务的口令见
+  [launchd 和 systemd 是怎么让它一直开着的](docs/zh-CN/background-and-servers.md#launchd-和-systemd-是怎么让它一直开着的)。
 - **先问你**：默认每条命令、每次改文件都等你确认。宽松的几档只决定什么时候可以不问，不会放开别的：`.env` 在任何一档都碰不了，读智狐自己的
   `data/` 除了"全部自动允许"都要问，"只读的命令"的判断故意很保守，助手自己添加的定时任务一律要问；你的钩子只能更严，不能放宽。
-  见 [权限规则](README.zh-CN.md#权限规则) 和 [你的钩子](README.zh-CN.md#你的钩子在固定的时刻运行你自己的脚本)。
+  见 [权限规则](docs/zh-CN/tools-and-permissions.md#权限规则) 和 [你的钩子](docs/zh-CN/sandbox-and-hooks.md#你的钩子在固定的时刻运行你自己的脚本)。
 - **可选的命令沙箱**是第二道关卡（macOS 的 `sandbox-exec`、Linux 的 bubblewrap）：开着的时候命令碰不到 `data/` 和 `.env`；
-  这台电脑上用不了沙箱时直接拒绝，绝不悄悄在沙箱之外运行。见 [命令的沙箱](README.zh-CN.md#命令的沙箱命令只碰得到该碰的地方)。
+  这台电脑上用不了沙箱时直接拒绝，绝不悄悄在沙箱之外运行。见 [命令的沙箱](docs/zh-CN/sandbox-and-hooks.md#命令的沙箱命令只碰得到该碰的地方)。
 - **工具结果里的密钥会被遮住**，然后才交给模型、写进历史、显示在页面上、交给你的钩子、写进运行记录。这是一张安全网，不是保证：模型故意改写过的密钥认不出来。
-  见 [遮住工具结果里的密钥](README.zh-CN.md#遮住工具结果里的密钥)。
+  见 [遮住工具结果里的密钥](docs/zh-CN/sandbox-and-hooks.md#遮住工具结果里的密钥)。
 - **密钥不进浏览器**：API 密钥、机器人 token、MCP 的密钥从不发给页面（只显示最后 4 位）；命令、MCP 服务器和钩子的环境里没有模型的密钥；
-  导出时遮住。见 [数据存在哪里](README.zh-CN.md#数据存在哪里)。
+  导出时遮住。见 [数据存在哪里](docs/zh-CN/data-and-privacy.md)。
 - **聊天通道只听配对过的主人**，别人的消息和群聊一律不理。浏览器和操作整台电脑也有自己的规矩：智狐的 Chrome 只走管道、不开调试端口，
   密码和银行卡每次都问，下载一律拒绝；操作整台电脑在你确认过风险之前一直关着。见
-  [浏览器](README.zh-CN.md#浏览器智狐自己的一个-chrome) 和 [操作整台电脑](README.zh-CN.md#操作整台电脑看你的屏幕动你的鼠标键盘进阶)。
+  [浏览器](docs/zh-CN/browser-and-computer-use.md#浏览器智狐自己的一个-chrome) 和 [操作整台电脑](docs/zh-CN/browser-and-computer-use.md#操作整台电脑看你的屏幕动你的鼠标键盘进阶)。
 
 **什么不算漏洞：**
 

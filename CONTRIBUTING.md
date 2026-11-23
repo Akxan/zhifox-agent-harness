@@ -76,7 +76,7 @@ uv run --with mypy==1.19.0 mypy --platform linux   # types; run it for darwin an
 These work the same in zsh, bash and PowerShell. CI runs the tests on Ubuntu, macOS and Windows with Python 3.11 and
 3.13 for every pull request, and mypy for all three platforms. If you have only one system, say so in the pull request;
 CI covers the others. For a different Python version: `uv run --python 3.13 --isolated pytest -q`. More about how the
-tests work: [Testing](README.md#testing).
+tests work: [Testing](docs/en/testing.md).
 
 ## Rules a change must keep
 
@@ -201,7 +201,7 @@ uv run --with mypy==1.19.0 mypy --platform linux   # 类型检查；darwin、win
 
 这几条在 zsh、bash 和 PowerShell 里写法一样。每个 pull request 都由 CI 在 Ubuntu、macOS、Windows 上用 Python 3.11 和 3.13 跑测试，
 mypy 三个系统都查。手边只有一个系统的话，在 pull request 里写明，别的交给 CI。换一个 Python 版本：`uv run --python 3.13 --isolated pytest -q`。
-测试是怎么做的，详见 [测试](README.zh-CN.md#测试)。
+测试是怎么做的，详见 [测试](docs/zh-CN/testing.md)。
 
 ### 改动必须守住的几条
 
