@@ -172,6 +172,7 @@ SCRIPTS = (
     "scripts/sandbox.js",  # 命令的沙箱：设置里的一节，任务、通道共用的"选哪一档"
     "scripts/sandbox-paths.js",  # 命令的沙箱 · 额外允许的路径
     "scripts/redact.js",  # 遮住工具结果里的密钥：设置里的开关
+    "scripts/fetch.js",  # 读网页（给没有联网工具的模型用的 web_fetch）：设置里的开关
     "scripts/settings.js",  # 设置面板
     "scripts/endpoints.js",  # 设置里的"自定义模型接口"：列表、原地删除（接口本身见 harness/endpoints/）
     "scripts/endpoints-editor.js",  # 自定义模型接口 · 添加和编辑的窗口：测试连接、同步模型、每个模型能做什么

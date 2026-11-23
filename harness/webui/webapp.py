@@ -221,6 +221,7 @@ class WebApp(
             hooks=self.hooks.summary(),  # 你的钩子：有几个、文件有没有问题（完整的列表打开那一页时再要，见 hooks_api.py）
             sandbox=self.sandbox.state(),  # 命令的沙箱：哪一档、额外允许的路径、这台电脑上能不能用（见 sandbox_api.py）
             redact_secrets=settings.redact_secrets,  # 工具的结果先遮一遍密钥再交给模型（见 redact.py），设置里能关
+            web_fetch=settings.web_fetch,  # 读网页（给没有联网工具的模型用，见 fetch/），设置里能关
             language=settings.language,  # 界面语言：zh / en / es。和页面现在用的不一样时，页面会在原地换过去
             # 定时任务：每个任务的设置、最近的运行、正在运行的那一次的进度（格式见 scheduler.py 开头的说明），
             # 以及已经弹出、你还没关掉的提醒

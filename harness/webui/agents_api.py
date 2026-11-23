@@ -126,7 +126,7 @@ class AgentsAPI:
             entry = servers.setdefault(server, {"server": server, "key": server_prefix(server), "tools": []})
             entry["tools"].append({"name": shown, "remote": remote})
         return {
-            "builtin": agent_tools.builtin_names(app.config.web),
+            "builtin": agent_tools.builtin_names(app.config.web, app.settings.web_fetch),
             "mcp": list(servers.values()),
             "colors": list(COLORS),
             "examples": [

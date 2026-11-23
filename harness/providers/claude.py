@@ -90,17 +90,21 @@ class AnthropicBackend:
         （我们自己写的 browser_* 函数工具，见 Tool.stands_in_for）就不发；用不了的话反过来，发替身、不发这个包。
         用不用得了是在这里定下的，一段对话里不再变：这段对话中途换成同一家的另一个模型，说明书也照旧
         （智狐能选的 Claude 模型都支持这两个工具包，见 config.BROWSER_TOOLSET_MODELS、COMPUTER_TOOLSET_MODELS）。
+
+        服务器工具（Anthropic 的服务器上执行的，见 tools/web.py）也有替身：读网页的 web_fetch（见 tools/fetch.py）。
+        这一套里有服务器上的那一个（联网搜索开着），替身就不发，免得模型手里有两个同名的工具。
         """
         self._tools = tools
         usable = {name for name, models in TOOLSET_MODELS.items() if self.model in models}
         self.toolsets: set[str] = set()
+        self.servers = {tool.name for tool in tools if tool.run is None and not tool.toolset}
         specs: list[dict] = []
         for tool in tools:
             if tool.toolset:
                 if tool.toolset in usable and tool.toolset not in self.toolsets:
                     self.toolsets.add(tool.toolset)
                     specs.append(tool.spec)
-            elif not (tool.stands_in_for and tool.stands_in_for in usable):
+            elif not (tool.stands_in_for and (tool.stands_in_for in usable or tool.stands_in_for in self.servers)):
                 specs.append(tool.spec)
         self.tool_specs = specs
 
@@ -191,10 +195,11 @@ class AnthropicBackend:
         self._messages.append({"role": "user", "content": content})
 
     def sends(self, tool: Any) -> bool:
-        """这个工具发不发给模型：工具包的成员看这个模型用不用得了这个包（见 use_tools），用得了的话它的替身就不发。"""
+        """这个工具发不发给模型：工具包的成员看这个模型用不用得了这个包（见 use_tools），用得了的话它的替身就不发；
+        服务器工具的替身（读网页）看这一套里有没有服务器上的那一个。"""
         if tool.toolset:
             return tool.toolset in self.toolsets
-        return not (tool.stands_in_for and tool.stands_in_for in self.toolsets)
+        return not (tool.stands_in_for and (tool.stands_in_for in self.toolsets or tool.stands_in_for in self.servers))
 
     def can_switch_to(self, model: str) -> bool:
         """能不能换成 model 接着这段对话（备用模型，见 fallback.py）。

@@ -266,6 +266,7 @@ class RestoreAPI:
         old.ui.forget_stop_callbacks()  # 旧的那一份登记的"停止时要做的事"不再要（新的 WebApp 会登记它自己的）
         fresh_app = build_app(app.config, old.ui, client_factory=app.client_factory)
         fresh_app.browser.headless_only = app.browser.headless_only  # 服务器上（harness serve）只能无界面运行
+        fresh_app.fetcher = app.fetcher  # 读网页去取的那一个（测试换成连本地假网站的，见 fetch/client.py）
         fresh = type(old)(fresh_app, old.ui, old.token, old.service)
         # 测试和演示让聊天平台连本地的假服务器（换掉的是这两张表），新的那一个照样连那里
         fresh.channels.factories = dict(old.channels.factories)

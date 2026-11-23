@@ -37,6 +37,15 @@ Before 1.0.0, a minor version may include breaking changes.
   周报模板). Pinyin is tried only when a keyword doesn't appear as typed, and pinyin matches rank after the other kinds,
   so earlier results keep their order. The readings come from Unicode's Unihan database (Unicode 18.0.0, Unicode License
   v3), generated once by `tests/make_pinyin.py` into `harness/search_pinyin.txt` and loaded on the first pinyin search.
+- `web_fetch`, a small read-only tool that lets GPT, Gemini, DeepSeek and custom endpoints read a web page by its
+  address (Claude keeps Anthropic's server-side web fetch; with `HARNESS_WEB=0` Claude uses this one). It extracts
+  readable text from HTML with the standard library, also reads plain text, JSON and Word, Excel and PowerPoint files,
+  and refuses PDFs and images. It is not a search. On by default (**Settings → Read web pages**); the first fetch from
+  each site in a conversation asks you, showing the full address, and only Allow everything skips that. A hard guard
+  refuses anything but http(s) and every loopback, private, link-local (cloud metadata), CGNAT, multicast, reserved or
+  unspecified address, checked after DNS and on every redirect, connecting to the address it checked; no proxy, no
+  cookies, no keys; limits of 5 MB, 20 s, 5 redirects and 30,000 characters; the per-message cap is shared with
+  `HARNESS_MAX_SEARCHES`.
 - `CONTRIBUTING.md` (English, then 简体中文), GitHub issue forms for bug reports and feature requests (the bug form asks
   for `harness --version`, how ZhiFox was installed, the system and `harness doctor --json`), and a pull request
   template with a checklist. Blank issues are off, and security reports are pointed to `SECURITY.md`.

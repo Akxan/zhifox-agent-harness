@@ -502,6 +502,19 @@ __STYLES__
       </div>
       <p class="hint" data-i18n>标签页上的标记不用浏览器允许，一直都有：页面在后台、有事等你时，标题前多一个圆点（等你确认时写着“等你确认”），图标上也有一个小点。回到页面就没了。这个开关只记在这个浏览器里。</p>
     </section>
+    <!-- 读网页（scripts/fetch.js）：给自己不能联网的模型用的 web_fetch（harness/fetch/）。怎么取、哪些地址不去、问不问都在程序里，
+         这里只是开关。默认开着（每个新网站第一次读之前照样先问你），开、关都不用确认 -->
+    <section id="fetch-section" hidden>
+      <h3><span data-i18n>读网页</span> <small id="fetch-state"></small></h3>
+      <div class="browser-option">
+        <div class="browser-option-words">
+          <b id="fetch-title" data-i18n>让助手读你给的网址</b>
+          <span class="browser-note" data-i18n>GPT、Gemini、DeepSeek 和自定义接口上的模型自己不能联网。开着的话，它们能读一个网址里的文字：不执行网页里的脚本，不带 Cookie。每个网站在一段对话里第一次读之前先问你；这台电脑、局域网里的地址一律不读。Claude 开着联网搜索时用的是 Anthropic 服务器上的，不受这个开关影响。</span>
+        </div>
+        <button id="fetch-enabled" class="browser-switch" type="button" role="switch" aria-checked="true" aria-labelledby="fetch-title"></button>
+      </div>
+      <p class="hint" data-i18n>这不是搜索：助手得先知道网址。要看这台电脑、局域网里的网页，或者要点按钮、填表单，用下面的浏览器。</p>
+    </section>
     <section id="browser-section">
       <h3><span data-i18n>浏览器</span> <small id="browser-state"></small></h3>
       <div id="browser-card" class="browser-card">

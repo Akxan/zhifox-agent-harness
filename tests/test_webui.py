@@ -785,9 +785,9 @@ def test_switching_to_another_provider_starts_a_new_conversation(serve):
     assert (state["provider"], state["model"]) == ("deepseek", "deepseek-flash")
     assert tool_names(state) == [
         "todo_add", "todo_list", "todo_update", "todo_delete", "task_add", "task_list", "task_delete", "memory",
-        "str_replace_based_edit_tool", "run_command", "skill", "agent",
-    ]  # 没有联网搜索
-    assert capability(state, "web")["status"] == "unavailable"  # 清单里照样有这一项，说清楚为什么用不了
+        "str_replace_based_edit_tool", "run_command", "web_fetch", "skill", "agent",
+    ]  # 没有联网搜索，只有智狐自己的读网页（见 tools/fetch.py；清单里"联网"那一项排在 Skill 前面）
+    assert capability(state, "web")["status"] == "on" and capability(state, "web")["where"] == "local"
     # Claude 和 DeepSeek 都有内置价格。DeepSeek 分高峰和闲时（闲时半价），两个价格都发给页面
     assert state["unpriced"] == []
     assert state["price"] == {"input": 0.3, "output": 1.2, "cache_read": 0.006, "cache_write": 0.3}

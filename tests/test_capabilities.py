@@ -198,18 +198,33 @@ def test_claude_searches_the_web_on_anthropics_servers(start):
     assert outcomes(web) == {"联网搜索、读网页": "free"}
 
 
-def test_deepseek_cannot_search_and_says_how_to_get_it(start_openai):
-    """DeepSeek 没有联网搜索：这是"这里用不了"，不是"关着"，原因要点名现在用的是哪一家，按钮带你去换模型。"""
+def test_deepseek_cannot_search_but_reads_pages(start_openai):
+    """DeepSeek 没有联网搜索，用的是智狐自己的读网页（tools/fetch.py）：在这台电脑上执行、每个新网站先问你；
+    原因要说清楚只能读网址、不能搜索，点名现在用的是哪一家，按钮带你去设置和换模型。"""
     web = item(overview(start_openai()), "web")
-    assert web.status == "unavailable" and web.tools == [] and web.approval is None
+    assert web.status == "on" and web.where == "local" and web.tools == ["web_fetch"]
     assert "DeepSeek" in web.reason and "Claude" in web.reason
-    assert actions(web)[0] == ("models", "")
+    assert outcomes(web) == {"读这段对话里读过的网站": "free", "读一个新的网站": "ask"}
+    assert actions(web) == [("settings", "fetch"), ("models", "")]
+
+
+def test_deepseek_with_reading_pages_switched_off(start_openai):
+    s = start_openai()
+    s.app.settings.set_web_fetch(False)
+    s.app.refresh_tools()
+    web = item(overview(s), "web")
+    assert web.status == "off" and web.tools == [] and actions(web) == [("settings", "fetch")]
 
 
 def test_web_search_switched_off_at_startup(start):
-    """HARNESS_WEB=0 关掉的联网搜索：页面上开不了，原因要说是启动时关掉的。"""
-    web = item(overview(start(web=False)), "web")
-    assert web.status == "unavailable" and "HARNESS_WEB=0" in web.reason and web.tools == []
+    """HARNESS_WEB=0 关掉了服务器上的联网搜索：Claude 也改用智狐自己的读网页，原因要说是启动时关掉的、只能读网址。"""
+    s = start(web=False)
+    web = item(overview(s), "web")
+    assert web.status == "on" and "HARNESS_WEB=0" in web.reason and web.tools == ["web_fetch"] and web.where == "local"
+    s.app.settings.set_web_fetch(False)
+    s.app.refresh_tools()
+    web = item(overview(s), "web")
+    assert web.status == "off" and web.tools == []
 
 
 def test_the_computer_needs_a_model_that_can_see(start_openai, start_gpt, tmp_path):

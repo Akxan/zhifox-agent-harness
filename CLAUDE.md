@@ -219,6 +219,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/fallback.py`、`harness/webui/fallback_api.py` | 备用模型：模型暂时用不了时，这一轮接下来改用同一家的哪个（`candidates`、`usable`、`use`）；页面在 `page/scripts/fallback.js` |
 | `harness/voice/`、`harness/webui/voice_api.py` | 语音转文字：设置（settings）、选哪一种服务和发出去（transcribe）、聊天通道收到语音时（listen）；页面在 `page/scripts/voice.js` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
+| `harness/fetch/`、`harness/tools/fetch.py` | 读网页（`web_fetch`）：给自己不能联网的模型的只读小工具。guard（哪些地址不去、网址怎么理解）、client（解析、检查、连到查过的地址、自己跟跳转、上限）、charset、readable（HTML → 文字）、content（按类型挑读法）、session（允许过的网站、每条消息几次） |
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图 |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
@@ -588,6 +589,19 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   一个 `BrowserSession`，停止接到 `ui.on_stop` 或 `run.stop`；CDP 的读线程不拿 session 的锁，`manager` 通知页面时不拿着自己的锁。
   问不问写在 `permissions.review_browser`：密码、银行卡、跨站嵌入的框、不是网页的地址在任何模式下都问；
   `file:` `chrome:` `devtools:` `javascript:` `view-source:` 根本不打开；下载一律拒绝；允许过的网站只记在这段对话的 `allowed_sites` 里。
+- **读网页（`web_fetch`，`harness/fetch/`）的安全边界是硬规矩，没有开关**（要看本机、局域网的网页用浏览器）：
+  - 只认 http、https；网址里带用户名密码的、古怪的数字主机名（`2130706433`、`0x7f.1`，在 idna 换成 ASCII 以后再查）不读。
+  - 地址的规矩只在 `fetch/guard.py` 的 `refusal`：自己列的表（IPv4 列不能去的，IPv6 只认 2000::/3 再去掉几段），**不用** `ipaddress` 的
+    `is_private` / `is_global`（3.11 和 3.13 的说法不一样）；藏在 IPv6 里的 IPv4 按里面那个判断；一个名字解析出的地址有一个不能去就整个不读。
+  - 域名只解析一次、连的就是查过的那个地址（`client.Fetcher._connect`，防 DNS 重绑定），TLS 按域名验证、Host 头写域名；跳转自己跟、每一跳从头再查；
+    不走代理（走代理时是代理去解析和连接）。时间靠"看门的"（`_Watchdog`）到点掐断，掐断以后读到的只是一截，一律当超时。
+  - 上限都在 `config.FETCH_*`；每条消息几次和 Claude 的联网搜索共用 `HARNESS_MAX_SEARCHES`，"哪一轮"看 `Agent.turns`。
+  - 问不问写在 `permissions.review_fetch`：这段对话里第一次读一个网站之前问，卡片上是完整的网址；只有 all 放开（readonly、edits 照样问）；
+    允许过的网站记在每次运行自己的 `FetchSession`（不进会话文件，换一段对话从头再问），跳到别的主机不算允许了那个主机。
+  - 发给谁只看 `Backend.sends`：它是 Anthropic 服务器上 `web_fetch` 的替身（`stands_in_for="web_fetch"`），Claude 有服务器上那个时不发。
+    两个同名，所以工具箱里服务器工具的编号是 `server:名字`（`Tool.key`），`registry.get("web_fetch")` 永远是本地的那个。
+  - **测试的接缝**：`App.fetcher`（`Fetcher` 的 `resolve`、`policy`），测试用 `tests/fetch_rig.py` 只放行本地的假网站；设置和模型都碰不到它。
+    conftest 把 `fetch.client.system_resolve` 换成一调用就失败的，测试永远不解析真的域名；真的规矩只拿地址测（`tests/test_fetch_guard.py`）。
 - **子 Agent 只会更少，不会更多。** 子 Agent 的工具用 `agents/tools.allowed` 从叫它的那一方手里的工具里挑，再给它自己的
   shell 和自己名下的 MCP 快照；权限用叫它的那一方的同一个 `Permissions`（对话里是你选的那一档，定时任务里是那次运行的）；
   停止靠 `ui.on_stop` 临时登记、做完取消；记账 source=`subagent`。层数和步数的上限是 `config.AGENT_MAX_DEPTH`、`AGENT_MAX_STEPS`。
@@ -644,7 +658,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
 几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
