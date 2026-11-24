@@ -172,6 +172,13 @@ def test_links_resolved_against_base_href():
     assert text_of(html) == "X (https://cdn.example.net/root/x) Y (https://cdn.example.net/y)"
 
 
+def test_base_href_python_cannot_split_is_ignored():
+    # <base href> 是网页写的：urlsplit 自己就拒绝的写法（方括号里不是 IP 地址）以前让整页读不出来（"工具内部出错"），
+    # 一个网页就能让自己没法被读。当作没写，相对的链接照网页自己的地址补全
+    html = "<base href='http://[1:2:3:4:5:6:7:8:9]/'><p>正文 <a href='/x'>链接</a></p>"
+    assert text_of(html) == "正文 链接 (https://example.com/x)"
+
+
 @pytest.mark.parametrize(
     "href",
     ["#top", "javascript:alert(1)", " JavaScript:void(0)", "mailto:someone@example.com", "tel:+123", "", "ftp://example.com/f"],
