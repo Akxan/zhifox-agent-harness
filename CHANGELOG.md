@@ -80,6 +80,9 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Fixed
 
+- The WebSocket client behind the Discord, Slack, QQ and DingTalk channels waits with `poll` on macOS and Linux instead
+  of `select`, which can't watch a file descriptor numbered 1024 or above: in a long-running ZhiFox with many files and
+  connections open, such a connection was taken for closed and reported as a timeout.
 - **Stop takes effect at once**, also while the model is still thinking, writing a long tool call, or hasn't started
   answering yet: Stop now cuts the request's connection from the thread that pressed it, so the provider stops
   generating too. This covers the web UI's Stop, Ctrl-C in the terminal (on Windows through a console handler), a

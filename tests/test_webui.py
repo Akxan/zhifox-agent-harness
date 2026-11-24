@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import http.client
 import json
 import os
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -67,6 +69,10 @@ from harness.webui.ui import MAX_RESULT_CHARS, WebUI, latest_state_only
 EVENT_WAIT = 30
 
 
+# 测试里开过、还没关的"浏览器"（serve 收尾时一起关掉）
+OPEN_BROWSERS: list[Browser] = []
+
+
 class Browser:
     """扮演浏览器：一边在后台读事件流，一边发请求。
 
@@ -85,11 +91,23 @@ class Browser:
         self.problems: list[str] = []  # 事件流不守约定的地方。后台线程里断言失败不会让测试失败，所以先记下来
         self._arrived = threading.Condition()
         self._checked = 0  # wait_for 已经看过的事件数
+        self._connection: http.client.HTTPConnection | None = None
+        OPEN_BROWSERS.append(self)  # 测试结束时 serve 一起关掉（见 close）
         threading.Thread(target=self._listen, daemon=True).start()
+
+    def close(self) -> None:
+        """断开事件流。不关的话，这条连接（两头各一个文件描述符）要等整个测试进程结束才放开：
+        几百个测试攒下来，一个进程里开着上千个，新连接的编号超过 1024（2026-11-24 macOS 的 CI 上真的撞上过，见 test_websocket.py）"""
+        connection = self._connection
+        if connection is not None and connection.sock is not None:
+            with contextlib.suppress(OSError):
+                connection.sock.shutdown(socket.SHUT_RDWR)  # 叫醒正在读的那个线程
+            connection.close()
 
     def _listen(self) -> None:
         headers = {} if self.last_event_id is None else {"Last-Event-ID": self.last_event_id}
         connection = http.client.HTTPConnection(self.host, timeout=30)
+        self._connection = connection
         connection.request("GET", f"/events?token={self.token}", headers=headers)
         try:
             response = connection.getresponse()
@@ -191,6 +209,7 @@ def request(host: str, method: str, path: str, data: dict | None = None, headers
 def serve(make_config, monkeypatch):
     """启动一个网页服务器，后面连着两个假 API（Claude 的和 OpenAI 格式的），并让"浏览器"连上去。"""
     started = []
+    clients: list = []  # client_factory 建过的 SDK 客户端
     revealed: list = []
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # 默认只有 Claude 的 key 是设置好的
     # 测试里绝不真的去打开访达：把"在文件管理器里显示"换成只记下路径
@@ -208,8 +227,11 @@ def serve(make_config, monkeypatch):
             # 和真实程序一样：每次都按环境变量里当前的 key 创建连接
             key = os.environ.get(provider.key_env) or "missing"
             if provider.kind == "anthropic":
-                return anthropic.Anthropic(api_key=key, base_url=api.base_url, max_retries=0)
-            return openai.OpenAI(api_key=key, base_url=other_api.base_url, max_retries=0)
+                client = anthropic.Anthropic(api_key=key, base_url=api.base_url, max_retries=0)
+            else:
+                client = openai.OpenAI(api_key=key, base_url=other_api.base_url, max_retries=0)
+            clients.append(client)  # 收尾时关掉：连接池里留着的连接不关，也是一直开着的文件描述符
+            return client
 
         app = build_app(config, ui, client_factory=client_factory)
         server, url = create_server(app, ui, port=0)
@@ -222,13 +244,19 @@ def serve(make_config, monkeypatch):
         )
 
     yield serve
+    for browser in OPEN_BROWSERS:  # 先断开事件流：不然服务器那头的线程一直开着那条连接
+        browser.close()
+    OPEN_BROWSERS.clear()
     for api, other_api, server, app in started:
         server.web.stop()
         app.shell.kill_running()
+        app.close()
         server.shutdown()
         server.server_close()
         api.stop()
         other_api.stop()
+    for client in clients:
+        client.close()
 
 
 def last_results(agent) -> list[dict]:

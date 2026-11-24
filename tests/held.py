@@ -29,12 +29,24 @@ class Hold:
         self._changed = threading.Condition()
         self.held = 0  # 一共压过几个请求
         self.hangups = 0  # 压着的时候，对方把连接断开了几次
-        self._wake, self._waker = socket.socketpair()
-        self._wake.setblocking(False)  # 几个压着的线程一起醒来时，只有一个拿得到那个字节，别的接着等
+        # 叫醒压着的线程用的一对 socket：用到时才建（_pair），绝大多数测试根本不压请求。以前每个假服务器一建起来就开一对、
+        # 关的时候也不关，一个测试多出四个文件描述符；一个测试进程跑上千个测试，开着的超过一千个，新连接的编号过了 1024，
+        # macOS 上 select 就认不了（2026-11-24 CI 上 websocket 的几个测试因此一起失败，见 test_websocket.py）
+        self._wake: socket.socket | None = None
+        self._waker: socket.socket | None = None
+        self._waiting = 0  # 正在 wait 里的线程有几个：最后一个离开时，关上了的这一对由它来关
+        self._closed = False
+
+    def _pair(self) -> tuple[socket.socket, socket.socket]:
+        with self._changed:
+            if self._wake is None or self._waker is None:
+                self._wake, self._waker = socket.socketpair()
+                self._wake.setblocking(False)  # 几个压着的线程一起醒来时，只有一个拿得到那个字节，别的接着等
+            return self._wake, self._waker
 
     def release(self, count: int = 1) -> None:
         """放行 count 个（正压着的，或者接下来压上的）。"""
-        self._waker.send(b"x" * count)
+        self._pair()[1].send(b"x" * count)
 
     def wait_held(self, count: int = 1, timeout: float = 30) -> bool:
         """等到一共压过 count 个请求。"""
@@ -48,28 +60,52 @@ class Hold:
 
     def wait(self, connection: socket.socket) -> bool:
         """压着这条连接上的请求。放行了返回 True；对方先断开了返回 False（记下来）。"""
+        wake, _ = self._pair()
         with self._changed:
             self.held += 1
+            self._waiting += 1
             self._changed.notify_all()
-        while True:
-            readable, _, _ = select.select([connection, self._wake], [], [])
-            if connection in readable:
-                try:
-                    data = connection.recv(65536)
-                except OSError:
-                    data = b""
-                if not data:
-                    with self._changed:
-                        self.hangups += 1
-                        self._changed.notify_all()
-                    return False
-            if self._wake in readable:
-                try:
-                    if self._wake.recv(1):
-                        return True
-                except BlockingIOError:
-                    continue  # 被别的压着的线程拿走了
+        try:
+            while True:
+                readable, _, _ = select.select([connection, wake], [], [])
+                if connection in readable:
+                    try:
+                        data = connection.recv(65536)
+                    except OSError:
+                        data = b""
+                    if not data:
+                        with self._changed:
+                            self.hangups += 1
+                            self._changed.notify_all()
+                        return False
+                if wake in readable:
+                    try:
+                        if wake.recv(1):
+                            return True
+                    except BlockingIOError:
+                        continue  # 被别的压着的线程拿走了
+        finally:
+            with self._changed:
+                self._waiting -= 1
+                last = self._closed and self._waiting == 0
+            if last:
+                self._close_pair()
 
     def close(self) -> None:
-        """假服务器停下时：还压着的都放走（这一对 socket 不在这里关：别的线程可能正在 select 它，留给回收）。"""
+        """假服务器停下时：还压着的都放走，再关上那一对 socket。还有线程正在 select 它的话不能马上关，
+        由最后一个离开 wait 的线程关（见 wait 的 finally）。"""
+        with self._changed:
+            self._closed = True
+            if self._wake is None:
+                return  # 从来没压过：没有要关的
+            idle = self._waiting == 0
         self.release(64)
+        if idle:
+            self._close_pair()
+
+    def _close_pair(self) -> None:
+        with self._changed:
+            pair, self._wake, self._waker = (self._wake, self._waker), None, None
+        for sock in pair:
+            if sock is not None:
+                sock.close()

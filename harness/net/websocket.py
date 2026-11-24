@@ -39,10 +39,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import ipaddress
+import math
 import os
 import select
 import socket
 import ssl
+import sys
 import threading
 import time
 import urllib.parse
@@ -68,6 +70,22 @@ _RESERVED_CODES = {1004, 1005, 1006, 1015}
 WINDOWS = os.name == "nt"
 _WINDOWS_SLICE = 0.2  # Windows 上一次最多在 select 里等多久（见 _fill）
 
+
+
+def _readable(sock: socket.socket, timeout: float | None) -> bool:
+    """等 sock 有数据可读（或者对方关了、出错了），最多等 timeout 秒（None 是一直等）。
+
+    macOS、Linux 上用 poll，不用 select.select：select 只认编号小于 1024 的文件描述符（FD_SETSIZE），
+    一个进程里开着的文件一多（后台服务一直开着，连着几个 MCP 服务器和 Chrome；测试里一个进程跑上千个测试），
+    新连接的编号就会超过 1024，select 直接抛 ValueError，上面会把它当成"被别的线程关掉了"去 recv，最后报成超时
+    （2026-11-24 macOS 的 CI 上真的出过：五个 websocket 测试一起失败）。poll 没有这个上限，也不多开一个文件。
+    Windows 上没有 poll；那里的 select 认的是套接字的句柄、按个数算上限，不看编号，照旧用它。"""
+    if sys.platform == "win32":
+        ready, _, _ = select.select([sock], [], [], timeout)
+        return bool(ready)
+    poller = select.poll()
+    poller.register(sock, select.POLLIN | select.POLLPRI)  # 对方关了、出错了（POLLHUP、POLLERR）poll 总会报，不用另外登记
+    return bool(poller.poll(None if timeout is None else max(0, math.ceil(timeout * 1000))))  # 毫秒，往上取整：不早醒
 
 class WebSocketError(Exception):
     """连不上、握手失败、协议出错。说明可以直接给人看：里面不含网址的查询部分（那里常有一次性的票据）。"""
@@ -316,9 +334,9 @@ class WebSocket:
             # 所以那里只等一小段（_WINDOWS_SLICE），醒来回到 _read 的循环里看一眼是不是已经关了，没关接着等
             step = wait if not WINDOWS else _WINDOWS_SLICE if wait is None else min(wait, _WINDOWS_SLICE)
             try:
-                ready, _, _ = select.select([sock], [], [], step)
+                ready = _readable(sock, step)
             except (OSError, ValueError):  # 套接字已经被别的线程关掉了
-                ready = [sock]
+                ready = True
             if not ready:
                 # Windows 上只是一小段到了，还没到时候：回去看一眼再等。（wait 不是 None 时 step 也不是，写出来是给类型检查看的）
                 return WINDOWS and (wait is None or (step is not None and step < wait))

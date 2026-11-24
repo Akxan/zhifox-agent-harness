@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import socket
+import sys
 import threading
 import time
 import urllib.request
@@ -1010,3 +1011,29 @@ def test_the_connect_target_of_an_ipv6_address_has_brackets(proxy):
     lines = tunnel.requests[0].split("\r\n")
     assert lines[0] == "CONNECT [2001:db8::1]:443 HTTP/1.1"
     assert "Host: [2001:db8::1]:443" in lines
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows 的 select 认的是套接字的句柄，没有\"编号不能超过 1024\"这一条；那里照旧用 select")
+def test_waiting_works_when_the_socket_number_is_above_1024(server):
+    # 2026-11-24 macOS 的 CI 上五个 websocket 测试一起失败："对方半天没有把一帧发完"。那个测试进程里漏开着一千多个文件，
+    # 新的连接编号超过了 1024，select.select 认不了（ValueError），代码当成"被别的线程关掉了"去 recv，就超时了。
+    # 后台服务一直开着、连着好几个 MCP 服务器和 Chrome 的时候，智狐自己也可能走到这一步：等数据要用没有这个上限的 poll
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < 1200 and (hard == resource.RLIM_INFINITY or hard >= 1200):
+        resource.setrlimit(resource.RLIMIT_NOFILE, (1200, hard))
+    if resource.getrlimit(resource.RLIMIT_NOFILE)[0] < 1200:
+        pytest.skip("这台电脑上一个进程开不到 1200 个文件")
+    filler: list[int] = []
+    try:
+        while not filler or filler[-1] < 1030:
+            filler.append(os.dup(0) if os.isatty(0) else os.open(os.devnull, os.O_RDONLY))
+        client, peer = server.open()
+        assert client._sock.fileno() > 1024
+        assert client.recv(0.05) is None  # 超时就是超时：不当成连接断了
+        peer.send_text("编号很大也收得到")
+        assert client.recv(2) == "编号很大也收得到"
+    finally:
+        for fd in filler:
+            os.close(fd)
