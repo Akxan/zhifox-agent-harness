@@ -48,6 +48,7 @@ from .i18n import t
 from .parallel import Batch, Job
 from .permissions import Permissions
 from .pricing import usage_key
+from .providers import inflight
 from .providers.base import (
     Backend,
     Step,
@@ -86,6 +87,9 @@ class UI(StreamUI, Protocol):
     # 刚才那次工具调用本来要问用户，但用户已经设置成自动允许。why 是为什么（见 Permissions.allowance）：
     # "readonly"（只读的命令）、"listed"（你自己加的不用问的命令），别的情况是 "mode"
     def auto_allowed(self, why: str = "mode") -> None: ...
+    # 用户点"停止"时调用 callback（这一轮已经点过了的话马上调用）；返回的函数用来取消登记。
+    # 循环在每次请求模型的时候登记"断开这次请求"（见 _request 和 providers/inflight.py）
+    def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]: ...
 
 
 class Agent:
@@ -271,14 +275,23 @@ class Agent:
 
         失败的那次请求什么都没留在历史里（两家的适配层都是收完整个回复才追加），所以换个模型重发的是一字不差的同一段历史、
         同一份系统提示词和工具说明书，只有请求里的 model 不一样。已经显示出来的半截文字留在界面上，和 JSON 格式出错时的重试一样。
+
+        "停止"马上生效（见 providers/inflight.py）：这一步的时间里，界面上的"停止"直接断开这次请求的连接，等着的这个线程
+        马上醒来、抛出 Aborted（KeyboardInterrupt 的一种），由 _finish_turn 照"被中断"收尾。它不是 Unavailable，
+        所以停下以后不会去试备用模型。这一轮已经点过"停止"的，登记的那一刻界面就会调用它（WebUI.on_stop），请求根本不发。
         """
         while True:
             standing_in = self._primary if self.backend.model != self._primary else ""  # 用的是备用模型的话，它替的是哪个
             self.trace.request_began(self.backend.provider, self.backend.model, fallback=standing_in)  # 记录点：发出一次请求
             try:
-                # 界面外面包一层 watch：第一段输出到的时候记下"首字时间"；
-                # 钩子那边也包一层，记下这一次写的字（一轮答完时交给 Stop 钩子）
-                return self.backend.step(self.hooks.watch(self.trace.watch(self.ui)))
+                with inflight.calling() as call:
+                    forget = self.ui.on_stop(call.abort)
+                    try:
+                        # 界面外面包一层 watch：第一段输出到的时候记下"首字时间"；
+                        # 钩子那边也包一层，记下这一次写的字（一轮答完时交给 Stop 钩子）
+                        return self.backend.step(self.hooks.watch(self.trace.watch(self.ui)))
+                    finally:
+                        forget()
             except Unavailable as exc:
                 replacement = self._backup(tried)
                 if replacement is None:

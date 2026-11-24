@@ -24,6 +24,7 @@ from ..config import Config
 from ..endpoints import Endpoint, EndpointError
 from ..i18n import t
 from ..tools import ToolRegistry
+from . import inflight
 from .base import Backend, ProviderError
 
 # 两家的 SDK（anthropic、openai）和用到它们的适配层、自定义接口的客户端，都在下面的函数里用到时才导入。
@@ -270,6 +271,10 @@ def make_client(provider: Provider, timeout: float | None = None) -> Any:
     真正发请求时服务器会回答"key 无效"，界面会提示去设置。
     自定义接口的客户端由 endpoints/client.py 建：别的几家的密钥不带过去、不跟重定向。
     它不能再用 SDK 的 with_options 改：那会照着环境变量重建一个客户端，OPENAI_ORG_ID 这些又回来了，所以 timeout 在这里给。
+
+    底下的 httpx 客户端由我们交给 SDK（SDK 自己的 DefaultHttpxClient，默认的超时、连接数都和它自己建的一样），
+    只是多装了 inflight 的钩子："停止"时连回答的头还没到的请求也能马上断开（见 providers/inflight.py）。
+    每次都建一个新的：钩子记着这个客户端见过的连接，一个适配层一个
     """
     if provider.endpoint is not None:
         from ..endpoints import client as endpoint_client  # 用到时才导入（见文件开头）
@@ -279,11 +284,14 @@ def make_client(provider: Provider, timeout: float | None = None) -> Any:
     if provider.kind == "anthropic":
         import anthropic  # 用到时才导入（见文件开头）
 
-        client = anthropic.Anthropic() if has_key(provider) else anthropic.Anthropic(api_key="missing")  # 有的话自己从环境变量里读取凭证
+        http = anthropic.DefaultHttpxClient(event_hooks=inflight.event_hooks())
+        # 有 key 的话 SDK 自己从环境变量里读取凭证
+        client = anthropic.Anthropic(http_client=http) if has_key(provider) else anthropic.Anthropic(api_key="missing", http_client=http)
     else:
         import openai  # 用到时才导入（见文件开头）
 
-        client = openai.OpenAI(api_key=os.environ.get(provider.key_env) or "missing", base_url=provider.base_url)
+        http = openai.DefaultHttpxClient(event_hooks=inflight.event_hooks())
+        client = openai.OpenAI(api_key=os.environ.get(provider.key_env) or "missing", base_url=provider.base_url, http_client=http)
     return client.with_options(timeout=timeout) if timeout is not None else client
 
 

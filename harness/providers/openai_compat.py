@@ -36,7 +36,7 @@ from ..config import Config
 from ..i18n import t
 from ..safe import clean, clean_text, loads_strict
 from ..tools import ToolRegistry
-from . import compaction
+from . import compaction, inflight
 from .base import (
     ProviderError,
     Step,
@@ -273,11 +273,17 @@ class OpenAICompatBackend:
         return _explain(exc, self.label, self.model)
 
     def _step(self, ui: StreamUI) -> Step:
-        """真正的一次请求：边收边显示，收完把回复追加进历史。"""
+        """真正的一次请求：边收边显示，收完把回复追加进历史。
+
+        被停下的话（见 inflight.py）连接在别的线程里被断开，这里抛出 Aborted（KeyboardInterrupt 的一种），
+        step 不接它：不退一步、不报成出错，循环也不会去试备用模型。"""
         text, reasoning, finish, raw_usage = "", "", None, None
         calls: dict[int, dict] = {}  # 工具调用是一小段一小段到达的，按序号拼起来
+        call = inflight.current()
         try:
-            with self.client.chat.completions.create(**self._request(self._messages)) as stream:
+            with call.request(), self.client.chat.completions.create(**self._request(self._messages)) as stream:
+                call.claim(inflight.network_stream(stream.response))  # 回答的头到了：记下这条连接（见 claude.py 的 _send）
+                call.check()
                 for chunk in stream:
                     if chunk.usage is not None:
                         raw_usage = chunk.usage
@@ -387,8 +393,11 @@ class OpenAICompatBackend:
         模型要是只调用了工具、没写出文字，就算没写成：这些工具调用不会被执行。
         """
         text, raw_usage = "", None
+        call = inflight.current()  # 写摘要也是这一步的一部分：被停下的话和真正的请求一样抛出 Aborted（_compact 不接它）
         try:
-            with self.client.chat.completions.create(**self._request(messages)) as stream:
+            with call.request(), self.client.chat.completions.create(**self._request(messages)) as stream:
+                call.claim(inflight.network_stream(stream.response))
+                call.check()
                 for chunk in stream:
                     if chunk.usage is not None:
                         raw_usage = chunk.usage
