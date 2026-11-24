@@ -9,8 +9,9 @@
   send   真的发。不是直接发，而是排进这个平台的发送队列（router.send_file）、等它发完：助手在发文件之前说的话
          还排在队列里，聊天里的顺序得和它做的一样（先说"截好了"，再出现图片）
 
-这里的话都是写给模型看的（工具的结果），所以是中文、不翻译。平台说的错误（ChannelError，用 t() 写的）换回中文原文。
-平台的名字用 i18n.fill 填：和 t() 一样，"飞书"这样的中文名字两边不留空格（"飞书最多能发"），Telegram 这样的留着。
+这里的话都是写给模型看的（工具的结果），所以是中文：用 zh() 写，模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。
+平台说的错误（ChannelError，用 t() 写的）换回中文原文。
+平台的名字用 zh() 填（里面是 i18n.fill）：和 t() 一样，"飞书"这样的中文名字两边不留空格（"飞书最多能发"），Telegram 这样的留着。
 """
 
 from __future__ import annotations
@@ -20,9 +21,10 @@ from collections.abc import Callable
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Any
 
+from .. import i18n
 from ..config import CHANNEL_SEND_BYTES, CHANNEL_UPLOAD_TIMEOUT
 from ..display import file_size
-from ..i18n import Message, fill
+from ..i18n import zh
 from ..tools.base import ToolError
 from .base import ChannelError, OutboundFile, Uploads
 from .platforms import LABELS
@@ -34,32 +36,33 @@ if TYPE_CHECKING:
 WAIT_SECONDS = CHANNEL_UPLOAD_TIMEOUT * 3
 
 
-def chinese(text: object) -> str:
-    """一句用 t() 写的话的中文原文（里面填进去的也是 t() 写的话的，一起换回中文）。普通的文字原样返回。"""
-    if not isinstance(text, Message):
-        return str(text)
-    values = {name: chinese(text.nested[name]) if name in text.nested else value for name, value in text.values.items()}
-    return fill(text.key, values)
+# 一句用 t() 写的话的中文原文（里面填进去的也是 t() 写的话的，一起换回中文）。普通的文字原样返回。规矩只写在 i18n.py 里
+chinese = i18n.chinese
 
 
 def plan(uploads: Uploads | None, label: str, name: str, size: int, media_type: str) -> tuple[str, str]:
-    """一个文件在这个平台上怎么发。返回（photo 或 document，发不了的原因）；原因是空的表示可以发。label 是平台的名字。"""
+    """一个文件在这个平台上怎么发。返回（photo 或 document，发不了的原因）；原因是空的表示可以发。label 是平台的名字。
+    原因是写给模型看的中文（zh()：工具卡片上按界面的语言显示，见 ../i18n.py 开头）。"""
     if uploads is None:
-        return "", fill("{platform} 暂时不支持让机器人发文件，只能发文字。可以把要给用户看的内容直接写在回答里，或者告诉他文件在这台电脑上的位置。", {"platform": label})
+        return "", zh("{platform} 暂时不支持让机器人发文件，只能发文字。可以把要给用户看的内容直接写在回答里，或者告诉他文件在这台电脑上的位置。", platform=label)
     if size <= 0:
-        return "", "这个文件是空的（0 字节），没有可发的内容。"
+        return "", zh("这个文件是空的（0 字节），没有可发的内容。")
     if media_type in uploads.photo_types and size <= uploads.photo_bytes:
         return "photo", ""
     extension = PurePath(name).suffix.lower().removeprefix(".")
     if uploads.extensions is not None and extension not in uploads.extensions:
         allowed = "、".join(sorted(uploads.extensions))
         photos = "、".join(sorted(kind.split("/", 1)[1].upper() for kind in uploads.photo_types))
-        zipped = "可以先打包成 zip 再发（比如 zip 文件.zip 原文件）。" if "zip" in uploads.extensions else ""
-        return "", fill("{platform} 只能发 {photos} 格式的图片，和这几种文件：{allowed}。{zipped}", {"platform": label, "photos": photos, "allowed": allowed, "zipped": zipped})
+        zipped = zh("可以先打包成 zip 再发（比如 zip 文件.zip 原文件）。") if "zip" in uploads.extensions else ""
+        return "", zh("{platform} 只能发 {photos} 格式的图片，和这几种文件：{allowed}。{zipped}", platform=label, photos=photos, allowed=allowed, zipped=zipped)
     limit = min(uploads.file_bytes, CHANNEL_SEND_BYTES)
     if size > limit:
-        shrink = "图片可以先缩小一份再发（macOS 上 sips -Z 2000 原图 --out 小图.jpg，Linux 上 convert 原图 -resize 2000x2000 小图.jpg）。" if media_type.startswith("image/") else "可以先压缩、拆成几份，或者告诉用户文件在这台电脑上的位置。"
-        return "", fill("文件太大了（{size}），{platform} 最多能发 {limit}。{shrink}", {"size": file_size(size), "platform": label, "limit": file_size(limit), "shrink": shrink})
+        shrink = (
+            zh("图片可以先缩小一份再发（macOS 上 sips -Z 2000 原图 --out 小图.jpg，Linux 上 convert 原图 -resize 2000x2000 小图.jpg）。")
+            if media_type.startswith("image/")
+            else zh("可以先压缩、拆成几份，或者告诉用户文件在这台电脑上的位置。")
+        )
+        return "", zh("文件太大了（{size}），{platform} 最多能发 {limit}。{shrink}", size=file_size(size), platform=label, limit=file_size(limit), shrink=shrink)
     return "document", ""
 
 
@@ -86,7 +89,7 @@ class Outlet:
     def plan(self, name: str, size: int, media_type: str) -> tuple[str, str]:
         """见上面的 plan。这个平台现在没连着（在网页上关掉了、正在换 token），也发不了。"""
         if not self.router.attached(self.platform):
-            return "", fill("{platform} 现在没有连着（可能在网页上关掉了），发不出去。", {"platform": self.label})
+            return "", zh("{platform} 现在没有连着（可能在网页上关掉了），发不出去。", platform=self.label)
         return plan(self.router.capabilities(self.platform).uploads, self.label, name, size, media_type)
 
     def send(self, outgoing: OutboundFile) -> None:
@@ -97,12 +100,12 @@ class Outlet:
             try:
                 state = self.router.send_file(self.platform, self.chat, outgoing, cancelled, WAIT_SECONDS)
             except ChannelError as exc:
-                raise ToolError(f"没有发出去：{chinese(exc.args[0] if exc.args else exc)}") from None
+                raise ToolError(zh("没有发出去：{reason}", reason=exc.args[0] if exc.args else exc)) from None  # 原因是 t() 写的：zh() 填它的中文原文
         finally:
             forget()
         if state == "pending" and cancelled.is_set():
-            raise ToolError("用户中断了发送。文件可能已经发出去了，也可能没有。")
+            raise ToolError(zh("用户中断了发送。文件可能已经发出去了，也可能没有。"))
         if state == "pending":
-            raise ToolError("发送等了太久还没有结果：文件可能还在路上，也可能没发出去。先不要重发，问问用户收到了没有。")
+            raise ToolError(zh("发送等了太久还没有结果：文件可能还在路上，也可能没发出去。先不要重发，问问用户收到了没有。"))
         if state == "skipped":
-            raise ToolError("用户中断了发送，文件没有发出去。")
+            raise ToolError(zh("用户中断了发送，文件没有发出去。"))

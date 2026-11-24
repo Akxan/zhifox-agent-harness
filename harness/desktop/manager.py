@@ -19,19 +19,20 @@ from typing import Any
 
 from ..browser.shots import ShotStore
 from ..config import COMPUTER_TOOLSET_TOKENS, DESKTOP_SHOT_DAYS
-from ..i18n import k
+from ..i18n import k, zh
 from ..tools.base import ToolError
 from . import backend as backends
 from .backend import NO_DISPLAY, PLATFORM, WAYLAND, WINDOWS, Backend
 from .frame import Frame, Screen
 from .session import DesktopSession
 
-OFF = "操作整台电脑现在是关着的（用户在设置里关掉了）。需要的话，请用户在智狐的“设置 → 操作整台电脑”里打开它。"
+# 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+OFF = zh("操作整台电脑现在是关着的（用户在设置里关掉了）。需要的话，请用户在智狐的“设置 → 操作整台电脑”里打开它。")
 UNSUPPORTED = {
-    WAYLAND: "这台电脑用的是 Wayland 桌面，智狐没法在上面截图、控制鼠标键盘（Wayland 不允许）。可以请用户换成 X11 桌面（登录时选“Xorg”）。",
-    NO_DISPLAY: "这台电脑没有图形界面（DISPLAY 没有设置，比如在服务器上），没有屏幕可以操作。",
-    WINDOWS: "智狐暂时还不能在 Windows 上操作整台电脑（现在只支持 macOS 和 Linux 的 X11 桌面）。",
-    PLATFORM: "智狐只能在 macOS 和 Linux（X11 桌面）上操作整台电脑，这台电脑的系统不支持。",
+    WAYLAND: zh("这台电脑用的是 Wayland 桌面，智狐没法在上面截图、控制鼠标键盘（Wayland 不允许）。可以请用户换成 X11 桌面（登录时选“Xorg”）。"),
+    NO_DISPLAY: zh("这台电脑没有图形界面（DISPLAY 没有设置，比如在服务器上），没有屏幕可以操作。"),
+    WINDOWS: zh("智狐暂时还不能在 Windows 上操作整台电脑（现在只支持 macOS 和 Linux 的 X11 桌面）。"),
+    PLATFORM: zh("智狐只能在 macOS 和 Linux（X11 桌面）上操作整台电脑，这台电脑的系统不支持。"),
 }
 # 谁占着屏幕（页面上翻译，给模型的回答里用原文）
 CHAT, TASK, CHANNEL = k("你的对话"), k("一个定时任务"), k("聊天通道里的一个聊天")
@@ -119,7 +120,8 @@ class DesktopManager:
         with self._lock:
             holder = self._holder
             if holder is not None and holder is not session:
-                raise ToolError(f"这台电脑现在正被{holder.label}操作着，同一时间只能有一方操作。等它结束再试，或者请用户在页面顶上点“停止”。")
+                # label 是 CHAT、TASK、CHANNEL 之一（中文原文）：包一层 zh()，卡片上连它一起译
+                raise ToolError(zh("这台电脑现在正被{who}操作着，同一时间只能有一方操作。等它结束再试，或者请用户在页面顶上点“停止”。", who=zh(holder.label)))
             changed = holder is None
             self._holder = session
         if changed:

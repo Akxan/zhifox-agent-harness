@@ -44,7 +44,7 @@ from . import fallback
 from .attachments import Attachment
 from .config import Config
 from .hooks import NO_HOOKS, HookRun
-from .i18n import t
+from .i18n import Message, message_of, t, zh
 from .parallel import Batch, Job
 from .permissions import Permissions
 from .pricing import usage_key
@@ -348,7 +348,7 @@ class Agent:
                 took = None  # 工具真的执行了的话，执行了多久（秒）
                 if step.truncated:
                     # 回复在生成工具参数的中途被截断，参数不完整，不能执行
-                    output = ToolOutput("这次调用的参数在生成中途被截断，没有执行。请重新调用。", is_error=True)
+                    output = ToolOutput(zh("这次调用的参数在生成中途被截断，没有执行。请重新调用。"), is_error=True)
                 elif halted:
                     output = ToolOutput(HALT_TEXTS.get(call.toolset, HALTED), is_error=True)
                 else:
@@ -368,7 +368,7 @@ class Agent:
     ) -> None:
         """一次调用有结果了：洗一遍、遮密钥、放进结果、PostToolUse 钩子、记录点、告诉界面。一个一个跑的和一批里的都走这里。
         end：一批里的那一个在线程里执行完的时刻（运行记录用，见 parallel.py）；一个一个跑的是 None（就是此刻）。"""
-        text = clean_text(output.text)  # 工具的输出同样不可信（比如文件名里有编码不了的字符）
+        text = clean_text(str(output.text))  # 工具的输出同样不可信（比如文件名里有编码不了的字符）。历史里只放普通的字符串
         # 遮住像密钥的东西（见 redact.py）：放进结果之前、交给钩子之前、下面的记录点之前。
         # 钩子、模型、历史、页面、运行记录看到的都是遮好的这一份
         text, state, redacted = self._redact(text, output.state)
@@ -379,7 +379,7 @@ class Agent:
             result.text = text = self.hooks.after_tool(self, call, tool, text, output.is_error, took)
         self.trace.tool_ended(text, output.is_error, len(output.images), ran, redacted, end=end)  # 记录点：这次调用有结果了
         # HALTED 那句是写给模型的英文原文（文档规定的），给人看的换成界面的语言；钩子拦下的也另有给人看的一句
-        shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or text
+        shown = t("没有执行：这一轮里前面的一步失败了。") if text in (HALTED, *HALT_TEXTS.values()) else output.shown or _shown(output.text, text)
         self.ui.tool_result(shown, output.is_error, output.preview)
 
     # ---- 一起跑的只读调用（规矩见 parallel.py）----------------------------------
@@ -450,7 +450,7 @@ class Agent:
             return ToolOutput(call.error, is_error=True)  # 模型给的参数没法解析，把问题告诉它
         tool = self.tools.get(call.name, call.toolset)
         if tool is None or tool.run is None:
-            return ToolOutput(f"没有可以在本地执行的工具 {call.shown}。", is_error=True)
+            return ToolOutput(zh("没有可以在本地执行的工具 {tool}。", tool=call.shown), is_error=True)
         refusal = tool.check(call.input) if tool.check is not None and isinstance(call.input, dict) else None
         if refusal:
             return ToolOutput(refusal, is_error=True)  # 这个工具在这里不做这件事（见 Tool.check）：不用问用户，直接告诉模型
@@ -494,13 +494,14 @@ class Agent:
         try:
             output = tool.run(call.input)
         except ToolError as exc:
-            return ToolOutput(str(exc), is_error=True), time.monotonic() - began
+            # 原样拿回那句话：zh() 写的（工具自己的话）还记着原文，界面上能译成界面的语言（见 _shown）
+            return ToolOutput(message_of(exc), is_error=True), time.monotonic() - began
         except Exception as exc:  # noqa: BLE001 —— 故意捕获所有异常：工具里的 bug 不应该让整个程序退出
-            return ToolOutput(f"工具内部出错：{type(exc).__name__}: {exc}", is_error=True), time.monotonic() - began
+            return ToolOutput(zh("工具内部出错：{error}", error=f"{type(exc).__name__}: {exc}"), is_error=True), time.monotonic() - began
         took = time.monotonic() - began
         if isinstance(output, ToolOutput):
-            return (output if output.text or output.state_only else replace(output, text="（没有输出）")), took
-        return ToolOutput(output or "（没有输出）"), took
+            return (output if output.text or output.state_only else replace(output, text=zh("（没有输出）"))), took
+        return ToolOutput(output or zh("（没有输出）")), took
 
     def _ask(self, question: str) -> ToolOutput | None:
         """问你要不要做这一步。你拒绝了，返回交给模型的结果；允许了返回 None。"""
@@ -509,4 +510,13 @@ class Agent:
         self.trace.approval_decided("allowed" if allowed else "refused")  # 记录点：你答复了
         if allowed:
             return None
-        return ToolOutput("用户拒绝了这个操作。" + (f"用户说：{feedback}" if feedback else ""), is_error=True)
+        return ToolOutput(zh("用户拒绝了这个操作。用户说：{feedback}", feedback=feedback) if feedback else zh("用户拒绝了这个操作。"), is_error=True)
+
+
+def _shown(original: str, text: str) -> str:
+    """给人看的结果。工具交回的是程序自己写的话（zh() 给的 Message，记着原文），而且交给模型的正好就是它
+    （没被洗过、没遮过密钥、钩子没往后补话）：交回那个 Message，界面照着原文译成界面的语言（见 i18n.py 开头）。
+    别的都交回交给模型的那段文字，原样显示：命令的输出、文件的内容、网页、MCP 的结果是资料，从来不翻译。
+
+    为什么要"正好就是它"：遮密钥改过的结果，原文里填进去的值还是没遮的样子，照着它译出来的会把密钥又显示出来。"""
+    return original if isinstance(original, Message) and str(original) == text else text

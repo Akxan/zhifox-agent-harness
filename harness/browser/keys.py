@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..i18n import zh
 from ..tools.base import ToolError
 
 # 修饰键：按住它们的时候，CDP 的事件里要带一个"哪些修饰键按着"的数（每个键占一位）
@@ -71,7 +72,8 @@ def _one(name: str) -> Key:
             code, keycode = _PUNCTUATION[char]
             return Key(char, code, keycode, char)
         return Key(char, "", 0, char)  # 别的字（汉字、表情……）：没有对应的键位，照样能打出来
-    raise ToolError(f"不认识的按键：{name}。常用的有 Enter、Tab、Escape、Backspace、ArrowDown、PageDown，组合键写成 ctrl+a。")
+    # 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。按键的名字是模型写的，原样填进去
+    raise ToolError(zh("不认识的按键：{name}。常用的有 Enter、Tab、Escape、Backspace、ArrowDown、PageDown，组合键写成 ctrl+a。", name=name))
 
 
 @dataclass(frozen=True)
@@ -95,13 +97,13 @@ def parse(text: str) -> list[Chord]:
     for part in text.split():
         names = [name for name in part.split("+") if name]
         if not names:
-            raise ToolError(f"按键写得不对：{part}")
+            raise ToolError(zh("按键写得不对：{keys}", keys=part))
         *mods, last = names
         modifiers, held = 0, []
         for name in mods:
             bit = MODIFIERS.get(name.lower())
             if bit is None:
-                raise ToolError(f"一组键里只能有一个普通键，前面的都要是修饰键（ctrl、shift、alt、cmd）：{part}")
+                raise ToolError(zh("一组键里只能有一个普通键，前面的都要是修饰键（ctrl、shift、alt、cmd）：{keys}", keys=part))
             modifiers |= bit
             held.append(bit)
         key = None
@@ -113,7 +115,7 @@ def parse(text: str) -> list[Chord]:
             key = _one(last)
         chords.append(Chord(modifiers, key, tuple(held)))
     if not chords:
-        raise ToolError("没有要按的键。")
+        raise ToolError(zh("没有要按的键。"))
     return chords
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..i18n import k
+from ..i18n import k, zh
 from ..tools.base import ToolError
 
 MODIFIERS = {
@@ -72,14 +72,15 @@ def modifiers(text: object) -> tuple[str, ...]:
     if text is None or text == "":
         return ()
     if not isinstance(text, str):
-        raise ToolError("text（同时按着的修饰键）要写成 shift、ctrl+shift 这样的文字。")
+        # 交给模型的话用 zh()：工具卡片上按界面的语言显示（见 ../i18n.py 开头）。按键的名字是模型写的，原样填进去
+        raise ToolError(zh("text（同时按着的修饰键）要写成 shift、ctrl+shift 这样的文字。"))
     found = set()
     for name in text.replace(" ", "").split("+"):
         if not name:
             continue
         canonical = MODIFIERS.get(name.lower())
         if canonical is None:
-            raise ToolError(f"不认识的修饰键：{name}。可以用 shift、ctrl、alt、super（macOS 上的 cmd），组合写成 ctrl+shift。")
+            raise ToolError(zh("不认识的修饰键：{name}。可以用 shift、ctrl、alt、super（macOS 上的 cmd），组合写成 ctrl+shift。", name=name))
         found.add(canonical)
     return tuple(name for name in ORDER if name in found)
 
@@ -93,21 +94,22 @@ def _key(name: str) -> tuple[str, bool]:
         return PUNCTUATION[lowered], False
     if len(name) == 1 and lowered in CHARACTERS:
         return lowered, name.isupper()
-    raise ToolError(
-        f"不认识的按键：{name}。常用的有 Return、Tab、Escape、BackSpace、Delete、Up、Down、Page_Down、F1……，"
-        "组合键写成 ctrl+s。要打出一段文字（包括汉字、表情）请用 type。"
-    )
+    raise ToolError(zh(
+        "不认识的按键：{name}。常用的有 Return、Tab、Escape、BackSpace、Delete、Up、Down、Page_Down、F1……，"
+        "组合键写成 ctrl+s。要打出一段文字（包括汉字、表情）请用 type。",
+        name=name,
+    ))
 
 
 def parse(text: object) -> list[Chord]:
     """'ctrl+a Delete' → 两组。写错了的名字抛 ToolError（交给模型，它会改）。"""
     if not isinstance(text, str) or not text.strip():
-        raise ToolError("text 要写要按的键，比如 Return、ctrl+s、alt+Tab。")
+        raise ToolError(zh("text 要写要按的键，比如 Return、ctrl+s、alt+Tab。"))
     chords = []
     for part in text.split():
         names = [name for name in part.split("+") if name]
         if not names:
-            raise ToolError(f"按键写得不对：{part}")
+            raise ToolError(zh("按键写得不对：{keys}", keys=part))
         *mods, last = names
         held = set(modifiers("+".join(mods))) if mods else set()
         key = ""

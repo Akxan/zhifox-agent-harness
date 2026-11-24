@@ -69,7 +69,7 @@ from ..agent import Agent
 from ..app import run_turn
 from ..config import APP_NAME
 from ..display import short
-from ..i18n import Message, k, t
+from ..i18n import k, t
 from ..pricing import estimate
 from ..providers import has_key
 from ..tasks import (
@@ -84,7 +84,7 @@ from ..tasks import (
     said,
 )
 from ..tasks import preview as preview_schedule
-from .ui import WebUI
+from .ui import WebUI, unsaid
 
 if TYPE_CHECKING:
     from ..tools.shell import Shell
@@ -442,9 +442,10 @@ class Scheduler:
                 summary: str = t("「{agent}」：{summary}", agent=data.get("agent", ""), summary=data.get("summary", ""))
                 pending.activity = {"kind": "tool", "tool": data.get("name", ""), "summary": summary}
             elif kind == "confirm":
-                question = Message(data["description"], data["key"], data["values"]) if "key" in data else data["description"]
-                if data.get("agent"):  # 是子 Agent 在问：确认上写明是它
-                    question = t("「{agent}」：{summary}", agent=data["agent"], summary=retell(question))
+                # 变回带着原文的那句话（里面填进去的那几句也一样，见 ui.unsaid）：页面上换了语言，进度里的确认跟着重译
+                question = unsaid(data["description"], data.get("key"), data.get("values"))
+                if data.get("agent"):  # 是子 Agent 在问：确认上写明是它（问题原样填进去，换语言时里外两层都重译）
+                    question = t("「{agent}」：{summary}", agent=data["agent"], summary=question)
                 pending.confirm = {"id": event_id, "tool": pending.tool, "summary": question}
                 pending.activity = {"kind": "waiting", "tool": pending.tool, "summary": t(WAIT_CONFIRM)}
                 status = "waiting"

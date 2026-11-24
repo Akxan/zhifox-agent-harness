@@ -87,9 +87,15 @@ function subagentStep(event) {
     status.className = 'status ' + (failed ? 'failed' : 'ok') + (isLive() ? ' pop' : '');
     status.replaceChildren(icon(failed ? 'x' : 'check'), tel('span', 'sr-only', failed ? k('失败') : k('成功')));
     item.classList.toggle('failed', failed);
-    const text = typeof event.key === 'string' ? t(event.key, event.values) : String(event.text || '');
-    if (failed) note.textContent = firstLine(text);
-    item.title = firstLine(text);
+    // 程序自己写的话带着原文（key）：照着它按界面的语言写，换语言时在原地重写（见 events.js 的 resultText）；别的原样
+    if (typeof event.key === 'string') {
+      if (failed) retextLine(note, event.key, event.values);
+      tattr(item, 'title', event.key, event.values, true);
+    } else {
+      const text = String(event.text || '');
+      if (failed) note.textContent = firstLine(text);
+      item.title = firstLine(text);
+    }
     sub.last = null;
     setSubLive(sub, k('正在思考'));
   } else if (event.step === 'auto' && sub.last) {

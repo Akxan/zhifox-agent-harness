@@ -82,7 +82,8 @@ def page_keys() -> dict[str, str]:
 
 
 def python_keys() -> set[str]:
-    """程序里所有交给 t() 或者用 k() 标出来的话（只认直接写在括号里的那一句）。"""
+    """程序里所有交给 t()、zh() 或者用 k() 标出来的话（只认直接写在括号里的那一句）。
+    zh() 的话交给模型时是中文原文，显示在工具卡片上、终端里时要译（见 harness/i18n.py 开头），所以一样要有译文。"""
     keys = set()
     for file in Path(i18n.__file__).parent.rglob("*.py"):
         for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
@@ -90,7 +91,7 @@ def python_keys() -> set[str]:
                 continue
             name = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else ""
             first = node.args[0]
-            if name in ("t", "k") and isinstance(first, ast.Constant) and isinstance(first.value, str):
+            if name in ("t", "k", "zh") and isinstance(first, ast.Constant) and isinstance(first.value, str):
                 keys.add(first.value)
     return keys
 

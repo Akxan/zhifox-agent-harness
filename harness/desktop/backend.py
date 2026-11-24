@@ -19,8 +19,17 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from ..i18n import zh
 from .frame import Box, Screen
 from .keys import Chord
+
+
+def failed(program: str, code: int, detail: str) -> str:
+    """一个系统程序（screencapture、xdotool……）没有成功时交给模型的话（zh()：工具卡片上按界面的语言显示，见 ../i18n.py 开头）。
+    程序说的原因（detail）是资料，原样填进去。macOS 和 X11 的后端共用。"""
+    if detail:
+        return zh("{program} 没有成功（退出码 {code}）：{detail}", program=program, code=code, detail=detail)
+    return zh("{program} 没有成功（退出码 {code}）", program=program, code=code)
 
 
 @dataclass(frozen=True)

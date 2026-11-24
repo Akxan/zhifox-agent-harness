@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ..i18n import message_of, t
+from ..i18n import message_of, t, zh
 from ..safe import to_json
 from ..tools.base import Tool, ToolError, ToolOutput
 from . import bridge
@@ -423,31 +423,33 @@ class McpManager:
         return self.config.approval(server, tool) == "auto"
 
     def call(self, server_name: str, tool: str, arguments: object, owner: object = None) -> ToolOutput:
-        """替模型调用一个工具。出了问题抛出 ToolError，原因会交给模型（所以是中文，见 bridge.chinese）。
+        """替模型调用一个工具。出了问题抛出 ToolError，原因会交给模型（所以是中文：zh() 写的，工具卡片上按界面的语言显示，
+        见 ../i18n.py 开头）。服务器的名字、工具的名字、服务器说的原因是资料，原样填进去。
 
         owner 是这次调用算谁的（你的对话是 None，定时任务的每次运行各有一个）。你的对话和几个定时任务同时在跑，
         点对话里的"停止"只该取消对话自己的调用，停下一个任务也只取消那个任务的（见 cancel_running）。
         """
         if not isinstance(arguments, dict):
-            raise ToolError("参数必须是一个 JSON 对象。")
+            raise ToolError(zh("参数必须是一个 JSON 对象。"))
         with self._lock:
             server = self._servers.get(server_name)
             client = server.client if server is not None and server.status == "ready" else None
             timeout = (server.entry or {}).get("timeout", DEFAULT_TIMEOUT) if server is not None else DEFAULT_TIMEOUT
         if client is None:
-            state = "已经被删掉了" if server is None else _STATE_FOR_MODEL.get(server.status, server.status)
-            raise ToolError(f"MCP 服务器“{server_name}”{state}，这个工具现在用不了。可以请用户到“扩展 → MCP”里看看它的状态，或者换个办法。")
+            state = zh("已经被删掉了") if server is None else _STATE_FOR_MODEL.get(server.status, server.status)
+            raise ToolError(zh("MCP 服务器“{server}”{state}，这个工具现在用不了。可以请用户到“扩展 → MCP”里看看它的状态，或者换个办法。", server=server_name, state=state))
         stop = threading.Event()
         with self._lock:
             self._running.setdefault(owner, set()).add(stop)
         try:
             result = client.call_tool(tool, arguments, timeout, stop)
         except Cancelled as exc:
-            raise ToolError("用户中断了这次调用。") from exc
+            raise ToolError(zh("用户中断了这次调用。")) from exc
         except TimedOut as exc:
-            raise ToolError(f"等了 {round(timeout)} 秒，MCP 服务器“{server_name}”还没有结果，已经取消了这次调用。") from exc
+            raise ToolError(zh("等了 {seconds} 秒，MCP 服务器“{server}”还没有结果，已经取消了这次调用。", seconds=round(timeout), server=server_name)) from exc
         except McpError as exc:
-            raise ToolError(f"调用 MCP 服务器“{server_name}”的工具 {tool} 失败：{bridge.chinese(exc)}") from exc
+            # 原因是 t() 写的话（填它的中文原文，和 bridge.chinese 一样），或者服务器自己说的（原样）
+            raise ToolError(zh("调用 MCP 服务器“{server}”的工具 {tool} 失败：{reason}", server=server_name, tool=tool, reason=message_of(exc))) from exc
         finally:
             with self._lock:
                 calls = self._running.get(owner, set())
@@ -473,7 +475,7 @@ class McpManager:
                     stop.set()
 
 
-_STATE_FOR_MODEL = {"connecting": "还在连接", "failed": "连接失败了", "disabled": "被用户停用了"}
+_STATE_FOR_MODEL: dict[str, str] = {"connecting": zh("还在连接"), "failed": zh("连接失败了"), "disabled": zh("被用户停用了")}
 
 
 def _fingerprint(tools: list[dict]) -> str:

@@ -35,7 +35,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..i18n import Message, fill, k, t
+from ..i18n import Message, chinese, k, t
 from . import backend as backends
 from .policy import (
     DEFAULT,
@@ -111,12 +111,8 @@ class Jail:
         return f"\n[这条命令是在沙箱里运行的（{_INSIDE[self.level]}）。上面的错误看起来是沙箱挡住的。{self.advice}]"
 
 
-def _zh(message: object) -> str:
-    """一句 t() 给的话的中文原文（连里面填进去的那几句一起）：写给模型看的话用中文。"""
-    if not isinstance(message, Message):
-        return str(message)
-    values = {name: _zh(message.nested[name]) if name in message.nested else value for name, value in message.values.items()}
-    return fill(message.key, values)
+# 一句 t() 给的话的中文原文（连里面填进去的那几句一起）：写给模型看的话用中文。规矩只写在 i18n.py 里
+_zh = chinese
 
 
 class Sandbox:

@@ -25,7 +25,7 @@ from typing import Any
 from .. import citations
 from ..display import short
 from ..i18n import t
-from ..webui.ui import WebUI
+from ..webui.ui import WebUI, unsaid
 
 
 class ChannelUI(WebUI):
@@ -61,7 +61,9 @@ class ChannelUI(WebUI):
         if self._replaying:
             return event_id
         if type == "confirm":
-            self._on_confirm(event_id, data["description"], data.get("agent", ""))
+            # 交给 session 的是带着原文的那句话（unsaid：和网页的确认卡片同一份原文，里面填进去的几句也在）：
+            # 聊天里的卡片按你选的界面语言写，换了语言以后，页面上"在等你批准"、/status 里的那一句也跟着换
+            self._on_confirm(event_id, unsaid(data["description"], data.get("key"), data.get("values")), data.get("agent", ""))
         elif type == "confirm_done":
             self._on_settled(data["confirm"], data["allowed"], data.get("stopped", False))
         elif type == "tool_call":

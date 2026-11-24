@@ -30,14 +30,15 @@ from ..attachments import sniff_image
 from ..channels.base import OutboundFile
 from ..config import CHANNEL_SEND_BYTES
 from ..display import file_size
-from ..i18n import fill
+from ..i18n import message_of, zh
 from .base import FactsTool, ToolError, check_input, function_tool
 from .files import FileEditor
 
 TOOL_NAME = "send_file"
 OCTET = "application/octet-stream"
-# 没有去处（网页上打开的聊天通道会话）时的回答
-NOT_IN_CHAT = "这段对话现在不在聊天软件里，发不出去。它是在聊天通道里开始的，用户现在是在智狐的网页上接着聊：文件就在这台电脑上，告诉他文件的位置就行。"
+# 没有去处（网页上打开的聊天通道会话）时的回答。这个文件里写给模型的话都用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示
+# （见 ../i18n.py 开头；zh() 和界面语言无关，所以可以在这里先写好）
+NOT_IN_CHAT = zh("这段对话现在不在聊天软件里，发不出去。它是在聊天通道里开始的，用户现在是在智狐的网页上接着聊：文件就在这台电脑上，告诉他文件的位置就行。")
 
 DESCRIPTION = (
     "把这台电脑上的一个文件发到你和用户正在用的聊天软件里（Telegram、Discord、Slack、飞书、钉钉……），他在手机上直接就能看到。"
@@ -95,7 +96,7 @@ def make_send_tool(editor: FileEditor, outlet: Outlet | None) -> SendTool:
             args = check_input(schema, tool_input)
             path = editor.resolve(args.get("path"))
         except ToolError as exc:
-            return SendFacts(None, refusal=str(exc))
+            return SendFacts(None, refusal=message_of(exc))
         caption = str(args.get("caption") or "").strip()
         label, person = outlet.label, outlet.person
         shown = editor.display(path)
@@ -107,7 +108,7 @@ def make_send_tool(editor: FileEditor, outlet: Outlet | None) -> SendTool:
             with path.open("rb") as file:
                 media_type = sniff_image(file.read(16)) or OCTET
         except OSError as exc:
-            return SendFacts(path, shown, caption=caption, label=label, person=person, refusal=f"读不了 {path}：{exc.strerror or exc}")
+            return SendFacts(path, shown, caption=caption, label=label, person=person, refusal=zh("读不了 {path}：{error}", path=path, error=exc.strerror or exc))
         kind, problem = outlet.plan(path.name, size, media_type)
         return SendFacts(path, shown, size, media_type, kind, caption, label, person, problem)
 
@@ -120,8 +121,11 @@ def make_send_tool(editor: FileEditor, outlet: Outlet | None) -> SendTool:
             raise ToolError(found.refusal or NOT_IN_CHAT)
         data = _read_again(editor, tool_input, found)
         outlet.send(OutboundFile(found.path.name, data, found.media_type, found.kind, found.caption))
-        what = "图片，作为照片显示在聊天里" if found.kind == "photo" else "文件"
-        return fill("已经把 {name}（{what}，{size}）发到了 {platform} 的聊天里，用户现在就能看到它。", {"name": found.path.name, "what": what, "size": file_size(found.size), "platform": found.label})
+        # 两种各写一整句（而不是把"文件"填进去）：翻译表的键是中文原文，"文件"在表里已经是标签页的名字，同一句不能有两个意思
+        values = {"name": found.path.name, "size": file_size(found.size), "platform": found.label}
+        if found.kind == "photo":
+            return zh("已经把 {name}（图片，作为照片显示在聊天里，{size}）发到了 {platform} 的聊天里，用户现在就能看到它。", **values)
+        return zh("已经把 {name}（文件，{size}）发到了 {platform} 的聊天里，用户现在就能看到它。", **values)
 
     tool = SendTool(spec=made.spec, run=run, portable=made.portable, check=check, facts=facts)
     return tool
@@ -130,13 +134,13 @@ def make_send_tool(editor: FileEditor, outlet: Outlet | None) -> SendTool:
 def _unreadable(editor: FileEditor, path: Path) -> str:
     """这个路径为什么不能发（写给模型看的）；能发的话是空字符串。"""
     if editor.is_protected(path):
-        return "这个文件保存着密钥，不能发出去。"
+        return zh("这个文件保存着密钥，不能发出去。")
     if not path.exists():
-        return f"{path} 不存在。"
+        return zh("{path} 不存在。", path=path)
     if path.is_dir():
-        return f"{path} 是一个文件夹。要发整个文件夹，可以先打包成 zip（比如 zip -r 文件夹.zip 文件夹），再发这个 zip。"
+        return zh("{path} 是一个文件夹。要发整个文件夹，可以先打包成 zip（比如 zip -r 文件夹.zip 文件夹），再发这个 zip。", path=path)
     if not path.is_file():
-        return f"{path} 不是一个普通的文件。"
+        return zh("{path} 不是一个普通的文件。", path=path)
     return ""
 
 
@@ -148,14 +152,14 @@ def _read_again(editor: FileEditor, tool_input: dict, found: SendFacts) -> bytes
     try:
         path = editor.resolve(tool_input.get("path"))
     except ToolError as exc:
-        raise ToolError(str(exc)) from None
+        raise ToolError(message_of(exc)) from None
     if path != found.path or editor.is_protected(path):
-        raise ToolError("这个路径指向的文件在确认之后换了，没有发。请重新调用一次。")
+        raise ToolError(zh("这个路径指向的文件在确认之后换了，没有发。请重新调用一次。"))
     try:
         with path.open("rb") as file:
             data = file.read(CHANNEL_SEND_BYTES + 1)
     except OSError as exc:
-        raise ToolError(f"读不了 {path}：{exc.strerror or exc}") from None
+        raise ToolError(zh("读不了 {path}：{error}", path=path, error=exc.strerror or exc)) from None
     if len(data) != found.size or (sniff_image(data[:16]) or OCTET) != found.media_type:
-        raise ToolError("文件在确认之后变了（大小或者格式和确认时不一样），没有发。请重新调用一次，让用户看到它现在的样子。")
+        raise ToolError(zh("文件在确认之后变了（大小或者格式和确认时不一样），没有发。请重新调用一次，让用户看到它现在的样子。"))
     return data

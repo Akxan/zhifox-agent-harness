@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..config import BROWSER_VIEWPORT
+from ..i18n import zh
 from ..tools.base import ToolError
 from .cdp import CDPError, Connection
 from .session_page import Outcome
@@ -67,14 +68,18 @@ class SessionTabs(SessionPart):
     def _tab(self, connection: Connection, tab_id: str | None = None, open_one: bool = True) -> Tab:
         if not self.tabs:
             if not open_one:
-                raise ToolError("还没有打开任何网页。先用 navigate 打开一个。")
+                raise ToolError(zh("还没有打开任何网页。先用 navigate 打开一个。"))
             return self._open_tab(connection)
         chosen = tab_id or self.active or next(iter(self.tabs))
         tab = self.tabs.get(chosen)
         if tab is None:
-            raise ToolError(f"没有 {chosen} 这个标签页。现在开着的有：{', '.join(self.tabs) or '（没有）'}。")
+            raise ToolError(self._no_tab(chosen))
         self._attach(connection, tab)
         return tab
+
+    def _no_tab(self, tab_id: str) -> str:
+        """没有这个标签页时交给模型的话（zh()：工具卡片上按界面的语言显示，见 ../i18n.py 开头）。标签页的编号是资料，原样填进去。"""
+        return zh("没有 {tab} 这个标签页。现在开着的有：{tabs}。", tab=tab_id, tabs=", ".join(self.tabs) or zh("（没有）"))
 
     # ---- 管标签页的四个动作（结果只有 browser_state，见 session.py 的 _tabs_result）----------
 
@@ -98,7 +103,7 @@ class SessionTabs(SessionPart):
         connection = self._connection()
         tab = self.tabs.get(tab_id)
         if tab is None:
-            raise ToolError(f"没有 {tab_id} 这个标签页。现在开着的有：{', '.join(self.tabs) or '（没有）'}。")
+            raise ToolError(self._no_tab(tab_id))
         connection.call("Target.activateTarget", {"targetId": tab.target}, owner=self)
         self.active = tab.id
         return self._tabs_result(connection)
@@ -107,7 +112,7 @@ class SessionTabs(SessionPart):
         connection = self._connection()
         tab = self.tabs.get(tab_id)
         if tab is None:
-            raise ToolError(f"没有 {tab_id} 这个标签页。现在开着的有：{', '.join(self.tabs) or '（没有）'}。")
+            raise ToolError(self._no_tab(tab_id))
         # 先从名单上拿掉再关：Chrome 紧接着会说"这个标签页没了"，那时它已经不是我们的，不会被当成"被别人关掉了"
         del self.tabs[tab_id]
         with self._inbox_lock:

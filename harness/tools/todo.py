@@ -11,6 +11,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from ..i18n import zh
 from ..safe import write_file
 from .base import Tool, ToolError, always, function_tool
 
@@ -99,7 +100,8 @@ def _find(data: dict, id: int) -> dict:
     for item in data["items"]:
         if item["id"] == id:
             return item
-    raise ToolError(f"没有编号为 {id} 的待办。先用 todo_list 查看现有的待办。")
+    # 写给模型看的话用 zh()：模型拿到的是中文原文，页面的工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+    raise ToolError(zh("没有编号为 {id} 的待办。先用 todo_list 查看现有的待办。", id=id))
 
 
 def _check_due(due: object) -> str | None:
@@ -110,7 +112,7 @@ def _check_due(due: object) -> str | None:
             return datetime.strptime(str(due), fmt).strftime(fmt)
         except ValueError:
             continue
-    raise ToolError(f"截止时间 {due!r} 的格式不对，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。")
+    raise ToolError(zh("截止时间 {due} 的格式不对，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。", due=repr(due)))
 
 
 def format_todos(items: list[dict]) -> str:
@@ -144,7 +146,7 @@ def make_todo_tools(store: TodoStore) -> list[Tool]:
 
     def todo_update(id: int, **changes: object) -> str:
         if not changes:
-            raise ToolError("没有提供要修改的内容。")
+            raise ToolError(zh("没有提供要修改的内容。"))
         return _as_json(store.update(id, **changes))
 
     def todo_delete(id: int) -> str:

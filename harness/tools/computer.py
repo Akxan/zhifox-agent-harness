@@ -34,6 +34,7 @@ from ..desktop import session as checks
 from ..desktop.keys import modifiers as parse_modifiers
 from ..desktop.keys import parse as parse_keys
 from ..desktop.session import DesktopSession, Facts, Outcome
+from ..i18n import zh
 from .base import FactsTool, Tool, ToolError, ToolImage, ToolOutput, check_input
 
 TOOLSET = "computer"
@@ -41,7 +42,8 @@ TOOLSET_SPEC = {"type": "computer_toolset_20260801"}  # 17 个成员都开着，
 # 同一轮里一串电脑操作，前面一个失败了，后面的都不做，结果写这句话。原文是文档规定的（Batch actions 一节），一字不改：
 # 和浏览器工具包的那句（agent.HALTED）不一样，多了一个 computer
 HALTED = "Not executed: an earlier computer action in this turn failed."
-OFF = "操作整台电脑现在是关着的（用户在设置里关掉了，或者这里不允许定时任务、聊天通道使用它）。需要的话，请用户在智狐的“设置 → 操作整台电脑”里打开。"
+# 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。HALTED 是文档规定的英文，不动
+OFF = zh("操作整台电脑现在是关着的（用户在设置里关掉了，或者这里不允许定时任务、聊天通道使用它）。需要的话，请用户在智狐的“设置 → 操作整台电脑”里打开。")
 
 
 @dataclass(frozen=True)
@@ -104,7 +106,7 @@ def _keys(value: object) -> str:
 
 def _dict(tool_input: object) -> dict:
     if not isinstance(tool_input, dict):
-        raise ToolError("参数必须是一个 JSON 对象。")
+        raise ToolError(zh("参数必须是一个 JSON 对象。"))
     return tool_input
 
 

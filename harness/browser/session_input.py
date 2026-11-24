@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..config import BROWSER_VIEWPORT
+from ..i18n import zh
 from ..tools.base import ToolError
 from . import keys
 from .cdp import Connection
@@ -19,6 +20,12 @@ from .session_tabs import Tab
 from .session_types import SessionPart
 
 SCROLL_PIXELS = 100  # 滚轮转一格滚动多少像素
+
+# 交给模型的话都用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。
+# 元素编号、坐标、按键、填进去的值是资料，原样填进去
+_CLICKED = {1: zh("点了"), 2: zh("双击了"), 3: zh("三击了")}
+_OTHER_BUTTON = {"right": zh("右键点了"), "middle": zh("中键点了")}
+_SCROLLED = {"up": zh("向上"), "down": zh("向下"), "left": zh("向左"), "right": zh("向右")}
 
 
 @dataclass(frozen=True)
@@ -41,14 +48,14 @@ class SessionInput(SessionPart):
         width, height = BROWSER_VIEWPORT
         if not target.ref:
             if not (0 <= target.x < width and 0 <= target.y < height):
-                raise ToolError(f"坐标 ({target.x}, {target.y}) 不在窗口里。窗口是 {width}×{height}，左上角是 (0, 0)。")
+                raise ToolError(zh("坐标 ({x}, {y}) 不在窗口里。窗口是 {width}×{height}，左上角是 (0, 0)。", x=target.x, y=target.y, width=width, height=height))
             return target.x, target.y, ""
         found = self._js(connection, tab, "point", {"ref": target.ref}) or {}
         if found.get("stale"):
-            raise ToolError(f"{target.ref} 已经失效或者在这一页上找不到了（页面可能变过）。重新读一遍页面，拿新的编号。")
+            raise ToolError(zh("{ref} 已经失效或者在这一页上找不到了（页面可能变过）。重新读一遍页面，拿新的编号。", ref=target.ref))
         if found.get("hidden"):
-            raise ToolError(f"{target.ref} 现在看不见（大小是 0），点不到。")
-        note = "（它上面好像盖着别的东西，点到的可能不是它，截图看看）" if found.get("covered") else ""
+            raise ToolError(zh("{ref} 现在看不见（大小是 0），点不到。", ref=target.ref))
+        note = zh("（它上面好像盖着别的东西，点到的可能不是它，截图看看）") if found.get("covered") else ""
         return int(found["x"]), int(found["y"]), note
 
     def _mouse(self, connection: Connection, tab: Tab, kind: str, x: int, y: int, button: str = "none", clicks: int = 0, modifiers: int = 0) -> None:
@@ -75,8 +82,11 @@ class SessionInput(SessionPart):
                 self._mouse(connection, tab, "mouseReleased", x, y, button, clicks, held)
 
         moved = self._input(connection, tab, send)
-        what = {1: "点了", 2: "双击了", 3: "三击了"}.get(count, "点了") if button == "left" else {"right": "右键点了", "middle": "中键点了"}[button]
-        text = f"{what} {target.describe()}{note}。" + ("页面跳转了。" if moved else "")
+        what = _CLICKED.get(count, _CLICKED[1]) if button == "left" else _OTHER_BUTTON[button]
+        if moved:
+            text = zh("{what} {target}{note}。页面跳转了。", what=what, target=target.describe(), note=note)
+        else:
+            text = zh("{what} {target}{note}。", what=what, target=target.describe(), note=note)
         return self._finish(connection, tab, text)
 
     def _do_hover(self, target: Target, tab_id: str | None = None) -> Outcome:
@@ -85,7 +95,7 @@ class SessionInput(SessionPart):
         x, y, note = self._point(connection, tab, target)
         self._mouse(connection, tab, "mouseMoved", x, y)
         self._sleep(0.2)
-        return self._finish(connection, tab, f"鼠标移到了 {target.describe()}{note}。")
+        return self._finish(connection, tab, zh("鼠标移到了 {target}{note}。", target=target.describe(), note=note))
 
     def _do_drag(self, start: Target, target: Target, tab_id: str | None = None) -> Outcome:
         connection = self._connection()
@@ -102,7 +112,7 @@ class SessionInput(SessionPart):
             self._mouse(connection, tab, "mouseReleased", x1, y1, "left", 1)
 
         self._input(connection, tab, send)
-        return self._finish(connection, tab, f"从 {start.describe()} 拖到了 {target.describe()}。")
+        return self._finish(connection, tab, zh("从 {start} 拖到了 {target}。", start=start.describe(), target=target.describe()))
 
     def _do_mouse(self, kind: str, target: Target, tab_id: str | None = None) -> Outcome:
         connection = self._connection()
@@ -110,18 +120,18 @@ class SessionInput(SessionPart):
         x, y, _ = self._point(connection, tab, target)
         if kind == "down":
             self._mouse(connection, tab, "mousePressed", x, y, "left", 1)
-            text = f"在 {target.describe()} 按下了左键（还没松开）。"
+            text = zh("在 {target} 按下了左键（还没松开）。", target=target.describe())
         elif kind == "up":
             self._input(connection, tab, lambda: self._mouse(connection, tab, "mouseReleased", x, y, "left", 1))
-            text = f"在 {target.describe()} 松开了左键。"
+            text = zh("在 {target} 松开了左键。", target=target.describe())
         else:
             self._mouse(connection, tab, "mouseMoved", x, y)
-            text = f"鼠标移到了 {target.describe()}。"
+            text = zh("鼠标移到了 {target}。", target=target.describe())
         return self._finish(connection, tab, text)
 
     def _do_scroll(self, target: Target | None, direction: str, amount: int = 3, tab_id: str | None = None) -> Outcome:
         if direction not in ("up", "down", "left", "right"):
-            raise ToolError("scroll_direction 只能是 up、down、left、right。")
+            raise ToolError(zh("scroll_direction 只能是 up、down、left、right。"))
         amount = max(1, min(10, int(amount)))
         connection = self._connection()
         tab = self._tab(connection, tab_id, open_one=False)
@@ -135,40 +145,40 @@ class SessionInput(SessionPart):
         dy = {"up": -delta, "down": delta}.get(direction, 0)
         connection.call("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": x, "y": y, "deltaX": dx, "deltaY": dy}, session=tab.session, owner=self)
         self._sleep(0.25)
-        word = {"up": "向上", "down": "向下", "left": "向左", "right": "向右"}[direction]
-        return self._finish(connection, tab, f"{word}滚动了 {amount} 格。")
+        return self._finish(connection, tab, zh("{direction}滚动了 {amount} 格。", direction=_SCROLLED[direction], amount=amount))
 
     def _do_scroll_to(self, target: Target, tab_id: str | None = None) -> Outcome:
         if not target.ref:
-            raise ToolError("scroll_to 要给一个元素编号（ref）。")
+            raise ToolError(zh("scroll_to 要给一个元素编号（ref）。"))
         connection = self._connection()
         tab = self._tab(connection, tab_id, open_one=False)
         found = self._js(connection, tab, "scrollTo", {"ref": target.ref}) or {}
         if found.get("stale"):
-            raise ToolError(f"{target.ref} 已经失效或者在这一页上找不到了。重新读一遍页面，拿新的编号。")
+            raise ToolError(_stale(target.ref))
         self._sleep(0.15)
-        return self._finish(connection, tab, f"把 {target.ref} 滚到了窗口中间。")
+        return self._finish(connection, tab, zh("把 {ref} 滚到了窗口中间。", ref=target.ref))
 
     # ---- 动作：键盘、表单 -----------------------------------------------------------
 
     def _do_type(self, text: str, tab_id: str | None = None, ref: str = "", submit: bool = False) -> Outcome:
         """在当前选中的地方输入文字。ref：先选中那个元素（别家模型用的 browser_type）；submit：输完按回车。"""
         if not isinstance(text, str) or not text:
-            raise ToolError("没有要输入的文字。")
+            raise ToolError(zh("没有要输入的文字。"))
         connection = self._connection()
         tab = self._tab(connection, tab_id, open_one=False)
         if ref:
             focused = self._js(connection, tab, "focus", {"ref": ref}) or {}
             if focused.get("stale"):
-                raise ToolError(f"{ref} 已经失效或者在这一页上找不到了。重新读一遍页面，拿新的编号。")
+                raise ToolError(_stale(ref))
         connection.call("Input.insertText", {"text": text}, session=tab.session, owner=self)
         self._sleep(0.1)
         moved = False
         if submit:
             enter = keys.parse("Enter")[0]
             moved = self._input(connection, tab, lambda: [connection.call("Input.dispatchKeyEvent", event, session=tab.session, owner=self) for event in keys.events(enter)])
-        where = f"在 {ref} 里" if ref else ""
-        return self._finish(connection, tab, f"{where}输入了 {len(text)} 个字。" + ("按了回车。" if submit else "") + ("页面跳转了。" if moved else ""))
+        where = zh("在 {ref} 里", ref=ref) if ref else ""
+        after = (zh("按了回车。页面跳转了。") if moved else zh("按了回车。")) if submit else zh("页面跳转了。") if moved else ""
+        return self._finish(connection, tab, zh("{where}输入了 {n} 个字。{after}", where=where, n=len(text), after=after))
 
     def _do_key(self, text: str, repeat: int = 1, tab_id: str | None = None) -> Outcome:
         chords = keys.parse(text)
@@ -183,13 +193,15 @@ class SessionInput(SessionPart):
                         connection.call("Input.dispatchKeyEvent", event, session=tab.session, owner=self)
 
         moved = self._input(connection, tab, send)
-        times = f" {repeat} 次" if repeat > 1 else ""
-        return self._finish(connection, tab, f"按了 {text}{times}。" + ("页面跳转了。" if moved else ""))
+        times = zh(" {n} 次", n=repeat) if repeat > 1 else ""
+        if moved:
+            return self._finish(connection, tab, zh("按了 {keys}{times}。页面跳转了。", keys=text, times=times))
+        return self._finish(connection, tab, zh("按了 {keys}{times}。", keys=text, times=times))
 
     def _do_hold_key(self, text: str, duration: float, tab_id: str | None = None) -> Outcome:
         chords = keys.parse(text)
         if len(chords) != 1:
-            raise ToolError("hold_key 一次只能按住一组键（比如 shift 或者 ctrl+a）。")
+            raise ToolError(zh("hold_key 一次只能按住一组键（比如 shift 或者 ctrl+a）。"))
         duration = max(0.0, min(30.0, float(duration)))
         connection = self._connection()
         tab = self._tab(connection, tab_id, open_one=False)
@@ -203,28 +215,33 @@ class SessionInput(SessionPart):
         finally:
             for event in ups:
                 connection.call("Input.dispatchKeyEvent", event, session=tab.session, owner=self)
-        return self._finish(connection, tab, f"按住 {text} {duration:g} 秒后松开了。")
+        return self._finish(connection, tab, zh("按住 {keys} {seconds} 秒后松开了。", keys=text, seconds=f"{duration:g}"))
 
     def _do_form_input(self, target: Target, value: object, tab_id: str | None = None) -> Outcome:
         if not target.ref:
-            raise ToolError("form_input 要给一个元素编号（ref）。")
+            raise ToolError(zh("form_input 要给一个元素编号（ref）。"))
         if not isinstance(value, (str, int, float, bool)):
-            raise ToolError("value 只能是文字、数字或者 true / false。")
+            raise ToolError(zh("value 只能是文字、数字或者 true / false。"))
         connection = self._connection()
         tab = self._tab(connection, tab_id, open_one=False)
         done = self._js(connection, tab, "setValue", {"ref": target.ref, "value": value}) or {}
         if done.get("stale"):
-            raise ToolError(f"{target.ref} 已经失效或者在这一页上找不到了。重新读一遍页面，拿新的编号。")
+            raise ToolError(_stale(target.ref))
         if done.get("error") == "no-option":
-            raise ToolError(f"{target.ref} 这个下拉框里没有“{value}”。可以选的有：" + "、".join(map(str, done.get("options", []))))
+            options = "、".join(map(str, done.get("options", [])))
+            raise ToolError(zh("{ref} 这个下拉框里没有“{value}”。可以选的有：{options}", ref=target.ref, value=str(value), options=options))
         if done.get("error") == "readonly":
-            raise ToolError(f"{target.ref} 是只读的或者被禁用了，改不了。")
+            raise ToolError(zh("{ref} 是只读的或者被禁用了，改不了。", ref=target.ref))
         if done.get("error"):
-            raise ToolError(f"{target.ref} 不是可以填的表单元素（它是 {done.get('role') or '别的东西'}）。")
+            raise ToolError(zh("{ref} 不是可以填的表单元素（它是 {role}）。", ref=target.ref, role=done.get("role") or zh("别的东西")))
         if done.get("typing"):
             connection.call("Input.insertText", {"text": str(value)}, session=tab.session, owner=self)
-        shown = f"（现在是：{done['shown']}）" if done.get("shown") else ""
-        return self._finish(connection, tab, f"把 {target.ref} 设成了 {value!s}{shown}。")
+        shown = zh("（现在是：{value}）", value=done["shown"]) if done.get("shown") else ""
+        return self._finish(connection, tab, zh("把 {ref} 设成了 {value}{shown}。", ref=target.ref, value=str(value), shown=shown))
+
+
+def _stale(ref: str) -> str:
+    return zh("{ref} 已经失效或者在这一页上找不到了。重新读一遍页面，拿新的编号。", ref=ref)
 
 
 def _modifier_bits(text: str) -> int:
@@ -234,6 +251,6 @@ def _modifier_bits(text: str) -> int:
             continue
         bit = keys.MODIFIERS.get(name.lower())
         if bit is None:
-            raise ToolError(f"不认识的修饰键：{name}。可以用 shift、ctrl、alt、cmd，组合写成 ctrl+shift。")
+            raise ToolError(zh("不认识的修饰键：{name}。可以用 shift、ctrl、alt、cmd，组合写成 ctrl+shift。", name=name))
         bits |= bit
     return bits

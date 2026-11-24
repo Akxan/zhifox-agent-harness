@@ -49,7 +49,7 @@ from .. import citations
 from ..agent import UI, Agent
 from ..config import AGENT_MAX_DEPTH, AGENT_MAX_RESULT_CHARS, AGENT_MAX_STEPS, Config
 from ..display import describe_call
-from ..i18n import Message, fill
+from ..i18n import Message, zh
 from ..mcp import McpManager
 from ..mcp.bridge import PREFIX as MCP_PREFIX
 from ..mcp.bridge import McpTool
@@ -201,7 +201,7 @@ class Delegator:
     def run(self, parent: Agent, depth: int, name: str, task: str) -> ToolOutput:
         task = task.strip()
         if not task:
-            raise ToolError("task 是空的。写清楚要它做什么、交回什么。")
+            raise ToolError(zh("task 是空的。写清楚要它做什么、交回什么。"))
         agent = self._find(name)
         provider_id, model = self._model(parent, agent)
         sub_config = dataclasses.replace(self.config, max_steps=AGENT_MAX_STEPS)
@@ -265,11 +265,12 @@ class Delegator:
         try:
             return self.store.usable(name)
         except AgentInvalid as exc:
-            raise ToolError(f"Agent「{name}」的文件有问题（{exc.problems[0]}），暂时不能用。可以请用户在“扩展 → Agent”里修好它。") from None
+            # 问题是 t() 写的（页面上也显示它）：zh() 填进去的是它的中文原文
+            raise ToolError(zh("Agent「{name}」的文件有问题（{problem}），暂时不能用。可以请用户在“扩展 → Agent”里修好它。", name=name, problem=exc.problems[0])) from None
         except AgentError:
             names = [entry for entry, _ in self.store.catalog()]
-            available = f"现在可以交给的有：{'、'.join(names)}。" if names else "现在一个 Agent 都没有。"
-            raise ToolError(f"没有叫 {name} 的 Agent。{available}") from None
+            available = zh("现在可以交给的有：{names}。", names="、".join(names)) if names else zh("现在一个 Agent 都没有。")
+            raise ToolError(zh("没有叫 {name} 的 Agent。{available}", name=name, available=available)) from None
 
     def _model(self, parent: Agent, agent: CustomAgent) -> tuple[str, str]:
         """它用哪一家的哪个模型：文件里写了就用写的，没写（inherit）就和叫它的那一方一样。"""
@@ -278,10 +279,10 @@ class Delegator:
         provider_id, model = agent.spec.provider, agent.spec.model_id
         provider = find(provider_id)
         if provider is None:  # 文件里写的是一个自定义接口，它后来被删掉了
-            raise ToolError(f"Agent「{agent.name}」用的是 {provider_id}，但这个自定义模型接口已经不在了，所以交不出去。可以自己做，或者请用户在设置里重新添加它、或者改一改这个 Agent 的 model。")
+            raise ToolError(zh("Agent「{name}」用的是 {provider}，但这个自定义模型接口已经不在了，所以交不出去。可以自己做，或者请用户在设置里重新添加它、或者改一改这个 Agent 的 model。", name=agent.name, provider=provider_id))
         # 和叫它的那一方是同一家的话，密钥一定是有的（不然那一方也跑不起来）；另一家要看一眼
         if provider_id != parent.backend.provider and not has_key(provider):
-            raise ToolError(f"Agent「{agent.name}」用的是 {provider.label} 的 {model}，但用户还没有设置 {provider.label} 的 API 密钥，所以交不出去。可以自己做，或者请用户去设置里填上密钥。")
+            raise ToolError(zh("Agent「{name}」用的是 {provider} 的 {model}，但用户还没有设置 {provider} 的 API 密钥，所以交不出去。可以自己做，或者请用户去设置里填上密钥。", name=agent.name, provider=provider.label, model=model))
         return provider_id, model
 
     def _tools(self, parent: Agent, agent: CustomAgent, own_shell: Shell, owner: object) -> list[Tool]:
@@ -332,39 +333,44 @@ class Delegator:
         )
 
     def _failed(self, parent: Agent, sub: Agent, ui: SubUI, error: str | Message) -> ToolOutput:
-        """出错了。卡片上的那句话跟着界面的语言（error 是 t() 写的话时，换语言能在原地重译）；交给模型的用中文原文。"""
+        """出错了。卡片上的那句话跟着界面的语言（error 是 t() 写的话时，换语言能在原地重译）；交给模型的用中文原文（zh()）。"""
         self._done(parent, sub, ui, "failed", error=error)
-        chinese = fill(error.key, error.values) if isinstance(error, Message) else error
-        return ToolOutput(text=f"Agent「{ui.name}」出错了，没有做完：{chinese}", is_error=True)
+        return ToolOutput(text=zh("Agent「{name}」出错了，没有做完：{error}", name=ui.name, error=error), is_error=True)
 
     def _result(self, parent: Agent, sub: Agent, ui: SubUI, agent: CustomAgent, model: str) -> ToolOutput:
         answer, outcome = ui.answer.strip(), sub.outcome
-        did = f"它调用了 {sub.usage.requests} 次模型（{model}）"
+        # 写给主助手的话用 zh()（中文原文；终端、工具卡片上按界面的语言显示）。用了哪些工具那一串是资料，原样填进去
         if ui.calls:
-            did += "，用了这些工具：" + "、".join(f"{name} {count} 次" for name, count in ui.calls.most_common())
+            tools = "、".join(f"{name} {count} 次" for name, count in ui.calls.most_common())
+            did = zh("它调用了 {n} 次模型（{model}），用了这些工具：{tools}", n=sub.usage.requests, model=model, tools=tools)
         else:
-            did += "，没有用工具"
+            did = zh("它调用了 {n} 次模型（{model}），没有用工具", n=sub.usage.requests, model=model)
         if outcome == "refused":
             self._done(parent, sub, ui, "refused")
-            note = f"（{ui.infos[-1]}）" if ui.infos else ""
-            return ToolOutput(text=f"Agent「{agent.name}」的请求被模型拒绝了，没有结果{note}。可以换个说法再交给它，或者自己做。", is_error=True)
+            if ui.infos:  # 循环自己的那句提示（t() 写的）：填进去的是它的中文原文
+                text = zh("Agent「{name}」的请求被模型拒绝了，没有结果（{note}）。可以换个说法再交给它，或者自己做。", name=agent.name, note=ui.infos[-1])
+            else:
+                text = zh("Agent「{name}」的请求被模型拒绝了，没有结果。可以换个说法再交给它，或者自己做。", name=agent.name)
+            return ToolOutput(text=text, is_error=True)
         if not answer:
             self._done(parent, sub, ui, "limit" if outcome == "steps" else "empty")
-            reason = f"它用完了 {AGENT_MAX_STEPS} 次模型调用还没做完。" if outcome == "steps" else "它没有写出回答。"
-            return ToolOutput(text=f"Agent「{agent.name}」没有交回内容：{reason}{did}。", is_error=True)
+            reason = zh("它用完了 {n} 次模型调用还没做完。", n=AGENT_MAX_STEPS) if outcome == "steps" else zh("它没有写出回答。")
+            return ToolOutput(text=zh("Agent「{name}」没有交回内容：{reason}{did}。", name=agent.name, reason=reason, did=did), is_error=True)
         shown = answer
         if ui.sources.sources:  # 回答里的 [1] 指的是哪个网页：主助手转述时要能写出出处
             answer += "\n\n" + citations.for_model(ui.sources.sources)
+        cut = ""
         if len(answer) > AGENT_MAX_RESULT_CHARS:
-            answer = answer[:AGENT_MAX_RESULT_CHARS] + f"\n……（回答太长，后面的 {len(answer) - AGENT_MAX_RESULT_CHARS} 个字没有交回）"
+            cut = zh("\n……（回答太长，后面的 {n} 个字没有交回）", n=len(answer) - AGENT_MAX_RESULT_CHARS)
+            answer = answer[:AGENT_MAX_RESULT_CHARS]
         if outcome == "steps":
-            head = f"Agent「{agent.name}」用完了 {AGENT_MAX_STEPS} 次模型调用，还没做完就停下了。下面是它停下时写的内容"
+            head = zh("Agent「{name}」用完了 {n} 次模型调用，还没做完就停下了。下面是它停下时写的内容", name=agent.name, n=AGENT_MAX_STEPS)
         elif outcome == "truncated":
-            head = f"Agent「{agent.name}」的回答达到了长度上限，被截断了。下面是它写出来的部分"
+            head = zh("Agent「{name}」的回答达到了长度上限，被截断了。下面是它写出来的部分", name=agent.name)
         else:
-            head = f"Agent「{agent.name}」做完了这项任务。下面是它交回的回答（它看不到你和用户的对话）"
+            head = zh("Agent「{name}」做完了这项任务。下面是它交回的回答（它看不到你和用户的对话）", name=agent.name)
         self._done(parent, sub, ui, {"steps": "limit", "truncated": "truncated"}.get(outcome, "done"), answer=shown)
-        return ToolOutput(text=f"{head}：\n\n{answer}\n\n——{did}。")
+        return ToolOutput(text=zh("{head}：\n\n{answer}{cut}\n\n——{did}。", head=head, answer=answer, cut=cut, did=did))
 
 
 def _sandbox_of(parent: Agent) -> Any:

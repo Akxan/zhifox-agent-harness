@@ -2,16 +2,28 @@
 // 服务器推来的每一种事件（文字、思考、工具调用和结果、确认请求、状态……）在 handlers 里各有一个函数，
 // 收到事件就按它的类型调用对应的那个（连上事件流的地方在 start.js）。
 
-function finishTool(kind, text) {
+// said：写在这一行上的那句话。{key, values} 是有原文的（页面自己的"没有执行完"、程序写的出错原因），换语言时跟着换；
+// {text} 是原样的文字（命令的输出、以前存下的结果）。只写第一行
+function finishTool(kind, said) {
   const { card, status, outcome } = toolCard;
-  if (toolCard.sub) text = '';  // 交给子 Agent 的卡片：结果写在卡片里（它的回答、做了什么），这一行不再重复
   status.className = 'status ' + kind + (isLive() ? ' pop' : '');
   status.replaceChildren(icon(kind === 'ok' ? 'check' : kind === 'failed' ? 'x' : 'minus'),
                          tel('span', 'sr-only', kind === 'ok' ? k('成功') : kind === 'failed' ? k('失败') : k('没有执行完')));
   card.classList.toggle('failed', kind === 'failed');
-  // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开。"没有执行完"是页面自己的话，要能跟着换语言
-  if (kind === 'stopped' && text) retext(outcome, text); else outcome.textContent = kind === 'ok' ? '' : text;
+  // 成功了有对勾就够了；出错时把原因直接写在这一行上，不用点开。
+  // 交给子 Agent 的卡片：结果写在卡片里（它的回答、做了什么），这一行不再重复
+  if (kind === 'ok' || toolCard.sub || !said) outcome.textContent = '';
+  else if (typeof said.key === 'string') retextLine(outcome, said.key, said.values);
+  else outcome.textContent = firstLine(String(said.text || ''));
   toolCard = null;
+}
+
+// 工具结果的全文放进 node。程序自己写的那几句话带着原文（key），照着它按界面的语言写、换语言时在原地重写；
+// 别的（命令的输出、文件的内容、网页、MCP 的结果，以及以前存下的、没有原文的结果）原样显示，从不翻译
+function resultText(node, event) {
+  if (typeof event.key === 'string') retext(node, event.key, event.values);
+  else node.textContent = String(event.text || '');
+  return node;
 }
 
 const handlers = {
@@ -108,7 +120,7 @@ const handlers = {
 
   turn_end() {
     endBlock();
-    if (toolCard) finishTool('stopped', k('没有执行完'));  // 这一轮结束时工具还没给出结果（比如被中断了）
+    if (toolCard) finishTool('stopped', { key: k('没有执行完') });  // 这一轮结束时工具还没给出结果（比如被中断了）
     const stopped = stopping;
     busy = stopping = false;
     forkTurnEnded();  // 结束了的一轮才能分叉：在它上面放两个"分叉"（重放出来的也一样，见 fork.js）
@@ -134,7 +146,7 @@ const handlers = {
 
   tool_call(event) {
     endBlock();
-    if (toolCard) finishTool('stopped', '');
+    if (toolCard) finishTool('stopped', null);
     if (event.name === 'agent') { toolCard = subagentCard(event); return; }  // 交给子 Agent：画成一张专门的卡片（见下面"交给子 Agent 的卡片"）
     // 浏览器、电脑的一步：卡片下面还要放一张小截图（见"浏览器"、"操作整台电脑"两节）。大图各有各的接口，记在 shots 里
     const shots = isBrowserCall(event.name) ? 'browser' : isComputerCall(event.name) ? 'computer' : '';
@@ -171,10 +183,10 @@ const handlers = {
     // 交给子 Agent 的卡片：它交回的内容已经画在卡片里了；只有它没能说完（比如还没开始就出错了）时，才把结果原样摆出来
     if (!toolCard.sub || !toolCard.sub.done) {
       toolCard.details.appendChild(tel('div', 'label', k('结果')));
-      toolCard.details.appendChild(el('pre', null, event.text));
+      toolCard.details.appendChild(resultText(el('pre'), event));
     }
     if (toolCard.holder && typeof event.thumb === 'string' && THUMB_URL.test(event.thumb)) toolCard.holder.appendChild(browserThumb(event));
-    finishTool(event.is_error ? 'failed' : 'ok', firstLine(event.text));
+    finishTool(event.is_error ? 'failed' : 'ok', event);
   },
 
   confirm(event) {

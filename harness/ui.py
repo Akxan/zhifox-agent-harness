@@ -25,7 +25,7 @@ from . import citations
 from .attachments import Attachment
 from .config import APP_NAME
 from .display import describe_call, short
-from .i18n import k, t
+from .i18n import k, retell, t
 from .webui.ui import WebUI, confirm_fields
 
 RESET = "\033[0m"
@@ -280,7 +280,8 @@ class TerminalUI:
     def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
         # 浏览器的截图在终端里画不出来，只说一声大图存在哪儿（网页界面里点小图就能看）
         shot = f" · {t('截图已保存')}" if preview and preview.get("shot") else ""
-        self._line(RED if is_error else DIM, f"   ↳ {short(text, 120)}{shot}")
+        # 程序自己写的那几句话（zh() 给的）译成界面的语言；命令的输出、文件的内容原样（见 ../i18n.py 开头）
+        self._line(RED if is_error else DIM, f"   ↳ {short(retell(text), 120)}{shot}")
         self.log.tool_result(text, is_error, preview)  # 日志里的小图照样留着：网页打开时画在工具卡片上
 
     def auto_allowed(self, why: str = "mode") -> None:
@@ -298,7 +299,7 @@ class TerminalUI:
         elif step == "tool_call":
             self._line(CYAN, f"   🔧 {data.get('summary', '')}")
         elif step == "tool_result":
-            self._line(RED if data.get("is_error") else DIM, f"      ↳ {short(str(data.get('text', '')), 100)}")
+            self._line(RED if data.get("is_error") else DIM, f"      ↳ {short(retell(data.get('text', '')), 100)}")
         elif step == "auto":
             self._line(DIM, "      " + t(AUTO_NOTES.get(str(data.get("why", "")), AUTO_NOTE)))
         elif step == "note":

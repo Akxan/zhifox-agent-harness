@@ -28,11 +28,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..browser.session import BrowserSession, Facts, Outcome, Target
+from ..browser.session_page import lines
+from ..i18n import zh
 from .base import FactsTool, Tool, ToolError, ToolImage, ToolOutput, check_input
 
 TOOLSET = "browser"
 TOOLSET_SPEC = {"type": "browser_toolset_20260801"}  # 默认的 27 个成员都开着；javascript_exec、file_upload 这些可选的保持关着
-OFF = "浏览器现在是关着的（用户在设置里关掉了）。需要的话，请用户在智狐的“设置 → 浏览器”里打开它。"
+# 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。网址、标题、编号是资料，原样填进去
+OFF = zh("浏览器现在是关着的（用户在设置里关掉了）。需要的话，请用户在智狐的“设置 → 浏览器”里打开它。")
 REF = re.compile(r"ref_\d{1,9}")
 TAB = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
@@ -61,18 +64,20 @@ def _target(value: object, allow_ref: bool = True, allow_point: bool = True) -> 
         shapes.append('{"type": "ref", "ref": "ref_2"}')
     if allow_point:
         shapes.append('{"type": "coordinate", "x": 100, "y": 200}')
-    raise ToolError("target 要写成 " + " 或者 ".join(shapes) + "。")
+    if len(shapes) == 2:
+        raise ToolError(zh("target 要写成 {first} 或者 {second}。", first=shapes[0], second=shapes[1]))
+    raise ToolError(zh("target 要写成 {shape}。", shape="".join(shapes)))
 
 
 def _ref(value: object) -> str:
     if not isinstance(value, str) or not REF.fullmatch(value):
-        raise ToolError("元素编号要写成 read_page 或 find 给的样子，比如 ref_12。")
+        raise ToolError(zh("元素编号要写成 read_page 或 find 给的样子，比如 ref_12。"))
     return value
 
 
 def _int(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ToolError(f"{name} 要是一个整数。")
+        raise ToolError(zh("{name} 要是一个整数。", name=name))
     return int(value)
 
 
@@ -80,13 +85,13 @@ def _number(value: object, name: str, default: float) -> float:
     if value is None:
         return default
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ToolError(f"{name} 要是一个数。")
+        raise ToolError(zh("{name} 要是一个数。", name=name))
     return float(value)
 
 
 def _text(value: object, name: str) -> str:
     if not isinstance(value, str):
-        raise ToolError(f"{name} 要是一段文字。")
+        raise ToolError(zh("{name} 要是一段文字。", name=name))
     return value
 
 
@@ -95,13 +100,13 @@ def _tab(tool_input: dict, required: bool = False) -> str | None:
     if value is None and not required:
         return None
     if not isinstance(value, str) or not TAB.fullmatch(value):
-        raise ToolError("tab_id 要写成 list_tabs 给的样子，比如 tab-1。")
+        raise ToolError(zh("tab_id 要写成 list_tabs 给的样子，比如 tab-1。"))
     return value
 
 
 def _dict(tool_input: object) -> dict:
     if not isinstance(tool_input, dict):
-        raise ToolError("参数必须是一个 JSON 对象。")
+        raise ToolError(zh("参数必须是一个 JSON 对象。"))
     return tool_input
 
 
@@ -112,16 +117,17 @@ def tabs_text(state: dict | None) -> str:
     """标签页的情况写成一段文字（给别家的模型看，也是界面上那张工具卡片里显示的）。"""
     if not state:
         return ""
-    lines = []
+    rows: list[str] = []
     for tab in state.get("tabs", []):
-        mark = "（当前）" if tab.get("active") else ""
-        lines.append(f"  • {tab['tab_id']}{mark}：{tab.get('title') or '（无标题）'} {tab.get('url', '')}")
+        mark = zh("（当前）") if tab.get("active") else ""
+        rows.append(zh("  • {tab}{mark}：{title} {url}", tab=tab["tab_id"], mark=mark, title=tab.get("title") or zh("（无标题）"), url=tab.get("url", "")))
     for change in state.get("state_changes", []):
         if change["type"] == "tab_opened":
-            lines.append(f"  新开了标签页 {change['tab_id']}")
+            rows.append(zh("  新开了标签页 {tab}", tab=change["tab_id"]))
         elif change["type"] == "download_failed":
-            lines.append(f"  页面想下载 {change.get('url', '')}，被拒绝了（{change.get('error', '')}）")
-    return "标签页：\n" + "\n".join(lines) if lines else "标签页：（没有开着的）"
+            rows.append(zh("  页面想下载 {url}，被拒绝了（{error}）", url=change.get("url", ""), error=change.get("error", "")))
+    # 一行一行接起来，每一行还记着原文（见 browser/session_page.lines）
+    return zh("标签页：\n{rows}", rows=lines(*rows)) if rows else zh("标签页：（没有开着的）")
 
 
 def _preview(outcome: Outcome) -> dict | None:
@@ -142,8 +148,9 @@ def member_output(outcome: Outcome) -> ToolOutput:
 
 def portable_output(outcome: Outcome) -> ToolOutput:
     """替身工具的结果：标签页的情况直接写进文字里（别家的 API 没有 browser_state 这种东西）。"""
-    text = "\n\n".join(part for part in (outcome.text, tabs_text(outcome.state)) if part)
-    return ToolOutput(text=text or "（完成）", images=_images(outcome), preview=_preview(outcome))
+    done, tabs = outcome.text, tabs_text(outcome.state)
+    text = zh("{first}\n\n{rest}", first=done, rest=tabs) if done and tabs else done or tabs  # 两段都记着原文
+    return ToolOutput(text=text or zh("（完成）"), images=_images(outcome), preview=_preview(outcome))
 
 
 # ---- 工具包的成员（Claude） ------------------------------------------------------
@@ -156,7 +163,7 @@ def _click(button: str, count: int) -> Handler:
     def run(session: BrowserSession, args: dict) -> Outcome:
         modifiers = args.get("modifiers") or ""
         if not isinstance(modifiers, str):
-            raise ToolError("modifiers 要写成 shift、ctrl+shift 这样的文字。")
+            raise ToolError(zh("modifiers 要写成 shift、ctrl+shift 这样的文字。"))
         return session.run("click", target=_target(args.get("target")), button=button, count=count, modifiers=modifiers, tab_id=_tab(args))
 
     return run
@@ -400,7 +407,7 @@ def _portable_run(session: BrowserSession, name: str, args: dict) -> Outcome:
         if args.get("ref"):
             return session.run("scroll_to", target=Target(ref=_ref(args["ref"])))
         if not args.get("direction"):
-            raise ToolError("要给 direction（up / down / left / right），或者给 ref 把那个元素滚过来。")
+            raise ToolError(zh("要给 direction（up / down / left / right），或者给 ref 把那个元素滚过来。"))
         return session.run("scroll", target=None, direction=args["direction"], amount=args.get("amount") or 3)
     if name == "browser_wait":
         if args.get("text"):
@@ -416,14 +423,14 @@ def _portable_run(session: BrowserSession, name: str, args: dict) -> Outcome:
             opened = session.run("new_tab")
             return session.run("navigate", url=args["url"]) if args.get("url") else opened
         return session.run("switch_tab" if action == "switch" else "close_tab", tab_id=_tab(args, required=True))
-    raise ToolError(f"没有 {name} 这个浏览器工具。")
+    raise ToolError(zh("没有 {name} 这个浏览器工具。", name=name))
 
 
 def _portable_target(args: dict) -> Target:
     if args.get("ref"):
         return Target(ref=_ref(args["ref"]))
     if args.get("x") is None or args.get("y") is None:
-        raise ToolError("要给 ref（元素编号），或者同时给 x 和 y（窗口里的坐标）。")
+        raise ToolError(zh("要给 ref（元素编号），或者同时给 x 和 y（窗口里的坐标）。"))
     return Target(x=_int(args["x"], "x"), y=_int(args["y"], "y"))
 
 

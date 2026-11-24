@@ -24,9 +24,10 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..config import DESKTOP_COMMAND_TIMEOUT
+from ..i18n import zh
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
-from .backend import Shot
+from .backend import Shot, failed
 from .frame import Box, Screen
 from .keys import Chord
 
@@ -74,9 +75,10 @@ class X11Backend:
     def problem(self, kind: str) -> str:
         found = self.checks()
         if kind == "look" and not (found["capture"] and found["convert"]):
-            return "这台电脑上没有装 ImageMagick，截不了图。请用户装上它（Debian、Ubuntu 上是 sudo apt install imagemagick），然后再试。"
+            # 交给模型的话用 zh()：工具卡片上按界面的语言显示（见 ../i18n.py 开头）。程序报的错是资料，原样填进去
+            return zh("这台电脑上没有装 ImageMagick，截不了图。请用户装上它（Debian、Ubuntu 上是 sudo apt install imagemagick），然后再试。")
         if kind == "input" and not found["xdotool"]:
-            return "这台电脑上没有装 xdotool，没法控制鼠标键盘。请用户装上它（Debian、Ubuntu 上是 sudo apt install xdotool），然后再试。"
+            return zh("这台电脑上没有装 xdotool，没法控制鼠标键盘。请用户装上它（Debian、Ubuntu 上是 sudo apt install xdotool），然后再试。")
         if kind == "input" and not found["capture"]:
             return ""  # 只是截不了图：点击、打字照样能做（小预览图没有而已）
         return ""
@@ -89,16 +91,16 @@ class X11Backend:
         try:
             done = self._run(args, input=data, capture_output=True, timeout=DESKTOP_COMMAND_TIMEOUT, env=env, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ToolError(f"{Path(args[0]).name} 没有成功：{exc}") from None
+            raise ToolError(zh("{program} 没有成功：{error}", program=Path(args[0]).name, error=exc)) from None
         if done.returncode != 0:
             detail = (done.stderr or b"").decode("utf-8", "replace").strip()[:300]
-            raise ToolError(f"{Path(args[0]).name} 没有成功（退出码 {done.returncode}）{('：' + detail) if detail else ''}")
+            raise ToolError(failed(Path(args[0]).name, done.returncode, detail))
         return done.stdout or b""
 
     def _xdotool(self, *args: str) -> str:
         tool = self._tool("xdotool")
         if tool is None:
-            raise ToolError("这台电脑上没有装 xdotool。")
+            raise ToolError(zh("这台电脑上没有装 xdotool。"))
         return self._command([tool, *args]).decode("utf-8", "replace")
 
     # ---- 屏幕 -------------------------------------------------------------------
@@ -108,13 +110,13 @@ class X11Backend:
         try:
             width, height = int(parts[0]), int(parts[1])
         except (IndexError, ValueError):
-            raise ToolError("xdotool 没有说出屏幕有多大。") from None
+            raise ToolError(zh("xdotool 没有说出屏幕有多大。")) from None
         return Screen(width, height, width, height)  # X11 上发事件用的就是像素
 
     def capture(self, shots: Sequence[Shot], region: Box | None = None) -> list[bytes]:
         convert = self._tool("magick", "convert")
         if convert is None:
-            raise ToolError("这台电脑上没有装 ImageMagick，截不了图。")
+            raise ToolError(zh("这台电脑上没有装 ImageMagick，截不了图。"))
         raw = self._grab()
         crop = ["-crop", f"{region.width}x{region.height}+{region.x}+{region.y}", "+repage"] if region is not None else []
         return [self._command([convert, "png:-", *crop, "-resize", f"{shot.width}x{shot.height}!", "-quality", str(shot.quality), "jpeg:-"], raw) for shot in shots]
@@ -126,7 +128,7 @@ class X11Backend:
             return self._command([importer, "-window", "root", "png:-"])
         scrot = self._tool("scrot")
         if scrot is None:
-            raise ToolError("这台电脑上没有可以截图的程序（ImageMagick 的 import，或者 scrot）。")
+            raise ToolError(zh("这台电脑上没有可以截图的程序（ImageMagick 的 import，或者 scrot）。"))
         with tempfile.TemporaryDirectory(prefix="zhifox-shot-") as folder:  # 只有你自己能读，用完就删
             path = Path(folder) / "screen.png"
             self._command([scrot, "-o", str(path)])

@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import BROWSER_CALL_TIMEOUT
+from ..i18n import zh
 from ..safe import clean, to_json
 
 MAX_MESSAGE_BYTES = 64_000_000  # 一条消息最多这么大（一张整页截图的 base64 也就几 MB）。超过的当作 Chrome 出了问题
@@ -137,7 +138,8 @@ class Connection:
         try:
             self._write(message)
             if not pending.done.wait(timeout):
-                raise CDPTimeout(method, f"等了 {timeout:g} 秒还没有回答")
+                # 这句会填进交给模型的话里（session.py 的 run）：zh() 写，工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+                raise CDPTimeout(method, zh("等了 {seconds} 秒还没有回答", seconds=f"{timeout:g}"))
         finally:
             with self._lock:
                 self._pending.pop(request_id, None)
