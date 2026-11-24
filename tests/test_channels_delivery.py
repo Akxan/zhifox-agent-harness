@@ -19,15 +19,18 @@ import pytest
 from fake_api import reply, text
 from fake_telegram import TOKEN, FakeTelegram
 from sample_files import PDF_BYTES
-from test_channels import OWNER, rigs, run, stop_later, until, visible_end
+from test_channels import BOT, OWNER, OWNER_NAME, rigs, run, stop_later, until, visible_end
 from test_send_file import outgoing, result_of, send
 
 from harness import config
 from harness.channels import dingtalk, discord, feishu, qq, slack
 from harness.channels.base import ChannelError, Status, pause, retry_delay, transient
 from harness.channels.outbox import Job, Outbox
+from harness.channels.router import Router
 from harness.channels.session import delivery_lines
+from harness.channels.store import ChannelStore
 from harness.channels.telegram import BotAPI, TelegramChannel, TelegramError
+from harness.claims import Claims
 from harness.config import CHANNEL_SEND_RETRIES, CHANNEL_SEND_RETRY_AFTER_MAX
 from harness.net import http
 
@@ -550,3 +553,45 @@ def test_telegram_says_online_right_after_connecting_and_after_a_reset():
     finally:
         channel.stop()
         stop_later(fake.stop)
+
+
+# ---- 绑定没了：留着的不再发到以前那个聊天里 ---------------------------------------------------
+
+
+def _paired_router(tmp_path, channel):
+    """一个配对好主人（OWNER）的 Router，对着 channel 发。"""
+    store = ChannelStore(tmp_path / "channels.json")
+    store.connect("telegram", {"token": TOKEN}, BOT)
+    code = store.start_pairing("telegram")
+    assert store.attempt("telegram", OWNER, OWNER_NAME, code["code"]) == "paired"
+    router = Router(SimpleNamespace(), store, Claims(), lambda: None, lambda _: None)
+    router.attach("telegram", channel)
+    return router, store
+
+
+@pytest.mark.parametrize("change", ["another_bot", "removed_elsewhere", "unbound_elsewhere"])
+def test_kept_messages_are_not_sent_once_the_binding_is_gone(fast, tmp_path, change):
+    # 回答没发出去、留着等补发。这期间绑定没了：换成了另一个机器人（store.connect 把主人清掉，要重新配对）、
+    # 在命令行里删掉了这个平台或者解除了绑定（channels.json 被另一个程序改了，这边靠 refresh 读到）。
+    # 留着的那几段是写给以前那个主人的，不能再由（新的）机器人发到那个聊天里去
+    channel = Flaky(*[RESET] * (CHANNEL_SEND_RETRIES + 1))
+    router, store = _paired_router(tmp_path, channel)
+    router.say("telegram", OWNER, "写给以前那个主人的回答")
+    until(lambda: router.undelivered("telegram", OWNER) == 1, what="留着一条")
+    if change == "another_bot":
+        store.connect("telegram", {"token": TOKEN}, {"id": "987654321", "username": "other_bot", "name": "Other"})
+    else:
+        other = ChannelStore(store.path)  # 另一个程序（harness channels remove …）改的是同一个文件
+        if change == "removed_elsewhere":
+            other.remove("telegram")
+        else:
+            other.unbind("telegram")
+        assert store.refresh()
+    assert store.get("telegram")["owner"] is None
+    router.status_changed("telegram")
+    router.say("telegram", "222", "别的聊天")  # 发送队列照常在转：这一条发出去时，留着的那条要是还在，也已经补发过了
+    router.flush(5)
+    until(lambda: "别的聊天" in channel.sent, what="后面那条发出去")
+    assert "写给以前那个主人的回答" not in channel.sent
+    assert router.undelivered("telegram", OWNER) == 0
+    router.close(1)
