@@ -56,6 +56,7 @@ class Fetched:
     body: bytes  # 解压过的
     cut: bool = False  # 太大了，只留了前 FETCH_MAX_BYTES 个字节
     hops: tuple[str, ...] = ()  # 跳转之前经过的网址（第一个是你要读的那个）
+    elsewhere: str = ""  # 跳转到了 follow 不让跟的地方（别的网站）：没跟过去，这是那个网址（整理过的）；status、headers 是那次跳转的
 
     @property
     def content_type(self) -> str:
@@ -108,8 +109,12 @@ class Fetcher:
     redirects: int = FETCH_MAX_REDIRECTS
     clock: Callable[[], float] = field(default=time.monotonic, repr=False)
 
-    def get(self, url: str) -> Fetched:
-        """取一个（整理过的）网址。不读的抛出 guard.Refused，没读到的抛出 FetchError，都说明为什么。"""
+    def get(self, url: str, follow: Callable[[str], bool] | None = None) -> Fetched:
+        """取一个（整理过的）网址。不读的抛出 guard.Refused，没读到的抛出 FetchError，都说明为什么。
+
+        follow：跳转的下一跳（整理过的网址）能不能跟过去（不给就是都跟，照样每一跳从头再查）。不能的就停在那次跳转上，
+        交回的 Fetched 的 elsewhere 写着要跳去的网址。在解析下一跳的域名之前就问它：光是解析一个域名，
+        名字里的字就已经到了那个域名的 DNS 服务器手里。"""
         deadline = self.clock() + self.timeout
         hops: list[str] = []
         current = url
@@ -129,6 +134,9 @@ class Fetcher:
                     current = urljoin(target.url, location)
                 except ValueError:  # urlsplit 自己就拒绝的写法（方括号里不是 IP 地址……）：下一圈的 parse 说清楚为什么不读
                     current = location
+                following = _parsed(current)  # 不读的写法留给下一圈的 parse 说清楚为什么
+                if follow is not None and following is not None and not follow(following):
+                    return Fetched(target.url, status, headers, b"", False, tuple(hops[:-1]), elsewhere=following)
                 continue
             return Fetched(target.url, status, headers, body, cut, tuple(hops))
         raise FetchError(f"跳转了 {self.redirects} 次还没到，没有再跟下去（最后一次跳到 {_shown(current)}）。")
@@ -244,6 +252,14 @@ class Fetcher:
             size += len(chunk)
         body = b"".join(parts)
         return body[: self.limit], len(body) > self.limit
+
+
+def _parsed(url: str) -> str | None:
+    """整理好的网址（guard.parse，不解析域名）；不读的写法交回 None。"""
+    try:
+        return guard.parse(url).url
+    except guard.Refused:
+        return None
 
 
 def _shown(url: str) -> str:

