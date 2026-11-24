@@ -147,8 +147,12 @@ class Target:
 
 
 def normalize(url: object) -> str:
-    """模型给的网址整理成要读的样子：前后的空白去掉，没写协议的当作 https://（和浏览器一样，见 browser/urls.py）。"""
-    return urls.normalize(url)
+    """模型给的网址整理成要读的样子：前后的空白去掉，没写协议的当作 https://（和浏览器一样，见 browser/urls.py）。
+    urlsplit 自己就拒绝的写法（方括号里不是 IP 地址的……）原样交回，由 parse 说清楚为什么不读：在这里抛出去，整轮就断了。"""
+    try:
+        return urls.normalize(url)
+    except ValueError:
+        return str(url or "").strip()
 
 
 def parse(url: str) -> Target:

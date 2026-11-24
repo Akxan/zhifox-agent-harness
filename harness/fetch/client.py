@@ -125,7 +125,10 @@ class Fetcher:
             location = headers.get("location", "").strip()
             if status in REDIRECTS and location:
                 hops.append(target.url)
-                current = urljoin(target.url, location)
+                try:
+                    current = urljoin(target.url, location)
+                except ValueError:  # urlsplit 自己就拒绝的写法（方括号里不是 IP 地址……）：下一圈的 parse 说清楚为什么不读
+                    current = location
                 continue
             return Fetched(target.url, status, headers, body, cut, tuple(hops))
         raise FetchError(f"跳转了 {self.redirects} 次还没到，没有再跟下去（最后一次跳到 {_shown(current)}）。")
