@@ -103,7 +103,10 @@ class _Reader(HTMLParser):
             self._meta(values)
             return
         if tag == "base" and values.get("href"):
-            self.base = urljoin(self.base, values["href"])
+            try:
+                self.base = urljoin(self.base, values["href"])
+            except ValueError:  # urlsplit 自己就拒绝的写法：当作没写（不然一个网页就能让自己整页读不出来）
+                pass
             return
         if tag in SKIP or _hidden(values):
             if tag not in VOID:
