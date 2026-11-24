@@ -93,7 +93,9 @@ WhatsApp 和企业微信只会把消息推到一个公网能访问的网址，�
    10 分钟内有效；你用自己的账号把它发给机器人，这个账号的编号就记成主人。别人发来的消息一律不理、也不回，
    机器人看起来就像没开着。配对的那 10 分钟里，陌生人发来别的话最多收到一句中性的提示；猜错 5 次，配对码就作废，
    没法一个一个试过去。群聊一概不理（群里的每个人都能和它说话）。
-3. **每个聊天一段会话，和网页上的对话同时进行。** 每个聊天有一个 `Session`（[session.py](../../harness/channels/session.py)），
+3. **每个聊天一段会话，和网页上的对话同时进行。** 每个聊天有一个 `Session`（[session.py](../../harness/channels/session.py)；跑一轮、这一轮的会话和助手、确认请求分别在
+   [session_turn.py](../../harness/channels/session_turn.py)、[session_conversation.py](../../harness/channels/session_conversation.py)、
+   [session_confirm.py](../../harness/channels/session_confirm.py)），
    有自己的会话、适配层、shell、MCP 调用、浏览器标签页和确认方式（`App.channel_agent`，和定时任务每次运行的做法一样），
    还有一个队伍：同一个聊天里一次只跑一轮，后来的消息排着等（最多 5 条）。它不拿网页对话的那把锁，所以在 Telegram 里发
    `/stop` 只停这个聊天，网页上的"停止"也碰不到它。会话和别的会话一样保存（会话栏里标着"Telegram"，花费按来源 `channel`
@@ -224,7 +226,7 @@ WhatsApp 和企业微信只会把消息推到一个公网能访问的网址，�
   下一次心跳时上一次的还没回 ACK，说明连接已经僵死了（不做关闭握手直接断开，然后 Resume）；op 7 是"请你重连"，
   op 9 说会话还能不能接着用。关闭代码的表每家各给一份：token 不对、不许用的 intents 这种情况直接停下不再重连，因为 Discord
   一天里登录超过 1000 次会把机器人的 token 作废；同样的原因，重连的间隔最多拉到 120 秒。
-- **WebSocket 客户端**（[net/websocket.py](../../harness/net/websocket.py)）实现了 RFC 6455 里客户端要的那一部分：握手和
+- **WebSocket 客户端**（[net/websocket.py](../../harness/net/websocket.py) 和旁边的 `websocket_*.py`）实现了 RFC 6455 里客户端要的那一部分：握手和
   `Sec-WebSocket-Accept` 的核对；发出去的每一帧都加掩码（服务器发来带掩码的帧就拒绝）；分片的消息，中间可以夹着控制帧；
   ping/pong；关闭握手；协议出错、文字不是合法的 UTF-8、消息太大时分别用 1002、1007、1009 关闭（太大的消息看到长度就拒绝）；
   处处有超时；照着 `HTTPS_PROXY` 走 HTTP 代理（CONNECT）。明文的 `ws://` 只允许连这台电脑自己（测试里的假服务器）。

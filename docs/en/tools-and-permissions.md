@@ -340,4 +340,5 @@ A few notes:
 - What a tool returns is text for the model to read. On failure, raise `ToolError("reason")` (also importable from
   `.base`); the model sees the reason and adjusts.
 - If the new tool changes anything on your computer, add a rule for it in `review` in
-  [harness/permissions.py](../../harness/permissions.py) so that it asks you first.
+  [harness/permissions_review.py](../../harness/permissions_review.py) so that it asks you first (the table of what
+  asks, and why, is at the top of [harness/permissions.py](../../harness/permissions.py); keep it in step).

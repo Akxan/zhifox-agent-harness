@@ -12,7 +12,7 @@ const APPROVAL_TEXT = {
 };
 const APPROVAL_ORDER = Object.keys(APPROVAL);
 // 没问你就放行的那一步上标的小字。只读的命令、你自己加的命令、这段对话里说过不再问的电脑操作写得更具体
-// （为什么不问，见 harness/permissions.py 的 allowance）
+// （为什么不问，见 harness/permissions_allowance.py 的 allowance）
 const AUTO_TAGS = { readonly: k('自动允许（只读）'), listed: k('自动允许（你加的命令）'), trusted: k('自动允许（这段对话里不再问）') };
 const autoTag = (why) => AUTO_TAGS[why] || k('自动允许');
 

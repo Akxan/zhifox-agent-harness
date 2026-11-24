@@ -91,7 +91,7 @@
      保持原来的先后，挂到 `extensionTabs` 的那几行留在最后一个文件的末尾。用前缀、不用子文件夹。拆的时候先单独提交一次
      只搬家，证明 `assemble()` 拼出来的页面一字不差，再另外提交改注释。
      Python 的模块也一样（`app_*.py`、`browser/session_*.py`、`capabilities_*.py`、`restore_*.py`、`tasks_*.py`、`webui/server_*.py`、
-     `commands/rules_*.py`）：
+     `commands/rules_*.py`、`permissions_*.py`、`webui/scheduler_*.py`、`channels/session_*.py`、`net/websocket_*.py`）：
      原来的文件留作入口，开头写清由哪几块拼成，别处照旧从它 import（写在 `__all__` 里）；拆出去的文件只 import 前面的、不 import 入口
      （不然就成了互相导入，先导入哪一个就看运气），所以入口里留的是最上面那一层。一个类太大就拆成混进来的基类，加一个只给 mypy 看的
      `*_types.py`；拆出去的文件只为类型注解要入口里的东西时，放进 `if TYPE_CHECKING:`（`commands/rules_*.py` 的 `Context`）。
@@ -206,11 +206,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/parallel.py` | 一步里连着的只读调用一起跑：哪些能（规矩写在开头）、线程池、每个调用一份 context、停下时取消没开始的；挑哪些在 `Agent._batch_at` |
 | `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用，`compaction.py` 是这三家的压缩历史，`inflight.py` 是"停止"时断开正在进行的那一次请求 |
 | `harness/tools/` | 工具。`base.py` 里的 `function_tool` 用来创建自定义工具 |
-| `harness/permissions.py` | 哪些操作要先问用户 |
+| `harness/permissions.py`、`harness/permissions_*.py` | 哪些操作要先问用户。`permissions.py` 是入口：开头那张表和为什么、`MODES`、Permissions 的状态（`__init__`、`unattended`、`_is_private`、`_mcp_of`）；Permissions 的两组方法以基类混进来：`permissions_allowance`（这一档放不放行：`auto_allows`、`allowance`、`_computer_allowance`、`places`、`_reads_only`，`WHY_*`）、`permissions_review`（要不要问、卡片上写什么：`review`、`_review_send`、`_review_task_add`、`_review_file`……），类型见 `permissions_types.py` 的 `PermissionsPart`；每种操作的卡片在 `permissions_command`（执行命令、`_escapes`）、`permissions_browser`（`review_browser`）、`permissions_fetch`（`review_fetch`）、`permissions_computer`（`review_computer`），`offering`、`always`、`_preview` 在 `permissions_cards`。别处照旧 `from harness.permissions import …` |
 | `harness/conversations.py` | 会话的保存和读取 |
 | `harness/search.py`、`harness/search_pinyin.py`、`harness/search_pinyin.txt`、`tests/make_pinyin.py` | 会话的全文搜索：内存里的索引，五档匹配（原样、相近的词、隔字、全拼、首字母）；拼音的两档在 `search_pinyin.py`，读音表由 `make_pinyin.py` 从 Unihan 生成一次（Unicode License v3） |
 | `harness/attachments.py`、`harness/documents.py` | 附件的检查；从 Word、Excel、PowerPoint 里取出文字 |
-| `harness/tasks.py`、`harness/tasks_*.py`、`harness/webui/scheduler.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（不碰线程和网页：`tasks.py` 只有说明和交出去的名字，`tasks_check` 格式检查、`tasks_schedule` 按日历算时间、`tasks_records` 一次运行的记录和提醒、`tasks_store` 的 TaskStore；别处照旧 `from .tasks import …`）；网页界面里的调度、排队、执行（scheduler.py）；模型用的工具 |
+| `harness/tasks.py`、`harness/tasks_*.py`、`harness/webui/scheduler.py`、`harness/webui/scheduler_*.py`、`harness/tools/tasks.py` | 定时任务：任务是什么、什么时候跑、存在哪（不碰线程和网页：`tasks.py` 只有说明和交出去的名字，`tasks_check` 格式检查、`tasks_schedule` 按日历算时间、`tasks_records` 一次运行的记录和提醒、`tasks_store` 的 TaskStore；别处照旧 `from .tasks import …`）；网页界面里的调度、排队、执行（`webui/scheduler.py` 是入口：`Throttle`、Scheduler 的状态和锁、`snapshot`；`scheduler_run` 一次运行（`RunUI`、`Pending`、`_live_view`、`instruction`），`scheduler_loop` 调度线程（`tick`、`_enqueue`）、`scheduler_work` 执行（`_run`、`_observe`）、`scheduler_actions` 页面上的操作和退出，后三组以基类混进 Scheduler，类型见 `scheduler_types.py` 的 `SchedulerPart`）；模型用的工具 |
 | `harness/memories.py` | 网页"记忆"窗口背后的部分：列出、查看、修改（内容和名字）、删除记忆文件，浏览器送来的路径出不了记忆文件夹 |
 | `harness/prompt.py` | 系统提示词：内置的模板、用户改过的版本（`data/prompt.md`）、占位符；"能联网"那一行只给有联网搜索的那一家 |
 | `harness/ledger.py`、`harness/budget.py`、`harness/export.py` | 花费账本（data/ledger.jsonl）、每月预算的提醒规则、导出全部数据（遮住密钥；恢复的白名单 `PARTS` 和写给程序看的 manifest 也在这里） |
@@ -221,8 +221,8 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/skills/` | Skill：SKILL.md 的解析和检查、安装（新建、上传、网址、从 Claude Code 导入）、交给模型的列表、`skill` 工具 |
 | `harness/agents/`、`harness/tools/agent.py` | 自定义 Agent：同一种文件两种用法——主助手交给它的子 Agent（`runner.py`），和用它开始对话的角色（`App.new_conversation(agent)`） |
 | `harness/catalog.py` | Skill 和 Agent 共用的"附在用户消息里的目录"（`<skills>`、`<agents>` 块） |
-| `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、outbox（发送队列：再试、留着补发）、session、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
-| `harness/net/` | 手写的 WebSocket 客户端（RFC 6455）、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
+| `harness/channels/` | 聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）：base（Channel、PushChannel）、platforms + guides（平台名单、要填的东西、建机器人的步骤，网页向导和 `harness channels setup` 共用）、store（channels.json，凭据在 `credentials` 里）、hub（FACTORIES、CHECKS、CLASSES 三张表）、router、outbox（发送队列：再试、留着补发）、session（一个聊天：`session.py` 是入口和外面用的，`session_turn` 跑一轮、`session_conversation` 这一轮的会话和助手、`session_confirm` 确认请求和 `Waiting`，以基类混进 Session，类型见 `session_types.py`）、ui、markup、gateway（Discord 和 QQ 共用的网关）、各平台一个文件、cli |
+| `harness/net/` | 手写的 WebSocket 客户端（RFC 6455：`websocket.py` 是入口，WebSocket 的状态、握手、发、关闭；`websocket_protocol` 操作码、错误、`frame`，`websocket_connect` 网址、代理、TCP 和 TLS（`_open`、`_proxy_for`），`websocket_receive` 收（`recv`、`_fill`、`_readable`，以基类混进来，类型见 `websocket_types.py`））、JSON-over-HTTPS 帮手和上传用的 multipart 编码 |
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、windows（任务计划程序）和 supervise（自己的看护进程：任务计划程序失败重启时不看退出码）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
@@ -313,7 +313,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   页面按"结果跟在它的卡片后面"配对、`rewind._executed` 也靠这个顺序，所以不要改成谁先做完谁先发。运行记录里同一批标着 `batch`，
   合计按它们一共占的时间算（`recorder._covered`）。上限是 `config.MAX_PARALLEL_TOOLS`（`Config.max_parallel_tools`，1 就是关掉）。
   给一个工具加 `parallel` 之前确认它线程安全、不碰共享的会话状态，并且 `rewind.changes` 认为它没改东西（`tests/test_parallel_tools.py` 会查）。
-- **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则。
+- **会改动用户电脑的工具必须经过 `permissions.review`。** 新增这类工具时要加上对应的规则（`review` 在 `permissions_review.py`，每种操作自己的那一段在旁边的 `permissions_*.py`）。
 - **网页界面的安全措施不能削弱**：只监听 `127.0.0.1`；所有请求校验 token、Host 和 Origin；
   页面不加载任何外部资源；模型和工具输出的文字只用 `textContent` 放进页面，不当作 HTML 解析；
   回复的 Markdown 由 `harness/webui/markdown.js` 画：只用 createElement / createTextNode 和固定几个属性，从不解析 HTML；
@@ -418,7 +418,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - **任务运行不碰当前对话。** 用 `App.unattended_agent`（新的适配层、空的历史）和单独的 `RunUI`，事件不进页面的日志；
   跑完存成普通会话（`Conversation.task` 记着任务编号），照样经过 `ConversationStore.save`。
   进度和确认里给人看的话由程序写好（已经带着工具名），页面原样显示，不再加工具名。
-- **调度器的锁规矩：** 拿着 `Scheduler._lock` 时不调用 RunUI 的方法、不发状态、不写任务文件。
+- **调度器的锁规矩：** 拿着 `Scheduler._lock` 时不调用 RunUI 的方法、不发状态、不写任务文件。锁在 `webui/scheduler.py` 的 `Scheduler.__init__` 里建，规矩写在 Scheduler 的说明里；拿它的方法分在 `scheduler_loop.py`、`scheduler_work.py`、`scheduler_actions.py`，每一组都守这一条。
 - **任务的时间按本地时间、按日历算**（`tasks.next_after`），不要"加 24 小时"。测试用假的钟加 `tick()`，不真的等。
   定时任务只在网页界面运行，终端界面不运行。
 - **Skill 的列表放在用户消息里交给模型**（`skills/catalog.py`），从不放进系统提示词：一段对话的第一条消息带一个
@@ -486,7 +486,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   同一个助手接着用，工具说明书不变。
 - **send_file 只属于在聊天通道里开始的会话（`Conversation.channel`）。** `App._side_run(source="channel")` 带着这个聊天的 `Outlet`；
   网页上打开这类会话时 `conversation_tools` 也放一份（`outlet=None`，回答"不在聊天软件里"），两边都放在电脑工具之后、agent 工具之前，
-  清单一字不差；网页的普通对话和定时任务没有它。说明书里不写平台和上限。问不问写在 `Permissions._review_send`：每次都问
+  清单一字不差；网页的普通对话和定时任务没有它。说明书里不写平台和上限。问不问写在 `Permissions._review_send`（`permissions_review.py`）：每次都问
   （只有"全部自动允许"不问，"自动允许改文件"照样问：放开的是改文件，不是往外发），`data/` 里的带提醒，`FileEditor.protected` 里的
   永远不发；平台不收的在 `check` 里拒绝、不弹卡片；发之前 `_read_again` 和卡片上的对一对。发送走 `router.send_file`
   （排在发送队列里、等结果；`/stop` 不再等，排着的不再发）。新平台实现 `Channel.send_file` 和 `Capabilities.uploads`，上传走
@@ -507,7 +507,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   **测试和演示永远不碰真的屏幕、鼠标和键盘**：conftest 把 `desktop.backend.detect` 换成"用不了"，要测的用 `tests/fake_desktop.py` 的 `install`，
   演示页面用的也是假电脑；真后端只在 Xvfb 上测（`tests/test_desktop_x11.py`，CI 只在 ubuntu 跑）。macOS 上只能调用不弹窗的预检函数
   （`CGPreflightScreenCaptureAccess`、`AXIsProcessTrusted`），不许调用任何 `Request…`，也不改系统设置。
-  问不问写在 `permissions.review_computer` 和 `Permissions._computer_allowance`：默认除了 `wait` 和 `cursor_position` 每一步都问，
+  问不问写在 `permissions.review_computer`（`permissions_computer.py`）和 `Permissions._computer_allowance`（`permissions_allowance.py`）：默认除了 `wait` 和 `cursor_position` 每一步都问，
   "只读的命令""改工作目录里的文件"两档不放开它。只有两种情况不问（2026-11-21 用户定的）：一是这段对话里放开了这一类——截图一类
   （`trust_screenshots`）或点击打字一类（`trust_actions`），归哪一类看 `desktop/session.trust_of`，记在这段对话自己的 `DesktopSession` 上；
   只有 `attended` 的 session（`App.chat_desktop`）能打开，只能由网页对话里正在等答复、而且给了这个选择的那张确认卡片打开
@@ -566,9 +566,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   不要拿 `workspace`。只给了名字、认不出是哪个 Shell 的按工作目录算（真正执行的 Agent 一定会把工具交过来）。
   做什么要看所在文件夹里的设置的命令只在工作目录里才不问（2026-11-24 安全复查：答应一条 cd 以后，它们就能在别人的项目里不问就运行那里的代码）：
   你加的命令和查版本（`VERSIONS`）看 `Places.at_workspace`，git 看 `Places.same_repository`（和 `-C` 不许是同一个道理）；
-  `Places.workspace` 由 `Permissions.places` 填。以后再加这类程序（会读所在文件夹里的设置、设置里能运行命令的），也这样办。
+  `Places.workspace` 由 `Permissions.places`（`permissions_allowance.py`）填。以后再加这类程序（会读所在文件夹里的设置、设置里能运行命令的），也这样办。
   回到工作目录的地方：新对话第一条消息之前（`App._fresh_start`，各个"新对话"的入口不用各写一遍）、重新打开和分叉（`App._continue`，
-  历史里执行过命令的第一条命令后面说一声"之前 cd 到的不再算数"）、聊天通道接着一段旧会话（`channels/session.py`）；子 Agent 自己的 Shell
+  历史里执行过命令的第一条命令后面说一声"之前 cd 到的不再算数"）、聊天通道接着一段旧会话（`channels/session_conversation.py` 的 `_prepare`）；子 Agent 自己的 Shell
   从工作目录开始。每一轮开始 `start_turn`（网页 `_run_turn`、终端 `ask_turn`），倒回最后一轮 `rewind_turn`（`rewind_api.rewind`、`cli.rewind_last`）。
   改包的那一层要同时守住两种 shell 的退出码（PowerShell："最后一条不成功是 1"由 finally 里记下的 `$?` 和最后的 `exit 1` 照旧成立）：
   `tests/test_shell_cwd.py` 在装了 pwsh 的 macOS、Linux 上也跑 PowerShell 那一层。
@@ -614,7 +614,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   - 整个 `harness` 包都查，没有哪个模块例外（`harness/webui/` 和 `harness/app.py` 以前不查，2026-11-22 收紧）。混进 WebApp 的那几组方法
     用到的 self 上的东西写在 `harness/webui/webapp_types.py` 的 `WebAppPart` 里（为什么、新的一组怎么写，见那个文件开头），
     App 的那几组写在 `harness/app_types.py` 的 `AppPart`，BrowserSession 的写在 `harness/browser/session_types.py` 的 `SessionPart`，
-    网页服务器的 Handler 的写在 `harness/webui/server_types.py` 的 `HandlerPart`（标准库 BaseHTTPRequestHandler 的那几样照着 typeshed 抄，原因见那里开头）
+    网页服务器的 Handler 的写在 `harness/webui/server_types.py` 的 `HandlerPart`（标准库 BaseHTTPRequestHandler 的那几样照着 typeshed 抄，原因见那里开头），
+    Permissions、Scheduler、聊天通道的 Session、WebSocket 的写在 `harness/permissions_types.py` 的 `PermissionsPart`、`harness/webui/scheduler_types.py` 的 `SchedulerPart`、
+    `harness/channels/session_types.py` 的 `SessionPart`、`harness/net/websocket_types.py` 的 `WebSocketPart`
     （混进来的方法会整个换掉的属性，要在 Protocol 里写一个值，原因见 `app_types.py` 开头），
     不要在 mixin 里写 `self: Any`、`getattr`，也不要给它们另开 `ignore_errors`。
 - **两种运行方式（`harness/install.py`）。** 从仓库里运行还是装成了工具（`uv tool install`）只看 `config.FROM_SOURCE`
@@ -645,7 +647,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   适配层合成一项），结果写回 `toolset_name`；`browser_state` 不放在出错的结果上；一轮里工具包的一步失败了，后面的结果是
   `agent.HALTED` 那句英文原文（文档规定，不改）。别家的模型用 `browser_*` 替身工具。每次运行（对话、每次任务、每个聊天）
   一个 `BrowserSession`，停止接到 `ui.on_stop` 或 `run.stop`；CDP 的读线程不拿 session 的锁，`manager` 通知页面时不拿着自己的锁。
-  问不问写在 `permissions.review_browser`：密码、银行卡、跨站嵌入的框、不是网页的地址在任何模式下都问；
+  问不问写在 `permissions.review_browser`（`permissions_browser.py`）：密码、银行卡、跨站嵌入的框、不是网页的地址在任何模式下都问；
   `file:` `chrome:` `devtools:` `javascript:` `view-source:` 根本不打开；下载一律拒绝；允许过的网站只记在这段对话的 `allowed_sites` 里。
 - **读网页（`web_fetch`，`harness/fetch/`）的安全边界是硬规矩，没有开关**（要看本机、局域网的网页用浏览器）：
   - 只认 http、https；网址里带用户名密码的、古怪的数字主机名（`2130706433`、`0x7f.1`，在 idna 换成 ASCII 以后再查）不读。
@@ -654,7 +656,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   - 域名只解析一次、连的就是查过的那个地址（`client.Fetcher._connect`，防 DNS 重绑定），TLS 按域名验证、Host 头写域名；跳转自己跟、每一跳从头再查；
     不走代理（走代理时是代理去解析和连接）。时间靠"看门的"（`_Watchdog`）到点掐断，掐断以后读到的只是一截，一律当超时。
   - 上限都在 `config.FETCH_*`；每条消息几次和 Claude 的联网搜索共用 `HARNESS_MAX_SEARCHES`，"哪一轮"看 `Agent.turns`。
-  - 问不问写在 `permissions.review_fetch`：这段对话里第一次读一个网站之前问，卡片上是完整的网址；只有 all 放开（readonly、edits 照样问）；
+  - 问不问写在 `permissions.review_fetch`（`permissions_fetch.py`）：这段对话里第一次读一个网站之前问，卡片上是完整的网址；只有 all 放开（readonly、edits 照样问）；
     允许过的网站记在每次运行自己的 `FetchSession`（不进会话文件，换一段对话从头再问），跳到别的主机不算允许了那个主机；
     跳转只跟到同一个主机和允许过的网站（`Fetcher.get` 的 `follow`，在解析下一跳的域名之前就问），别的网站不跟，告诉模型跳到了哪儿、
     要读得再调用一次，第一次读照样问你（不然允许过的网站上的"开放跳转"能把模型编出来的网址带到一个你从没允许过的网站）。

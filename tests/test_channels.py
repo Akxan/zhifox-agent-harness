@@ -32,7 +32,7 @@ import harness.channels.session as session_module
 import harness.webui.reveal as reveal_module
 from harness import log
 from harness.app import build_app
-from harness.channels import markup, pairing
+from harness.channels import markup, pairing, session_turn
 from harness.channels.base import ChannelError, Inbound, Press, Prompt
 from harness.channels.router import ALLOW_WORDS, DENY_WORDS, pairing_reply
 from harness.channels.store import ChannelStore
@@ -1170,7 +1170,7 @@ def test_a_turn_still_starts_when_its_model_endpoint_disappears_right_after_the_
 
     def prepare_then_gone(self):
         problem = original(self)
-        monkeypatch.setattr(session_module, "find", lambda provider_id: None)  # 查完以后，这一家马上就找不到了
+        monkeypatch.setattr(session_turn, "find", lambda provider_id: None)  # 查完以后，这一家马上就找不到了
         return problem
 
     monkeypatch.setattr(session_module.Session, "_prepare", prepare_then_gone)

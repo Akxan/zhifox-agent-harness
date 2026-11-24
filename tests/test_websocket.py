@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import fake_ws
 import pytest
 
-from harness.net import websocket
+from harness.net import websocket, websocket_connect, websocket_receive
 from harness.net.websocket import (
     OP_BINARY,
     OP_CLOSE,
@@ -361,7 +361,7 @@ def test_bad_urls_are_refused_before_connecting(monkeypatch, url):
 
 def test_a_host_name_that_cannot_be_encoded_is_a_websocket_error(monkeypatch):
     """a..b 这样的名字在 IDNA 编码时抛 UnicodeError（一种 ValueError）：调用的人只认 WebSocketError，漏出去会让重连的线程退出。"""
-    monkeypatch.setattr(websocket, "_proxy_for", lambda address: None)
+    monkeypatch.setattr(websocket_connect, "_proxy_for", lambda address: None)
     for url in ("wss://a..b/", f"wss://{'a' * 64}.com/"):
         with pytest.raises(WebSocketError):
             WebSocket.connect(url, timeout=1)
@@ -727,8 +727,8 @@ def test_a_long_close_reason_is_cut_on_a_character_boundary(server):
 def test_on_windows_a_blocked_reader_waits_in_short_slices(server, monkeypatch):
     """Windows 上 shutdown 叫不醒卡在 select 里的线程（见 _fill）：那里一小段一小段地等，每段之间看一眼关了没有。
     在每个系统上都能测：假装是 Windows，读的线程照样很快醒过来；一小段到了不算超时，有数据照样读得到。"""
-    monkeypatch.setattr(websocket, "WINDOWS", True)
-    monkeypatch.setattr(websocket, "_WINDOWS_SLICE", 0.05)
+    monkeypatch.setattr(websocket_receive, "WINDOWS", True)
+    monkeypatch.setattr(websocket_receive, "_WINDOWS_SLICE", 0.05)
     client, peer = server.open()
     assert client.recv(0.2) is None  # 好几段加起来才到时候：返回"没有消息"，不是出错
     later = Background(client.recv, 2)
@@ -949,7 +949,7 @@ def test_proxy_settings_come_from_the_environment(monkeypatch):
 
 def test_a_connection_through_an_http_proxy_tunnel(server, proxy, monkeypatch):
     tunnel = proxy()
-    monkeypatch.setattr(websocket, "_proxy_for", lambda address: f"http://bot%40home:p%3Ass@127.0.0.1:{tunnel.port}")
+    monkeypatch.setattr(websocket_connect, "_proxy_for", lambda address: f"http://bot%40home:p%3Ass@127.0.0.1:{tunnel.port}")
     client, peer = server.open("/gw?v=10")
     lines = tunnel.requests[0].split("\r\n")
     assert lines[0] == f"CONNECT 127.0.0.1:{server.port} HTTP/1.1"
@@ -965,7 +965,7 @@ def test_a_connection_through_an_http_proxy_tunnel(server, proxy, monkeypatch):
 
 def test_a_proxy_without_scheme_or_password(server, proxy, monkeypatch):
     tunnel = proxy()
-    monkeypatch.setattr(websocket, "_proxy_for", lambda address: f"127.0.0.1:{tunnel.port}")  # 没写 http:// 也当成 http
+    monkeypatch.setattr(websocket_connect, "_proxy_for", lambda address: f"127.0.0.1:{tunnel.port}")  # 没写 http:// 也当成 http
     client, peer = server.open()
     assert not any(line.lower().startswith("proxy-authorization") for line in tunnel.requests[0].split("\r\n"))
     peer.send_text("ok")
@@ -979,7 +979,7 @@ def test_a_proxy_without_scheme_or_password(server, proxy, monkeypatch):
 )
 def test_a_proxy_that_says_no(server, proxy, monkeypatch, answer):
     tunnel = proxy(answer)
-    monkeypatch.setattr(websocket, "_proxy_for", lambda address: f"http://user:SECRETPASS@127.0.0.1:{tunnel.port}")
+    monkeypatch.setattr(websocket_connect, "_proxy_for", lambda address: f"http://user:SECRETPASS@127.0.0.1:{tunnel.port}")
     with pytest.raises(WebSocketError) as info:
         WebSocket.connect(server.url(f"/gw?ticket={SECRET}"), timeout=2)
     assert type(info.value) is WebSocketError
@@ -998,7 +998,7 @@ def test_only_plain_http_proxies_are_supported(monkeypatch, url):
 
 @pytest.mark.parametrize("url", [f"http://user:SECRETPASS@127.0.0.1:{free_port()}", "http://user:SECRETPASS@127.0.0.1:99999"], ids=["refused", "bad-port"])
 def test_a_proxy_that_cannot_be_reached(server, monkeypatch, url):
-    monkeypatch.setattr(websocket, "_proxy_for", lambda address: url)
+    monkeypatch.setattr(websocket_connect, "_proxy_for", lambda address: url)
     with pytest.raises(WebSocketError) as info:
         WebSocket.connect(server.url(), timeout=1)
     assert "SECRETPASS" not in str(info.value)

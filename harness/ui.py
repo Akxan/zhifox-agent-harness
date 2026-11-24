@@ -162,7 +162,7 @@ class TerminalUI:
         """请用户确认一个操作。返回（是否允许，用户附带的话）。agent 是哪个子 Agent 在问（主助手自己问时是空的）。
 
         日志里记下和网页一样的一张卡片（confirm）和它的结果（confirm_done）。卡片上多给的那个选择（"这段对话里截图不再问"，
-        见 permissions.offering）终端里没有，不记：网页打开时不该画出一个你当时没见过的按钮。"""
+        见 permissions_cards.py 的 offering）终端里没有，不记：网页打开时不该画出一个你当时没见过的按钮。"""
         self.end_stream()
         fields = confirm_fields(description, agent)
         fields.pop("offer", None)
