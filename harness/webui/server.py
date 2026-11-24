@@ -183,7 +183,7 @@ from .server_gate import (
 )
 from .server_page import MARKDOWN, PAGE, HandlerPage, accepts_gzip
 from .skills_api import MAX_UPLOAD_BODY_BYTES
-from .ui import WebUI
+from .ui import WebUI, fresh_ids
 from .webapp import WebApp
 
 __all__ = [
@@ -509,7 +509,7 @@ def run_web(config: Config, port: int | None = None, open_browser: bool = True) 
 
 
 def _serve(config: Config, port: int | None, open_browser: bool) -> int:
-    ui = WebUI()
+    ui = WebUI(ids=fresh_ids())  # 确认卡片的编号每次启动都不一样（见 fresh_ids）
     app = build_app(config, ui)
     try:
         # "terminal"：跟着这个终端，终端关了它也停（设置里会说怎么装成后台服务，见 page/scripts/service.js）

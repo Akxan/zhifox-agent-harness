@@ -43,10 +43,16 @@ def _sysctl(parsed: Parsed, context: Context) -> None:
 
 
 def _ps(args: list[str], context: Context) -> None:
-    """ps 不会写文件，但有几种写法会把别的进程的环境变量打出来（常常有密钥）：BSD 写法里的 e（ps eww、ps auxe），
-    macOS 的 -E。-o 里要的字段带 env 的也不行。"""
+    """ps 不会写文件，但有几种写法会把别的进程的环境变量打出来（常常有密钥，智狐自己的进程里就有 .env 里的）：
+    BSD 写法（不带横线）里的 e（ps eww、ps auxe，Linux）和 E（ps Ewww，macOS 把它当成 -E），macOS 的 -E。
+    -o 里要的字段带 env 的也不行。
+
+    不带横线、又不是哪个选项的值的词，就是 BSD 写法的一串选项：里面有 e 或 E（不分大小写），不管还夹着什么（ps eww1），都不算。"""
     parsed = parse(args, names("-o -O -p -u -U -g -G -t -C --format --sort --pid --ppid --user --group --cols --columns --width"))
     deny(parsed, names("-E"))
+    for word in parsed.operands:
+        if "e" in word.casefold():
+            raise Unclear("ps 的 BSD 写法里的 e、E 会打印进程的环境变量")
     for word in args:
         if not word.startswith("-") and "e" in word and word.isalpha():
             raise Unclear("ps 的 e 会打印进程的环境变量")

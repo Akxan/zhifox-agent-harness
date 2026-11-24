@@ -46,7 +46,7 @@ HEADINGS = {f"h{level}": level for level in range(1, 7)}
 MAIN_MIN_CHARS = 200  # <main>、<article> 里至少有这么多字才只留它们（太少的多半是一个小卡片，正文在别处）
 _SPACES = re.compile(r"\s+")
 # 链接的网址在读的时候先记成 记号开始 + 网址 + 记号结束（私用区的两个字符），整页读完才按名额换成" (网址)"或者去掉。
-# 网页里自己写的这两个字符在 handle_data 里先去掉，冒充不了一个链接
+# 网页里自己写的这两个字符先去掉（_unmarked：正文在 handle_data 里，图片的 alt 在 handle_starttag 里），冒充不了一个链接
 _LINK_OPEN, _LINK_CLOSE = "\ue010", "\ue011"
 _LINK_MARK = re.compile(f"{_LINK_OPEN}([^{_LINK_CLOSE}]*){_LINK_CLOSE}")
 _ITEM_PREFIX = re.compile(r"\s*(?:-|\d+\.) $")
@@ -103,7 +103,10 @@ class _Reader(HTMLParser):
             self._meta(values)
             return
         if tag == "base" and values.get("href"):
-            self.base = urljoin(self.base, values["href"])
+            try:
+                self.base = urljoin(self.base, values["href"])
+            except ValueError:  # urlsplit 自己就拒绝的写法：当作没写（不然一个网页就能让自己整页读不出来）
+                pass
             return
         if tag in SKIP or _hidden(values):
             if tag not in VOID:
@@ -130,7 +133,7 @@ class _Reader(HTMLParser):
             self._close_link()
             self.link = (self._href(values.get("href", "")), len(self.buffer))
         elif tag == "img":
-            alt = _SPACES.sub(" ", values.get("alt", "")).strip()
+            alt = _SPACES.sub(" ", _unmarked(values.get("alt", ""))).strip()
             if alt:
                 self.buffer.append(f"[图片：{alt[:200]}]")
 
@@ -176,7 +179,7 @@ class _Reader(HTMLParser):
         if self.in_title:
             self.title.append(data)
             return
-        data = data.replace(_LINK_OPEN, "").replace(_LINK_CLOSE, "")  # 冒充不了链接的记号（见 _LINK_MARK）
+        data = _unmarked(data)  # 冒充不了链接的记号（见 _LINK_MARK）
         size = len("".join(data.split()))
         self.line_chars += size
         if self.link is not None:
@@ -279,6 +282,11 @@ def _fold_link_runs(lines: list[tuple[str, bool]]) -> list[str]:
         kept.append(line)
     end_run()
     return kept
+
+
+def _unmarked(text: str) -> str:
+    """去掉网页自己写的链接记号（见 _LINK_MARK）。放进 buffer 的每一段网页上的字都要先经过它。"""
+    return text.replace(_LINK_OPEN, "").replace(_LINK_CLOSE, "")
 
 
 def _hidden(values: dict[str, str]) -> bool:

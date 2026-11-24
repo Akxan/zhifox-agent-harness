@@ -247,6 +247,9 @@ def _version(program: str) -> Callable[[list[str], Context], None]:
     def check(args: list[str], context: Context) -> None:
         if args not in VERSIONS[program]:
             raise Unclear(f"{program} 只许查版本")
+        # 查版本也会照着所在文件夹里的设置换一个程序来运行（yarn 的 yarn-path，rustup、asdf、pyenv 这类）：只在工作目录里才算（见 paths.at_workspace）
+        if not context.places.at_workspace():
+            raise Unclear(f"{program} 不在工作目录里运行：那里的设置可能让它运行别的程序")
 
     return check
 

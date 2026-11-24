@@ -51,7 +51,7 @@ from .sandbox import backend as sandbox_backend
 from .webui import lifecycle
 from .webui.server import SHUTDOWN_WAIT_SECONDS, WebApp, claim_data_dir, create_server
 from .webui.token import stable_token
-from .webui.ui import WebUI
+from .webui.ui import WebUI, fresh_ids
 
 logger = logging.getLogger("harness.serve")
 
@@ -120,7 +120,7 @@ def serve(
     client_factory: Callable[..., Any] | None = None, service: str | None = None,
 ) -> int:
     """运行到 stop 被设置为止。测试直接调用它（不用真的发信号）。"""
-    ui = WebUI()
+    ui = WebUI(ids=fresh_ids())  # 确认卡片的编号每次启动都不一样（见 fresh_ids）
     app = build_app(config, ui) if client_factory is None else build_app(config, ui, client_factory=client_factory)
     app.browser.headless_only = True  # 服务器上没有屏幕：浏览器（设置里开着的话）一律无界面运行
     server = None

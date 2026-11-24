@@ -564,6 +564,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   不带路径的 `ls` 看的就是它）、沙箱的 `--chdir`、真正运行，一律用 `Shell.where()`：记着的目录不在了、沙箱里看不到（`Sandbox.reaches`）
   就当场回到工作目录、结果里说一声；问过你以后才变了的不执行（`CurrentDir.gone`）。以后新加"照着命令在哪儿运行来判断"的地方也用 `where()`，
   不要拿 `workspace`。只给了名字、认不出是哪个 Shell 的按工作目录算（真正执行的 Agent 一定会把工具交过来）。
+  做什么要看所在文件夹里的设置的命令只在工作目录里才不问（2026-11-24 安全复查：答应一条 cd 以后，它们就能在别人的项目里不问就运行那里的代码）：
+  你加的命令和查版本（`VERSIONS`）看 `Places.at_workspace`，git 看 `Places.same_repository`（和 `-C` 不许是同一个道理）；
+  `Places.workspace` 由 `Permissions.places` 填。以后再加这类程序（会读所在文件夹里的设置、设置里能运行命令的），也这样办。
   回到工作目录的地方：新对话第一条消息之前（`App._fresh_start`，各个"新对话"的入口不用各写一遍）、重新打开和分叉（`App._continue`，
   历史里执行过命令的第一条命令后面说一声"之前 cd 到的不再算数"）、聊天通道接着一段旧会话（`channels/session.py`）；子 Agent 自己的 Shell
   从工作目录开始。每一轮开始 `start_turn`（网页 `_run_turn`、终端 `ask_turn`），倒回最后一轮 `rewind_turn`（`rewind_api.rewind`、`cli.rewind_last`）。
@@ -652,7 +655,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
     不走代理（走代理时是代理去解析和连接）。时间靠"看门的"（`_Watchdog`）到点掐断，掐断以后读到的只是一截，一律当超时。
   - 上限都在 `config.FETCH_*`；每条消息几次和 Claude 的联网搜索共用 `HARNESS_MAX_SEARCHES`，"哪一轮"看 `Agent.turns`。
   - 问不问写在 `permissions.review_fetch`：这段对话里第一次读一个网站之前问，卡片上是完整的网址；只有 all 放开（readonly、edits 照样问）；
-    允许过的网站记在每次运行自己的 `FetchSession`（不进会话文件，换一段对话从头再问），跳到别的主机不算允许了那个主机。
+    允许过的网站记在每次运行自己的 `FetchSession`（不进会话文件，换一段对话从头再问），跳到别的主机不算允许了那个主机；
+    跳转只跟到同一个主机和允许过的网站（`Fetcher.get` 的 `follow`，在解析下一跳的域名之前就问），别的网站不跟，告诉模型跳到了哪儿、
+    要读得再调用一次，第一次读照样问你（不然允许过的网站上的"开放跳转"能把模型编出来的网址带到一个你从没允许过的网站）。
   - 发给谁只看 `Backend.sends`：它是 Anthropic 服务器上 `web_fetch` 的替身（`stands_in_for="web_fetch"`），Claude 有服务器上那个时不发。
     两个同名，所以工具箱里服务器工具的编号是 `server:名字`（`Tool.key`），`registry.get("web_fetch")` 永远是本地的那个。
   - **测试的接缝**：`App.fetcher`（`Fetcher` 的 `resolve`、`policy`），测试用 `tests/fetch_rig.py` 只放行本地的假网站；设置和模型都碰不到它。

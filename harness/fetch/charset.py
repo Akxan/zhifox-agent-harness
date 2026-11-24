@@ -30,6 +30,10 @@ _ALIASES = {
     "big5": "big5hkscs",
 }  # fmt: skip
 _BOMS = ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"))
+# codecs.lookup 认得、却不是网页编码的（名字是 lookup 交回的那种写法）：idna、punycode 是域名的写法，idna 还不认 "replace"；
+# unicode-escape 这两个把 \uXXXX 解成字；undefined 一解就抛错；utf-7 浏览器不认（WHATWG 的表里没有它）。
+# base64、zlib 这类根本不是文字编码的，codec_of 试着解一个字节就认出来了
+_NOT_CHARSETS = {"idna", "punycode", "unicode-escape", "raw-unicode-escape", "undefined", "utf-7"}
 
 _CHARSET = re.compile(rb"""charset\s*=\s*["']?\s*([A-Za-z0-9_.:\-]+)""", re.IGNORECASE)
 _META = re.compile(rb"<meta\b[^>]*>", re.IGNORECASE)
@@ -45,8 +49,16 @@ def codec_of(label: str | bytes | None) -> str | None:
     name = (label.decode("ascii", "ignore") if isinstance(label, bytes) else label).strip().strip("\"'").lower()
     name = _ALIASES.get(name, name)
     try:
-        found = codecs.lookup(name).name
+        info = codecs.lookup(name)
     except LookupError:
+        return None
+    found = info.name
+    if found in _NOT_CHARSETS:
+        return None
+    try:
+        # charset 是网站写的：只认 decode 解得了的文字编码。base64、zlib、rot13 这类不是文字编码，bytes.decode 直接抛 LookupError
+        b"a".decode(found, "replace")  # 空的字节解不出什么：Python 根本不去找编码，直接交回空的
+    except (LookupError, UnicodeError):
         return None
     return "utf-8" if found.startswith("utf-16") else found  # 写在 meta 里、头里的 utf-16：字节其实是一个一个的（见文件开头）
 

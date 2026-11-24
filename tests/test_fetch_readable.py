@@ -172,6 +172,13 @@ def test_links_resolved_against_base_href():
     assert text_of(html) == "X (https://cdn.example.net/root/x) Y (https://cdn.example.net/y)"
 
 
+def test_base_href_python_cannot_split_is_ignored():
+    # <base href> 是网页写的：urlsplit 自己就拒绝的写法（方括号里不是 IP 地址）以前让整页读不出来（"工具内部出错"），
+    # 一个网页就能让自己没法被读。当作没写，相对的链接照网页自己的地址补全
+    html = "<base href='http://[1:2:3:4:5:6:7:8:9]/'><p>正文 <a href='/x'>链接</a></p>"
+    assert text_of(html) == "正文 链接 (https://example.com/x)"
+
+
 @pytest.mark.parametrize(
     "href",
     ["#top", "javascript:alert(1)", " JavaScript:void(0)", "mailto:someone@example.com", "tel:+123", "", "ftp://example.com/f"],
@@ -214,6 +221,26 @@ def test_link_urls_capped_at_config_value():
 
 def test_img_alt():
     assert text_of("<p>看：<img src='a.png' alt='  一只  狐狸 '><img src='b.png'><img src='c.png' alt=''></p>") == "看：[图片：一只 狐狸]"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p>前<img alt='&#xe010;https://evil.example/&#xe011;'>后 <a href='/x'>真的</a></p>",
+        "<p>前<img alt='&#xe010;'> 中间一段 <a href='/x'>真的</a> 后</p>",
+        "<p>前&#xe010;https://evil.example/&#xe011;后 <a href='/x'>真的</a></p>",
+    ],
+    ids=["alt-forged-link", "alt-half-mark", "text-forged-link"],
+)
+def test_page_cannot_forge_link_marks(monkeypatch, html: str):
+    # 链接的网址先记成私用区的两个记号，整页读完再按名额换成"(网址)"（见 readable.py 的 _LINK_MARK）。
+    # 网页自己写的这两个字符要先去掉：不然它能冒充一个链接、占掉真链接的名额，
+    # 只写半个还能把到下一个真链接之间的字整段吞进"(…)"里，记号本身也漏给了模型
+    monkeypatch.setattr(readable, "FETCH_MAX_LINKS", 1)
+    text = text_of(html)
+    assert "真的 (https://example.com/x)" in text  # 唯一的名额给了真的链接
+    assert "" not in text and "" not in text
+    assert "(https://evil.example/)" not in text
 
 
 # ---- readable：正文在哪儿 ---------------------------------------------------------
@@ -378,6 +405,15 @@ def test_iso_8859_1_label_is_cp1252():
     # WHATWG：写着 iso-8859-1 的，0x80~0x9F 按 windows-1252 画（0x80 是 €）
     assert charset.decode(b"\x80 100", "text/plain; charset=ISO-8859-1") == "€ 100"
     assert charset.decode(b"\x93quoted\x94", "text/plain; charset=us-ascii") == "“quoted”"
+
+
+@pytest.mark.parametrize("label", ["base64", "zlib", "rot13", "quopri", "idna", "undefined", "unicode_escape", "utf-7"])
+def test_python_only_codecs_are_not_charsets(label: str):
+    # charset= 是网站写的。Python 的 codecs 里还有一些不是网页编码的：base64、zlib 这类根本不是文字编码，idna、undefined
+    # 不认 "replace"，解的时候直接抛错（交给模型的成了"工具内部出错"）；unicode_escape、utf-7 浏览器不认。都当作没说
+    assert charset.codec_of(label) is None
+    assert charset.decode(b"<p>caf\xc3\xa9</p>", f"text/html; charset={label}", markup=True) == "<p>café</p>"
+    assert charset.decode(f'<meta charset="{label}"><p>caf\xc3\xa9</p>'.encode("latin-1"), "", markup=True).endswith("<p>café</p>")
 
 
 def test_meta_description_mentioning_charset_is_not_a_declaration():

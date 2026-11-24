@@ -54,7 +54,8 @@ def classify(command: object, places: Places, listed: Iterable[Sequence[str]] = 
     try:
         # 通配符先在命令运行的那个目录里展开（globs.py），下面的规则、你加的命令看到的都是展开以后的路径
         found = [expand(words, places) for words in stages(command)]
-        if len(found) == 1:
+        # 你加的命令只在工作目录里算：npm test、./scripts/x.sh 做什么要看所在的文件夹，cd 到别人的项目里就是别的东西了（见 paths.at_workspace）
+        if len(found) == 1 and places.at_workspace():
             words = found[0]
             for entry in listed:
                 if entry and words[: len(entry)] == list(entry):

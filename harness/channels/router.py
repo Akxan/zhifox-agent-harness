@@ -86,6 +86,29 @@ class Router:
         self._sessions: dict[tuple[str, str], Session] = {}
         self._channels: dict[str, Channel] = {}
         self._outboxes: dict[str, Outbox] = {}
+        self._owners = self._owner_ids()  # 每个平台现在的主人是谁（编号）：换了、没了，就忘掉以前的聊天（见 _binding_changed）
+        store.on_change(self._binding_changed)
+
+    # ---- 主人换了、没了 ------------------------------------------------------------
+
+    def _owner_ids(self) -> dict[str, str | None]:
+        found: dict[str, str | None] = {}
+        for platform in self.store.known():
+            owner = self.store.get(platform)["owner"]
+            found[platform] = owner["id"] if owner else None
+        return found
+
+    def _binding_changed(self) -> None:
+        """channels.json 变了（这里改的、页面上改的、另一个程序改的都算）。哪个平台的主人换了或者没了（换成另一个机器人会清掉主人、
+        解除绑定、删掉这个平台，命令行里也能做），就忘掉它以前的聊天：在进行的停下，留着没发出去的不再补发。
+        那些话是写给以前那个主人的，不能等通道（可能已经是另一个机器人）重新连上以后再发到那个聊天里去。
+        页面上的"解除绑定""删除"、聊天里配对成了另一个人，各自本来也会 forget，这里再来一次也没事。"""
+        now = self._owner_ids()
+        with self._lock:
+            before, self._owners = self._owners, now
+        for platform in sorted(set(before) | set(now)):
+            if before.get(platform) != now.get(platform):
+                self.forget(platform)
 
     # ---- 通道接上、断开（hub.py 用）--------------------------------------------
 

@@ -48,9 +48,15 @@ def _git(args: list[str], context: Context) -> None:
         if rest:
             raise Unclear("git version 后面不许跟别的")
         return
+    # cd 到了别的仓库（下载回来的项目、工作目录里另一个仓库）再运行，和 -C 一样用的是那里的设置（见 paths.same_repository）
+    if not context.places.same_repository():
+        raise Unclear("git 在别的仓库里运行：那里的设置（core.fsmonitor、gpg.program……）能运行任何命令")
     # git show HEAD:.env、git log -- .env：HEAD: 后面的部分也当路径检查（见 paths._candidates）
     parsed = parse(rest, optional=names("-u -O -U -M -C -B -S -G -L -n"))
     deny(parsed, GIT_DENY)
+    # 格式里的 %G?、%GS……（log、show）和 %(signature…)（tag、branch）要验签名：和 --show-signature 一样运行 gpg.program
+    if any(_verifies(word) for word in rest):
+        raise Unclear("git 的格式里要验签名（%G、%(signature)）：会运行 gpg")
     if command in GIT_LIST_ONLY:
         allow(parsed, GIT_LIST_ONLY[command])
         # 老版本的 git 里，git branch -l 是"建分支时记下 reflog"，不是列出来：branch 只认写全的 --list
@@ -74,6 +80,11 @@ def _git(args: list[str], context: Context) -> None:
     elif command == "remote" and rest:
         raise Unclear("git remote 只许光写")  # -v、get-url 打出的地址里可能带着 token，show 会联网
     context.paths(parsed.words())
+
+
+def _verifies(word: str) -> bool:
+    """这个词里有没有要验签名的格式占位符。%%G 是一个百分号加 G，不算；别的都按要验算（宁可多问）。"""
+    return "%G" in word.replace("%%", "") or "%(signature" in word.casefold()
 
 
 SYSTEMCTL_READS = {"status", "is-active", "is-enabled", "is-failed", "is-system-running", "list-units", "list-unit-files", "list-timers", "list-sockets", "list-dependencies"}

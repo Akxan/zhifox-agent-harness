@@ -35,8 +35,9 @@ from test_hooks import add, calls_of, script
 from test_webui import act, open_conversation, say, serve, set_approval  # noqa: F401  serve 是 fixture
 
 from harness import i18n
+from harness.commands.allowlist import CommandList
 from harness.hooks import HookConfig, Hooks
-from harness.permissions import WHY_READONLY, Permissions
+from harness.permissions import WHY_LISTED, WHY_READONLY, Permissions
 from harness.sandbox import linux
 from harness.sandbox.policy import build, real
 from harness.sandbox.session import Layout, Sandbox
@@ -341,6 +342,41 @@ def test_read_only_commands_are_judged_where_they_run(guard):
     # 只给了名字、认不出是哪个 shell 的（测试、只按名字判断的地方）：按工作目录算，和以前一样
     assert guard.permissions.allowance(SHELL, {"command": "cat data/settings.json"}) is None
     assert guard.permissions.allowance(SHELL, {"command": "cat src/a.py"}) == WHY_READONLY
+
+
+def test_after_a_cd_somewhere_else_commands_that_follow_that_folders_settings_ask_again(guard, tmp_path):
+    """绕过：以前每条命令都在工作目录里运行，cd 别处再做事得写在同一条命令里（cd x && npm test），这一条照常问你。
+    记着目录以后，只要你答应过一条看起来什么都不做的 cd，之后在那里不用问的命令就都不问了。有几样命令做什么要看它所在的
+    那个文件夹里的设置：你加的\"不用问的命令\"（npm test 跑的是那里 package.json 写的脚本，./scripts/x.sh 是那里的脚本）、
+    git（别的仓库的 .git/config 里 core.fsmonitor、gpg.program 能运行任何命令：git -C 就是因为这个不许的）、
+    查版本（yarn 照着那里的 .yarnrc 的 yarn-path 运行一个 js 文件，rustup、asdf 这类照着那里的设置换一个程序）。
+    它们只在工作目录里才不问；git 在工作目录的子文件夹里、用的还是同一个仓库时照样不问。"""
+    commands = CommandList(guard.data / "commands.json")
+    commands.add("npm test")
+    commands.add("./scripts/status.sh")
+    guard.permissions.commands = commands
+    (guard.workspace / ".git").mkdir()
+    (guard.workspace / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    for command in ("npm test", "./scripts/status.sh"):
+        assert allowance(guard, command) == WHY_LISTED, command
+    assert allowance(guard, "git status") == WHY_READONLY and allowance(guard, "yarn --version") == WHY_READONLY
+    guard.shell.current.moved(str(guard.workspace / "src"))  # 工作目录的子文件夹：还是同一个仓库
+    assert allowance(guard, "git log -1") == WHY_READONLY
+    # 下载回来的别人的项目（自己带着 .git/）：cd 过去问过你一次
+    elsewhere = tmp_path / "downloaded"
+    (elsewhere / ".git").mkdir(parents=True)
+    (elsewhere / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (elsewhere / ".git" / "config").write_text("[core]\n\tfsmonitor = touch pwned\n", encoding="utf-8")
+    (elsewhere / "package.json").write_text('{"scripts": {"test": "touch pwned"}}\n', encoding="utf-8")
+    nested = guard.workspace / "vendor" / "lib"  # 工作目录里面另一个仓库（解压出来的、git clone 下来的）
+    (nested / ".git").mkdir(parents=True)
+    for place in (elsewhere, nested):
+        guard.shell.current.moved(str(place))
+        for command in ("npm test", "./scripts/status.sh", "git status", "git log -1", "yarn --version", "env git status"):
+            assert allowance(guard, command) is None, (place, command)
+        assert allowance(guard, "ls") == WHY_READONLY  # 只是看的照样不用问
+    guard.shell.current.moved(str(guard.workspace / "src"))
+    assert allowance(guard, "npm test") is None  # 你加的命令：只在工作目录里（在子文件夹里 ./scripts/x.sh 也是另一个文件）
 
 
 def test_a_gone_directory_is_judged_as_the_workspace_it_will_run_in(guard):

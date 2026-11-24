@@ -3593,3 +3593,15 @@ def test_todo_changes_from_several_threads_are_not_lost(tmp_path):
         worker.join()
     items = store.items("all")
     assert len(items) == 100 and len({item["id"] for item in items}) == 100  # 一条都没丢，编号也没重复
+
+
+def test_confirmation_numbers_differ_from_one_start_to_the_next():
+    # 确认卡片的编号就是事件的编号。每次启动都从 1 数起的话，后台服务重启以后（口令不变），还没刷新的旧标签页上点一下
+    # "允许"，撞上的是新请求的同一个编号（2026-11-24 安全复查）。网页和 harness serve 的日志从一个随机的数起
+    from harness.channels.ui import CONFIRM_IDS
+    from harness.webui.ui import fresh_ids
+
+    first, second = fresh_ids().take(), fresh_ids().take()
+    assert first != second
+    assert 2**40 <= first < 2**41 and 2**40 <= second < 2**41  # 页面上的 JavaScript 照样能精确表示
+    assert CONFIRM_IDS.peek() >= 2**40

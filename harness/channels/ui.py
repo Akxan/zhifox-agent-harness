@@ -25,7 +25,11 @@ from typing import Any
 from .. import citations
 from ..display import short
 from ..i18n import t
-from ..webui.ui import WebUI, unsaid
+from ..webui.ui import WebUI, fresh_ids, unsaid
+
+# 聊天里的确认卡片，按钮上带着确认的编号（ok:编号），点了就答复这个编号的确认（router._press）。这个进程里所有聊天共用一个、
+# 从随机的数起（为什么见 webui/ui.py 的 fresh_ids：旧卡片上的"允许"不能撞上新请求的编号）
+CONFIRM_IDS = fresh_ids()
 
 
 class ChannelUI(WebUI):
@@ -38,7 +42,7 @@ class ChannelUI(WebUI):
         on_auto: Callable[[str, str], None],
     ):
         """on_confirm 收到（确认的编号，要做的事，哪个子 Agent 在问——主助手自己问时是空的）。"""
-        super().__init__()
+        super().__init__(CONFIRM_IDS)
         self._on_text = on_text
         self._on_notice = on_notice
         self._on_confirm = on_confirm

@@ -20,6 +20,7 @@ server.py 再把日志里的事件推送给浏览器，浏览器收到后画出�
 
 from __future__ import annotations
 
+import secrets
 import threading
 import time
 from bisect import bisect_right
@@ -66,11 +67,12 @@ PARAGRAPH = frozenset({"text", "cite", "block_end", "state"})
 
 
 class EventIds:
-    """事件的编号：递增，同一个 EventIds 发出去的编号不会重复。一个 WebUI 自己用一个；网页上同时进行的几段对话共用一个（见上面）。"""
+    """事件的编号：递增，同一个 EventIds 发出去的编号不会重复。一个 WebUI 自己用一个；网页上同时进行的几段对话共用一个（见上面）。
+    start：第一个编号（聊天通道的几段对话共用一个从随机的数起的，见 ../channels/ui.py 的 CONFIRM_IDS）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, start: int = 1) -> None:
         self._lock = threading.Lock()
-        self._next = 1
+        self._next = start
 
     def take(self) -> int:
         with self._lock:
@@ -81,6 +83,15 @@ class EventIds:
         """下一个要发出去的编号（还没发）。"""
         with self._lock:
             return self._next
+
+
+def fresh_ids() -> EventIds:
+    """一个从随机的数起的 EventIds：页面上的确认卡片、聊天里的按钮都拿事件的编号当"答复的是哪一个"。
+    每次启动都从 1 数起的话，重启以后同样走法的一轮编号一模一样：后台服务的口令重启前后不变，还没刷新的旧标签页上、
+    聊天里还留着按钮的旧卡片上点一下"允许"，撞上的是新请求的编号，批准的就是另一条命令（2026-11-24 安全复查查出的，
+    聊天通道先修了，网页同一个道理）。从 2^40 到 2^41 之间随机起：同一次运行里不会重复，和以前几次运行撞上的机会小到可以不计，
+    页面上的 JavaScript 照样能精确表示它。断线重连时浏览器报上来的旧编号要么比它小、要么比谁都新，都当作对不上、从头补发"""
+    return EventIds(start=secrets.randbelow(2**40) + 2**40)
 
 
 def latest_state_only(events: list[dict]) -> list[dict]:

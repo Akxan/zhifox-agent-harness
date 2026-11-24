@@ -85,7 +85,9 @@ class Refused(ValueError):
 def refusal(address: str) -> str | None:
     """一个 IP 地址能不能去：不能去返回原因，能去返回 None。看不懂的一律不去。"""
     try:
-        ip = ipaddress.ip_address(address.split("%", 1)[0])  # IPv6 的链路本地地址可能带着 %en0 这样的网卡名
+        # IPv6 的链路本地地址可能带着 %en0 这样的网卡名：ipaddress 自己认得（还是按 IPv6 判断）。不能先按 % 切开只看前半截：
+        # "8.8.8.8%x.attacker.test" 不是 IP 地址，系统会把整串当成域名去解析（见 parse）
+        ip = ipaddress.ip_address(address)
     except ValueError:
         return RESERVED
     if isinstance(ip, ipaddress.IPv6Address):
@@ -145,8 +147,12 @@ class Target:
 
 
 def normalize(url: object) -> str:
-    """模型给的网址整理成要读的样子：前后的空白去掉，没写协议的当作 https://（和浏览器一样，见 browser/urls.py）。"""
-    return urls.normalize(url)
+    """模型给的网址整理成要读的样子：前后的空白去掉，没写协议的当作 https://（和浏览器一样，见 browser/urls.py）。
+    urlsplit 自己就拒绝的写法（方括号里不是 IP 地址的……）原样交回，由 parse 说清楚为什么不读：在这里抛出去，整轮就断了。"""
+    try:
+        return urls.normalize(url)
+    except ValueError:
+        return str(url or "").strip()
 
 
 def parse(url: str) -> Target:
@@ -166,6 +172,11 @@ def parse(url: str) -> Target:
     host = (parts.hostname or "").rstrip(".")
     if not host:
         raise Refused("这个网址里没有网站的名字，没法读。")
+    if "%" in host:
+        # % 后面的一段是 IPv6 的网卡名（[fe80::1%25en0]），只对链路本地地址有意义，那些本来就不去。
+        # 别的写法更不能放过："8.8.8.8%x.attacker.test" 看着像公网的 8.8.8.8，连的时候系统却把整串当成域名再解析一遍，
+        # 对方的 DNS 答 127.0.0.1 就连到这台电脑上了（查的和连的不是同一个）
+        raise Refused(f"网站的名字“{host}”里有 %，没有读。")
     literal = _is_ip(host)
     if not literal:
         shown = host
@@ -196,7 +207,7 @@ def parse(url: str) -> Target:
 
 def _is_ip(host: str) -> bool:
     try:
-        ipaddress.ip_address(host.split("%", 1)[0])
+        ipaddress.ip_address(host)
     except ValueError:
         return False
     return True

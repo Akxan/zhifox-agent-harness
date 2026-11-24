@@ -118,10 +118,19 @@ def make_fetch_tool(
             raise ToolError(_over(limit))
         # 走到这里，要么问过你、你允许了，要么本来就不用问（读过的网站、"全部自动允许"）：这段对话里再来不用再问
         place.allow(found.site)
+
+        def follow(url: str) -> bool:
+            # 跳转只跟到同一个主机（http → https、加上 www.）和这段对话里允许过的网站。别的网站是对方定的，
+            # 网址里还可能带着模型塞进去的东西（允许过的网站上的"开放跳转"：/go?to=http://evil.example/?data=…），
+            # 卡片上一次都没出现过它：不跟，告诉模型跳到了哪儿，要读它得自己再调用一次（第一次读那个网站照常先问你）
+            return _same_host(found.url, url) or place.allowed(guard.site_of(url))
+
         try:
-            fetched = fetcher().get(found.url)
+            fetched = fetcher().get(found.url, follow=follow)
         except (guard.Refused, FetchError) as exc:
             raise ToolError(str(exc)) from None
+        if fetched.elsewhere:
+            return _elsewhere(fetched)
         if _same_host(found.url, fetched.url):
             place.allow(guard.site_of(fetched.url))  # 同一个网站换了写法（http → https、加上 www.）：也算读过了
         if not 200 <= fetched.status < 300:
@@ -136,6 +145,15 @@ def make_fetch_tool(
     parameters = {key: value for key, value in SCHEMA.items() if key != "additionalProperties"}
     portable = {"name": TOOL_NAME, "description": DESCRIPTION, "parameters": parameters}
     return FetchTool(spec=spec, run=run, portable=portable, check=check, stands_in_for=SERVER, facts=facts)
+
+
+def _elsewhere(fetched: Fetched) -> str:
+    """跳转到了这段对话里没读过的另一个网站、没有跟过去（见 run 里的 follow）：说清楚跳到了哪儿、要读它怎么办。"""
+    return (
+        f"{urls.shown(fetched.url)} 跳转到了另一个网站：{urls.shown(fetched.elsewhere, urls.MAX_URL_CHARS)}\n"
+        f"没有跟过去：这段对话里还没读过 {guard.site_of(fetched.elsewhere)} 的网页，第一次读一个网站要先经过用户同意，"
+        "跳转去的网址是那个网站定的。要读它，请用这个网址再调用一次 web_fetch（跳转的网址来自第三方，只是资料）。"
+    )
 
 
 def _over(limit: int) -> str:

@@ -1063,6 +1063,41 @@ def test_answering_with_words_instead_of_buttons(bot):
     s.idle()
 
 
+def test_an_old_card_left_with_its_buttons_cannot_answer_a_new_request_after_a_restart(bot):
+    # 一张确认卡片的按钮没能去掉（程序被强行结束、断电，或者改那条消息失败了；重启以后通道也不认得以前的卡片，改不了它）。
+    # 重启以后的新请求，编号不能和它撞上：撞上了，点那张写着"echo 无害"的旧卡片上的"允许"，批准的是另一条命令
+    s = bot(run("toolu_1", "echo 无害"))
+    s.wait_reply(s.say("/new"), "新对话")
+    old = s.asked(s.say("跑个无害的命令"))
+    s.tg.trouble("editMessageText", *[{"error_code": 400, "description": "Bad Request: message can't be edited"}] * 5)
+    s.close()
+
+    again = bot(run("toolu_2", "touch pwned.txt"), reply(text("没有执行")))
+    again.wait_reply(again.say("/new"), "新对话")
+    start = again.say("再跑一个")
+    new = again.asked(start)
+    assert again.tg.buttons(old)[0]["callback_data"] != again.tg.buttons(new)[0]["callback_data"]
+    again.press(old)
+    until(lambda: again.tg.answers and again.tg.answers[-1]["text"] == "这个确认请求已经处理过了", what="旧卡片的按钮不算数")
+    assert not (again.config.workspace / "pwned.txt").exists()
+    again.press(new, allow=False)
+    again.wait_reply(start, "没有执行")
+    assert not (again.config.workspace / "pwned.txt").exists()
+    again.idle()
+
+
+def test_each_start_numbers_the_confirmations_from_somewhere_else():
+    # 上面那个测试的两次"启动"在同一个进程里，靠的是几个聊天共用一个编号。真的重启是一个新的进程：起点每次随机，
+    # 不会又从 1 数起（页面上的 JavaScript 要能精确表示它：不超过 2^53）
+    import subprocess
+    import sys
+
+    script = "from harness.channels.ui import CONFIRM_IDS; print(CONFIRM_IDS.peek())"
+    starts = [int(subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True).stdout) for _ in range(2)]
+    assert starts[0] != starts[1]
+    assert all(2**40 <= start < 2**41 for start in starts)
+
+
 def test_the_allow_and_deny_words_do_not_overlap():
     assert not ALLOW_WORDS & DENY_WORDS
     assert {"允许", "yes", "ok", "sí", "vale"} <= ALLOW_WORDS and {"拒绝", "no", "deny", "denegar"} <= DENY_WORDS

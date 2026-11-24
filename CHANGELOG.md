@@ -106,6 +106,30 @@ Before 1.0.0, a minor version may include breaking changes.
   lost, because the whole page was redrawn between the press and the release. Redraws now wait until the mouse is
   released, as the model switcher and the hooks page already did.
 
+### Security
+
+Found by an adversarial review of the recent changes; each was reproduced by a failing test first.
+
+- Read-only mode: `ps E…` (BSD-style `E`, which macOS treats as `-E`) no longer runs without asking; it printed every
+  process's environment, including ZhiFox's own API keys.
+- Read-only mode: other spellings of the data folder and key folders are recognised by device and inode (macOS
+  `/System/Volumes/Data/…`, Linux bind mounts), and the macOS prefixes `/.vol`, `/.nofollow` and `/.resolve` always ask.
+- Read-only mode: after a `cd`, your own no-ask commands and version checks only skip the question in the working
+  folder, and `git` only in the same repository; previously one approved `cd` let `npm test`, `git status`
+  (`core.fsmonitor`) or `yarn --version` (`yarn-path`) run another project's code.
+- Read-only mode: `git` format placeholders that verify signatures (`%G?`, `%GS`, `%(signature)`) ask, like
+  `--show-signature`.
+- `web_fetch` refuses hosts containing `%`: `8.8.8.8%x.attacker.example` passed the address check and was then
+  resolved as a name, which could reach this computer.
+- `web_fetch` follows redirects only to the same host or a site already allowed in the conversation, so an open
+  redirect on an allowed site can't carry data to a site you never approved.
+- `web_fetch` reports URLs Python's parser rejects instead of ending the turn, ignores unusable `<base href>` values
+  and non-text charsets, and pages can no longer forge link markers through image `alt` text.
+- Approval numbers start from a random value at every start, in the web UI and in chat channels (shared across all
+  chats), so a leftover card's Allow button can't approve a new request after a restart.
+- Chat channels: kept undelivered messages are dropped, and the old chat's running turn stopped, when a channel's
+  owner changes or goes away.
+
 ### Documentation
 
 - Both READMEs are now a short overview (what ZhiFox is, highlights, quick start and an index), and the rest lives in
