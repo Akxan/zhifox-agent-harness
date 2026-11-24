@@ -137,7 +137,9 @@ each finished paragraph goes back to the chat; a command or file change first ar
    buttons on the last one. The same request appears on the web page (a bar at the top of the main area and a card in
    **Extensions → Channels**); whichever answer arrives first counts, and the chat message is edited to say who decided
    ("Allowed on the web page"). You can also just reply "allow" or "deny" (the only way on platforms without buttons);
-   typed answers count only once the request has actually reached the chat. In **Allow read-only commands**, **Allow file
+   typed answers count only once the request has actually reached the chat. The message is written in the interface
+   language you chose (when it's actually sent, so one held back while the platform was unreachable uses the language
+   at that moment), and the card on the web page follows a language switch while it waits. In **Allow read-only commands**, **Allow file
    edits** or **Allow everything** mode, each step taken without asking is still reported in the chat ("Allowed
    automatically: $ …", or "Allowed automatically (read-only): $ df -h" for a read-only command).
 6. **A persona per chat.** `/new researcher` starts a conversation with the custom agent *researcher* as its persona,

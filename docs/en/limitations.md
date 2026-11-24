@@ -63,8 +63,14 @@ What doesn't work yet or hasn't been tested with real keys, what may come next, 
   later one fails if the text it expected has changed, so the model reads the file again. Reminders appear only in the
   web page (with a system notification while the page is open in the background, see **System notifications** in [Web UI](web-ui.md)),
   not in chat apps.
-- With the interface in English or Spanish, messages returned by tools (such as "没有编号为 9 的待办", "there is no to-do
-  #9") stay in Chinese, because they are written for the model.
+- With the interface in English or Spanish, the sentences ZhiFox's own tools write into their results (such as "there's
+  no to-do #9", "(no output)", "[exit code 1]") are shown in your language on the tool card and in the terminal, and
+  switch in place when you change language; the model still reads them in Chinese, word for word as before. What the
+  tools hand back from elsewhere stays as it is: command output, file contents, web pages and MCP results. A few long
+  ones are still in Chinese: the lines in front of a web page's text (reading a page in the browser or with web_fetch),
+  the sandbox's explanation under a blocked command, Windows path warnings, the file list when a skill loads, and the
+  JSON that describes wrong arguments. A result cut short on the card (over 8,000 characters), one where a key was
+  hidden, and results saved before this version show the text as it was saved.
   Conversations saved before you switched language keep the program's notices in the language used at the time.
 - Skills: `allowed-tools` doesn't pre-approve anything (see [Skills](extensions.md#skills)). Claude Code's argument placeholders
   (`$ARGUMENTS`, `$0`), `!` command blocks, `context: fork`, `hooks` and other Claude Code-only fields are kept in the

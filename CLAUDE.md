@@ -71,7 +71,14 @@
      见 `harness/webui/page/scripts/i18n.js`；程序里是 `harness/i18n.py` 的 `t()`、`k()`），然后在
      `harness/locales/en.json` 和 `es.json` 里加上译文。`tests/test_i18n.py` 会检查有没有漏。
    - 程序发给页面的话要用 `t()` 生成，这样事件里会带着原文（key、values），页面换语言时才能就地重译。
-   - 写给模型看的（系统提示词、工具说明、工具结果）保持中文，不进翻译表。
+   - 写给模型看的（系统提示词、工具说明、工具结果）保持中文；系统提示词和工具说明不进翻译表。
+     工具结果里程序自己写的话（出错的原因、"（没有输出）""[退出码 1]"这类说明）也显示在工具卡片上、终端里，所以用
+     `harness/i18n.py` 的 `zh()` 写：交出去的就是中文原文（模型、历史里和直接写中文一个字节都不差），同时和 `t()` 一样记着原文和值，
+     界面用 `retell()` 译成界面的语言，网页的 `tool_result` 事件带着 key、values 在原地重译（规矩写在 i18n.py 开头）。
+     命令的输出、文件、网页、MCP 的结果是资料，只作为值原样填进去，从不查翻译表。`agent._shown` 只在交给模型的正好就是那一句时才带原文
+     （遮过密钥、钩子补过话、截短了的照原样显示：原文里的值是没遮的样子）。zh() 的句子一样要有译文（`tests/test_i18n.py` 会查）。
+     手里是一句 `t()` 译好的话（TaskError、Skill 的问题、平台的错误）却要交给模型时，填进 zh() 或用 `chinese()` 换回中文原文，
+     不要直接拼进中文句子（界面是英文时模型会看到英文）；几段话接起来用 `joined()`。
    - 西班牙语用"tú"称呼用户，用西班牙本地的说法（coste、Ajustes），但要让拉美的读者也看得懂。
 
 8. **有利于后期维护和开发。**（用户原话："要记住有利于后期维护和开发"。）
@@ -240,7 +247,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
-| `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
+| `harness/i18n.py`、`harness/locales/` | 多语言：`t()`、写给模型又要给人看的 `zh()`、按现在的语言重译的 `retell()`，和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：路由表（`Handler._route`）、回答和安全头（`_send`）、发文件字节的三个接口和导出、启动和退出（开头有全部接口的目录）；Handler 的另外几块以基类混进来：`server_gate.py`（口令、Host、Origin 的检查，读请求体）、`server_page.py`（页面的 nonce 和 CSP、清单和图标）、`server_events.py`（事件流），类型见 `server_types.py` 的 `HandlerPart`。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/chat_cli.py`、`harness/history_cli.py` | 终端里的会话：一轮一轮地跑、每一轮存盘、`/retry` `/edit` 倒回、`/undo`、`/new` `/open` 换一段（chat_cli.py）；`/history` 和 `/open` 写出来的那几行（history_cli.py，只管怎么写） |
 | `harness/ui.py`、`harness/webui/` | 终端界面、网页界面（`server.py` 等见上一行；`page/` 是页面：骨架 `index.html`、`styles/`、`scripts/`，由 `page/__init__.py` 按清单拼成一页，启动时拼一次） |

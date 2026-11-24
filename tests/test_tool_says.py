@@ -15,8 +15,7 @@ import json
 
 import pytest
 from fake_api import reply, text, tool_use
-from test_channels import bot as bot  # noqa: F401  # 聊天通道（假 Telegram）的 fixture
-from test_channels import until
+from test_channels import rigs, until
 
 from harness import i18n
 from harness.i18n import Message, chinese, joined, retell, t, zh
@@ -220,6 +219,12 @@ def test_the_terminal_shows_our_sentences_in_the_interface_language(start, monke
 
 
 # ---- 聊天通道的确认卡片 -------------------------------------------------------
+
+
+@pytest.fixture
+def bot(make_config, monkeypatch):
+    """假 Telegram 上的一个聊天（和 tests/test_channels.py 的同一套组装）。"""
+    yield from rigs(make_config, monkeypatch)
 
 
 @pytest.mark.parametrize("language", ["en", "es"])

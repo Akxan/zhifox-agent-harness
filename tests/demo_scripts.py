@@ -27,6 +27,8 @@
                 卡片照样一张接一张；运行记录里这三段横条叠在一起，左边一道细线连着，详情里写着"和另外 2 步同时执行"
   [ui:fallback] 用 Opus 5.5 的请求一律回答 529 过载，用别的模型的照常回答：在设置里选了备用模型（比如 Sonnet 5.5）的话，
                 这一轮改用它，对话里说一声，运行记录里失败的那次标成出错、后面的标着"备用"（见 harness/fallback.py）。没选就是一条出错提示
+  [ui:says]     一步里两个做不成的调用：删一条不存在的待办（999 号）、看一个不存在的文件（ui-says/不存在.txt）。两个结果都是
+                程序自己写的话（zh()，见 harness/i18n.py 开头）：页面按界面的语言显示、换语言时在原地重译，文件名照原样
   [ui:readme]   README 截图里的那段对话：查待办 → 一段带表格的 Markdown → 一条要你批准的命令（归档上个月的笔记）。
                 用户说中文就答中文，说别的就答英文；表格按 todo_list 真正交回的待办来画。截图时消息里不能有暗号，
                 所以用 `demo_web.py --script readme`：没写暗号的对话也按它回答
@@ -143,6 +145,10 @@ FRAGMENTED_ID = "20261101-090000-c17e0d"
 # 一段 Telegram 里的旧会话：第一条消息是一段语音转出来的（user 事件带着 voice，见 harness/voice/）。页面测试按这个编号打开它
 # （tests/ui/test_ui_voice.py），看消息上的"语音转文字"小标记
 VOICE_ID = "20261101-091500-0a1ce5"
+# 一段以前存下的会话：工具结果那时只存了文字（没有原文 key，见 harness/i18n.py 的 zh），而且正好是程序自己写的那句中文。
+# 页面测试按这个编号打开它（tests/ui/test_ui_tool_says.py）：照原样显示，换语言也不动
+OLD_RESULT_ID = "20261101-093000-0d1e57"
+OLD_RESULT = "没有编号为 9 的待办。先用 todo_list 查看现有的待办。"
 
 # [ui:cite] 引用的三个网页。第二个的网址里有括号（维基百科常这样），第三个的标题和网址都很长（窄屏上看会不会冲出去）
 CITE_A = ("https://perfect-items.example/sobre-nosotros", "Perfect Items · Sobre nosotros")
@@ -329,9 +335,21 @@ def readme(body: dict) -> dict:
     return reply(text("好了：上个月的笔记都在 `archive/` 里了。" if zh else "Done: last month's notes are now in `archive/`."))
 
 
+def says(body: dict) -> dict:
+    if _results(body):
+        return reply(text("这两步都没做成。"))
+    n = _asked(body)
+    return reply(
+        tool_use(f"toolu_ui_says_{n}_todo", "todo_delete", {"id": 999}),
+        tool_use(f"toolu_ui_says_{n}_file", "str_replace_based_edit_tool", {"command": "view", "path": "ui-says/不存在.txt"}),
+        stop_reason="tool_use",
+    )
+
+
 SCRIPTS: dict[str, Callable[[dict], dict]] = {
     "hello": hello, "long": long, "approve": approve, "todo": todo, "flaky": flaky, "readme": readme, "cite": cite,
     "pause": pause, "trace": trace, "tracesub": tracesub, "files": files, "fallback": fallback, "together": together,
+    "says": says,
 }
 
 
