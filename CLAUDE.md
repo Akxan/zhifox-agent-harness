@@ -106,7 +106,7 @@
      后台服务（launchd / systemd / 任务计划程序）、"在文件管理器里显示"、文件权限（600 和 Windows 的 ACL）、启动 Chrome 的管道，
      都各有一个小模块按系统分开写，别处只调用它。新加的功能要用到这类东西时，复用它们，不要自己判断 `sys.platform`。
      这些模块是：`filelock`（文件锁：fcntl / msvcrt）、`pathnames`（Windows 的路径花招、比较用的 `key`、目录联接）、`winacl`（icacls 设 ACL）、
-     `winjob`（作业对象：停下时连孙进程一起结束）、`console`（管道输出用 UTF-8）、`exits`（SIGTERM 之外还有 SIGBREAK）、`machine`（mac / windows / linux）、
+     `winjob`（作业对象：停下时连孙进程一起结束）、`console`（管道输出用 UTF-8；Windows 上按下 Ctrl-C 的那一刻，`on_ctrl_c`）、`exits`（SIGTERM 之外还有 SIGBREAK）、`machine`（mac / windows / linux）、
      `tools/shell`（`command_line`、`kill_tree`、`system32`、`NO_WINDOW`）、`browser/chrome`（`_launch_windows`）、`service/windows` 加 `service/supervise`、
      `webui/reveal`（在文件管理器里显示）；页面是 `platform.js`：`forKeys` / `commandHeld` 看浏览器所在的系统（快捷键），`byServer` / `showLabel` 看助手程序所在的电脑
      （"访达""文件资源管理器""文件管理器"）。页面里不要再写"`ON_MAC` 就写访达"这种判断。
@@ -197,7 +197,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 |---|---|
 | `harness/agent.py` | 循环。不出现任何和具体厂商、具体界面有关的代码 |
 | `harness/parallel.py` | 一步里连着的只读调用一起跑：哪些能（规矩写在开头）、线程池、每个调用一份 context、停下时取消没开始的；挑哪些在 `Agent._batch_at` |
-| `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用，`compaction.py` 是这三家的压缩历史 |
+| `harness/providers/` | 各家模型的适配层：`claude.py` 用 Anthropic 原生接口，`openai_compat.py` 供另外三家共用，`compaction.py` 是这三家的压缩历史，`inflight.py` 是"停止"时断开正在进行的那一次请求 |
 | `harness/tools/` | 工具。`base.py` 里的 `function_tool` 用来创建自定义工具 |
 | `harness/permissions.py` | 哪些操作要先问用户 |
 | `harness/conversations.py` | 会话的保存和读取 |
@@ -239,7 +239,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图。一次运行的 `BrowserSession` 在 `session.py`（状态、run / facts / stop / close、收件箱、和 Chrome 的连接、每个动作的收尾），动作按小节以基类混进来：`session_tabs`（标签页）、`session_page`（调用 page.js、等待、截图）、`session_look`（打开、读页面）、`session_input`（鼠标、键盘）、`session_facts`（动作之前先看一眼），类型见 `session_types.py` 的 `SessionPart`；别处照旧 `from .session import BrowserSession, Facts, Outcome, Target` |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
-| `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码、退出信号、这是哪个系统 |
+| `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码和 Windows 的 Ctrl-C、退出信号、这是哪个系统 |
 | `harness/i18n.py`、`harness/locales/` | 多语言：`t()` 和英文、西班牙语的翻译表（键是中文原文） |
 | `harness/webui/server.py`、`webapp.py`、`webapp_types.py`、`*_api.py`、`reveal.py` | 网页界面背后的本地服务器。`server.py` 只管 HTTP 这一层：路由表（`Handler._route`）、回答和安全头（`_send`）、发文件字节的三个接口和导出、启动和退出（开头有全部接口的目录）；Handler 的另外几块以基类混进来：`server_gate.py`（口令、Host、Origin 的检查，读请求体）、`server_page.py`（页面的 nonce 和 CSP、清单和图标）、`server_events.py`（事件流），类型见 `server_types.py` 的 `HandlerPart`。`webapp.py` 是 WebApp 的核心：共用的状态和锁、存盘、这段会话归谁、状态快照。`sessions.py` 是几段对话同时进行的名单（Session、Sessions、AllIdle，锁的规矩写在开头），`sessions_api.py` 是新建一段、换着看、只停一段、一轮收尾。每一组功能一个 `*_api.py`：`XxxActions` 混进 WebApp（方法名照旧是 `web.open_conversation`），继承 `webapp_types.WebAppPart`（只给 mypy 看的 Protocol，运行时是空的：列出别的文件里定义、这一组要用的状态和方法签名；mypy 报"没有这个属性"就在那里补一行，签名和实现对不上会报 override，写了没实现会报 abstract），`route_xxx(handler, web, …)` 由路由表调用；较早的几个（`skills_api.py` 这些）是 WebApp 上的对象，`route` 交回（状态码，回答）。加接口：路由表里加一行，做法写进那一组的 `*_api.py`。`reveal.py` 是唯一启动文件管理器的地方，别处写 `reveal.reveal_in_file_manager(...)`、调用时现找；测试换它要换 `harness.webui.reveal` 上的名字（`tests/test_webui.py` 会查别处没有第二份） |
 | `harness/chat_cli.py`、`harness/history_cli.py` | 终端里的会话：一轮一轮地跑、每一轮存盘、`/retry` `/edit` 倒回、`/undo`、`/new` `/open` 换一段（chat_cli.py）；`/history` 和 `/open` 写出来的那几行（history_cli.py，只管怎么写） |
@@ -284,6 +284,18 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   以后新加"跟着一轮走、但不能在两段会话里各管一份"的事件，加进 `fork.LEFT_OUT`。
 - **历史里只放普通的字典和字符串**，这样才能原样存成 JSON 文件、读回来原样发给 API。
 - **每个工具调用都必须有对应的结果**，包括被用户中断的情况。相关逻辑在 `Agent._run_tools` 的 `finally` 里。
+- **"停止"马上生效（`harness/providers/inflight.py`，2026-11-24）**：以前只立一面旗子，模型在想、在写长长的工具参数、请求还在排队时
+  服务器什么都不发，要等它再开口才停得下来。现在循环每一步把 `backend.step` 包在 `inflight.calling()` 里，并在这一步的时间里把
+  `Call.abort` 登记到 `ui.on_stop`（WebUI 登记时已经点过停止的马上调用，"刚要开始"的那一下也不漏）。断开在发出停止的那个线程里做：
+  只 `socket.shutdown`（Windows 上再 close），**不替读的线程关回复**（两个线程一起收拾 httpcore 的连接池会出错）。读的线程醒来抛 `Aborted`：
+  它是 KeyboardInterrupt 的一种、不是 Exception，所以 SDK 不重试、循环不试备用模型，收尾和以前"被中断"一样。
+  适配层的每一次 HTTP 请求（真正的请求、写摘要的那一次）包在 `inflight.current().request()` 里，拿到 SDK 的流以后
+  `claim(network_stream(stream.response))` 再 `check()`；以后新加向模型发请求的地方照这样办。新建 SDK 客户端的地方给它的 httpx 客户端装
+  `inflight.event_hooks()`（`make_client`、`endpoints/client.make` 已经装了；没装的客户端回答的头没到时断不开，头一到马上断）。
+  头没到、复用了一条空闲连接时 trace 不说是哪一条，断开这个客户端上没人认领的连接：一个适配层一个客户端、同一时间一个请求，所以正好是它。
+  trace 的钩子在 `response_closed` 和不是 Exception 的失败（GeneratorExit）上不抛，否则 httpcore 来不及把连接从池子里拿掉。
+  被停下的那一步不记账（用量在回复的最后才报告，宁可不记也不猜）。终端在 macOS、Linux 上靠信号本身；Windows 上 `TerminalUI.on_stop`
+  真的登记（`console.on_ctrl_c`：SetConsoleCtrlHandler，系统在另一个线程里调用它）。测试用 `tests/held.py` 让假服务器压着请求不回答。
 - **一步里只有"只读、又根本不用问"的调用才一起跑**（`harness/parallel.py`，判断在 `Agent._batch_at`）。三样都要：工具自己写了
   `Tool.parallel`（opt-in，默认 None：新加的工具一律一个一个来；现在只有文件和记忆的 `view`、`todo_list`、`task_list`、`skill`）、
   `_gate`（`Tool.check` + `permissions.review`，和一个一个跑时是同一段）说不用问、`HookRun.looks_before` 说没有 PreToolUse 钩子要看它。
@@ -704,7 +716,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
 - 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；发不出去时的重试和补发只对着假 Telegram（不回答就关掉连接、500、429、403）和假通道测过，没在真的断网、真的平台故障里试过；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
-几段同时操作电脑也只对着假电脑测过。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。
+几段同时操作电脑也只对着假电脑测过。"停止"马上断开模型请求（inflight.py）只对着本地的假服务器测过（明文 HTTP、本机）：
+socket.shutdown 叫醒正在等的线程在本机 macOS 上实测过，Linux、Windows（再加 closesocket）只在 CI 上验证；真的 TLS 连接、走代理时断开、
+真的 Anthropic / OpenAI 服务器看到断开以后马上不再计费，都是照文档和协议推断的；Windows 终端里真的按 Ctrl-C（控制台处理函数）没有试过，CI 上只测了处理函数本身和登记、取消。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。
   2026-11-20 用真实密钥测过：Claude 读截图、PDF、文本附件；DeepSeek 的对话（带文本附件）。
   2026-11-21 用真实密钥测过（claude-opus-5-5，共约 0.36 美元）：联网搜索带引用的回答（一整段、cite 事件的编号和来源）；
   浏览器工具包（navigate、get_page_text，API 认我们交回的 toolset_name）；带思考和工具调用的一轮"重新生成"（API 认倒回后的历史）。

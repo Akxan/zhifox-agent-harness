@@ -48,7 +48,8 @@ How agent tasks behave:
   Settings.
 - **You can watch and stop them.** While a task runs you can see what it is doing (thinking, writing, which tool), how
   many model calls it has made, its cost so far and the tool calls so far. **Stop** works like the Stop button in a
-  conversation and ends that run's command; a run still waiting in line is simply dropped. When several tasks are
+  conversation: it takes effect at once, ends that run's command and cuts its request to the model, even one the model
+  hasn't started answering; a run still waiting in line is simply dropped. When several tasks are
   running, the pill at the top of the page counts them ("Scheduled tasks: 2 running, 1 waiting for you"); clicking it
   opens the task list at the first one that needs you.
 - **Missed runs are caught up once.** If ZhiFox wasn't running at the scheduled time (or the computer was asleep), the
