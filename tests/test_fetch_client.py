@@ -142,6 +142,28 @@ def test_tests_never_resolve_real_names():
         Fetcher().get("https://example.com/")
 
 
+@pytest.mark.parametrize("host", ["8.8.8.8%x.attacker.test", "[2001:4860::8888%25x.attacker.test]"], ids=["v4", "v6"])
+def test_a_percent_after_an_ip_is_not_a_second_lookup(site, monkeypatch, host):
+    # "8.8.8.8%x.attacker.test" 前半截是公网的 8.8.8.8，以前按它查过就放行了；可连的时候 socket.create_connection
+    # 把整串交给系统的 getaddrinfo，系统把它当成一个域名（attacker.test 的子域名）再去解析一遍，
+    # 那边的 DNS 想答什么就答什么（127.0.0.1）：查的和连的不是同一个。这里用一个假的 getaddrinfo 扮演那个 DNS
+    site.routes["/"] = page("<p>本机上的服务，不该被读到</p>")
+    looked_up: list[object] = []
+    real = socket.getaddrinfo
+
+    def attacker_dns(name, port, *args, **kwargs):
+        looked_up.append(name)
+        if isinstance(name, str) and "attacker.test" in name:
+            return real(LOCAL, port, *args, **kwargs)
+        return real(name, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", attacker_dns)
+    with pytest.raises(guard.Refused):
+        Fetcher().get(f"http://{host}:{site.port}/")  # 真的规矩
+    assert site.requests == []
+    assert not any("attacker.test" in str(name) for name in looked_up)
+
+
 # ---- 上限 ------------------------------------------------------------------------------
 
 

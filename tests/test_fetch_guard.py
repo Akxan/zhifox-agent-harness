@@ -340,6 +340,24 @@ def test_parse_refuses_odd_characters_in_the_host(url: str):
         guard.parse(url)
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["http://8.8.8.8%x.attacker.test/", "http://8.8.8.8%25/", "http://[2001:4860::8888%25eth0]/", "http://[::ffff:8.8.8.8%25x]/"],
+    ids=["v4-name", "v4-bare", "v6-zone", "v6-mapped-zone"],
+)
+def test_parse_refuses_a_percent_in_an_ip_host(url: str):
+    # % 后面的一段（IPv6 的网卡名）只对链路本地地址有意义，那些本来就不去。IPv4 后面跟着 % 根本不是 IP 地址，
+    # 系统会把整串当成域名再解析一遍（见 test_fetch_client.py 的 test_a_percent_after_an_ip_is_not_a_second_lookup）
+    with pytest.raises(guard.Refused):
+        guard.parse(url)
+
+
+@pytest.mark.parametrize("address", ["8.8.8.8%x.attacker.test", "8.8.8.8%0"], ids=["name", "bare"])
+def test_refusal_does_not_cut_a_v4_address_at_the_percent(address: str):
+    # refusal 是最后一道：按 % 切开只看前半截，"8.8.8.8%x.attacker.test" 就成了公网地址
+    assert guard.refusal(address) is not None
+
+
 def test_v4_compatible_does_not_swallow_unspecified():
     # :: 和 ::1 在"IPv4 兼容"那一段的开头，但它们是"未指定"和这台电脑自己，原因要说对
     assert guard.refusal("::") == guard.UNSPECIFIED
