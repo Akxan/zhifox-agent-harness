@@ -182,6 +182,7 @@ def test_stop_on_a_reused_connection(rig, headers):
 
     stopped_quickly(thread, s.ui.request_stop, s.api.hold)
 
+    assert s.api.peers[0] == s.api.peers[1]  # 真的是同一条连接
     # 第一步走完了，留在历史里；第二步没走完，什么都没留下。每个工具调用都有结果
     assert [m["role"] for m in s.agent.messages] == ["user", "assistant", "user"]
     assert last_results(s.agent)[0]["tool_use_id"] == "t1"

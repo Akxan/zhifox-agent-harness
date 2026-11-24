@@ -148,6 +148,7 @@ class FakeAPI:
         self.routes = {marker: list(items) for marker, items in (routes or {}).items()}
         self.requests: list[dict] = []  # 收到的请求体
         self.headers: list[dict] = []  # 收到的请求头（键全部小写）
+        self.peers: list[tuple] = []  # 每个请求是从哪个地址、端口来的：一样的就是复用了同一条连接（keep_alive）
         self.models = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-3-old"]  # 假装服务器上有这些模型
         self._lock = threading.Lock()  # 几个请求同时到时，"看看还有没有、有就取一条"要一口气做完
 
@@ -168,6 +169,7 @@ class FakeAPI:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 api.requests.append(body)
                 api.headers.append({key.lower(): value for key, value in self.headers.items()})
+                api.peers.append(self.client_address)
                 scripted = api.next_reply(body)
                 if scripted is None:
                     self.send_error(500, "no scripted reply left")
