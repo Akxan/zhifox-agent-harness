@@ -285,15 +285,15 @@ class AnthropicBackend:
 
         这一步被停下了的话（"停止"、Ctrl-C，见 inflight.py），连接在别的线程里被断开，这里抛出 Aborted：
         它是 KeyboardInterrupt 的一种，下面这几个 except 都不接它，不会重新请求、也不会报成出错。"""
-        call = inflight.current()
+        current = inflight.current()
         attempts = 3
         for attempt in range(1, attempts + 1):
             try:
                 # 流式接收：模型一边生成，我们一边显示
-                with call.request(), self.client.beta.messages.stream(**request) as stream:
+                with current.request(), self.client.beta.messages.stream(**request) as stream:
                     # 回答的头到了：记下这条连接，"停止"时就断开它（没装钩子的客户端到这里才知道是哪一条）
-                    call.claim(inflight.network_stream(stream.response))
-                    call.check()
+                    current.claim(inflight.network_stream(stream.response))
+                    current.check()
                     for event in stream:
                         self._show(event, ui)
                     return stream.get_final_message(), attempt - 1

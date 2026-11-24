@@ -279,11 +279,11 @@ class OpenAICompatBackend:
         step 不接它：不退一步、不报成出错，循环也不会去试备用模型。"""
         text, reasoning, finish, raw_usage = "", "", None, None
         calls: dict[int, dict] = {}  # 工具调用是一小段一小段到达的，按序号拼起来
-        call = inflight.current()
+        current = inflight.current()
         try:
-            with call.request(), self.client.chat.completions.create(**self._request(self._messages)) as stream:
-                call.claim(inflight.network_stream(stream.response))  # 回答的头到了：记下这条连接（见 claude.py 的 _send）
-                call.check()
+            with current.request(), self.client.chat.completions.create(**self._request(self._messages)) as stream:
+                current.claim(inflight.network_stream(stream.response))  # 回答的头到了：记下这条连接（见 claude.py 的 _send）
+                current.check()
                 for chunk in stream:
                     if chunk.usage is not None:
                         raw_usage = chunk.usage
@@ -393,11 +393,11 @@ class OpenAICompatBackend:
         模型要是只调用了工具、没写出文字，就算没写成：这些工具调用不会被执行。
         """
         text, raw_usage = "", None
-        call = inflight.current()  # 写摘要也是这一步的一部分：被停下的话和真正的请求一样抛出 Aborted（_compact 不接它）
+        current = inflight.current()  # 写摘要也是这一步的一部分：被停下的话和真正的请求一样抛出 Aborted（_compact 不接它）
         try:
-            with call.request(), self.client.chat.completions.create(**self._request(messages)) as stream:
-                call.claim(inflight.network_stream(stream.response))
-                call.check()
+            with current.request(), self.client.chat.completions.create(**self._request(messages)) as stream:
+                current.claim(inflight.network_stream(stream.response))
+                current.check()
                 for chunk in stream:
                     if chunk.usage is not None:
                         raw_usage = chunk.usage
