@@ -400,6 +400,15 @@ def test_iso_8859_1_label_is_cp1252():
     assert charset.decode(b"\x93quoted\x94", "text/plain; charset=us-ascii") == "“quoted”"
 
 
+@pytest.mark.parametrize("label", ["base64", "zlib", "rot13", "quopri", "idna", "undefined", "unicode_escape", "utf-7"])
+def test_python_only_codecs_are_not_charsets(label: str):
+    # charset= 是网站写的。Python 的 codecs 里还有一些不是网页编码的：base64、zlib 这类根本不是文字编码，idna、undefined
+    # 不认 "replace"，解的时候直接抛错（交给模型的成了"工具内部出错"）；unicode_escape、utf-7 浏览器不认。都当作没说
+    assert charset.codec_of(label) is None
+    assert charset.decode(b"<p>caf\xc3\xa9</p>", f"text/html; charset={label}", markup=True) == "<p>café</p>"
+    assert charset.decode(f'<meta charset="{label}"><p>caf\xc3\xa9</p>'.encode("latin-1"), "", markup=True).endswith("<p>café</p>")
+
+
 def test_meta_description_mentioning_charset_is_not_a_declaration():
     body = '<meta name="description" content="How to convert charset=koi8-r files"><p>中文正文</p>'.encode()
     assert "中文正文" in charset.decode(body, "", markup=True)
