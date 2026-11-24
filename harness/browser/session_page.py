@@ -20,6 +20,7 @@ from ..config import (
     BROWSER_THUMB_WIDTH,
     BROWSER_VIEWPORT,
 )
+from ..i18n import joined, zh
 from ..tools.base import ToolError
 from .cdp import Cancelled, CDPError, Connection
 from .session_types import SessionPart
@@ -43,6 +44,11 @@ class Outcome:
     thumb: str = ""  # 小预览图（data: 地址），画在对话里的工具卡片上
 
 
+def lines(*parts: str) -> str:
+    """几段话一行一段接起来（空的不算），有 zh() 写的话也不丢它的原文（见 ../i18n.py 的 joined）。"""
+    return joined("\n", *parts)
+
+
 class SessionPage(SessionPart):
     # ---- 页面里的脚本 ----------------------------------------------------------
 
@@ -62,7 +68,7 @@ class SessionPage(SessionPart):
                 tab.world = 0
             except _ScriptError:
                 if attempt == 2:
-                    raise ToolError("页面里的脚本出错了，读不出这一页。可以截图看看。") from None
+                    raise ToolError(zh("页面里的脚本出错了，读不出这一页。可以截图看看。")) from None
                 tab.world = 0
         raise AssertionError("unreachable")
 

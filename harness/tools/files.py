@@ -29,6 +29,7 @@ from pathlib import Path
 
 from .. import pathnames
 from ..attachments import MAX_IMAGE_BYTES, sniff_image
+from ..i18n import zh
 from ..redact import MARKED
 from ..undo.journal import watching
 from .base import Tool, ToolError, ToolImage, ToolOutput, views
@@ -62,7 +63,7 @@ class FileEditor:
         \\服务器\共享 光是展开一下就会去连那台主机，.env. 这种写法展开之后也未必看得出它就是 .env。
         """
         if not isinstance(raw, str) or not raw.strip():
-            raise ToolError("缺少 path 参数。")
+            raise ToolError(zh("缺少 path 参数。"))
         reason = pathnames.trick(raw)
         if reason:
             raise ToolError(f"{reason}。为了安全，这种写法不认，请换成普通的完整路径。")
@@ -105,16 +106,16 @@ class FileEditor:
 
     def run(self, tool_input: dict) -> str | ToolOutput:
         if not isinstance(tool_input, dict):
-            raise ToolError("参数必须是一个 JSON 对象。")
+            raise ToolError(zh("参数必须是一个 JSON 对象。"))
         command = tool_input.get("command")
         path = self.resolve(tool_input.get("path"))
         if self.is_protected(path):
-            raise ToolError("这个文件保存着密钥或者权限的设置，助手不能读取或修改它。")
+            raise ToolError(zh("这个文件保存着密钥或者权限的设置，助手不能读取或修改它。"))
 
         if command == "view":
             return self._view(path, tool_input.get("view_range"))
         if command not in WRITE_COMMANDS:
-            raise ToolError(f"不支持的命令 {command!r}。可用的命令：view、create、str_replace、insert。")
+            raise ToolError(zh("不支持的命令 {command}。可用的命令：view、create、str_replace、insert。", command=repr(command)))
         # watching：这一轮在记账的话（网页和终端里你的对话，见 undo/journal.py），改之前先留一份底，以后能一键撤回
         with _EDITING, watching(path, command):
             if command == "create":
@@ -132,9 +133,9 @@ class FileEditor:
         if path.is_dir():
             entries = sorted(p for p in path.iterdir() if not p.name.startswith("."))
             lines = [f"{p.name}/" if p.is_dir() else p.name for p in entries[:MAX_DIR_ENTRIES]]
-            if len(entries) > MAX_DIR_ENTRIES:
-                lines.append(f"……还有 {len(entries) - MAX_DIR_ENTRIES} 项没有列出")
-            return f"目录 {path} 的内容（不含隐藏项）：\n" + "\n".join(lines or ["（空目录）"])
+            # 文件名是资料，原样填进去；"还有几项""空目录"是我们的话（工具卡片上按界面的语言显示，见 ../i18n.py）
+            more = zh("\n……还有 {n} 项没有列出", n=len(entries) - MAX_DIR_ENTRIES) if len(entries) > MAX_DIR_ENTRIES else ""
+            return zh("目录 {path} 的内容（不含隐藏项）：\n{entries}{more}", path=path, entries="\n".join(lines) if lines else zh("（空目录）"), more=more)
 
         picture = self._picture(path)
         if picture is not None:
@@ -147,7 +148,7 @@ class FileEditor:
                 or len(view_range) != 2
                 or not all(isinstance(n, int) and not isinstance(n, bool) for n in view_range)
             ):
-                raise ToolError("view_range 应该是两个整数：[起始行, 结束行]，结束行填 -1 表示到文件末尾。")
+                raise ToolError(zh("view_range 应该是两个整数：[起始行, 结束行]，结束行填 -1 表示到文件末尾。"))
             start = max(1, view_range[0])
             end = len(lines) if view_range[1] == -1 else min(view_range[1], len(lines))
         numbered = "\n".join(f"{n:6}\t{lines[n - 1]}" for n in range(start, end + 1))
@@ -159,33 +160,33 @@ class FileEditor:
 
     def _create(self, path: Path, text: str) -> str:
         if path.is_dir():
-            raise ToolError(f"{path} 是一个目录，不能当作文件写入。")
+            raise ToolError(zh("{path} 是一个目录，不能当作文件写入。", path=path))
         existed = path.exists()
         if existed:
             self._backup(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write(path, text, "\n")  # 整个文件是模型给的：原样写下去，一个字节都不换
-        return f"已覆盖 {path}（旧版本已备份）。" if existed else f"已创建 {path}。"
+        return zh("已覆盖 {path}（旧版本已备份）。", path=path) if existed else zh("已创建 {path}。", path=path)
 
     def _str_replace(self, path: Path, old: str, new: str) -> str:
         content, newline = self._read(path)
         old, new = _lines(old, newline), _lines(new, newline)
         count = content.count(old) if old else 0
         if count == 0:
-            raise ToolError("没有在文件里找到 old_str。它必须和文件内容逐字一致，包括空格和换行。")
+            raise ToolError(zh("没有在文件里找到 old_str。它必须和文件内容逐字一致，包括空格和换行。"))
         if count > 1:
-            raise ToolError(f"old_str 在文件里出现了 {count} 次，无法确定替换哪一处。请多带一些上下文，让它只出现一次。")
+            raise ToolError(zh("old_str 在文件里出现了 {count} 次，无法确定替换哪一处。请多带一些上下文，让它只出现一次。", count=count))
         _write(path, content.replace(old, new, 1), newline)
-        return f"已修改 {path}。"
+        return zh("已修改 {path}。", path=path)
 
     def _insert(self, path: Path, line: object, text: str) -> str:
         content, newline = self._read(path)
         lines = content.split("\n")
         if not isinstance(line, int) or isinstance(line, bool) or not 0 <= line <= len(lines):
-            raise ToolError(f"insert_line 应该是 0 到 {len(lines)} 之间的整数（0 表示插在文件开头）。")
+            raise ToolError(zh("insert_line 应该是 0 到 {n} 之间的整数（0 表示插在文件开头）。", n=len(lines)))
         lines[line:line] = _lines(text, newline).split("\n")
         _write(path, "\n".join(lines), newline)
-        return f"已在 {path} 的第 {line} 行之后插入内容。"
+        return zh("已在 {path} 的第 {line} 行之后插入内容。", path=path, line=line)
 
     # ---- 辅助 -------------------------------------------------------------
 
@@ -201,10 +202,12 @@ class FileEditor:
         except OSError:
             current = ""
         if any(mark not in current for mark in marks):
-            raise ToolError(
-                "要写进去的内容里有 ‹已遮住：…› 记号。那是智狐遮住的密钥，不是文件里真正的内容：写回去会把真正的密钥换掉。"
-                "请只改不含记号的部分（用 str_replace 换掉别的那几行），或者请用户自己改含密钥的地方。"
-            )
+            # 记号本身照原样写（它在结果里就是这个样子，见 ../redact.py），所以作为值填进去、不进翻译
+            raise ToolError(zh(
+                "要写进去的内容里有 {marker} 记号。那是智狐遮住的密钥，不是文件里真正的内容：写回去会把真正的密钥换掉。"
+                "请只改不含记号的部分（用 str_replace 换掉别的那几行），或者请用户自己改含密钥的地方。",
+                marker="‹已遮住：…›",
+            ))
         return text
 
     def _picture(self, path: Path) -> ToolOutput | None:
@@ -218,13 +221,14 @@ class FileEditor:
             return None
         size = path.stat().st_size
         if size > MAX_IMAGE_BYTES:
-            raise ToolError(
-                f"{path} 是一张图片，但太大了（{_size(size)}），一次最多交给模型 {_size(MAX_IMAGE_BYTES)}。"
-                "可以先缩小一份再看，比如 macOS 上 sips -Z 1568 原图 --out 小图.png，Linux 上 convert 原图 -resize 1568x1568 小图.png。"
-            )
+            raise ToolError(zh(
+                "{path} 是一张图片，但太大了（{size}），一次最多交给模型 {limit}。"
+                "可以先缩小一份再看，比如 macOS 上 sips -Z 1568 原图 --out 小图.png，Linux 上 convert 原图 -resize 1568x1568 小图.png。",
+                path=path, size=_size(size), limit=_size(MAX_IMAGE_BYTES),
+            ))
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         kind = media_type.split("/", 1)[1].upper()
-        return ToolOutput(f"图片 {path}（{kind}，{_size(size)}）。图片本身附在这条结果里。", images=(ToolImage(media_type, data),))
+        return ToolOutput(zh("图片 {path}（{kind}，{size}）。图片本身附在这条结果里。", path=path, kind=kind, size=_size(size)), images=(ToolImage(media_type, data),))
 
     def _read(self, path: Path) -> tuple[str, str]:
         r"""读出一个文本文件（一律 UTF-8）：返回（交给模型的文字，这个文件用的换行）。
@@ -235,13 +239,13 @@ class FileEditor:
         只用 \n 的、混着用的，原样交给模型、原样写回去（"\n"）。
         """
         if not path.exists():
-            raise ToolError(f"{path} 不存在。")
+            raise ToolError(zh("{path} 不存在。", path=path))
         if path.is_dir():
-            raise ToolError(f"{path} 是一个目录，不是文件。")
+            raise ToolError(zh("{path} 是一个目录，不是文件。", path=path))
         try:
             text = path.read_bytes().decode("utf-8")
         except UnicodeDecodeError:
-            raise ToolError(f"{path} 不是文本文件，无法读取。") from None
+            raise ToolError(zh("{path} 不是文本文件，无法读取。", path=path)) from None
         if "\r\n" in text and text.count("\r\n") == text.count("\n"):
             return text.replace("\r\n", "\n"), "\r\n"
         return text, "\n"
@@ -275,7 +279,7 @@ def _size(size: int) -> str:
 def _text(tool_input: dict, key: str) -> str:
     value = tool_input.get(key)
     if not isinstance(value, str):
-        raise ToolError(f"缺少 {key} 参数，或者它不是字符串。")
+        raise ToolError(zh("缺少 {key} 参数，或者它不是字符串。", key=key))
     return value
 
 

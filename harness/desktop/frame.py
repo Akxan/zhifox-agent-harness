@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from ..config import DESKTOP_MAX_EDGE, DESKTOP_MAX_PIXELS
+from ..i18n import zh
 from ..tools.base import ToolError
 
 MIN_ZOOM = 4  # zoom 的区域最小这么多个像素（图上的）
@@ -80,7 +81,8 @@ class Frame:
     def to_screen(self, x: int, y: int) -> tuple[int, int]:
         """图上的一点 → 屏幕的坐标。不在图上的抛 ToolError（交给模型，文档建议这样回答越界的坐标）。"""
         if not (0 <= x < self.width and 0 <= y < self.height):
-            raise ToolError(f"坐标 ({x}, {y}) 不在截图里：截图是 {self.width}×{self.height}，左上角是 (0, 0)。")
+            # 交给模型的话用 zh()：工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+            raise ToolError(zh("坐标 ({x}, {y}) 不在截图里：截图是 {width}×{height}，左上角是 (0, 0)。", x=x, y=y, width=self.width, height=self.height))
         screen = self.screen
         return (
             min(screen.width - 1, round(x * screen.width / self.width)),
@@ -97,12 +99,12 @@ class Frame:
     def region(self, region: object) -> Box:
         """zoom 的区域 [x0, y0, x1, y1]（图上的像素）→ 屏幕上的一块。超出图的部分去掉。"""
         if not (isinstance(region, list) and len(region) == 4 and all(_number(value) for value in region)):
-            raise ToolError("region 要写成 [x0, y0, x1, y1] 四个数：左上角和右下角，按截图上的像素算。")
+            raise ToolError(zh("region 要写成 [x0, y0, x1, y1] 四个数：左上角和右下角，按截图上的像素算。"))
         x0, y0, x1, y1 = (float(value) for value in region)
         x0, y0 = max(0.0, x0), max(0.0, y0)
         x1, y1 = min(float(self.width), x1), min(float(self.height), y1)
         if x1 - x0 < MIN_ZOOM or y1 - y0 < MIN_ZOOM:
-            raise ToolError(f"region 太小了，或者不在截图里（截图是 {self.width}×{self.height}）。右下角要在左上角的右下方。")
+            raise ToolError(zh("region 太小了，或者不在截图里（截图是 {width}×{height}）。右下角要在左上角的右下方。", width=self.width, height=self.height))
         screen = self.screen
         left, top = math.floor(x0 * screen.width / self.width), math.floor(y0 * screen.height / self.height)
         right, bottom = math.ceil(x1 * screen.width / self.width), math.ceil(y1 * screen.height / self.height)

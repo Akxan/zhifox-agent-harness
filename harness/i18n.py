@@ -13,6 +13,15 @@
 这样用户在页面上换语言时，已经显示出来的这些话也能在原地换成新的语言。
 
 模型的回答不受这里影响：它用什么语言回答，取决于用户用什么语言和它说话。
+
+写给模型看的话（工具的结果、出错的原因）保持中文，可同一句话也显示在页面的工具卡片上、终端里。这样的话用 zh() 写：
+
+    raise ToolError(zh("没有编号为 {id} 的待办。先用 todo_list 查看现有的待办。", id=id))
+
+它交出去的就是中文原文（填好了值），模型、历史里存的和直接写一句中文一个字节都不差；同时它和 t() 给的一样记着原文和值，
+界面要显示时用 retell() 照着原文译成界面的语言（见 agent.py 的 _deliver、webui/ui.py 的 tool_result）。
+填进去的值（文件名、命令的输出……）是原样的资料，从来不查翻译表：只有写在 zh() 括号里的那一句是"我们的话"，
+所以命令输出里恰好有一句和翻译表里一样的中文，也不会被译掉。
 """
 
 from __future__ import annotations
@@ -92,11 +101,53 @@ def fill(text: str, values: dict[str, Any]) -> str:
     return _FILL.sub(one, text)
 
 
-def t(text: str, **values: Any) -> Message:
-    """把一句中文原文译成当前的界面语言。"""
+def t(text: str, /, **values: Any) -> Message:
+    """把一句中文原文译成当前的界面语言。text 只能按位置给（/）：句子里可以有叫 {text} 的值（retell 重译工具结果时就会遇到）。"""
     plain = {name: value if isinstance(value, (int, float)) else str(value) for name, value in values.items()}
     nested = {name: value for name, value in values.items() if isinstance(value, Message)}
     return Message(fill(table(current).get(text, text), plain), text, plain, nested)
+
+
+def zh(text: str, /, **values: Any) -> Message:
+    """一句写给模型看、也会显示给人看的话（工具交回的结果、出错的原因，见文件开头）：交回的 Message 就是填好了值的中文原文，
+    另外和 t() 给的一样记着原文（key）和值（values），界面上用 retell() 译成界面的语言。
+
+    值本身也是一句 zh() 或 t() 的话时，填进去的是它的中文原文，它的原文记在 nested 里，界面上连它一起重译。
+    text 只能按位置给（/）：句子里可以有叫 {text} 的值。"""
+    nested = {name: _in_chinese(value) for name, value in values.items() if isinstance(value, Message)}
+    plain = {name: str(nested[name]) if name in nested else value if isinstance(value, (int, float)) else str(value) for name, value in values.items()}
+    return Message(fill(text, plain), text, plain, nested)
+
+
+def chinese(text: object) -> str:
+    """一句话的中文原文。t() 给的 Message（已经按界面语言译好了）换回中文，里面填进去的那几句也一样；交回的仍然记着原文，
+    和 zh() 给的一样，界面上照样能译。普通的文字原样交回。手里是一句译好的话、却要交给模型时用它（比如 TaskError 的原因）。"""
+    return _in_chinese(text) if isinstance(text, Message) else str(text)
+
+
+def _in_chinese(message: Message) -> Message:
+    return zh(message.key, **{name: message.nested.get(name, value) for name, value in message.values.items()})
+
+
+def joined(separator: str, *parts: str) -> str:
+    """几段话用 separator 接起来（空的不算）。都是普通的文字就是普通的 join；有一段是 zh() 或 t() 写的话，就接成一句 zh()：
+    模型拿到的和直接接起来一字不差，每一段的原文都还在，界面上照样能译（用 + 或 join 接成普通字符串的话，原文就丢了）。
+    接成的那句话（"{first}…{rest}"）里没有我们写的字，翻译表里不用有它：页面和 retell 查不到译文时照原样填。"""
+    kept = [part for part in parts if part]
+    if not any(isinstance(part, Message) for part in kept):
+        return separator.join(kept)
+    text = kept[-1]
+    for part in reversed(kept[:-1]):
+        text = zh("{first}" + separator + "{rest}", first=part, rest=text)
+    return text
+
+
+def retell(text: object) -> str:
+    """一句话按现在的界面语言再写一遍（用户可能刚换了语言，或者这句话是 zh() 给的中文原文）。
+    t() 和 zh() 给的 Message 照着原文重译，里面填进去的那几句也一样；普通的文字原样交回（资料从来不翻译），None 是空字符串。"""
+    if isinstance(text, Message):
+        return t(text.key, **{name: retell(text.nested[name]) if name in text.nested else value for name, value in text.values.items()})
+    return "" if text is None else str(text)
 
 
 def k(text: str) -> str:

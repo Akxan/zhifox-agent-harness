@@ -54,9 +54,10 @@ from ctypes import (
 from pathlib import Path
 
 from ..config import DESKTOP_COMMAND_TIMEOUT, DESKTOP_SCROLL_LINES
+from ..i18n import zh
 from ..tools.base import ToolError
 from ..tools.shell import SECRET_ENV_VARS
-from .backend import Shot
+from .backend import Shot, failed
 from .frame import Box, Screen
 from .keys import Chord
 
@@ -214,14 +215,16 @@ class MacBackend:
             return False
 
     def problem(self, kind: str) -> str:
-        host = self.host() or "启动智狐的那个程序（终端、iTerm、VS Code……）"
+        # 交给模型的话用 zh()：工具卡片上按界面的语言显示（见 ../i18n.py 开头）。程序的名字、路径是资料，原样填进去
+        host = self.host() or zh("启动智狐的那个程序（终端、iTerm、VS Code……）")
         if kind == "look" and not self._can_capture():
-            return (
-                f"智狐没有截屏的权限，截不了图。请用户在“系统设置 → 隐私与安全性 → 录屏与系统录音”（旧一些的系统里叫“屏幕录制”）"
-                f"里打开“{host}”，然后重新启动智狐。"
+            return zh(
+                "智狐没有截屏的权限，截不了图。请用户在“系统设置 → 隐私与安全性 → 录屏与系统录音”（旧一些的系统里叫“屏幕录制”）"
+                "里打开“{host}”，然后重新启动智狐。",
+                host=host,
             )
         if kind == "input" and not self._trusted():
-            return f"智狐没有控制鼠标键盘的权限。请用户在“系统设置 → 隐私与安全性 → 辅助功能”里打开“{host}”，然后重新启动智狐。"
+            return zh("智狐没有控制鼠标键盘的权限。请用户在“系统设置 → 隐私与安全性 → 辅助功能”里打开“{host}”，然后重新启动智狐。", host=host)
         return ""
 
     def host(self) -> str:
@@ -262,7 +265,7 @@ class MacBackend:
                 command += ["-R", f"{region.x},{region.y},{region.width},{region.height}"]  # 按点算，截出来是原图的像素
             self._command(command + [str(raw)])
             if not raw.is_file():
-                raise ToolError("截图没有成功（screencapture 没有写出图片）。")
+                raise ToolError(zh("截图没有成功（screencapture 没有写出图片）。"))
             images = []
             for index, shot in enumerate(shots):
                 out = Path(folder) / f"{index}.jpg"
@@ -275,16 +278,16 @@ class MacBackend:
         try:
             done = self._run(command, capture_output=True, timeout=DESKTOP_COMMAND_TIMEOUT, env=env, stdin=subprocess.DEVNULL, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ToolError(f"{Path(command[0]).name} 没有成功：{exc}") from None
+            raise ToolError(zh("{program} 没有成功：{error}", program=Path(command[0]).name, error=exc)) from None
         if done.returncode != 0:
             detail = (done.stderr or b"").decode("utf-8", "replace").strip()[:300]
-            raise ToolError(f"{Path(command[0]).name} 没有成功（退出码 {done.returncode}）{('：' + detail) if detail else ''}")
+            raise ToolError(failed(Path(command[0]).name, done.returncode, detail))
 
     # ---- 鼠标 -------------------------------------------------------------------
 
     def _post(self, event: int | None, flags: int = 0) -> None:
         if not event:
-            raise ToolError("系统没能生成鼠标键盘事件。")
+            raise ToolError(zh("系统没能生成鼠标键盘事件。"))
         q = self.q
         try:
             if flags:
@@ -337,7 +340,7 @@ class MacBackend:
     def key(self, chord: Chord, kind: str = "tap") -> None:
         code = KEYCODES.get(chord.key) if chord.key else None
         if chord.key and code is None:
-            raise ToolError(f"在 macOS 上按不了 {chord.key} 这个键。")
+            raise ToolError(zh("在 macOS 上按不了 {key} 这个键。", key=chord.key))
         q = self.q
         flags = 0
         if kind in ("tap", "down"):

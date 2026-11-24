@@ -2,7 +2,7 @@
 
   STATUSES、UNFINISHED   一次运行可能处于的状态
   new_run                新的一次运行的记录；new_id 是任务、运行、提醒共用的编号
-  said、retell           给人看的话连同原文（key、values）一起存下，换了语言还能重新译
+  said                   给人看的话连同原文（key、values）一起存下，换了语言还能重新译（retell，写在 i18n.py 里）
   _restore_run、_restore_reminder  从 data/tasks.json 读回来的时候一条条检查：坏掉的那一条丢掉，别的照常用
 
 为什么单独一个文件：记录长什么样，TaskStore 和 webui/scheduler.py 都要用；读回来的检查又和锁、存盘无关。
@@ -14,7 +14,7 @@ import math
 import secrets
 from typing import TypeGuard
 
-from .i18n import Message, t
+from .i18n import Message
 from .tasks_check import _is_int
 
 # 一次运行在保存的记录里可能处于的状态。
@@ -54,13 +54,6 @@ def said(text: str) -> dict:
     if isinstance(text, Message):
         return {"error": str(text), "error_key": text.key, "error_values": text.values}
     return {"error": str(text), "error_key": "", "error_values": {}}
-
-
-def retell(text: object) -> str:
-    """把一句用 t() 写的话按现在的界面语言再译一遍（用户可能刚换了语言）。普通文字原样返回。"""
-    if isinstance(text, Message):
-        return t(text.key, **text.values)
-    return "" if text is None else str(text)
 
 
 def _brief(text: str, limit: int = 120) -> str:

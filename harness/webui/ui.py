@@ -30,7 +30,7 @@ from ..attachments import Attachment, from_saved
 from ..citations import Numbering
 from ..desktop.session import TRUSTS
 from ..display import describe_call
-from ..i18n import Message, t
+from ..i18n import Message, retell, t
 
 MAX_RESULT_CHARS = 8000  # 工具结果最多给浏览器显示这么多字符（发给模型的不受影响）
 MAX_ANSWER_CHARS = 40_000  # 子 Agent 的回答最多显示这么多（它也会作为工具结果交给主助手，见 agents/runner.py）
@@ -424,11 +424,9 @@ class WebUI:
         self.publish("auto_allowed", why=why)
 
     def tool_result(self, text: str, is_error: bool, preview: dict | None = None) -> None:
-        if len(text) > MAX_RESULT_CHARS:
-            text = text[:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(text))
-        # 浏览器的截图：小图（几 KB 的 data: 地址）放进事件，画在工具卡片上；大图只给编号，点开时再要（见 browser/shots.py）
-        shot = shot_fields(preview)
-        self.publish("tool_result", text=text, is_error=is_error, **shot)
+        # 程序自己写的那几句话（zh() 给的，见 ../i18n.py 开头）带着原文：译成界面的语言，事件里也带上原文，页面换语言时在原地重译。
+        # 命令的输出、文件的内容这些是普通的文字，原样显示
+        self.publish("tool_result", **said(shown_result(text)), is_error=is_error, **shot_fields(preview))
         self._check_stop()
 
     def confirm(self, description: str, agent: str = "") -> tuple[bool, str]:
@@ -502,8 +500,8 @@ class WebUI:
         self.end_stream()
         fields = dict(data)
         if "text" in fields:
-            if step == "tool_result" and len(fields["text"]) > MAX_RESULT_CHARS:
-                fields["text"] = fields["text"][:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(fields["text"]))
+            if step == "tool_result":
+                fields["text"] = shown_result(fields["text"])  # 和主助手的工具结果一样（见 tool_result）
             fields.update(said(fields.pop("text")))
         if fields.get("error"):
             fields["error"] = said(fields["error"])  # 出错的原因：换语言时页面照着原文重译
@@ -548,6 +546,15 @@ THUMB_PREFIX = "data:image/jpeg;base64,"
 MAX_THUMB_CHARS = 60_000  # 小图最多这么大（正常的只有几 KB）。再大的不放进事件：每次刷新页面都要重发
 
 
+def shown_result(text: str) -> str:
+    """一个工具结果在页面上显示的样子：程序自己写的话（zh()、t() 给的 Message）按界面的语言重译，还带着原文；别的原样。
+    太长的只留开头，截短了的就是普通的文字、不再带原文：照着原文重译会把整段又放出来，事件也就白白多了一份。"""
+    shown = retell(text) if isinstance(text, Message) else text
+    if len(shown) > MAX_RESULT_CHARS:
+        return shown[:MAX_RESULT_CHARS] + "\n" + t("……（共 {n} 个字符，这里只显示开头）", n=len(shown))
+    return shown
+
+
 def shot_fields(preview: dict | None) -> dict:
     """工具结果里给页面看的截图：{"thumb": 小图, "shot": 大图的编号}。格式不对的一律不要。"""
     if not preview:
@@ -588,6 +595,25 @@ def said(text: str) -> dict:
     if isinstance(text, Message):
         return {"text": str(text), "key": text.key, "values": page_values(text)}
     return {"text": text}
+
+
+def unsaid(text: str, key: object = None, values: object = None) -> str:
+    """said() 反过来：事件里的一句话（译好的文字、原文 key、填进去的值 values）变回 t() 的 Message，里面填进去的那几句
+    （页面的样子是 {"key", "values"}，见 page_values）也一样变回去，之后照样能用 retell 按别的语言重译。
+    没有原文的（普通文字、以前存下的事件）原样交回。"""
+    if not isinstance(key, str) or not key:
+        return text
+    return _rebuilt(key, values if isinstance(values, dict) else {})
+
+
+def _rebuilt(key: str, values: dict) -> Message:
+    inner = {name: _rebuilt(value["key"], _values(value)) for name, value in values.items() if isinstance(value, dict) and isinstance(value.get("key"), str)}
+    return t(key, **{name: inner.get(name, value) for name, value in values.items()})
+
+
+def _values(said: dict) -> dict:
+    values = said.get("values")
+    return values if isinstance(values, dict) else {}
 
 
 def page_values(message: Message) -> dict:

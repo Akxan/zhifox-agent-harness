@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import winjob
+from ..i18n import zh
 from ..sandbox import Facts, Sandbox
 from .base import FactsTool, ToolError, function_tool
 from .cwd import CurrentDir, marker, take, wrap
@@ -197,7 +198,8 @@ class Shell:
             _kill(process, job)
             output, _ = process.communicate()
             output, _ = take(output, mark)  # 超时：留在原来的目录（它停在哪儿说不准），记号那一行照样去掉
-            return f"{_clip(output)}\n[命令运行超过 {timeout} 秒，已被终止]{self.current.take_note()}"
+            # 输出是资料，原样填进去；后面的说明是我们的话（zh()），工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+            return zh("{output}\n[命令运行超过 {seconds} 秒，已被终止]{note}", output=_clip(output), seconds=timeout, note=self.current.take_note())
         except KeyboardInterrupt:  # 终端里按了 Ctrl-C
             _kill(process, job)
             raise
@@ -206,15 +208,20 @@ class Shell:
             job.close()
         output, place = take(output, mark)
         if self._stopped:
-            shown = _clip(output).rstrip() or "（没有输出）"
-            raise ToolError(f"命令还没运行完，就被用户停止了。在那之前的输出：\n{shown}{self.current.take_note()}")
+            shown = _clip(output).rstrip() or zh("（没有输出）")
+            raise ToolError(zh("命令还没运行完，就被用户停止了。在那之前的输出：\n{output}{note}", output=shown, note=self.current.take_note()))
         self.current.moved(place)  # 下一条命令从它停下的目录开始
-        result = _clip(output).rstrip("\n") or "（没有输出）"
-        if process.returncode != 0:
-            result += f"\n[退出码 {process.returncode}]"
-            if jail is not None:
-                result += jail.explain(output)  # 像是被沙箱挡住的：告诉模型是怎么回事、能怎么办
-        return result + self.current.take_note()
+        result = _clip(output).rstrip("\n") or zh("（没有输出）")
+        failed = process.returncode != 0
+        tail = {
+            "code": zh("\n[退出码 {code}]", code=process.returncode) if failed else "",
+            "sandbox": jail.explain(output) if failed and jail is not None else "",  # 像是被沙箱挡住的：告诉模型是怎么回事、能怎么办
+            "note": self.current.take_note(),
+        }
+        if not any(tail.values()):
+            return result  # 只有输出（资料）：原样交回
+        # 输出后面接着我们的几句说明：包成一句 zh()，输出原样填在里面（见上面超时的那一句）
+        return zh("{output}{code}{sandbox}{note}", output=result, **tail)
 
     def facts(self, tool_input: dict) -> Facts | None:
         """这次调用在沙箱这件事上是什么情况（permissions.py 照着它写卡片）。没有沙箱这回事时是 None。"""

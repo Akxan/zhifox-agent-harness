@@ -132,9 +132,11 @@ class Router:
         """/status 的回答：轮到它发的时候才写（compose），写的是那一刻的样子；不排在这个聊天没发出去的那些后面（见 outbox.KINDS）。"""
         self._later(platform, Job("status", chat, lambda channel: channel.send(chat, str(compose()))))
 
-    def ask(self, platform: str, chat: str, prompt: Prompt, waiting: Waiting) -> None:
+    def ask(self, platform: str, chat: str, prompt: Prompt | Callable[[], Prompt], waiting: Waiting) -> None:
+        """prompt 可以是一个函数：轮到它发的时候才写，用那一刻的界面语言（见 session.py 的 _asked）。"""
+
         def run(channel: Channel) -> None:
-            waiting.handle = channel.ask(chat, prompt)
+            waiting.handle = channel.ask(chat, prompt() if callable(prompt) else prompt)
 
         self._later(platform, Job("ask", chat, run, waiting=waiting))
 

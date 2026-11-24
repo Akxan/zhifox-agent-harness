@@ -45,13 +45,14 @@ import json
 import threading
 from typing import TYPE_CHECKING, Any
 
+from ..i18n import zh
 from ..tools.base import ToolError
 from . import urls
 from .cdp import Cancelled, CDPClosed, CDPError, CDPTimeout, Connection
 from .session_facts import Facts, SessionFacts
 from .session_input import SessionInput, Target
 from .session_look import SessionLook
-from .session_page import Outcome, SessionPage
+from .session_page import Outcome, SessionPage, lines
 from .session_tabs import SessionTabs, Tab, _clean_title
 
 if TYPE_CHECKING:
@@ -94,7 +95,8 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
         with self._lock:
             if self.closed_by_user:
                 self.closed_by_user = False
-                raise ToolError("用户刚才在智狐的页面上停下并关掉了浏览器。先不要再用浏览器：告诉用户你做到了哪一步，等他说可以了再继续。")
+                # 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+                raise ToolError(zh("用户刚才在智狐的页面上停下并关掉了浏览器。先不要再用浏览器：告诉用户你做到了哪一步，等他说可以了再继续。"))
             self._halt.clear()
             self.busy = True
             self.manager.began()
@@ -102,13 +104,13 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
                 self._drain()
                 return getattr(self, "_do_" + action)(**args)
             except Cancelled:
-                raise ToolError("用户停下了这一步浏览器操作。") from None
+                raise ToolError(zh("用户停下了这一步浏览器操作。")) from None
             except CDPTimeout as exc:
-                raise ToolError(f"浏览器没有回应（{exc.message}）。页面可能卡住了：可以过一会儿再试，或者刷新一下（navigate reload）。") from None
+                raise ToolError(zh("浏览器没有回应（{reason}）。页面可能卡住了：可以过一会儿再试，或者刷新一下（navigate reload）。", reason=exc.message)) from None
             except CDPClosed:
-                raise ToolError("浏览器关掉了（可能是被手动关掉了，或者崩溃了）。再用浏览器的工具时会自动重新打开，之前的标签页没有了。") from None
+                raise ToolError(zh("浏览器关掉了（可能是被手动关掉了，或者崩溃了）。再用浏览器的工具时会自动重新打开，之前的标签页没有了。")) from None
             except CDPError as exc:
-                raise ToolError(f"浏览器没能完成这一步：{exc.message}") from None
+                raise ToolError(zh("浏览器没能完成这一步：{reason}", reason=exc.message)) from None  # Chrome 说的原因是资料，原样填进去
             finally:
                 self.busy = False
                 self.manager.ended()
@@ -194,7 +196,7 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
                         del self.tabs[tab_id]
                         if self.active == tab_id:
                             self.active = next(reversed(self.tabs), "") if self.tabs else ""
-                        self._notes.append(f"标签页 {tab_id} 被关掉了（不是你关的，可能是用户手动关的）。")
+                        self._notes.append(zh("标签页 {tab} 被关掉了（不是你关的，可能是用户手动关的）。", tab=tab_id))
             elif kind == "note":
                 self._notes.append(value)
             elif kind == "download":
@@ -219,7 +221,7 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
         connection, generation = self.manager.connect()
         if generation != self._generation:
             if self._generation != -1 and self.tabs:
-                self._notes.append("浏览器在这期间关掉又重新打开了（闲置太久会自动关掉），之前的标签页都没有了，现在是一个新的空白页。")
+                self._notes.append(zh("浏览器在这期间关掉又重新打开了（闲置太久会自动关掉），之前的标签页都没有了，现在是一个新的空白页。"))
             self._forget_tabs()
             self._reported = None
             self._generation = generation
@@ -258,7 +260,7 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
     def _finish(self, connection: Connection, tab: Tab | None, text: str, preview: bool = True, image: bytes | None = None) -> Outcome:
         notes, self._notes = self._notes, []
         if notes:
-            text = "\n".join([text, *notes]) if text else "\n".join(notes)
+            text = lines(text, *notes)  # 接起来以后每一段还记着原文（见 session_page.lines）
         outcome = Outcome(text=text, image=image)
         if tab is not None and preview and tab.id in self.tabs:
             outcome.shot, outcome.thumb = self._preview(connection, tab, image)
@@ -269,4 +271,4 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
         """管标签页的四个动作：结果只有一个 browser_state（见 Anthropic 的文档）。"""
         notes, self._notes = self._notes, []
         state = self._state(connection, force=True) or {"tabs": []}
-        return Outcome(text="\n".join(notes), state=state, tabs_only=True)
+        return Outcome(text=lines(*notes), state=state, tabs_only=True)

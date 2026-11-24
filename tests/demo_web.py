@@ -655,6 +655,24 @@ if not (root / "data").exists():
         ],
     }
     (root / "data" / "conversations" / f"{demo_scripts.VOICE_ID}.json").write_text(json.dumps(spoken, ensure_ascii=False), encoding="utf-8")
+    # 以前存下的工具结果：只有文字、没有原文（那时还没有 zh()）。页面照原样显示，换了语言也不去翻译表里找一句一样的
+    remembered = {
+        "id": demo_scripts.OLD_RESULT_ID, "provider": "anthropic", "model": "claude-opus-5-5", "title": "以前存下的工具结果",
+        "created_at": old + 180, "updated_at": old + 180, "context_tokens": 0, "version": 1,
+        "events": [
+            {"type": "user", "text": "删掉 9 号待办", "mark": 0}, {"type": "turn_start"},
+            {"type": "tool_call", "name": "todo_delete", "summary": "todo_delete 9", "input": {"id": 9}},
+            {"type": "tool_result", "text": demo_scripts.OLD_RESULT, "is_error": True},
+            {"type": "text", "text": "没有 9 号这一条。"}, {"type": "turn_end"},
+        ],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "<context>当时的时间</context>"}, {"type": "text", "text": "删掉 9 号待办"}]},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_old_9", "name": "todo_delete", "input": {"id": 9}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_old_9", "content": demo_scripts.OLD_RESULT, "is_error": True}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "没有 9 号这一条。"}]},
+        ],
+    }
+    (root / "data" / "conversations" / f"{demo_scripts.OLD_RESULT_ID}.json").write_text(json.dumps(remembered, ensure_ascii=False), encoding="utf-8")
     fake_mcp = str(Path(__file__).parent / "fake_mcp.py")
     servers = {
         "files": {"command": sys.executable, "args": [fake_mcp, "--era", "modern"]},

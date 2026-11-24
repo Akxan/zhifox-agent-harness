@@ -15,6 +15,8 @@ from __future__ import annotations
 import ipaddress
 from urllib.parse import urlsplit
 
+from ..i18n import zh
+
 HISTORY = {"back", "forward", "reload"}
 # 一律不打开的协议。看的是解析出来的协议，不是字符串开头：大小写、前后空格、"jAvAsCrIpT:" 都一样拦得住
 REFUSED_SCHEMES = {"file", "chrome", "chrome-extension", "chrome-untrusted", "devtools", "javascript", "view-source", "filesystem"}
@@ -42,23 +44,25 @@ def scheme_of(url: str) -> str:
 
 
 def refusal(url: str) -> str | None:
-    """这个地址根本不打开的话，返回给模型看的原因；可以打开（也许要先问用户）返回 None。"""
+    """这个地址根本不打开的话，返回给模型看的原因；可以打开（也许要先问用户）返回 None。
+    原因用 zh() 写：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）。"""
     if len(url) > MAX_URL_CHARS:
-        return f"这个地址太长了（{len(url)} 个字符），没有打开。"
+        return zh("这个地址太长了（{n} 个字符），没有打开。", n=len(url))
     scheme = scheme_of(url)
     if scheme in REFUSED_SCHEMES:
-        return (
-            f"不能打开 {scheme}: 开头的地址。智狐的浏览器只用来看网页：本地文件、浏览器自己的设置页和调试工具、"
-            "直接执行代码的地址都不打开。需要看本地文件的话，用读文件的工具。"
+        return zh(
+            "不能打开 {scheme}: 开头的地址。智狐的浏览器只用来看网页：本地文件、浏览器自己的设置页和调试工具、"
+            "直接执行代码的地址都不打开。需要看本地文件的话，用读文件的工具。",
+            scheme=scheme,
         )
     if scheme in WEB_SCHEMES:
         parts = urlsplit(url)
         if not parts.hostname:
-            return "这个地址里没有网站的名字，没法打开。"
+            return zh("这个地址里没有网站的名字，没法打开。")
         try:
             parts.port  # noqa: B018 —— 端口写错了（不是数、超出范围）的话，这里会抛出 ValueError
         except ValueError:
-            return "这个地址里的端口号不对，没法打开。"
+            return zh("这个地址里的端口号不对，没法打开。")
     return None
 
 

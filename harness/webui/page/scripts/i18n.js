@@ -44,16 +44,35 @@ function tel(tag, className, text, values) {
 function retext(node, text, values) {
   node.dataset.i18n = text;
   if (values) node.dataset.i18nValues = JSON.stringify(values); else delete node.dataset.i18nValues;
+  delete node.dataset.i18nLine;
   node.textContent = t(text, values);
   return node;
 }
 
-// 设置 title、placeholder、aria-label 这类属性上的文字（同样记下原文）
-const ATTRIBUTES = { title: 'i18nTitle', placeholder: 'i18nPlaceholder', 'aria-label': 'i18nAriaLabel' };
-function tattr(node, name, text) {
-  node.dataset[ATTRIBUTES[name]] = text;
-  node.setAttribute(name, t(text));
+// 和 retext 一样，只是只显示这句话的第一行（工具卡片上出错的原因）：换语言时也只取第一行
+function retextLine(node, text, values) {
+  retext(node, text, values);
+  node.dataset.i18nLine = '';
+  node.textContent = firstLine(node.textContent);
   return node;
+}
+
+// 设置 title、placeholder、aria-label 这类属性上的文字（同样记下原文）。values 是句子里会变的部分；
+// line 为真时只用第一行（子 Agent 那一步的悬停说明：工具结果的第一行）
+const ATTRIBUTES = { title: 'i18nTitle', placeholder: 'i18nPlaceholder', 'aria-label': 'i18nAriaLabel' };
+function tattr(node, name, text, values, line) {
+  const key = ATTRIBUTES[name];
+  node.dataset[key] = text;
+  if (values) node.dataset[key + 'Values'] = JSON.stringify(values); else delete node.dataset[key + 'Values'];
+  if (line) node.dataset[key + 'Line'] = ''; else delete node.dataset[key + 'Line'];
+  node.setAttribute(name, attributeText(node, key));
+  return node;
+}
+
+function attributeText(node, key) {
+  const values = node.dataset[key + 'Values'];
+  const text = t(node.dataset[key], values ? JSON.parse(values) : undefined);
+  return (key + 'Line') in node.dataset ? firstLine(text) : text;
 }
 
 // 把页面上所有记着原文的地方按当前语言重写一遍。刚打开页面时做一次，每次换语言再做一次。
@@ -61,12 +80,13 @@ function translatePage() {
   root.lang = LOCALES[language];
   for (const node of document.querySelectorAll('[data-i18n]')) {
     if (!node.dataset.i18n) node.dataset.i18n = node.textContent.trim();  // 第一次：写在页面里的中文就是原文
-    node.textContent = t(node.dataset.i18n, node.dataset.i18nValues ? JSON.parse(node.dataset.i18nValues) : undefined);
+    const text = t(node.dataset.i18n, node.dataset.i18nValues ? JSON.parse(node.dataset.i18nValues) : undefined);
+    node.textContent = 'i18nLine' in node.dataset ? firstLine(text) : text;
   }
   for (const [name, key] of Object.entries(ATTRIBUTES)) {
     for (const node of document.querySelectorAll('[data-i18n-' + name + ']')) {
       if (!node.dataset[key]) node.dataset[key] = node.getAttribute(name) || '';
-      node.setAttribute(name, t(node.dataset[key]));
+      node.setAttribute(name, attributeText(node, key));
     }
   }
 }

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 
-from ..i18n import Message, fill
+from .. import i18n
+from ..i18n import zh
 from ..tasks import TaskError, TaskStore, chinese, describe, local_text
 from .base import Tool, ToolError, always, function_tool
 
@@ -48,11 +49,9 @@ NOTE = "定时任务只在网页界面（uv run harness --web）开着的时候�
 
 
 def _chinese(exc: TaskError) -> str:
-    """错误信息的中文原文。写给模型看的话保持中文，不跟着界面语言变（见 CLAUDE.md）。"""
-    message = exc.args[0] if exc.args else ""
-    if isinstance(message, Message):
-        return fill(message.key, message.values)
-    return str(message)
+    """错误信息的中文原文。写给模型看的话保持中文，不跟着界面语言变（见 CLAUDE.md）。
+    TaskError 带着 t() 写的话（页面上也用它），换回中文原文以后仍然记着原文：工具卡片上照样按界面的语言显示（见 ../i18n.py）。"""
+    return i18n.chinese(exc.args[0] if exc.args else "")
 
 
 def _view(task: dict) -> dict:
@@ -98,7 +97,7 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
         try:
             task = store.delete(id)
         except TaskError as exc:
-            raise ToolError(_chinese(exc) + "先用 task_list 查看现有的任务。") from None
+            raise ToolError(zh("{reason}先用 task_list 查看现有的任务。", reason=_chinese(exc))) from None
         return _as_json({"deleted": _view(task)})
 
     return [

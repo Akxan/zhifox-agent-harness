@@ -31,7 +31,7 @@ agent 任务还记着"要不要先问你"（approval）：和对话里的几档�
 
   tasks_check.py     任务是什么：时间表和一个任务的格式检查（check_schedule、check_task）、几个上限、两种错误
   tasks_schedule.py  什么时候：按日历算下一次（next_after）、错过了几次（count_due）、接下来几次（upcoming、preview）、一句话的说明（describe）
-  tasks_records.py   一次运行的记录、一条提醒：新建（new_run）、给人看的话连同原文存下来（said、retell）、从文件读回来时一条条检查
+  tasks_records.py   一次运行的记录、一条提醒：新建（new_run）、给人看的话连同原文存下来（said；再译一遍的 retell 在 i18n.py）、从文件读回来时一条条检查
   tasks_store.py     存在哪：TaskStore（data/tasks.json、锁、增删改、运行的记录）
 
 这个文件只剩这段说明和交出去的名字（__all__）：别处照旧 from .tasks import …，不用管写在哪个文件里。
@@ -40,6 +40,9 @@ agent 任务还记着"要不要先问你"（approval）：和对话里的几档�
 
 from __future__ import annotations
 
+from .i18n import (
+    retell,  # 照旧从这里交出去（别处 from .tasks import retell）；写在 i18n.py 里，聊天通道、页面的状态也用它
+)
 from .tasks_check import (
     KINDS,
     MAX_INTERVAL_MINUTES,
@@ -51,7 +54,7 @@ from .tasks_check import (
     check_schedule,
     check_task,
 )
-from .tasks_records import STATUSES, UNFINISHED, new_id, new_run, retell, said
+from .tasks_records import STATUSES, UNFINISHED, new_id, new_run, said
 from .tasks_schedule import (
     MAX_COUNTED,
     PAST,

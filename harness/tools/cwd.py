@@ -62,6 +62,8 @@ import threading
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from ..i18n import zh
+
 # 记号的样子：前缀加一段随机的十六进制数，只有字母、数字和下划线，放进 bash 的单引号、PowerShell 的字符串里都不用转义
 _PREFIX = "__ZHIFOX_CWD_"
 
@@ -141,14 +143,15 @@ class CurrentDir:
             except OSError:  # 名字太长、没有权限……看不了就当它不在
                 there = False
             if not there:
-                self._back(f"上一条命令结束时所在的目录 {here} 已经不在了（可能被删掉了）")
+                self._back(zh("上一条命令结束时所在的目录 {path} 已经不在了（可能被删掉了）", path=here))
             elif not reaches(here):
-                self._back(f"之前的命令 cd 到了 {here}，可是这次运行开着沙箱，命令只能从工作目录和额外允许的路径里开始")
+                self._back(zh("之前的命令 cd 到了 {path}，可是这次运行开着沙箱，命令只能从工作目录和额外允许的路径里开始", path=here))
             return self._path
 
     def _back(self, reason: str) -> None:
         self._path = self.workspace
-        self._note = f"{reason}，所以这条命令是在工作目录 {self.workspace} 里运行的。"
+        # 这几句是写给模型看的中文（zh()），接在命令的结果后面；工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+        self._note = zh("{reason}，所以这条命令是在工作目录 {workspace} 里运行的。", reason=reason, workspace=self.workspace)
 
     def moved(self, place: str | None) -> None:
         """一条命令正常结束了，place 是它最后打出的目录（见 take）。看不懂的（空的、相对路径、有 NUL）不记，留在原来的目录。"""
@@ -164,16 +167,17 @@ class CurrentDir:
         """问你的时候还在 before，真正运行之前它不在了（见文件开头）：这一条不执行时交给模型的话。之前记下的那一句不用再说了。"""
         with self._lock:
             self._note = ""
-        return (
-            f"命令没有执行：问用户的时候它要在 {before} 里运行，可是在真正运行之前那个目录不在了（或者沙箱里看不到了）。"
-            f"之后的命令从工作目录 {self.workspace} 开始运行；需要的话请重新执行这条命令。"
+        return zh(
+            "命令没有执行：问用户的时候它要在 {before} 里运行，可是在真正运行之前那个目录不在了（或者沙箱里看不到了）。"
+            "之后的命令从工作目录 {workspace} 开始运行；需要的话请重新执行这条命令。",
+            before=before, workspace=self.workspace,
         )
 
     def take_note(self) -> str:
         """取走要在这条命令的结果后面说的那一句（取走就清空）。没有就是空字符串。"""
         with self._lock:
             note, self._note = self._note, ""
-        return f"\n[注意：{note}]" if note else ""
+        return zh("\n[注意：{note}]", note=note) if note else ""
 
     def reset(self, reopened: bool = False) -> None:
         """回到工作目录：开始一段新对话、换到另一段会话时。reopened：这段会话的历史里执行过命令（重新打开的、分叉出来的），
@@ -181,7 +185,7 @@ class CurrentDir:
         with self._lock:
             self._path = self._turn = self.workspace
             self._note = (
-                f"这段对话是重新打开的（或者是从别的对话分叉出来的），命令从工作目录 {self.workspace} 重新开始运行，之前 cd 到的目录不再算数。"
+                zh("这段对话是重新打开的（或者是从别的对话分叉出来的），命令从工作目录 {workspace} 重新开始运行，之前 cd 到的目录不再算数。", workspace=self.workspace)
                 if reopened
                 else ""
             )

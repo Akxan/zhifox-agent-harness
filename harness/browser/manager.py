@@ -30,7 +30,7 @@ from ..config import (
     BROWSER_START_TIMEOUT,
     BROWSER_VIEWPORT,
 )
-from ..i18n import t
+from ..i18n import t, zh
 from ..tools.base import ToolError
 from . import chrome
 from .cdp import CDPError, Connection
@@ -127,10 +127,11 @@ class BrowserManager:
         if executable is None:
             chosen = str(self.settings.browser.get("path") or "")
             self.error = t("找不到 Chrome。") if not chosen else t("设置里填的 Chrome 路径不对：{path}", path=chosen)
-            raise ToolError(
+            # 交给模型的话用 zh()：模型拿到中文原文，工具卡片上按界面的语言显示（见 ../i18n.py 开头）
+            raise ToolError(zh(
                 "这台电脑上找不到 Chrome（或者设置里填的路径不对），浏览器打不开。请用户装一个 Chrome，"
                 "或者在“设置 → 浏览器”里填上 Chrome 的路径。"
-            )
+            ))
         running: chrome.Chrome | None = None
         try:
             running = self.launcher(executable, self.profile, self.headless, on_close=self._closed)
@@ -140,7 +141,7 @@ class BrowserManager:
             self.error = t("Chrome 启动失败：{error}", error=str(exc))
             if running is not None:
                 running.discard()
-            raise ToolError(f"浏览器启动失败：{exc}。可以请用户检查一下 Chrome 能不能正常打开。") from None
+            raise ToolError(zh("浏览器启动失败：{error}。可以请用户检查一下 Chrome 能不能正常打开。", error=exc)) from None
         self.error = ""
         self.generation += 1
         self._chrome = running
@@ -324,7 +325,7 @@ class BrowserManager:
         message = " ".join(str(params.get("message", "")).split())[:200]
         owner = next((session for session in list(self._sessions) if session.owns_session(cdp_session)), None)
         if owner is not None:
-            owner.note(f"页面弹出了一个对话框（{kind}）：“{message}”。智狐已经替你取消了它。")
+            owner.note(zh("页面弹出了一个对话框（{kind}）：“{message}”。智狐已经替你取消了它。", kind=kind, message=message))  # 对话框里的话是网页的，原样
         connection = self.connection_if_running()
         if connection is None:
             return
