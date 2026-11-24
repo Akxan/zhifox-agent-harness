@@ -184,6 +184,10 @@ no answer at all):
   in from that chat, or every 30 seconds while the channel looks online. Whatever that chat sends next waits behind
   them. An approval request that hasn't reached the chat says so on the web page ("Not delivered to the chat yet"),
   where you can answer it: the turn is waiting for it either way.
+- **A new owner gets none of it.** What's kept was written for the owner at the time. Unbinding, removing the
+  platform, switching to another bot (which means pairing again) or pairing someone else, whether on the web page, on
+  the command line or in the chat, drops everything that platform kept and stops any turn still running in the old
+  chats (`router._binding_changed`).
 - **You can see it.** The channel's row in **Extensions → Channels** says how many messages are waiting, how many
   couldn't be delivered, and when and why the last failure happened; `/status` in the chat says the same (its answer
   isn't queued behind the waiting messages). `harness channels status` runs in another process and can't see the queue.
