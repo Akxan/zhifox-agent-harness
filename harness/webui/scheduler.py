@@ -16,7 +16,7 @@
     能这样做，是因为凡是"会被停下"的东西，每次运行都有自己的一份（见 App.unattended_agent）：
       - 自己的 shell：停下一个任务，只结束它自己正在运行的命令。你点对话里的"停止"碰不到任务，
         停下一个任务也碰不到你的对话和别的任务；
-      - 自己的界面（RunUI，见下面）、适配层和历史、权限。
+      - 自己的界面（RunUI，见 scheduler_run.py）、适配层和历史、权限。
     共用的只有存在磁盘上的东西：待办、任务、记忆、会话、工作目录里的文件。它们各自有锁（TodoStore、TaskStore、
     ConversationStore、tools/files.py、tools/memory.py），每次改动一口气做完，几边同时改也不会互相冲掉。
     要是两边改的是同一个文件的同一处，后改的那一边会发现原文已经变了（str_replace 找不到原文就报错），
@@ -53,8 +53,24 @@
   steps（调用了几次模型）、catch_up（是不是补跑的）、missed（补跑时错过了几次）、manual（是不是你点了"立即运行"）、
   conversation（存下来的会话编号，没有就是空字符串）、summary（最后的回答的开头）、error（出错的原因）。
 
-running 的字段见 _live_view。里面给人看的话（activity.summary、log[].summary、confirm.summary）都是写好的整句，
+running 的字段见 scheduler_run.py 的 _live_view。里面给人看的话（activity.summary、log[].summary、confirm.summary）都是写好的整句，
 已经说清楚了是哪个工具（比如"run_command $ ls"、"执行命令：$ ls"），页面原样显示，不再在前面加工具的名字。
+
+这个文件由几块拼成（2026-11-24 按小节拆开，代码一个字没改；别处照旧 from .scheduler import Scheduler、Throttle、
+PUBLISH_INTERVAL……，交出去的名字写在 __all__ 里）：
+
+  scheduler.py          上面这段说明；Throttle；Scheduler 的说明（锁的规矩）、状态（__init__，几把锁都在这里建）、clock、_publish、
+                        snapshot（状态里的 tasks 和 reminders）
+  scheduler_run.py      一次运行：RunUI（它的界面）、Pending（排着队、正在跑的那一次）、_live_view（状态里的 running）、
+                        instruction 和 APPROVAL_NOTES（发给模型的那条消息）
+  scheduler_loop.py     调度线程：什么时候醒、到时间的排进队（start、tick、_enqueue）
+  scheduler_work.py     执行：有空位就开始、一次运行的线程、跑完收尾、进度（_dispatch、_work、_run、_finish、_observe）
+  scheduler_actions.py  页面上的操作（/api/task/...）：新建、修改、删除、立即运行、停下、答复确认；退出时的 close、wait_idle
+  scheduler_types.py    SchedulerPart：混进 Scheduler 的几组方法要用的东西，只写给 mypy 看
+
+Scheduler 和 App 一样由混进来的基类拼成（SchedulerLoop、SchedulerWork、SchedulerActions）；拆出去的文件只往前 import
+（run → loop、work、actions → 这里），不 import 这个文件。锁的规矩（Scheduler 的说明里那一段）对每一组都算数：
+拿着 self._lock 时不调用 RunUI 的方法、不发状态、不写任务文件。
 """
 
 from __future__ import annotations
@@ -143,17 +159,20 @@ class Throttle:
 
 class Scheduler(SchedulerLoop, SchedulerWork, SchedulerActions):
     """网页界面里的定时任务：调度线程、排队、执行、进度，以及页面上的那几个操作（/api/task/...）。
+    方法按小节分在 scheduler_loop.py、scheduler_work.py、scheduler_actions.py（见这个文件开头），状态都在 __init__ 里。
 
     锁的规矩（违反了会互相等死）：拿着 self._lock 的时候，不调用 RunUI 的方法、不发状态、不碰任务文件。
-    RunUI 在等确认时是拿着它自己的锁来通知我们的（见 _observe），所以反过来只能先放开 self._lock 再去找它。
+    RunUI 在等确认时是拿着它自己的锁来通知我们的（见 scheduler_work.py 的 _observe），所以反过来只能先放开 self._lock 再去找它。
+    这条规矩对每一组方法都算数：几个文件里凡是 with self._lock（或者 self._idle，它是同一把锁）的地方，锁里只看、只改调度器自己记着的
+    东西（队伍、_closed）和 Pending 上的字段，别的都放到锁外面。
     """
 
     def __init__(self, web: WebApp):
         self.web = web
         self.store = web.app.tasks
         self.limit = max(1, web.app.config.max_parallel_tasks)  # 最多同时跑几个（见 config.py 的 MAX_PARALLEL_TASKS）
-        self._lock = threading.Lock()
-        self._idle = threading.Condition(self._lock)  # 队伍空了（全都跑完了）的时候通知等着的人（见 wait_idle）
+        self._lock = threading.Lock()  # 规矩见上面的说明：拿着它时不调用 RunUI 的方法、不发状态、不写任务文件
+        self._idle = threading.Condition(self._lock)  # 队伍空了（全都跑完了）的时候通知等着的人（见 scheduler_actions.py 的 wait_idle）
         self._enqueuing = threading.Lock()  # "查一下是不是已经在排队、没有就排进去"要一口气做完，免得连点两下排进去两次
         self._queue: list[Pending] = []  # 正在跑的和排着队的，按排进来的先后
         self._wake = threading.Event()

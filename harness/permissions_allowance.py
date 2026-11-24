@@ -1,3 +1,15 @@
+"""权限 · 这一档放不放行：一次要问的操作，在现在的模式下能不能不问就做（Permissions 的一组方法，见 permissions.py 开头）。
+
+  auto_allows、allowance    能不能不问；allowance 还说出为什么（WHY_READONLY、WHY_LISTED、WHY_TRUSTED，别的放行是 "mode"）
+  _computer_allowance       操作整台电脑：只有"这段对话里说过这一类不再问"和"全部自动允许"两种情况不问
+  places、_reads_only       "只读的命令不用问"那一档：只读的命令、你加的命令、读工作目录之外的文件（怎么判断只读见 commands/）
+  _edits_workspace_file     "改工作目录里的文件不用问"那一档
+
+只能放宽"问不问"，不能绕开：哪些操作要问、问的时候给你看什么，由 review（permissions_review.py）定；在任何模式下都要问的
+（出沙箱、密码框和银行卡、不是网页的地址、危险的组合键）在 allowance 的最前面先挡下来。
+为什么单独一个文件：review 回答"要不要问、卡片上写什么"，这里回答"这一次能不能不问"，两件事分开读，改的时候也清楚自己在动哪一边。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +24,7 @@ from .tools.base import ToolError
 from .tools.browser import BrowserTool
 from .tools.computer import DesktopTool
 
-# 没问就放行时，为什么（见 Permissions.allowance）。界面上这几种写得更具体（"自动允许（只读）"）
+# 没问就放行时，为什么（见下面的 allowance）。界面上这几种写得更具体（"自动允许（只读）"）
 WHY_READONLY = "readonly"  # 内置的只读命令、读工作目录之外的文件
 WHY_LISTED = "listed"  # 你自己加的"不用问的命令"
 WHY_TRUSTED = "trusted"  # 操作整台电脑：你在这段对话的确认卡片上选了"这段对话里不再问"
@@ -20,7 +32,7 @@ WHY_TRUSTED = "trusted"  # 操作整台电脑：你在这段对话的确认卡�
 
 class PermissionsAllowance(PermissionsPart):
     def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
-        """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
+        """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 permissions_review.py 的 review）。"""
         return self.allowance(tool_name, tool_input, tool) is not None
 
     def allowance(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
@@ -30,14 +42,14 @@ class PermissionsAllowance(PermissionsPart):
         if isinstance(tool, DesktopTool):
             return self._computer_allowance(tool.look(tool_input) if isinstance(tool_input, dict) else None)
         if _escapes(tool_name, tool_input, tool):
-            return None  # 在沙箱之外执行一条命令：在任何模式下都要问（见文件开头）
+            return None  # 在沙箱之外执行一条命令：在任何模式下都要问（见 permissions.py 开头）
         if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
-            return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
+            return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见 permissions.py 开头）
         if self.mode == "all":
             return "mode"
         found = self._mcp_of(tool_name, tool)
         if found is not None:
-            # 你单独放开了这个 MCP 工具（见文件开头的说明）。认不出是哪个服务器的，一律问
+            # 你单独放开了这个 MCP 工具（见 permissions.py 开头的说明）。认不出是哪个服务器的，一律问
             trusted = self.trust_mcp and found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
             return "mode" if trusted else None
         if self.mode == "edits":
@@ -47,7 +59,7 @@ class PermissionsAllowance(PermissionsPart):
         return None
 
     def _computer_allowance(self, facts: DesktopFacts | None) -> str | None:
-        """操作整台电脑的一步能不能不问就做（规矩见文件开头）。只有两种情况不问：这段对话里说过这一类不再问，
+        """操作整台电脑的一步能不能不问就做（规矩见 permissions.py 开头）。只有两种情况不问：这段对话里说过这一类不再问，
         或者这一档是"全部自动允许"。危险的组合键怎么都要问；"只读的命令""改文件"那两档、MCP 的"不用问"都不算数。"""
         if facts is None or facts.danger:
             return None
@@ -63,7 +75,7 @@ class PermissionsAllowance(PermissionsPart):
     def _reads_only(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
         """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；
         碰到密钥文件、助手自己的数据目录、~/.ssh 这类地方的不算（见 commands/paths.py）。
-        命令里的相对路径从这条命令真正运行的目录算（上一条命令 cd 到的地方，见 _command_dir）。"""
+        命令里的相对路径从这条命令真正运行的目录算（上一条命令 cd 到的地方，见 permissions_command.py 的 _command_dir）。"""
         if self.editor is None or not isinstance(tool_input, dict):
             return None
         if tool_name == shell.TOOL_NAME:
@@ -86,7 +98,7 @@ class PermissionsAllowance(PermissionsPart):
             try:
                 path = self.editor.resolve(tool_input.get("path"))
                 if self._is_private(path):
-                    return None  # 助手自己的数据：除了"全部自动允许"，读它一律先问（见 __init__ 的说明）
+                    return None  # 助手自己的数据：除了"全部自动允许"，读它一律先问（见 permissions.py 里 __init__ 的说明）
                 self.places().check(str(path))
             except (ToolError, Unclear):
                 return None

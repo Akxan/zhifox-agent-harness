@@ -1,3 +1,15 @@
+"""权限 · 要不要问、问的话卡片上写什么（Permissions 的一组方法，见 permissions.py 开头的表）。
+
+  review               入口：按工具分给各自的那一个。MCP 的工具在这里把参数整段给你看；浏览器、读网页、操作整台电脑、执行命令
+                       分别在 permissions_browser.py、permissions_fetch.py、permissions_computer.py、permissions_command.py
+  _review_send         把一个文件发到聊天里（每次都问；数据目录里的带一句提醒）
+  _review_task_add、_review_task_delete   添加、删除让助手去做的定时任务（只是提醒的不用问）
+  _review_file         创建、修改、读取文件
+
+返回 None 是不用问，返回一段话是要问（这段话显示在卡片上）。这一档能不能不问是另一回事，在 permissions_allowance.py。
+新加一种会改动电脑的工具，要在 review 里给它加一条（见 CLAUDE.md）。
+"""
+
 from __future__ import annotations
 
 import json

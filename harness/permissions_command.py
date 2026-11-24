@@ -1,3 +1,14 @@
+"""权限 · 执行命令：怎么问你，以及"出不出沙箱""在哪个目录里运行"怎么认（规矩见 permissions.py 开头的表）。
+
+  _review_command  卡片上的话：命令本身；打开了沙箱的话加一行沙箱的情况，之前 cd 走了的话加一行在哪个目录里运行；
+                   要在沙箱之外运行的，换成带警告、always 的那一张（在任何模式下都问）
+  _command_dir     这条命令真正会在哪个目录里运行（Shell.where，见 tools/cwd.py）：卡片、"只读的命令"的判断和真正运行看的是同一个
+  _escapes         这次调用是不是"在沙箱之外执行一条命令"
+
+为什么单独一个文件：review（permissions_review.py）和 allowance（permissions_allowance.py）都要用 _command_dir、_escapes，
+放在这里两边都从这儿拿。一条命令算不算只读、是不是你加的，在 commands/，不在这里。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

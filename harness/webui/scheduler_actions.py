@@ -1,3 +1,15 @@
+"""定时任务 · 页面上的操作（tasks_api.py 的 /api/task/...）和退出时的收尾（Scheduler 的一组方法，见 scheduler.py 开头）。
+
+  save、toggle、delete    新建或修改、打开或关掉、删掉一个任务（正在跑的先停下）
+  run_now                 立即运行一次，不改原来的计划
+  stop、_stop、confirm    停下一次运行、答复它停在那里等的确认：只碰这一次自己的 RunUI
+  dismiss、preview        收起一条提醒、预览一个时间表接下来的几次
+  close、wait_idle        程序要退出了：排队的不跑了，正在跑的停下，等它们存好盘
+
+锁的规矩见 scheduler.py 里 Scheduler 的说明：_stop、confirm、close 都是在锁里找到那一次的 RunUI，放开锁以后才去调用它。
+为什么单独一个文件：这些是外面（网页、退出）调用的入口；调度和执行是调度器自己的线程里的事。
+"""
+
 from __future__ import annotations
 
 from ..config import APP_NAME
@@ -66,7 +78,7 @@ class SchedulerActions(SchedulerPart):
         if waiting:
             self.store.update_run(task_id, pending.run_id, status="stopped", finished_at=self.clock())
         elif ui is not None:
-            ui.request_stop()  # 已经放开了 self._lock 才去找 RunUI（见类的说明）
+            ui.request_stop()  # 已经放开了 self._lock 才去找 RunUI（见 scheduler.py 里 Scheduler 的说明）
         # 刚开始、还没来得及建好 RunUI 的，_run 建好之后会看到 stop_requested，马上停
         return True
 

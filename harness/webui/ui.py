@@ -589,11 +589,11 @@ def confirm_fields(description: str, agent: str = "") -> dict:
         fields["agent"] = agent
     offer = getattr(description, "offer", "")
     if offer in OFFERS:
-        # 卡片上多给的一个选择（见 permissions.offering）。只有你正在看的这段对话的问题才带着它
+        # 卡片上多给的一个选择（见 permissions_cards.py 的 offering）。只有你正在看的这段对话的问题才带着它
         # （子 Agent 问的也是这段对话的电脑）；定时任务、聊天通道的问题根本不带
         fields["offer"] = offer
     if getattr(description, "always", False) is True:
-        fields["always"] = True  # 在任何模式下都要问（见 permissions.always）：页面不放"不想每次都问？"
+        fields["always"] = True  # 在任何模式下都要问（见 permissions_cards.py 的 always）：页面不放"不想每次都问？"
     return fields
 
 

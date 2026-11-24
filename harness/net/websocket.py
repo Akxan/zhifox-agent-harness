@@ -32,6 +32,18 @@
 
 用法：一个线程循环调用 recv（超时返回 None，调用的人借这个机会做心跳），别的线程可以同时调用 send_text；
 发送有锁，帧不会交错。close 可以从任何线程调用。
+
+这个文件由几块拼成（2026-11-24 按小节拆开，代码一个字没改；别处照旧 from ..net.websocket import WebSocket、ConnectionClosed、
+is_loopback……，交出去的名字写在 __all__ 里）：
+
+  websocket.py           上面这段说明；WebSocket 的状态（__init__）、建立连接（connect：握手）、发、关闭
+  websocket_protocol.py  协议本身，不碰套接字：操作码、关闭代码、三种错误、accept_key、mask、frame
+  websocket_connect.py   连上去：网址（parse_url、is_loopback）、代理（_proxy_for、_tunnel）、TCP 加 TLS（_open）、读 HTTP 回答的头
+  websocket_receive.py   收：等数据（_readable：macOS、Linux 上用 poll）、拼帧、ping/pong、对方关闭、对方违反协议
+  websocket_types.py     WebSocketPart：混进 WebSocket 的那一组方法要用的东西，只写给 mypy 看
+
+拆出去的文件只往前 import（protocol → connect → receive → 这里），不 import 这个文件。测试换名字要换在读它的函数所在的那个模块上：
+_proxy_for 换在 websocket_connect 上（_open 读它），WINDOWS、_WINDOWS_SLICE 换在 websocket_receive 上（_fill 读它们）。
 """
 
 from __future__ import annotations
@@ -264,7 +276,7 @@ class WebSocket(WebSocketReceive):
 
     def _finish(self) -> None:
         """从别的线程断开连接。有线程正卡在 recv（select）里的话，只 shutdown，不 close：shutdown 会让它马上醒过来，
-        由它自己在它的线程里 close（见 _broken）。在这里 close 的话，操作系统可能立刻把这个文件描述符的号码分给
+        由它自己在它的线程里 close（见 websocket_receive.py 的 _broken）。在这里 close 的话，操作系统可能立刻把这个文件描述符的号码分给
         别的连接，那个线程就会接着在别人的连接上等，几秒甚至一直醒不过来。"""
         if self._read_lock.acquire(timeout=0):
             try:

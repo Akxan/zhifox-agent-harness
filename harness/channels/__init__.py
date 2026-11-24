@@ -34,7 +34,7 @@
   telegram.py   Telegram：手写的 Bot API 客户端
   markup.py     把模型写的 Markdown 排成聊天软件里的样子、拆成不超长的几段
   ui.py         聊天里的对话用的"界面"（agent 循环通过它说话）
-  session.py    一个聊天：会话、助手、排队、跑一轮
+  session.py    一个聊天：会话、助手、排队、跑一轮（按小节分在 session_turn.py、session_conversation.py、session_confirm.py）
   outbound.py   助手用 send_file 往聊天里发文件：这个平台收什么（plan），发到哪个聊天（Outlet）
   router.py     来了一条消息该交给谁；要发的排进发送队列
   outbox.py     发送队列：按顺序发，发不出去的再试、留着等连上了补发（哪种失败再试有用，看 base.retry_delay）

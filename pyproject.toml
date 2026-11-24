@@ -94,7 +94,9 @@ dev = [
 # 系统相关的代码用 sys.platform 判断（不用 os.name）：mypy 只认前者，--platform 换成哪个系统，就只查那个系统走得到的分支
 # 整个 harness 包都查，没有例外。混进 WebApp 的几组方法（XxxActions）用到的 self 上的东西，见 harness/webui/webapp_types.py；
 # App 的（AppXxx）见 harness/app_types.py，BrowserSession 的（SessionXxx）见 harness/browser/session_types.py，
-# 网页服务器的 Handler（HandlerXxx）见 harness/webui/server_types.py
+# 网页服务器的 Handler（HandlerXxx）见 harness/webui/server_types.py，权限的 Permissions（PermissionsXxx）见 harness/permissions_types.py，
+# 定时任务的 Scheduler（SchedulerXxx）见 harness/webui/scheduler_types.py，聊天里的一个对话 Session（SessionXxx）见
+# harness/channels/session_types.py，WebSocket（WebSocketReceive）见 harness/net/websocket_types.py
 [tool.mypy]
 python_version = "3.11"
 packages = ["harness"]

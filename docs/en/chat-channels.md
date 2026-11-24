@@ -116,7 +116,9 @@ each finished paragraph goes back to the chat; a command or file change first ar
    10 minutes of pairing, a stranger who sends something else gets one neutral hint, a wrong code gets "wrong code, N
    tries left", and after 5 wrong codes the code is cancelled, so it can't be guessed one by one. Group chats are ignored entirely (everyone in a group could talk to it).
 3. **One conversation per chat, beside the web chat.** Each chat has a `Session`
-   ([session.py](../../harness/channels/session.py)) with its own conversation, adapter, shell, MCP calls, browser tabs and approval mode
+   ([session.py](../../harness/channels/session.py); running a turn, the turn's conversation and assistant, and approval requests are in
+   [session_turn.py](../../harness/channels/session_turn.py), [session_conversation.py](../../harness/channels/session_conversation.py)
+   and [session_confirm.py](../../harness/channels/session_confirm.py)) with its own conversation, adapter, shell, MCP calls, browser tabs and approval mode
    (`App.channel_agent`, the same pattern as a scheduled task's run), and a queue: one turn at a time per chat, further
    messages wait (up to 5). Sessions don't take the web chat's lock, so `/stop` in Telegram stops only that chat, and
    the web page's Stop never reaches it. The conversation is saved like any other (tagged "Telegram" in the sidebar,
@@ -285,7 +287,7 @@ Sending files back (`send_file`) uses each platform's own upload API; the limits
   can be resumed. Each platform supplies its own table of close codes: a bad token or a forbidden intent stops the
   channel instead of retrying, because Discord resets a bot's token after 1,000 logins in a day; reconnects back off up
   to 120 seconds for the same reason.
-- **The WebSocket client** ([net/websocket.py](../../harness/net/websocket.py)) implements the part of RFC 6455 a client
+- **The WebSocket client** ([net/websocket.py](../../harness/net/websocket.py) and the `websocket_*.py` files next to it) implements the part of RFC 6455 a client
   needs: the handshake with its `Sec-WebSocket-Accept` check, masking every frame it sends (and rejecting masked
   frames from the server), fragmented messages with control frames in between, ping/pong, the close handshake, closing
   with 1002/1007/1009 on protocol errors, invalid UTF-8 or oversized messages (refused as soon as the length is read),

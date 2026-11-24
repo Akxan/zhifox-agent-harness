@@ -14,7 +14,7 @@ view 一张图片），却只能回一句"我没法把图片发到 Telegram"。�
 一次调用怎么走（agent.py 的 _run_one）：
   check   先看一眼（facts）：不在聊天里、文件不存在、是保存密钥的文件、太大了、平台不收这种文件……
           明知发不了的直接告诉模型原因，不弹确认卡片让你点
-  review  要不要问你（permissions.review_send）：每次都问，"全部自动允许"除外。卡片上写着文件名、大小、发到哪里；
+  review  要不要问你（permissions_review.py 的 Permissions._review_send）：每次都问，"全部自动允许"除外。卡片上写着文件名、大小、发到哪里；
           助手自己的数据目录里的文件，卡片上带着提醒
   run     再读一遍文件，和问你时看到的对一对（位置、大小、格式都没变才发），交给去处发出去，等它发完
 路径的解析和文件工具一样（FileEditor.resolve：相对路径从工作目录起，.. 和符号链接都展开），保存密钥的文件也是同一份名单。
@@ -67,7 +67,7 @@ class Outlet(Protocol):
 
 @dataclass(frozen=True)
 class SendFacts:
-    """一次调用要发的是什么（问你之前看一眼，permissions.review_send 照着它写确认卡片）。"""
+    """一次调用要发的是什么（问你之前看一眼，permissions_review.py 的 _review_send 照着它写确认卡片）。"""
 
     path: Path | None  # 展开以后的路径；参数不对时是 None
     shown: str = ""  # 给人看的路径（工作目录里的写相对路径）

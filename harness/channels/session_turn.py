@@ -1,3 +1,16 @@
+"""聊天里的一个对话 · 跑一轮（Session 的一组方法，见 session.py 开头）。
+
+  _work       这个聊天的线程：一条一条取出排着的消息，每条跑一轮；没有了就退出（下一条来了，submit 再开一个）
+  _turn       一轮：处理不了的类型先说一声 → 下载附件 → 准备会话和助手（_prepare，在 session_conversation.py）→ 这个模型收不收得了 →
+              语音先转成文字 → 跑 agent 循环（和网页上同一个 run_turn）→ 存盘、关掉浏览器标签页、放开认领、告诉网页
+  _hear       语音转文字（../voice/）：转好了先在聊天里回一句，让你看看听得对不对
+  _typing、_attachments、_close_browser、_kill   "正在输入"、下载附件、一轮结束关标签页、/stop 时停下这个聊天自己的命令和调用
+
+logger 在这里（session_confirm.py 也从这里拿）：拆出去的文件不 import 入口，它只能放在最前面用到它的这一个里。
+测试换 find 要换在这个模块上：一轮里读它的 _turn 在这里。
+为什么单独一个文件：这是一个聊天真正花钱、调用工具的地方；会话和助手怎么来的、确认请求怎么发，各在旁边的文件里。
+"""
+
 from __future__ import annotations
 
 import logging

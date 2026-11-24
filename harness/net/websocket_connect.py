@@ -1,3 +1,15 @@
+"""WebSocket · 连上去：网址怎么拆、走不走代理、TCP 加 TLS、读一个 HTTP 回答的头（websocket.py 开头说的第 1、2 步）。
+
+  Address、parse_url、is_loopback   明文的 ws:// 只许连本机（is_loopback 只认 localhost 和真正的回环地址；net/http.py 也用它）
+  _proxy_for、_tunnel               看 HTTPS_PROXY、NO_PROXY（macOS 上还看系统设置）；只支持 http:// 的代理，用 CONNECT 打一条隧道
+  _open                             连上服务器（需要的话经过代理），套上 TLS；套接字带超时，读写不会永远卡住
+  _read_head、_body_start           读回答的状态行和各个头（最多 MAX_HANDSHAKE 字节）；握手被拒绝时留下正文的开头（BODY_PREVIEW）
+  _reason、_quietly_close           出错的原因写成一句话；关掉一个套接字，关不掉也不抛
+
+握手本身（发什么、对方的回答对不对）在 websocket.py 的 WebSocket.connect。
+为什么单独一个文件：这些是普通的 TCP、TLS、HTTP，和 WebSocket 的帧无关。测试换 _proxy_for 要换在这个模块上（读它的 _open 在这里）。
+"""
+
 from __future__ import annotations
 
 import base64

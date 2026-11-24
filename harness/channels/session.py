@@ -15,6 +15,20 @@
 
 一段会话可能也在网页上打开着：开始一轮之前先"认领"它（见 ../claims.py），并从磁盘读一遍最新的，
 网页上接着聊过、改过名、删掉了，这边都能知道。
+
+这个文件由几块拼成（2026-11-24 按小节拆开，代码一个字没改；别处照旧 from .session import Session, Waiting、delivery_lines，
+交出去的名字写在 __all__ 里）：
+
+  session.py               上面这段说明；Session 的状态（__init__）和外面（router.py、hub.py）用的：收消息、/stop、答复确认、/new、
+                           /status、页面上的样子、退出；/status 里"发不出去的"那几行（delivery_lines）
+  session_turn.py          跑一轮（_turn）：排队的线程、附件、语音、"正在输入"、一轮结束关掉浏览器标签页
+  session_conversation.py  这一轮用的会话和助手：准备（_prepare：认领、接着哪一段、建助手）、读、新开、跟上网页上的改动、存盘
+  session_confirm.py       确认请求：发到聊天里（_asked）、答复以后改掉那条消息（_settled）；Waiting
+  session_types.py         SessionPart：混进 Session 的几组方法要用的东西，只写给 mypy 看
+
+Session 和 App 一样由混进来的基类拼成（SessionTurn、SessionConversation、SessionConfirm）；拆出去的文件只往前 import
+（session_confirm.py 从 session_turn.py 拿 logger），不 import 这个文件。测试换名字要换在读它的函数所在的那个模块上：
+比如一轮里读 find 的 _turn 在 session_turn.py。
 """
 
 from __future__ import annotations
@@ -51,7 +65,7 @@ __all__ = [
     "logger",
 ]
 
-# 没问你就放行了一步时，聊天里发的那一行（为什么不问，见 permissions.Permissions.allowance）
+# 没问你就放行了一步时，聊天里发的那一行（为什么不问，见 ../permissions_allowance.py 的 Permissions.allowance）
 AUTO_SAY = k("已自动允许：{action}")
 AUTO_SAID = {"readonly": k("已自动允许（只读）：{action}"), "listed": k("已自动允许（你加的命令）：{action}")}
 

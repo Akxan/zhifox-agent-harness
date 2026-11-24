@@ -1,3 +1,13 @@
+"""权限 · 确认卡片上的那句话：几个小工具，各种操作的 review_xxx 都用（见 permissions.py 开头）。
+
+  offering   问题上多挂一个选择（"这段对话里不再问"），页面照着它画按钮（见 webui/ui.py 的 confirm）
+  always     问题上标一下"在任何模式下都要问"：页面不放"不想每次都问？"的入口，也不给"不再问"
+  _preview   要写进去、要输入的内容缩进着显示，太长只显示开头
+
+为什么单独一个文件：执行命令（permissions_command.py）、浏览器、操作整台电脑、文件和定时任务（permissions_review.py）都要用它们，
+放进其中哪一个，别的就得为了这几行去 import 那一个。这里只管"怎么写"，"问不问"不在这里定。
+"""
+
 from __future__ import annotations
 
 from .i18n import t

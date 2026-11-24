@@ -102,6 +102,24 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 一律是"每次都问"，它自己改不了（见 tools/tasks.py）：不然被网页上的一句话带偏的模型，就能给自己定一个
 "每天半夜自动执行任何命令"的任务。设成"不用问"的 MCP 工具也是在对话里放开的，任务里不算数：
 只有任务自己选了"全部自动允许"，MCP 的工具才不问。
+
+这个文件由几块拼成（2026-11-24 按小节拆开，规矩一条没改；别处照旧 from harness.permissions import Permissions、MODES、
+review_browser……，交出去的名字写在 __all__ 里）：
+
+  permissions.py             上面这张表和为什么；MODES；Permissions 的状态（__init__）、unattended、_is_private、_mcp_of
+  permissions_allowance.py   这一档放不放行：auto_allows、allowance、_computer_allowance、places、_reads_only、_edits_workspace_file，WHY_*
+  permissions_review.py      要不要问、问的话卡片上写什么：review，以及发文件、定时任务、文件的那几样（_review_send……）
+  permissions_command.py     执行命令（连同出不出沙箱、在哪个目录里运行）
+  permissions_browser.py     浏览器
+  permissions_fetch.py       读网页
+  permissions_computer.py    操作整台电脑
+  permissions_cards.py       卡片上那句话的几个小工具：offering、always、_preview
+  permissions_types.py       PermissionsPart：混进 Permissions 的两组方法要用的东西，只写给 mypy 看
+
+Permissions 和 App 一样由混进来的基类拼成（PermissionsAllowance、PermissionsReview）：方法名照旧是 permissions.review(...)、
+permissions.allowance(...)，状态只在 __init__ 里。拆出去的文件只往前 import（cards → command、browser、fetch、computer →
+allowance、review → 这里），不 import 这个文件。改规矩时：要不要问、卡片上写什么，改 review 和各自的 review_xxx；
+这一档能不能不问，改 allowance；不管改了哪边，上面这张表都跟着改。
 """
 
 from __future__ import annotations

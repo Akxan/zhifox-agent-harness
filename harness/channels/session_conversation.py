@@ -1,3 +1,16 @@
+"""聊天里的一个对话 · 这一轮用的会话和助手（Session 的一组方法，见 session.py 开头）。
+
+  _prepare     一轮开始之前：没有会话的话，接着上次那一段（channels.json 里记着）或者新开一段；认领这段会话（网页上正在跑就等它）；
+               从磁盘跟上网页上的改动；这一家没了、没有密钥的说清楚；助手（App.channel_agent）用到时才建，接着聊的把历史放回去
+  _load、_adopt、_fresh、_catch_up   读一段保存过的、接着它聊、新开一段（/new 某个 Agent 的用它当角色）、换成磁盘上更新的那份
+  _persona     这段会话的角色现在还能不能用
+  _save        一轮结束存盘，记下这个聊天接着哪一段
+  _sandbox     这个通道现在选的沙箱（每条命令前读一次）
+  _first_note  第一条消息前面附的那句说明（写给模型看的，中文、不翻译；为什么不放进系统提示词，见它的说明）
+
+为什么单独一个文件：会话从哪儿来、存到哪儿去、和网页上开着的同一段会话怎么不打架（../claims.py），和"一轮怎么跑"是两件事。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

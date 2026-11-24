@@ -56,7 +56,9 @@
 ## 定时任务：没人看着的时候怎么运行
 
 一个定时任务就是存下来的一条指令加一个时间表（[harness/tasks.py](../../harness/tasks.py) 和旁边的 `tasks_*.py`）。运行它用的还是同一个循环，
-只有三件事另外处理（[harness/webui/scheduler.py](../../harness/webui/scheduler.py)）：
+只有三件事另外处理（[harness/webui/scheduler.py](../../harness/webui/scheduler.py) 和旁边的 `scheduler_*.py`：
+[scheduler_loop.py](../../harness/webui/scheduler_loop.py) 管什么时候跑，[scheduler_work.py](../../harness/webui/scheduler_work.py) 管怎么跑一次，
+[scheduler_run.py](../../harness/webui/scheduler_run.py) 是一次运行的事件日志和发给模型的那条消息）：
 
 1. **什么时候。** 调度线程睡到下一个任务该运行的时候，但一次最多睡 30 秒，这样改了系统时间、电脑从睡眠中醒来，
    都能很快发现；任务一有变化也会把它叫醒。下一次的时刻是按本地时间在日历上算出来的，而不是加上 24 小时，

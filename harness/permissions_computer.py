@@ -1,3 +1,13 @@
+"""权限 · 操作整台电脑：一次动作怎么问你（规矩和为什么见 permissions.py 开头"操作整台电脑的规矩"那一段）。
+
+  review_computer    入口：卡片上画什么。危险的组合键标 always；你正看着的对话里多给一个"不再问"的选择（offering）
+  _review_computer   每一种动作的那句话：截图、放大、点击、拖动、滚动、打字、按键……
+  _spot、_app、_CLICKS、_DIRECTIONS   卡片上的几段话
+
+真正放不放开（这段对话里说过不再问、这一档是"全部自动允许"）不在这里定，在 permissions_allowance.py 的 _computer_allowance：
+这里只管卡片上写什么。为什么单独一个文件：它看的是 DesktopSession 交来的 Facts（desktop/session.py），和别的工具没有关系。
+"""
+
 from __future__ import annotations
 
 from .desktop.session import Facts as DesktopFacts
@@ -26,11 +36,11 @@ def _app(facts: DesktopFacts) -> str:
 
 
 def review_computer(facts: DesktopFacts) -> str | None:
-    """操作整台电脑的一次动作怎么问你（规矩见文件开头）。返回要显示的说明；不用问（根本不会做、或者什么都不碰）返回 None。
+    """操作整台电脑的一次动作怎么问你（规矩见 permissions.py 开头）。返回要显示的说明；不用问（根本不会做、或者什么都不碰）返回 None。
 
     危险的组合键标着 always：换哪一档、放开了什么都照样要问，卡片上也不给"不再问"。别的动作在你正看着的对话里
     （facts.attended）多给一个选择：截图、放大是 screenshots，点击、打字这些是 actions（desktop/session.py 的 trust_of）；
-    定时任务、聊天通道的运行不给。真正放不放开由 allowance 定，这里只管卡片上画什么。"""
+    定时任务、聊天通道的运行不给。真正放不放开由 allowance 定（permissions_allowance.py 的 _computer_allowance），这里只管卡片上画什么。"""
     question = _review_computer(facts)
     if question is None:
         return None

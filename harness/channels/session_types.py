@@ -1,3 +1,16 @@
+"""SessionPart：混进 Session 的每一组方法（SessionTurn、SessionConversation、SessionConfirm）能用到的东西，写给类型检查（mypy）看。
+
+和 ../app_types.py 是同一个道理（为什么、怎么写，见那里开头）：状态是 session.py 里 Session.__init__ 的字段，_prepare、_save 在
+session_conversation.py、由 session_turn.py 的 _turn 调用；单看一组，mypy 不知道 self 上有这些。
+  - 状态只写类型；混进来的方法会整个换掉的（self.conversation = …、self.agent = self.run = None、self.waiting = None、
+    self.running = False……）写一个值，原因见 ../app_types.py。
+  - 方法只写签名，实现在别的文件里；签名改了、这里没跟着改，mypy 会报 [override]。
+  - 这些只在类型检查时存在：运行时 SessionPart 是下面那个空的类，Session 的行为、MRO 里的方法和不拆开的时候一模一样。
+
+../browser/session_types.py 里也有一个 SessionPart，那是浏览器的 BrowserSession 的，和这个无关。
+新加一组方法时：class SessionXxx(SessionPart)，加进 Session 的基类；mypy 报"没有这个属性"时，照着它的定义在下面补一行。
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

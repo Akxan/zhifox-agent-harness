@@ -1,3 +1,14 @@
+"""定时任务 · 调度线程：什么时候醒、到时间的提醒弹出来、到时间的 agent 任务排进队（Scheduler 的一组方法，见 scheduler.py 开头）。
+
+  start、_loop    调度线程：最多睡 MAX_SLEEP 秒就起来看一眼（电脑睡醒、改了系统时间，都能在半分钟内发现）
+  tick            看一眼时间表；错过的算补跑（LATE_SECONDS）。测试不启动线程，直接调用它（用假的钟）
+  _enqueue        排进队里，有空位马上开始；同一个任务已经在排队或者正在跑就不再排
+  _find、running  队里有没有这个任务
+
+锁的规矩见 scheduler.py 里 Scheduler 的说明：这里拿着 self._lock 只看、只改队伍，写任务文件（add_run、remind）都在锁外面。
+为什么单独一个文件："什么时候跑"和"怎么跑"（scheduler_work.py）是两件事，补跑、错过了几次都在这里算。
+"""
+
 from __future__ import annotations
 
 import threading

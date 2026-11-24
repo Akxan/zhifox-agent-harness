@@ -13,7 +13,7 @@
 这几家没有 Claude 那样绑着前文的缓存和思考签名，多一个工具只是多发一段说明书，不会让请求失败（有意接受的）。
 
 说明书是固定的一段话，每段对话都一字不差：不写上限、不写现在用的是哪一家（上限这类会变的，在结果里说）。
-问不问你写在 permissions.py 的 review_fetch：这段对话里第一次读一个网站之前问，卡片上是完整的网址。
+问不问你写在 permissions_fetch.py 的 review_fetch：这段对话里第一次读一个网站之前问，卡片上是完整的网址。
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class FetchFacts:
 
 @dataclass(frozen=True)
 class FetchTool(FactsTool):
-    """读网页的工具。比普通的工具多一样：facts，动手之前先看一眼要去哪个网站（见 permissions.review_fetch）。"""
+    """读网页的工具。比普通的工具多一样：facts，动手之前先看一眼要去哪个网站（见 permissions_fetch.py 的 review_fetch）。"""
 
     def look(self, tool_input: dict) -> FetchFacts:
         found = super().look(tool_input)

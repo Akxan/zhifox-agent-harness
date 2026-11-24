@@ -268,4 +268,5 @@ def make_dice_tool() -> Tool:
 
 - `description` 是模型决定要不要调用这个工具的唯一依据。除了写它做什么，也要写**什么时候该用**。
 - 工具返回的是给模型看的文字。出错时抛出 `ToolError("原因")`，模型会看到原因并自己调整。
-- 如果新工具会改动电脑上的东西，在 [harness/permissions.py](../../harness/permissions.py) 的 `review` 里给它加一条规则，让它先问你。
+- 如果新工具会改动电脑上的东西，在 [harness/permissions_review.py](../../harness/permissions_review.py) 的 `review` 里给它加一条规则，让它先问你
+  （哪些操作要问、为什么，那张表在 [harness/permissions.py](../../harness/permissions.py) 开头，跟着一起改）。

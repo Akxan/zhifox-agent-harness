@@ -1,3 +1,14 @@
+"""WebSocket · 协议本身（RFC 6455），一个套接字都不碰：常量、三种错误、握手的校验值、怎么排出一帧（见 websocket.py 开头）。
+
+  GUID、accept_key                            §4.2.2：服务器应该回的 Sec-WebSocket-Accept
+  MAX_CONTROL、OP_*、DATA_OPS、CONTROL_OPS     操作码、控制帧最多多少字节（§5.5）
+  NORMAL……ABNORMAL、_RESERVED_CODES           关闭代码（§7.4）
+  WebSocketError、HandshakeError、ConnectionClosed   三种错误：别的几个文件都要用，所以放在最前面的这一个里
+  mask、frame                                 掩码（§5.3）、排出一帧（§5.2）。测试里的假服务器（tests/fake_ws.py）也用 frame
+
+为什么单独一个文件：这些是照着 RFC 写死的东西，没有状态、不联网，单独放着可以对着原文一条一条核对。
+"""
+
 from __future__ import annotations
 
 import base64

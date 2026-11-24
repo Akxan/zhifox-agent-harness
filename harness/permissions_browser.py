@@ -1,3 +1,14 @@
+"""权限 · 浏览器：一次动作要不要问你、问的话卡片上写什么（规矩和为什么见 permissions.py 开头的表和"浏览器的规矩"那一段）。
+
+  review_browser   入口：打开网址、点击、输入、按键各怎么问；不用问返回 None
+  _always_ask      在任何模式下都要问的那几样（密码框、银行卡、别的网站嵌进来的框、不是网页的地址）：allowance 也用它
+  CONSEQUENTIAL、consequential               名字像"购买""发送""删除"的按钮，点之前也问
+  ROLES、_role、_element、_page、_warning     卡片上的几段话
+
+为什么单独一个文件：浏览器的规矩最多，自成一块；它看的是 BrowserSession 动手之前交来的 Facts（browser/session_facts.py），
+和别的工具没有关系。
+"""
+
 from __future__ import annotations
 
 from .browser import urls
@@ -67,7 +78,7 @@ def _warning(facts: Facts) -> str:
 
 
 def review_browser(facts: Facts) -> str | None:
-    """浏览器的一次动作要不要问你（规矩见文件开头的表）。返回要显示的说明，不用问返回 None。"""
+    """浏览器的一次动作要不要问你（规矩见 permissions.py 开头的表）。返回要显示的说明，不用问返回 None。"""
     action = facts.action
     if action == "navigate":
         destination = facts.destination

@@ -1,3 +1,16 @@
+"""WebSocket · 收（WebSocket 的一组方法，见 websocket.py 开头）：等数据、拼帧、回 pong、对方关闭、对方违反协议。
+
+  recv              等下一条完整的消息；超时返回 None。随时都可以超时：半帧留在缓冲里，下次接着收
+  _fill、_readable  再收一些字节。_readable 在 macOS、Linux 上用 poll（为什么见它的说明），Windows 上用 select，
+                    而且只等一小段（_WINDOWS_SLICE：那里别的线程 shutdown 叫不醒卡在 select 里的线程）
+  _parse、_handle   取出一帧、处理一帧：掩码、大小上限、分片、控制帧、UTF-8（见 websocket.py 开头那几条规矩）
+  _closed_by_peer、_fail、_broken   对方先关、对方违反协议（我们用相应的代码关）、没有关闭帧就断了（1006）
+
+同一时间只有一个线程在读（_read_lock，在 websocket.py 的 __init__ 里建）；发（_send、_send_close）在 websocket.py，
+收到 ping、对方关闭时这里调用它们。测试换 WINDOWS、_WINDOWS_SLICE 要换在这个模块上（读它们的 _fill 在这里）。
+为什么单独一个文件：收是这个客户端里最长、最容易被一个出了毛病（或者不怀好意）的服务器拖垮的部分，单独放着才好一条一条核对。
+"""
+
 from __future__ import annotations
 
 import math
@@ -80,7 +93,7 @@ class WebSocketReceive(WebSocketPart):
         pending = isinstance(sock, ssl.SSLSocket) and sock.pending() > 0  # TLS 已经解密好、还没取走的
         if not pending:
             wait = None if deadline is None else max(0.0, deadline - time.monotonic())
-            # Windows 上，别的线程 shutdown 这个套接字（close、abort，见 _finish）不会让正卡在 select 里的这个线程醒过来，
+            # Windows 上，别的线程 shutdown 这个套接字（close、abort，见 websocket.py 的 _finish）不会让正卡在 select 里的这个线程醒过来，
             # 所以那里只等一小段（_WINDOWS_SLICE），醒来回到 _read 的循环里看一眼是不是已经关了，没关接着等
             step = wait if not WINDOWS else _WINDOWS_SLICE if wait is None else min(wait, _WINDOWS_SLICE)
             try:

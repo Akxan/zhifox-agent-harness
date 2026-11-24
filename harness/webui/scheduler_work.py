@@ -1,3 +1,15 @@
+"""定时任务 · 执行：有空位就开始、一次运行在它自己的线程里怎么跑、跑完怎么收尾、进度怎么更新（Scheduler 的一组方法，见 scheduler.py 开头）。
+
+  _dispatch          有空位的话，让排在最前面的几个开始（同时最多 limit 个，见 config.py 的 MAX_PARALLEL_TASKS）
+  _work、_run        一次运行的线程：这次运行自己的助手、shell 和 MCP 调用（App.unattended_agent），存成一段会话，记下花了多少
+  _forget、_finish   从队里拿掉、写下结果（先拿掉再写：页面上"正在运行"和"做完了"不会同时出现）
+  _observe           RunUI 每发一个事件就来这里更新进度
+
+锁的规矩见 scheduler.py 里 Scheduler 的说明。这里最容易踩到的是 _observe：它是 RunUI 拿着自己的锁时调用的，所以拿着 self._lock
+时只改 Pending 上的字段，写任务文件（update_run）、刷新状态（_progress）都等放开以后。
+为什么单独一个文件：这是一次运行真正花钱、调用工具的地方，和调度（scheduler_loop.py）、页面上的操作（scheduler_actions.py）分开读。
+"""
+
 from __future__ import annotations
 
 import threading
@@ -80,7 +92,7 @@ class SchedulerWork(SchedulerPart):
         agent.hooks.session = lambda: conversation.id  # 交给你的钩子的 session_id：这次运行存成的那段会话
         self.store.update_run(task["id"], pending.run_id, status="running", started_at=now)
 
-        ui.begin_turn(task["prompt"])  # 会话里显示的是你写的指令；发给模型的还带着一段说明（见 instruction）
+        ui.begin_turn(task["prompt"])  # 会话里显示的是你写的指令；发给模型的还带着一段说明（见 scheduler_run.py 的 instruction）
         with self._lock:
             pending.ui, pending.agent, pending.shell = ui, agent, shell
             stop_now = pending.stop_requested

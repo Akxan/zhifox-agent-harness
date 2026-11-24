@@ -1,3 +1,15 @@
+"""定时任务 · 一次运行：它用的界面、排队时记着什么、在状态里的样子、发给模型的那条消息（调度器的一块，见 scheduler.py 开头）。
+
+  RunUI         一次运行用的界面：和对话的是同一种（WebUI），每发一个事件顺便告诉调度器一声（据此更新进度）
+  Pending       排着队、或者正在运行的那一次：编号、什么时候排进来、它的界面和助手、进度、停着的确认
+  _live_view    状态里的 running（每个字段写在它的说明里）。调用的人拿着 Scheduler._lock
+  instruction   发给模型的那条消息：任务的指令，前面加一段说明；APPROVAL_NOTES 按任务的那一档说哪些操作会停下来等你
+                （写给模型看的，中文、不翻译）
+
+为什么单独一个文件：这几样只描述"一次运行"，不碰调度线程，也不拿锁；调度（scheduler_loop.py）、执行（scheduler_work.py）、
+页面上的操作（scheduler_actions.py）和状态（scheduler.py 的 snapshot）都要用它们。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
