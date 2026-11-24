@@ -23,7 +23,9 @@ mypy 要在项目自己的环境里跑（所以是 `uv run --with`，不是 `uvx
 列出它们用到的共用状态和别的文件里的方法。
 
 测试不需要 API 密钥，也不花钱。默认是并行跑的（[pyproject.toml](../../pyproject.toml) 里的 `addopts`）：每个进程各有自己的
-假服务器和临时目录，页面测试在每个进程里各开自己的演示服务器和 Chrome，彼此不共用任何东西。[tests/fake_api.py](../../tests/fake_api.py) 和 [tests/fake_openai.py](../../tests/fake_openai.py)
+假服务器和临时目录，页面测试在每个进程里各开自己的演示服务器和 Chrome，彼此不共用任何东西。
+测试进程里的 socketserver 服务器（假服务器、测试里起的网页服务器）每 0.02 秒看一次"该停了没有"，而不是默认的 0.5 秒
+（[tests/conftest.py](../../tests/conftest.py) 开头）：每个测试收尾时要停好几个服务器，按默认值加起来要白等七百多秒。[tests/fake_api.py](../../tests/fake_api.py) 和 [tests/fake_openai.py](../../tests/fake_openai.py)
 是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
 并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](../../tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](../../tests/test_webui.py)，由测试代码扮演浏览器；
@@ -153,7 +155,7 @@ Markdown 渲染器有自己的测试：[tests/markdown.test.mjs](../../tests/mar
 以及拼好的整段脚本都能通过 `node --check`（两块里用 `const` 定义了同一个名字，单独查都没事，拼起来整个页面就跑不起来）。
 
 页面本身（[harness/webui/page/](../../harness/webui/page/) 里的标记、样式和脚本）由 [tests/ui/](../../tests/ui/) 里的页面测试在真正的 Chrome（无界面）里测。
-`uv run pytest` 会带上它们；`uv run pytest -m ui` 只跑它们，`-m "not ui"` 跳过它们。这台电脑上没有 Chrome 时跳过，CI 里必须跑。
+`uv run pytest` 会带上它们；`uv run pytest -m ui` 只跑它们，`-m "not ui"` 跳过它们。这台电脑上没有 Chrome 时跳过，CI 里必须跑（单独的 job，见下面的 [CI](#ci)）。
 一共一分钟左右，不加任何依赖：驾驶 Chrome 用的是智狐自己手写的 CDP 客户端（不用 Playwright、Selenium，也不用 npm），
 整个测试会话只把 `tests/demo_web.py` 作为子进程启动一次（数据在临时目录里），每个测试在一个新的、像隐身窗口一样的浏览器上下文里打开页面。
 点击、悬停和按键都是真的输入事件，会等目标不再移动、没有被别的东西盖住才点；所有的等待都是"等页面里某个条件成立"，从不固定地睡几秒。
@@ -194,11 +196,35 @@ GitHub Copilot 的文件，还有一个故意写坏了的 Kiro 配置，不是�
 `[ui:flaky]` 每条消息第一次都会失败（可以试试在失败的那一轮上"重新生成"）。
 `--script 名字` 让没写暗号的对话也按那段剧本回答；README 里的截图用的是 `--script readme`，问的是中文就答中文，否则答英文。
 
-每次推送到 GitHub、每个 pull request，都会在 Ubuntu、macOS 和 Windows 上用 Python 3.11 和 3.13 自动跑一遍测试和代码检查
-（[.github/workflows/tests.yml](../../.github/workflows/tests.yml)），页面测试也在里面，用的是 GitHub 的机器上预装的 Chrome，
-类型检查（mypy）则按三个系统各查一遍；
-在 Ubuntu 上还会装好 Xvfb、`xdotool` 和 ImageMagick，让操作电脑的集成测试对着虚拟屏幕跑一遍，还有 bubblewrap，
-让沙箱在 Linux 上真的后端也在那里测一遍。结果就是 [README](../../README.zh-CN.md) 顶上的 Tests 徽章。
+### CI
+
+每次推送到 GitHub、每个 pull request，都会在 Ubuntu、macOS 和 Windows 上自动跑一遍测试和代码检查
+（[.github/workflows/tests.yml](../../.github/workflows/tests.yml)），结果就是 [README](../../README.zh-CN.md) 顶上的 Tests 徽章。
+为了快，测试分成几种 job 同时跑；`test` 和 `ui` 合起来正好是全部测试（每个测试要么带 ui 标记、要么不带）：
+
+| job | 跑什么 | 在哪儿 |
+|---|---|---|
+| `test` | 页面测试以外的全部（`-m "not ui"`），还有代码检查 | 三个系统 × Python 3.11、3.13 |
+| `ui` | 页面测试（`-m ui`），用 GitHub 的机器上预装的 Chrome | 三个系统 × Python 3.13；macOS、Windows 上分成两份，在两台机器上同时跑 |
+| `types` | 类型检查（mypy），按三个系统的眼光各查一遍 | 一台 Ubuntu |
+| `desktop` | 装好 Xvfb、`xdotool` 和 ImageMagick，操作电脑的集成测试对着虚拟屏幕跑 | Ubuntu |
+| `sandbox` | 装好 bubblewrap，沙箱在 Linux 上真的后端 | Ubuntu |
+| `package` | 打出 wheel 和源码包，在干净的环境里试装 | 三个系统 |
+
+页面测试只用一个 Python 版本，因为它们查的是页面和浏览器里的交互，Python 只是在后面跑演示服务器；那些代码在 `test` 里两个版本都测，
+只在某个版本上才有的行为也是在那里抓到的。用 3.13，是因为本机开发用的是 3.11，本机常跑页面测试，这样两个版本都覆盖到了。
+分成两份靠的是 [tests/shards.py](../../tests/shards.py)：设了 `HARNESS_TEST_SHARD=第几份/一共几份`（比如 `1/2`）时只跑其中一份，
+按收集到的先后轮流分，几份合起来一个不少、一个不重（[tests/test_shards.py](../../tests/test_shards.py) 会查），写错了整轮不跑；
+不设就照旧跑全部。想在本机照 CI 的样子跑某一份：
+
+```bash
+HARNESS_TEST_SHARD=1/2 uv run pytest -m ui                 # zsh / bash
+$env:HARNESS_TEST_SHARD = "1/2"; uv run pytest -m ui       # PowerShell
+```
+
+为什么这样分（2026-11-24）：以前测试和页面测试在同一个 job 里一起跑，macOS 上要十九分钟左右（三个核，最后十一分钟都在跑两百多个页面测试），
+Windows 十三分钟，Ubuntu 九分钟。页面测试每个都要 Chrome 真的把页面画出来，很吃 CPU，所以分到两台机器上。
+另一个大头是收尾时等服务器停下（见上面的 0.02 秒）：改了以后，本机页面测试以外的部分从 97 秒降到 35 秒，所有测试的耗时加起来从 943 秒降到 233 秒。
 
 只在某一个系统上才说得通的测试，跳过时会写明原因：Windows 的路径装不进 launchd 的 plist 和 systemd 的 unit；Windows 上没有
 3、4 号文件描述符和进程组；`icacls`、作业对象和真的 PowerShell 只在 Windows 上测；Windows 上建符号链接要管理员权限或者开发者模式，

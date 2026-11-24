@@ -202,8 +202,8 @@ uvx ruff@0.17.6 check harness tests                # 代码检查，和 CI 用�
 uv run --with mypy==1.19.0 mypy --platform linux   # 类型检查；darwin、win32 也各跑一遍
 ```
 
-这几条在 zsh、bash 和 PowerShell 里写法一样。每个 pull request 都由 CI 在 Ubuntu、macOS、Windows 上用 Python 3.11 和 3.13 跑测试，
-mypy 三个系统都查。手边只有一个系统的话，在 pull request 里写明，别的交给 CI。换一个 Python 版本：`uv run --python 3.13 --isolated pytest -q`。
+这几条在 zsh、bash 和 PowerShell 里写法一样。每个 pull request 都由 CI 在 Ubuntu、macOS、Windows 上用 Python 3.11 和 3.13 跑测试
+（页面测试单独一个 job，只用 3.13，macOS、Windows 上分两台机器跑，见 [测试](docs/zh-CN/testing.md#ci)），mypy 三个系统都查。手边只有一个系统的话，在 pull request 里写明，别的交给 CI。换一个 Python 版本：`uv run --python 3.13 --isolated pytest -q`。
 测试是怎么做的，详见 [测试](docs/zh-CN/testing.md)。
 
 ### 改动必须守住的几条
