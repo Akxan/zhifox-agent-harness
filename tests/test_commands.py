@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -1099,6 +1100,11 @@ BYPASSES = [
     bypass("ps wwE", "E 不在开头也一样"),
     bypass("ps -p 1 E", "E 写在选项后面也一样"),
     bypass("ps eww1", "BSD 写法里夹着数字：e 照样是显示环境变量"),
+    # 同一个文件的另一种写法（macOS 的内核认的几种前缀）：顺着符号链接找也还是这个写法，按路径比认不出来
+    posix(bypass("cat /.nofollow{WS}/data/notes.md", "macOS 的 /.nofollow/…：内核把后面的部分当成整块磁盘上的路径，数据目录认不出来"), POSIX_DEVICES),
+    posix(bypass("cat /.resolve/1{WS}/data/notes.md", "macOS 的 /.resolve/数字/… 同上"), POSIX_DEVICES),
+    posix(bypass("ls /.nofollow{WS}/data", "列出数据目录"), POSIX_DEVICES),
+    posix(bypass("cat /.vol/16777229/2", "macOS 的 /.vol/设备号/编号 按编号打开文件：名字看不见，认不出是不是密钥"), POSIX_DEVICES),
     bypass("docker top web e", "docker top 把后面的词交给 ps：e 显示容器里进程的环境变量"),
     bypass("git remote -v", "git remote -v 把远程地址里的 token 打出来（和 .git/config 一样）"),
     bypass("git remote --verbose", "git remote --verbose 同上"),
@@ -1210,6 +1216,54 @@ def test_decomposed_unicode_reaches_the_same_folder_on_macos(tmp_path):
     decomposed = unicodedata.normalize("NFD", str(workspace))
     assert decomposed != str(workspace)
     assert not classify(f"cat '{decomposed}/data/notes.md'", places).readonly
+
+
+MAC_DATA_VOLUME = Path("/System/Volumes/Data")
+
+
+def _same_thing(first: Path, second: Path) -> bool:
+    try:
+        one, two = os.stat(first), os.stat(second)
+    except OSError:
+        return False
+    return (one.st_dev, one.st_ino) == (two.st_dev, two.st_ino)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="只有 macOS 有 /System/Volumes/Data 这层固定链接（firmlink）")
+def test_the_data_folder_through_the_macos_data_volume(spot):
+    """绕过：macOS 上 /Users、/private 这些是"固定链接"（firmlink），同一个文件夹在 /System/Volumes/Data/… 下面还有一个名字。
+    它不是符号链接，顺着链接找（resolve）也还是这个写法，按路径比认不出是数据目录：以前的会话、笔记不问就读出来了。"""
+    places, _ = spot
+    data = (places.cwd / "data").resolve()
+    alias = Path(str(MAC_DATA_VOLUME) + str(data))
+    if not _same_thing(alias, data):
+        pytest.skip("这台电脑上 /System/Volumes/Data 下面没有同一个文件夹")
+    for command in (
+        f"cat '{alias}/notes.md'",
+        f"cat '{alias}/conversations/c1.json'",
+        f"head '{alias}/conversations/c1.json' '{alias.parent}/src/a.txt'",
+        f"ls '{alias}'",
+        f"ls -R '{alias.parent}'",  # 走遍工作目录：里面有数据目录
+        f"du -a '{alias.parent}'",
+        f"grep -r x '{alias.parent}'",
+    ):
+        assert not classify(command, places).readonly, command
+    assert classify(f"cat '{alias.parent}/src/a.txt'", places).readonly  # 别的文件照样不用问
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="/.vol 是 macOS 才有的")
+def test_files_opened_by_number_through_macos_vol(spot):
+    """绕过：macOS 的 /.vol/设备号/编号 按编号打开一个文件或文件夹（ls -i、stat 就能看到编号）。路径里没有它的名字，
+    像密钥的名字认不出来，数据目录也认不出来。"""
+    places, _ = spot
+    data = places.cwd / "data"
+    info = os.stat(data)
+    folder = Path(f"/.vol/{info.st_dev}/{info.st_ino}")
+    if not _same_thing(folder, data):
+        pytest.skip("这台电脑上 /.vol 用不了")
+    config = os.stat(places.cwd / ".git" / "config")  # 名字像存着 token 的文件（.git/config）
+    for command in (f"ls {folder}", f"cat {folder}/notes.md", f"cat /.vol/{config.st_dev}/{config.st_ino}"):
+        assert not classify(command, places).readonly, command
 
 
 def test_scanning_a_huge_folder_gives_up(tmp_path, monkeypatch):
