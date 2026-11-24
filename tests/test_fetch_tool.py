@@ -145,6 +145,29 @@ def test_refused_before_anything_is_sent(site):
     assert site.requests == []
 
 
+# Python 的 urlsplit 自己就会拒绝的写法：方括号里不是 IP 地址的（3.11.4 起会抛 ValueError）
+UNPARSABLE = "http://[1:2:3:4:5:6:7:8:9]/"
+
+
+def test_a_url_python_cannot_split_is_refused_not_raised(site):
+    # 以前 check、look 里整理网址那一步直接抛 ValueError：模型给一个这样的网址，整轮就断了（还被说成"用户中断了操作"）
+    made = make_tool(fetcher("site.test"))
+    assert made.tool.check({"url": UNPARSABLE})
+    assert made.tool.look({"url": UNPARSABLE}).refusal
+    with pytest.raises(ToolError):
+        made.tool.run({"url": UNPARSABLE})
+    site.routes["/go"] = redirect(UNPARSABLE)  # 网站跳到这样的网址：也是说清楚的拒绝，不是"工具内部出错"
+    with pytest.raises(ToolError, match="跳转到了"):
+        made.tool.run({"url": site.url("/go")})
+
+
+def test_a_url_python_cannot_split_does_not_end_the_turn(start_gpt):
+    s = start_gpt(chat(calls=[fetch_call(UNPARSABLE)]), chat("这个网址读不了。"))
+    s.agent.run_turn("读一下")
+    assert s.ui.confirmations == []
+    assert "没有读" in tool_message(s.api.requests[1])  # 说清楚不读（哪个 Python 版本上拒绝的说法略有不同）
+
+
 def test_switched_off(site):
     made = make_tool(fetcher("site.test"), enabled=False)
     assert made.tool.check({"url": site.url("/")}) == fetch_tool.OFF
