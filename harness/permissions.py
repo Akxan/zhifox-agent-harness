@@ -106,34 +106,44 @@ MCP 的工具是别人写的程序，它能做什么我们看不到（它说自�
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .browser import urls
-from .browser.session import Facts
-from .commands import Places, Unclear, classify
 from .commands.allowlist import CommandList
-from .desktop.session import Facts as DesktopFacts
-from .desktop.session import trust_of
-from .display import file_size, short
-from .i18n import k, t
+from .i18n import k
 from .mcp.bridge import PREFIX as MCP_PREFIX
 from .mcp.bridge import McpTool
 from .pathnames import within
-from .sandbox import escape_question
-from .sandbox import question as command_question
-from .tasks import TaskError, TaskStore, check_task, describe
-from .tools import files, shell
-from .tools import tasks as task_tools
-from .tools.base import ToolError
-from .tools.browser import BrowserTool
-from .tools.computer import DesktopTool
-from .tools.fetch import FetchFacts, FetchTool
+from .permissions_allowance import (
+    WHY_LISTED,
+    WHY_READONLY,
+    WHY_TRUSTED,
+    PermissionsAllowance,
+)
+from .permissions_browser import CONSEQUENTIAL, ROLES, consequential, review_browser
+from .permissions_cards import always, offering
+from .permissions_computer import review_computer
+from .permissions_fetch import review_fetch
+from .permissions_review import PermissionsReview
+from .tasks import TaskStore
 from .tools.files import FileEditor
-from .tools.send import SendFacts, SendTool
-from .tools.shell import ShellTool
+
+__all__ = [
+    "CONSEQUENTIAL",
+    "MODES",
+    "ROLES",
+    "WHY_LISTED",
+    "WHY_READONLY",
+    "WHY_TRUSTED",
+    "Permissions",
+    "always",
+    "consequential",
+    "offering",
+    "review_browser",
+    "review_computer",
+    "review_fetch",
+]
 
 # 用户可以选的四种模式，以及给人看的说法（从严到松，页面和命令行都按这个顺序列）。
 MODES = {
@@ -143,13 +153,8 @@ MODES = {
     "all": k("全部自动允许"),
 }
 
-# 没问就放行时，为什么（见 Permissions.allowance）。界面上这几种写得更具体（"自动允许（只读）"）
-WHY_READONLY = "readonly"  # 内置的只读命令、读工作目录之外的文件
-WHY_LISTED = "listed"  # 你自己加的"不用问的命令"
-WHY_TRUSTED = "trusted"  # 操作整台电脑：你在这段对话的确认卡片上选了"这段对话里不再问"
 
-
-class Permissions:
+class Permissions(PermissionsAllowance, PermissionsReview):
     def __init__(
         self, editor: FileEditor, private: Iterable[Path] = (), tasks: TaskStore | None = None, mcp: Any = None, commands: CommandList | None = None
     ):
@@ -181,92 +186,6 @@ class Permissions:
         copy.trust_mcp = False  # 在"扩展 → MCP"里放开的工具，是在对话里放开的（见文件开头的说明）
         return copy
 
-    def auto_allows(self, tool_name: str, tool_input: object, tool: object = None) -> bool:
-        """一次需要确认的操作，在现在的模式下是不是可以不问就做。tool 是这次要用的那个工具（见 review）。"""
-        return self.allowance(tool_name, tool_input, tool) is not None
-
-    def allowance(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
-        """和 auto_allows 一样，只是说出为什么可以不问：返回 None 表示要问；
-        WHY_READONLY、WHY_LISTED 是 readonly 那一档放行的，WHY_TRUSTED 是这段对话里说过不再问的（界面上写得更具体），
-        别的情况返回 "mode"。"""
-        if isinstance(tool, DesktopTool):
-            return self._computer_allowance(tool.look(tool_input) if isinstance(tool_input, dict) else None)
-        if _escapes(tool_name, tool_input, tool):
-            return None  # 在沙箱之外执行一条命令：在任何模式下都要问（见文件开头）
-        if isinstance(tool, BrowserTool) and isinstance(tool_input, dict) and _always_ask(tool.look(tool_input)):
-            return None  # 往密码框、银行卡里输入，打开不是网页的地址：在任何模式下都要问（见文件开头）
-        if self.mode == "all":
-            return "mode"
-        found = self._mcp_of(tool_name, tool)
-        if found is not None:
-            # 你单独放开了这个 MCP 工具（见文件开头的说明）。认不出是哪个服务器的，一律问
-            trusted = self.trust_mcp and found[0] is not None and self.mcp is not None and self.mcp.trusted(*found)
-            return "mode" if trusted else None
-        if self.mode == "edits":
-            return "mode" if self._edits_workspace_file(tool_name, tool_input) else None
-        if self.mode == "readonly":
-            return self._reads_only(tool_name, tool_input, tool)
-        return None
-
-    def _computer_allowance(self, facts: DesktopFacts | None) -> str | None:
-        """操作整台电脑的一步能不能不问就做（规矩见文件开头）。只有两种情况不问：这段对话里说过这一类不再问，
-        或者这一档是"全部自动允许"。危险的组合键怎么都要问；"只读的命令""改文件"那两档、MCP 的"不用问"都不算数。"""
-        if facts is None or facts.danger:
-            return None
-        if facts.trusted and facts.attended:
-            return WHY_TRUSTED
-        return "mode" if self.mode == "all" else None
-
-    def places(self, cwd: Path | None = None) -> Places:
-        """命令在哪个目录里运行（不给是工作目录）、哪些地方不能不问就读（给 commands.classify 用）。"""
-        protected = [*self.editor.protected, *([self.commands.path] if self.commands is not None else [])]
-        return Places(cwd or self.editor.workspace, protected=protected, private=self.private, workspace=self.editor.workspace)
-
-    def _reads_only(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
-        """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；
-        碰到密钥文件、助手自己的数据目录、~/.ssh 这类地方的不算（见 commands/paths.py）。
-        命令里的相对路径从这条命令真正运行的目录算（上一条命令 cd 到的地方，见 _command_dir）。"""
-        if self.editor is None or not isinstance(tool_input, dict):
-            return None
-        if tool_name == shell.TOOL_NAME:
-            listed = self.commands.words() if self.commands is not None else []
-            here = _command_dir(tool_input, tool)
-            places = self.places(here)
-            if here is not None and here != self.editor.workspace:
-                # 不在工作目录里运行（之前的命令 cd 走了）：这个目录本身也要看一眼。不带路径的 ls、git status 看的就是它，
-                # 命令里却一个路径都没有；cd 进了数据目录、~/.ssh 这类地方，那里的什么命令都不算只读。
-                # 在工作目录里运行时不看（和以前一样）：工作目录的路径里碰巧有 secret 这样的词，也不该让每条命令都要问
-                try:
-                    places.check(".")
-                except Unclear:
-                    return None
-            verdict = classify(tool_input.get("command"), places, listed)
-            if not verdict.readonly:
-                return None
-            return WHY_LISTED if verdict.source == "listed" else WHY_READONLY
-        if tool_name == files.TOOL_NAME and tool_input.get("command") == "view":
-            try:
-                path = self.editor.resolve(tool_input.get("path"))
-                if self._is_private(path):
-                    return None  # 助手自己的数据：除了"全部自动允许"，读它一律先问（见 __init__ 的说明）
-                self.places().check(str(path))
-            except (ToolError, Unclear):
-                return None
-            return WHY_READONLY
-        return None
-
-    def _edits_workspace_file(self, tool_name: str, tool_input: object) -> bool:
-        """是不是"创建或修改工作目录里的文件"（不算助手自己的数据目录）。"""
-        if tool_name != files.TOOL_NAME or not isinstance(tool_input, dict):
-            return False
-        if tool_input.get("command") not in files.WRITE_COMMANDS:
-            return False
-        try:
-            path = self.editor.resolve(tool_input.get("path"))
-        except ToolError:
-            return False
-        return self.editor.in_workspace(path) and not self._is_private(path)
-
     def _is_private(self, path: Path) -> bool:
         # 不分大小写地比（见 pathnames.key）：macOS 上 DATA/tasks.json 就是 data/tasks.json，
         # 按字面比的话，它在"改工作目录里的文件不用问"那一档里就不用问了
@@ -284,392 +203,3 @@ class Permissions:
             return None
         found = self.mcp.resolve(tool_name) if self.mcp is not None else None
         return found if found is not None else (None, tool_name)
-
-    def review(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
-        """审查一次工具调用。tool 是这次要用的那个工具（agent.py 会给；不给的话只按名字判断）。
-
-        返回 None     —— 可以直接执行。
-        返回一段文字  —— 必须先问用户。这段文字会显示给用户，说明助手想做什么。
-        """
-        if not isinstance(tool_input, dict):
-            return None  # 参数本身不合法，工具会直接报错，什么都不会执行（MCP 的工具也是：还没联系服务器就退回去了）
-        found = self._mcp_of(tool_name, tool)
-        if found is not None:
-            # 参数整段给你看：MCP 的工具会把它们发给另一个程序（可能在网上），你要知道发出去的是什么
-            shown = json.dumps(tool_input, ensure_ascii=False, indent=2, default=str)
-            return t("调用 MCP 服务器“{server}”的工具 {tool}，参数是：\n\n{args}", server=found[0] or "?", tool=found[1], args=_preview(shown, 40))
-        if isinstance(tool, BrowserTool):
-            return review_browser(tool.look(tool_input))
-        if isinstance(tool, FetchTool):
-            return review_fetch(tool.look(tool_input))
-        if isinstance(tool, DesktopTool):
-            return review_computer(tool.look(tool_input))
-        if isinstance(tool, SendTool):
-            return self._review_send(tool.look(tool_input))
-        if tool_name == shell.TOOL_NAME:
-            return _review_command(tool_input, tool)
-        if tool_name == files.TOOL_NAME:
-            return self._review_file(tool_input)
-        if tool_name == task_tools.ADD:
-            return self._review_task_add(tool_input)
-        if tool_name == task_tools.DELETE:
-            return self._review_task_delete(tool_input)
-        return None
-
-    def _review_send(self, facts: SendFacts) -> str | None:
-        """把一个文件发到聊天里：每次都问（"全部自动允许"除外，auto_allows 照常按模式算）。发不了的（不在聊天里、
-        保存密钥的文件、太大……）不问：工具会直接把原因告诉模型，什么都不会发出去。"""
-        if facts.refusal or facts.path is None:
-            return None
-        kind = t("图片，会直接显示在聊天里") if facts.kind == "photo" else t("作为文件发送")
-        caption = t("\n  说明：{caption}", caption=short(facts.caption, 300)) if facts.caption else ""
-        private = t("\n\n⚠ 这是助手自己保存的数据（以前的会话、设置、待办都在这个目录里）。发出去以后它就离开了这台电脑。") if self._is_private(facts.path) else ""
-        return t(
-            "把一个文件发到 {platform}（和 {person} 的私聊）：\n\n  文件：{path}\n  大小：{size}（{kind}）{caption}{private}",
-            platform=t(facts.label),
-            person=facts.person or "?",
-            path=facts.shown,
-            size=file_size(facts.size),
-            kind=kind,
-            caption=caption,
-            private=private,
-        )
-
-    def _review_task_add(self, tool_input: dict) -> str | None:
-        if "approval" in tool_input:
-            # 工具没有这个参数（模型添加的任务一律"每次都问"，见 tools/tasks.py），会直接报错、什么都不会添加：
-            # 不用为一次注定失败的调用去打扰用户
-            return None
-        try:
-            task = check_task({**tool_input, "enabled": True})
-        except TaskError:
-            return None  # 参数不对，工具会直接报错，什么都不会添加
-        if task["kind"] != "agent":
-            return None  # 只是提醒：不花钱，也不会自己做任何事
-        return t(
-            "添加定时任务“{title}”（{when}）：到时间后，助手会在没人看着的时候自己运行下面这条指令，每次运行都要花 API 费用。\n\n{prompt}",
-            title=task["title"],
-            when=describe(task["schedule"]),
-            prompt=_preview(task["prompt"]),
-        )
-
-    def _review_task_delete(self, tool_input: dict) -> str | None:
-        task = self.tasks.get(tool_input.get("id")) if self.tasks is not None else None  # 模型没给 id 时 get 照样回答 None
-        if task is None or task["kind"] != "agent":
-            return None  # 不存在（工具会报错）或者只是提醒：不用问
-        return t("删除定时任务“{title}”（{when}），以后它不会再自动运行。", title=task["title"], when=describe(task["schedule"]))
-
-    def _review_file(self, tool_input: dict) -> str | None:
-        command = tool_input.get("command")
-        try:
-            path = self.editor.resolve(tool_input.get("path"))
-        except ToolError:
-            return None  # 路径无效，工具会直接报错，什么都不会执行
-        shown = self.editor.display(path)
-
-        # 这些说明会接在"助手想要"后面显示（"助手想要执行命令：…"），所以都写成"做什么"的样子
-        if command == "create":
-            content = _preview(tool_input.get("file_text"))
-            if path.exists():
-                return t("覆盖已有文件：{path}\n\n{content}", path=shown, content=content)
-            return t("创建文件：{path}\n\n{content}", path=shown, content=content)
-        if command == "str_replace":
-            old, new = _preview(tool_input.get("old_str")), _preview(tool_input.get("new_str"))
-            return t("修改文件：{path}\n\n  把这段：\n{old}\n  改成：\n{new}", path=shown, old=old, new=new)
-        if command == "insert":
-            text = tool_input.get("insert_text", tool_input.get("new_str"))
-            line = tool_input.get("insert_line")
-            return t("在文件 {path} 的第 {line} 行之后插入：\n\n{content}", path=shown, line=line, content=_preview(text))
-
-        # 剩下的是读取（view）
-        if self._is_private(path):
-            return t("读取助手自己保存的数据（以前的会话、设置、待办都在这个目录里）：\n\n    {path}", path=path)
-        if self.editor.in_workspace(path):
-            return None
-        return t("读取工作目录之外的内容：\n\n    {path}", path=path)
-
-
-# ---- 执行命令 ------------------------------------------------------------------
-
-
-def _review_command(tool_input: dict, tool: object) -> str:
-    """执行一条命令怎么问你：命令本身，打开了沙箱的话加一行沙箱的情况（话在 sandbox/session.py 里写），
-    之前的命令 cd 到了别处的话再加一行它在哪个目录里运行。要在沙箱之外运行的，换成另一张带警告的卡片，在任何模式下都问。"""
-    command = tool_input.get("command")
-    facts = tool.look(tool_input) if isinstance(tool, ShellTool) else None
-    question: str  # 都是 t() 给的 Message；sandbox/session.py 那两个函数标的是 str
-    if facts is None:
-        question = t("执行命令：\n\n    $ {command}", command=command)
-        # 认不出是哪个 shell（只给了名字）又带着 unsandboxed：宁可当它要出沙箱。认得出、只是没有沙箱这回事的，照常问
-        escapes = _escapes(shell.TOOL_NAME, tool_input, tool)
-    elif facts.escapes:
-        question, escapes = escape_question(facts, command), True
-    else:
-        question, escapes = command_question(facts, command), False
-    here = _command_dir(tool_input, tool)
-    if here is not None and isinstance(tool, ShellTool) and here != tool.shell.workspace:
-        # 不是工作目录才写：大多数命令就在工作目录里，卡片和以前一样（聊天通道的确认请求另有一行"工作目录"）。
-        # 包一层 t()、把原来那句当作填进去的值，换语言时里外两层都能重译（见 i18n.Message.nested）
-        question = t("{question}\n\n在这个目录里运行：{path}（之前的命令 cd 到了这里）", question=question, path=here)
-    return always(question) if escapes else question
-
-
-def _command_dir(tool_input: dict, tool: object) -> Path | None:
-    """这条命令真正会在哪个目录里运行（Shell.where：记着的目录不在了、沙箱里看不到，当场回到工作目录，见 tools/cwd.py）。
-    卡片上写的、判断"只读的命令"时用的，和真正运行时用的是同一个。
-
-    认不出是哪个 Shell（只给了名字，测试和只按名字判断的地方）：交回 None，按工作目录算。那样的调用方手里没有一个会 cd 的 shell，
-    真正执行命令的 Agent 一定会把工具本身交过来（见 agent.py 的 _run_one）。"""
-    if not isinstance(tool, ShellTool) or tool.shell is None:
-        return None
-    return tool.shell.where(tool_input.get("unsandboxed") is True)
-
-
-def _escapes(tool_name: str, tool_input: object, tool: object) -> bool:
-    """这次调用是不是"在沙箱之外执行一条命令"。认不出是哪个 shell 的（只给了名字），带着 unsandboxed 就当它是。"""
-    if tool_name != shell.TOOL_NAME or not isinstance(tool_input, dict):
-        return False
-    if isinstance(tool, ShellTool):
-        facts = tool.look(tool_input)
-        return facts is not None and facts.escapes
-    return tool_input.get("unsandboxed") is True
-
-
-# ---- 浏览器 ------------------------------------------------------------------
-
-# 名字里带这些词的按钮，点之前也问：买东西、付钱、发消息、删东西、同意条款，都是点一下就收不回来的。
-# 只是补充：真正靠得住的是"会不会提交表单"（Facts.submits），很多这样的按钮不在表单里，就靠名字认
-CONSEQUENTIAL = (
-    "buy", "purchase", "pay", "checkout", "order", "send", "submit", "delete", "remove", "confirm", "transfer",
-    "subscribe", "sign up", "register", "agree", "accept", "post", "publish",
-    "购买", "支付", "付款", "下单", "结算", "发送", "提交", "删除", "确认", "转账", "订阅", "注册", "同意", "发布",
-    "comprar", "pagar", "enviar", "eliminar", "borrar", "confirmar", "suscribir", "aceptar", "publicar",
-)
-
-
-def consequential(name: str) -> bool:
-    lowered = name.lower()
-    return any(word in lowered for word in CONSEQUENTIAL)
-
-
-# 页面元素的角色（ARIA 的叫法）→ 给人看的说法
-ROLES = {
-    "button": k("按钮"), "link": k("链接"), "textbox": k("输入框"), "searchbox": k("搜索框"), "combobox": k("下拉框"),
-    "listbox": k("列表框"), "checkbox": k("勾选框"), "radio": k("单选项"), "switch": k("开关"), "tab": k("标签"),
-    "menuitem": k("菜单项"), "option": k("选项"), "slider": k("滑块"), "spinbutton": k("数字框"),
-}
-
-
-def _role(facts: Facts) -> str:
-    return t(ROLES[facts.role]) if facts.role in ROLES else facts.role or "?"
-
-
-def _always_ask(facts: Facts) -> bool:
-    """在任何模式下都要问的：往密码框、银行卡、看不到里面的别家网站的框里输入；打开不是网页的地址。"""
-    if facts.action in ("type", "form", "key") and (facts.password or facts.card or facts.cross_origin):
-        return facts.action != "key" or facts.typing_keys
-    if facts.action == "navigate" and facts.destination and facts.destination not in urls.HISTORY:
-        return urls.scheme_of(facts.destination) not in urls.WEB_SCHEMES
-    return False
-
-
-def _element(facts: Facts) -> str:
-    """要操作的那个元素，给人看的说法。"""
-    if facts.cross_origin:
-        return t("另一个网站嵌在页面里的框（看不到里面是什么）：{frame}", frame=facts.frame or "?")
-    if not facts.found:
-        return t("（没有选中输入框）")
-    return f"{_role(facts)} “{facts.name}”" if facts.name else _role(facts)
-
-
-def _page(facts: Facts) -> str:
-    return urls.shown(facts.page) if facts.page else t("（还没有打开网页）")
-
-
-def _warning(facts: Facts) -> str:
-    if facts.password:
-        return t("⚠ 这是一个密码框。只有在你确定这是你要登录的网站、而且是你让助手这么做的时候才允许。")
-    if facts.card:
-        return t("⚠ 这里看起来是填银行卡信息的地方（卡号、安全码、有效期）。确认这是你要付款的网站，再允许。")
-    if facts.cross_origin:
-        return t("⚠ 输入的地方是另一个网站嵌进来的框，智狐看不到它是什么（常见的是付款信息）。确认无误再允许。")
-    return ""
-
-
-def review_browser(facts: Facts) -> str | None:
-    """浏览器的一次动作要不要问你（规矩见文件开头的表）。返回要显示的说明，不用问返回 None。"""
-    action = facts.action
-    if action == "navigate":
-        destination = facts.destination
-        if not destination or destination in urls.HISTORY:
-            return None  # 后退、前进、刷新：都是这个标签页去过的地方
-        if urls.refusal(destination):
-            return None  # 根本不会打开（工具会直接拒绝），不用问
-        if urls.scheme_of(destination) not in urls.WEB_SCHEMES:
-            return t("在浏览器里打开一个不是网页的地址（每次都会问）：\n\n    {url}", url=urls.shown(destination))
-        if not facts.new_site:
-            return None
-        local = t("\n\n注意：这是这台电脑或者局域网里的地址。") if urls.is_local(destination) else ""
-        return t(
-            "在浏览器里打开另一个网站：\n\n    {url}\n\n这段对话里还没去过 {site}。允许以后，这段对话里再去这个网站就不再问。{local}",
-            url=urls.shown(destination),
-            site=urls.site_of(destination),
-            local=local,
-        )
-    if facts.idle:
-        return None  # 浏览器没开、还没有网页：点不了也输入不了，工具会直接报错
-    if action == "click":
-        if facts.stale:
-            return None  # 编号已经作废：工具会直接报错，让模型重新读页面
-        if facts.cross_origin:
-            return t("点击网页上另一个网站嵌进来的框（看不到里面是什么，可能是付款或者登录的按钮）：\n\n  网页：{page}\n  框：{frame}", page=_page(facts), frame=facts.frame or "?")
-        if not facts.reachable:
-            return t("点击网页上的 {target}（没能看清点的是什么）。\n\n  网页：{page}", target=facts.text or "?", page=_page(facts))
-        if facts.submits or (facts.role in ("button", "link") and consequential(facts.name)):
-            return t("点击网页上的“{name}”（{role}）。这可能会提交表单、下单或者发出消息。\n\n  网页：{page}", name=facts.name or "?", role=_role(facts), page=_page(facts))
-        return None
-    if action in ("type", "form"):
-        if action == "form" and facts.reachable and facts.found and not facts.editable and not facts.password and not facts.card:
-            return None  # 选一个下拉框的选项、勾一个勾选框：只是改了表单里的一项，真要提交时还会问
-        if facts.stale:
-            return None
-        shown = "•" * min(len(facts.text), 12) + t("（共 {n} 个字，已隐藏）", n=len(facts.text)) if facts.password else _preview(facts.text, 8)
-        warning = _warning(facts)
-        enter = t("\n\n输完以后会按回车（通常就是提交）。") if facts.enter else ""
-        return t(
-            "在网页上输入文字：\n\n  网页：{page}\n  输入到：{element}\n  内容：\n{content}{enter}{warning}",
-            page=_page(facts),
-            element=_element(facts) if facts.reachable else t("（当前选中的地方）"),
-            content=shown,
-            enter=enter,
-            warning="\n\n" + warning if warning else "",
-        )
-    if action == "key":
-        if facts.typing_keys or (facts.enter and (facts.editable or facts.cross_origin or not facts.reachable)):
-            # 会打出字、粘贴：在输入框里就是输入；不在输入框里，字母键可能触发网页的快捷键（"e" 归档邮件……）。
-            # 在输入框里按回车：通常就是提交
-            warning = _warning(facts)
-            return t(
-                "在网页上按键：{keys}\n\n  网页：{page}\n  当前选中的是：{element}{warning}",
-                keys=facts.text,
-                page=_page(facts),
-                element=_element(facts),
-                warning="\n\n" + warning if warning else "",
-            )
-        if facts.enter and (facts.submits or consequential(facts.name)):
-            return t("在网页上按回车，会按下“{name}”（{role}），可能会提交表单。\n\n  网页：{page}", name=facts.name or "?", role=_role(facts), page=_page(facts))
-        return None
-    return None
-
-
-# ---- 读网页 --------------------------------------------------------------------
-
-
-def review_fetch(facts: FetchFacts) -> str | None:
-    """读一个网页要不要问你（规矩见文件开头）：这段对话里第一次读一个网站之前问。读不了的（不是 http(s)、写法古怪……）不问：
-    工具会直接把原因告诉模型（Tool.check），什么都不会发出去。卡片上是完整的网址：带出去的就是它。"""
-    if facts.refusal or not facts.url or not facts.new_site:
-        return None
-    return t(
-        "读一个网页（这个网址会原样发给那个网站）：\n\n    {url}\n\n这段对话里还没读过 {site} 的网页。网址里的每一段（包括 ? 后面的）那个网站都看得到。"
-        "允许以后，这段对话里再读这个网站就不再问。",
-        url=urls.shown(facts.url, urls.MAX_URL_CHARS),
-        site=facts.site,
-    )
-
-
-# ---- 操作整台电脑 --------------------------------------------------------------
-
-_CLICKS = {("left", 1): k("左键单击"), ("left", 2): k("左键双击"), ("left", 3): k("左键连点三下"), ("right", 1): k("右键单击"), ("middle", 1): k("中键单击")}
-_DIRECTIONS = {"up": k("向上"), "down": k("向下"), "left": k("向左"), "right": k("向右")}
-
-
-def offering(question: str, offer: str) -> str:
-    """一个问题，确认卡片上多给一个选择（offer 是固定的几个词之一，页面按它画按钮，见 webui/ui.py 的 confirm）。
-    问题本身是 t() 给的一句话（带着原文，页面换语言时能重译），选择记在它身上，不改它的文字。"""
-    # question 其实是 t() 给的 Message（str 的子类，能挂上属性），页面用 getattr 取（见 webui/ui.py 的 confirm）；类型上写的是 str
-    question.offer = offer  # type: ignore[attr-defined]  # 见上一行
-    return question
-
-
-def always(question: str) -> str:
-    """一个在任何模式下都要问的问题：页面上就不放"不想每次都问？"的入口（换哪一档都不会少问这一次），也不放"不再问"的选择。"""
-    question.always = True  # type: ignore[attr-defined]  # 和 offering 一样：挂在 t() 给的 Message 上
-    return question
-
-
-def _spot(facts: DesktopFacts, point: tuple[int, int] | None = None) -> str:
-    """一个位置，给人看的说法：截图上的坐标；屏幕上的点不一样的话（缩小过、Retina）也写上。"""
-    point = point if point is not None else facts.point
-    if point is None:
-        return t("鼠标现在的位置")
-    if facts.on_screen is not None and facts.on_screen != tuple(point) and point is facts.point:
-        return t("({x}, {y})（屏幕上的 ({sx}, {sy})）", x=point[0], y=point[1], sx=facts.on_screen[0], sy=facts.on_screen[1])
-    return f"({point[0]}, {point[1]})"
-
-
-def _app(facts: DesktopFacts) -> str:
-    return facts.app or t("（看不出是哪个程序）")
-
-
-def review_computer(facts: DesktopFacts) -> str | None:
-    """操作整台电脑的一次动作怎么问你（规矩见文件开头）。返回要显示的说明；不用问（根本不会做、或者什么都不碰）返回 None。
-
-    危险的组合键标着 always：换哪一档、放开了什么都照样要问，卡片上也不给"不再问"。别的动作在你正看着的对话里
-    （facts.attended）多给一个选择：截图、放大是 screenshots，点击、打字这些是 actions（desktop/session.py 的 trust_of）；
-    定时任务、聊天通道的运行不给。真正放不放开由 allowance 定，这里只管卡片上画什么。"""
-    question = _review_computer(facts)
-    if question is None:
-        return None
-    if facts.danger:
-        return always(question)
-    offer = trust_of(facts.action)
-    return offering(question, offer) if facts.attended and offer else question
-
-
-def _review_computer(facts: DesktopFacts) -> str | None:
-    action = facts.action
-    if not facts.ready or facts.bad or facts.blocked or action in ("wait", "cursor"):
-        return None  # 关着、用不了、参数不对、碰到不许碰的程序：工具会直接回答，什么都不会做。等一等、看鼠标在哪儿：什么都不碰
-    front = t("\n  最前面的程序：{app}", app=_app(facts))
-    if action == "screenshot":
-        return t("截一张整个屏幕的图交给模型。屏幕上的一切它都看得到：别的程序、通知里的消息、打开着的文件。{front}", front=front)
-    if action == "zoom":
-        region = ", ".join(str(value) for value in facts.region)
-        return t("把屏幕上的一块（[{region}]）放大了交给模型看。{front}", region=region, front=front)
-    held = t("\n  同时按着：{keys}", keys="+".join(facts.modifiers)) if facts.modifiers else ""
-    on = t("\n  落在：{app} 的窗口上", app=_app(facts))
-    if action == "click":
-        what = t(_CLICKS.get((facts.button, facts.count if facts.button == "left" else 1), _CLICKS[("left", 1)]))
-        return t("在电脑上点击鼠标（{what}）：{where}{on}{held}", what=what, where=_spot(facts), on=on, held=held)
-    if action == "drag":
-        return t("在电脑上按住鼠标左键拖动：从 {start} 到 {end}{on}{held}", start=_spot(facts), end=_spot(facts, facts.end), on=on, held=held)
-    if action == "move":
-        return t("把鼠标移到 {where}{on}", where=_spot(facts), on=on)
-    if action == "press":
-        return t("在 {where} 按下鼠标左键（先不松开，接下来通常是拖动）{on}", where=_spot(facts), on=on)
-    if action == "release":
-        return t("在 {where} 松开鼠标左键{on}", where=_spot(facts), on=on)
-    if action == "scroll":
-        return t("在电脑上滚动：{where}，{direction} {amount} 格{on}{held}", where=_spot(facts), direction=t(_DIRECTIONS.get(facts.direction, facts.direction)), amount=facts.amount, on=on, held=held)
-    # 填进去的每一段都保持是 t() 给的一句话（不和别的字拼起来），页面换语言时才能连里面的一起重译（见 i18n.Message）
-    warning = t("\n\n{warning}", warning=t(facts.danger)) if facts.danger else ""
-    target = t("\n  打到：{app}（智狐会先把它换回最前面）", app=_app(facts))
-    if action == "type":
-        newline = t("\n\n{warning}", warning=t("⚠ 内容里有换行：在很多程序里，换行就是按回车（发送、提交）。")) if facts.newline else ""
-        return t("在电脑上打字：{target}\n  内容：\n{content}{newline}", target=target, content=_preview(facts.text, 8), newline=newline)
-    if action == "key":
-        times = t("（{n} 次）", n=facts.repeat) if facts.repeat > 1 else ""
-        return t("在电脑上按键：{keys}{times}{target}{warning}", keys=facts.text, times=times, target=target, warning=warning)
-    if action == "hold":
-        return t("在电脑上按住 {keys} {seconds} 秒{target}{warning}", keys=facts.text, seconds=f"{facts.duration:g}", target=target, warning=warning)
-    return t("在电脑上做一个动作：{action}{front}", action=action, front=front)
-
-
-def _preview(text: object, max_lines: int = 12) -> str:
-    """把要写入的内容缩进显示出来，太长就只显示开头。"""
-    lines = str(text if text is not None else "").split("\n")
-    shown = [f"    {line}" for line in lines[:max_lines]]
-    if len(lines) > max_lines:
-        shown.append("    " + t("……（共 {n} 行）", n=len(lines)))
-    return "\n".join(shown)
