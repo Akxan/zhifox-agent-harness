@@ -27,7 +27,10 @@ lists the shared state and the methods from other files that they use.
 
 The tests need no API key and cost nothing. They run in parallel by default (`addopts` in
 [pyproject.toml](../../pyproject.toml)); each worker process gets its own fake servers and temporary folders, and the page tests
-start their own demo server and Chrome per worker, so nothing is shared between them. [tests/fake_api.py](../../tests/fake_api.py) and
+start their own demo server and Chrome per worker, so nothing is shared between them. Inside a test process the socketserver
+servers (the fakes, and web servers started by tests) check every 0.02 seconds whether to stop instead of the default 0.5 seconds
+(top of [tests/conftest.py](../../tests/conftest.py)): every test stops a few of them when it ends, and with the default those
+waits added up to more than seven hundred seconds. [tests/fake_api.py](../../tests/fake_api.py) and
 [tests/fake_openai.py](../../tests/fake_openai.py) are two local fake servers that replay prepared replies in Claude's and
 OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
@@ -208,7 +211,7 @@ inlining, no two functions share a name, and every script part, as well as the a
 The page itself (the markup, styles and scripts in [harness/webui/page/](../../harness/webui/page/)) is tested in a real
 headless Chrome by the suite in
 [tests/ui/](../../tests/ui/). `uv run pytest` includes it; `uv run pytest -m ui` runs only it and `-m "not ui"` skips it. It is
-skipped when no Chrome is installed, and CI requires it. It takes about a minute and adds no dependencies: it drives
+skipped when no Chrome is installed, and CI requires it (in a job of its own, see [CI](#ci) below). It takes about a minute and adds no dependencies: it drives
 Chrome with ZhiFox's own hand-written CDP client (no Playwright, Selenium or npm), starts `tests/demo_web.py` once as a
 subprocess with a temporary data directory, and opens every test in a fresh, incognito-like browser context. Clicks,
 hovers and key presses are real input events that wait until the target has stopped moving and isn't covered, and every
@@ -264,11 +267,41 @@ greets you, and `[ui:flaky]` fails the first attempt at every message (so you ca
 `--script NAME` makes every conversation follow that script even without a tag; the README screenshots were taken with
 `--script readme`, which answers in English or Chinese depending on the question.
 
-Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu, macOS and Windows with
-Python 3.11 and 3.13 ([.github/workflows/tests.yml](../../.github/workflows/tests.yml)), page tests included, using the Chrome
-that comes with GitHub's runners, and the type checker (mypy) once for each of the three systems. On Ubuntu the workflow also installs Xvfb, `xdotool` and ImageMagick, so the computer
-use integration test runs there against a virtual display, and bubblewrap, so the sandbox's real Linux backend is tested
-there too. The result is the Tests badge at the top of the [README](../../README.md).
+### CI
+
+Every push to GitHub and every pull request runs the tests and the linter (ruff) on Ubuntu, macOS and Windows
+([.github/workflows/tests.yml](../../.github/workflows/tests.yml)); the result is the Tests badge at the top of the
+[README](../../README.md). To be quick, the work is split into jobs that run at the same time; `test` and `ui` together are
+exactly the whole suite (every test either has the ui mark or doesn't):
+
+| Job | What it runs | Where |
+|---|---|---|
+| `test` | everything except the page tests (`-m "not ui"`), plus the linter | three systems × Python 3.11 and 3.13 |
+| `ui` | the page tests (`-m ui`), with the Chrome that comes with GitHub's runners | three systems × Python 3.13; split in two halves on macOS and Windows, on two machines at once |
+| `types` | the type checker (mypy), as each of the three systems sees the code | one Ubuntu machine |
+| `desktop` | installs Xvfb, `xdotool` and ImageMagick and runs the computer use integration test against a virtual display | Ubuntu |
+| `sandbox` | installs bubblewrap and tests the sandbox's real Linux backend | Ubuntu |
+| `package` | builds the wheel and the source archive and installs them in clean environments | three systems |
+
+The page tests use one Python version because they check the page and what happens in the browser; Python only runs the
+demo server behind it, and that code is tested on both versions in `test`, which is also where version-specific behaviour
+is caught. It's 3.13 because local development uses 3.11 and runs the page tests often, so both versions are covered.
+The halves come from [tests/shards.py](../../tests/shards.py): with `HARNESS_TEST_SHARD=PART/PARTS` (for example `1/2`)
+only that part runs, dealt out in collection order, so the parts together contain every test exactly once
+([tests/test_shards.py](../../tests/test_shards.py) checks this) and a malformed value stops the run. Without it, everything
+runs as before. To run one part locally the way CI does:
+
+```bash
+HARNESS_TEST_SHARD=1/2 uv run pytest -m ui                 # zsh / bash
+$env:HARNESS_TEST_SHARD = "1/2"; uv run pytest -m ui       # PowerShell
+```
+
+Why it's split this way (2026-11-24): the tests and the page tests used to run together in one job, which took about
+nineteen minutes on macOS (three cores; the last eleven minutes were the two hundred or so page tests), thirteen on Windows
+and nine on Ubuntu. Every page test has Chrome really draw the page, which is CPU-heavy, so they're spread over two
+machines. The other big cost was waiting for servers to stop at the end of each test (the 0.02 seconds above): with that
+fixed, the suite without the page tests went from 97 to 35 seconds locally, and the time of all tests added up from 943 to
+233 seconds.
 
 Tests that only make sense on one system say so when they're skipped: a launchd plist or a systemd unit can't be
 installed from a Windows path, there are no file descriptors 3 and 4 or process groups on Windows, `icacls`, job objects

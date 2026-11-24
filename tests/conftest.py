@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import os
 import shutil
+import socketserver
 import sys
 import tempfile
 from datetime import datetime
@@ -17,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 import fake_sandbox
+import shards
 from fake_api import FakeAPI
 from fake_openai import FakeOpenAI
 
@@ -30,6 +32,54 @@ from harness.imports import places as import_places
 from harness.net.http import NetError
 from harness.service import base as service_base
 from harness.service import cli as service_cli
+
+# ---- 测试里的服务器关得快一些 -------------------------------------------------------
+# socketserver 的 serve_forever 默认每 0.5 秒才看一次"该停了没有"，shutdown() 一直等到它看见为止。
+# 测试里到处是这样的服务器（tests/fake_*.py 的假模型、假聊天平台、假 GitHub，测试里起的网页服务器），每个测试收尾时停几个，
+# 每停一个白等零点几秒：五千多个测试的 teardown 加起来有七百多秒（本机 --durations=0 量的），CI 上光这一项就占了 macOS 那一项好几分钟。
+# 所以把这个测试进程里的默认值换成 0.02 秒：一个空着的服务器每秒多醒 50 次，几乎不花 CPU。
+# 只改"多久看一次"，不改服务器做什么，也不赌时机：shutdown() 照样等它真的停下。写明了 poll_interval 的地方照旧用它们自己的。
+# 产品代码不变（智狐退出时多等半秒没关系），子进程里的服务器（页面测试的演示服务器、真的 harness serve）也不受影响。
+SERVE_POLL_SECONDS = 0.02
+_serve_forever = socketserver.BaseServer.serve_forever
+
+
+def _serve_forever_quickly(self: socketserver.BaseServer, poll_interval: float = SERVE_POLL_SECONDS) -> None:
+    _serve_forever(self, poll_interval)
+
+
+socketserver.BaseServer.serve_forever = _serve_forever_quickly  # type: ignore[method-assign]  # 有意换掉标准库的默认值，见上面
+
+
+# ---- 分成几份在几台机器上跑（CI 的页面测试） ---------------------------------------------
+# 设了 HARNESS_TEST_SHARD=第几份/一共几份 时，只跑其中一份（怎么分、为什么这样分见 tests/shards.py）。
+# trylast：tests/ui/conftest.py 先给页面测试打上 ui 标记、pytest 再按 -m 筛掉不要的，最后才分，只在留下来的里面轮流分。
+# 用 -n 并行时每个进程各收集一遍、各分一遍，分出来的一样（xdist 会核对几个进程收集到的是不是同一批）
+def pytest_configure(config):
+    # 写错了在一开始就停下、说清楚（主进程和每个 xdist 进程都经过这里）：等到收集时才发现，只会让 xdist 的进程崩掉，报一堆 INTERNALERROR
+    spec = os.environ.get(shards.VARIABLE)
+    if spec:
+        try:
+            shards.parse(spec)
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from error
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    spec = os.environ.get(shards.VARIABLE)
+    if not spec:
+        return
+    kept, others = shards.split(items, spec)  # 写法在 pytest_configure 里已经查过
+    if others:
+        config.hook.pytest_deselected(items=others)  # 汇总那一行写"N deselected"，看得出这一份没跑全部
+    items[:] = kept
+
+
+def pytest_report_header(config):
+    spec = os.environ.get(shards.VARIABLE)
+    return f"{shards.VARIABLE}={spec}：只跑其中一份（见 tests/shards.py）" if spec else None
+
 
 # ---- 符号链接 -------------------------------------------------------------------
 # Windows 上建符号链接要管理员权限，或者打开了"开发者模式"；普通用户建的时候报 OSError（WinError 1314）。
