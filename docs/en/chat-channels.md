@@ -67,7 +67,7 @@ In the chat (on Slack, write
 | Command | What it does |
 |---|---|
 | `/new` | Start a new conversation (the previous one stays in the sidebar). `/new <agent name>` starts it with that custom agent as the persona |
-| `/stop` | Stop the turn in progress, including a running command, and drop queued messages |
+| `/stop` | Stop the turn in progress at once (a running command and a reply the model is still thinking about included), and drop queued messages |
 | `/status` | Model, approval mode, current conversation, what it's doing now, today's and this month's spending |
 | `/help` | How to use it |
 

@@ -46,7 +46,8 @@ uv run harness
 | `/doctor` | 自检：Python、目录的权限、哪几家有密钥、浏览器、沙箱、后台服务……哪些好、哪些有问题、怎么修（和 `uv run harness doctor` 一样，见[出了问题：先运行 harness doctor](configuration.md#出了问题先运行-harness-doctor)） |
 | `/exit` | 退出（也可以用 `/quit`，或者按 Ctrl-D） |
 
-模型回复到一半时按 Ctrl-C 可以打断它。
+按 Ctrl-C 可以打断正在进行的回复。它马上生效，模型还在想、一个字都没写的时候也一样。
+（Windows 上 Ctrl-C 打断不了正在等网络的程序，所以按下的那一刻智狐自己断开和模型的连接。）
 
 **会话会存下来。** 每一轮都照网页的样子存进 `data/conversations/`（被打断的那一轮也存），所以网页的会话栏里列着终端的会话、
 搜索搜得到，页面上能打开、接着聊、编辑、重新生成、分叉；网页上的会话，终端里 `/history`、`/open` 也一样。`/open` 的规矩和网页上

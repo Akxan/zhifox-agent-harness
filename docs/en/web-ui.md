@@ -85,8 +85,9 @@ This starts a small server on your computer and opens the chat page in your brow
   files. If a file changed since, the line explains why in place and waits for **Undo anyway**. Files changed by shell
   commands can't be undone automatically (see [Undoing a turn's file changes](conversations.md#undoing-a-turns-file-changes)).
 - **Input box.** Enter sends; Shift+Enter starts a new line. While the assistant works, the send button becomes
-  **Stop**, which interrupts the reply and ends any command that is running. The estimated cost of this run is always
-  shown below the input.
+  **Stop**, which interrupts the reply and ends any command that is running. It takes effect at once, also while the
+  model is still thinking, writing a long tool call or hasn't started answering: ZhiFox cuts the connection to the
+  model, so the provider stops generating too. The estimated cost of this run is always shown below the input.
 - **Attachments.** Click the paper clip left of the input, drop files anywhere on the page, or paste a screenshot
   straight into the input (⌘V / Ctrl+V). Before you send, attachments sit above the input as small cards you can
   remove; a message can carry up to 10, and you can send attachments without any text. The providers' APIs take only

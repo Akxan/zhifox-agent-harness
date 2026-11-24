@@ -18,6 +18,7 @@
 | 一起跑的读取 | [harness/parallel.py](../../harness/parallel.py) | 模型一步里常常要好几样东西（"读这五个文件"），一个一个读，要等的是每一次加起来那么久。连着的、只是读又不用问你的调用放进一个小线程池同时跑，卡片、确认、钩子和历史仍然按调用的顺序（见[同一步里的几次读取一起做](tools-and-permissions.md#同一步里的几次读取一起做)） |
 | 命令的当前目录 | [harness/tools/cwd.py](../../harness/tools/cwd.py) | 每条命令都在一个新的 shell 里运行，上一条的 `cd` 一忘，下一条就跑错了地方。每个 shell 记着上一条命令停在哪个目录，下一条从那里开始；确认卡片、只读的判断和沙箱都照着这个目录 |
 | 模型适配层 | [harness/providers/](../../harness/providers/) | 各家 API 的格式不一样。适配层把差别包起来，循环不用关心背后是哪一家 |
+| 停下一次模型请求 | [harness/providers/inflight.py](../../harness/providers/inflight.py) | 模型在想的时候什么都不发，等回复的下一段才生效的"停止"，模型不开口就一直等着。现在由点"停止"的那个线程直接断开这次请求的连接，等着的循环马上醒来、照"被中断"收尾，不重试、不换备用模型。智狐自己建的客户端带着 httpx 的钩子，连回答还没开始的请求也断得开 |
 | 自定义模型接口 | [harness/endpoints/](../../harness/endpoints/)、[harness/webui/endpoints_api.py](../../harness/webui/endpoints_api.py) | 内置的几家都在别人的服务器上。接口是任何 OpenAI 格式的地址（Ollama、LM Studio、vLLM、llama.cpp、公司的网关）：地址的规矩（https，明文的 http 只许你自己的网络）、带可选密钥的存储、从不带上别家密钥也不跟重定向的客户端、猜每个模型能做什么、不花钱地测试连接（见[本地模型和自己的网关](models.md#本地模型和自己的网关ollamalm-studiovllmllamacpp)） |
 | 对话历史 | 适配层里（各家格式不同） | 模型没有记忆。每次请求都把完整的对话重新发一遍 |
 | 压缩历史 | [harness/providers/compaction.py](../../harness/providers/compaction.py) | 历史每轮整段重发，越聊越贵，最后超出模型的上限。GPT、Gemini、DeepSeek 的对话太长时，请模型把较早的部分写成摘要（Claude 由 API 自己压缩） |

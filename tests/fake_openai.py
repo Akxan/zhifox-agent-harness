@@ -2,6 +2,7 @@
 
 GPT、Gemini、DeepSeek 都用这套格式（Chat Completions），所以一个假服务器就能代表它们三家。
 和 fake_api.py 一样：按顺序回放事先写好的回复，并记下收到的每一个请求。
+测"停止"也一样：held.held(chat(...)) 先压着不回答，api.hold.release() 放行（见 held.py）；keep_alive=True 按 HTTP/1.1 回答。
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from held import Hold
 
 
 def call(id: str, name: str, arguments: str, **extra) -> dict:
@@ -97,8 +100,11 @@ class FakeOpenAI:
         lmstudio: list[dict] | None = None,
         redirect: str = "",
         listing_extra: dict[str, dict] | None = None,
+        keep_alive: bool = False,
     ):
         self.replies = list(replies)
+        self.keep_alive = keep_alive
+        self.hold = Hold()  # 压着不回答的那几条回复（见 held.py）
         self.models = models or ["test-model"]
         self.requests: list[dict] = []
         self.keys: list[str] = []  # 每个请求带来的 API key
@@ -112,6 +118,8 @@ class FakeOpenAI:
         api = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1" if api.keep_alive else "HTTP/1.0"
+
             def _key_ok(self) -> bool:
                 api.headers.append({name.lower(): value for name, value in self.headers.items()})
                 api.paths.append(self.path)
@@ -167,6 +175,10 @@ class FakeOpenAI:
                     self._json(500, {"error": {"message": "no scripted reply left", "type": "server_error"}})
                     return
                 scripted = api.replies.pop(0)
+                if scripted.get("held"):
+                    scripted = self._held(scripted)
+                    if scripted is None:
+                        return
                 if "error" in scripted:
                     problem = scripted["error"]
                     error = {"message": problem["message"], "type": "server_error"}
@@ -181,6 +193,26 @@ class FakeOpenAI:
                 self.send_header("content-length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+
+            def _held(self, scripted: dict) -> dict | None:
+                """先压着（见 held.py）。对方断开了返回 None；放行了的话，头已经发了的把数据块接着发完、返回 None，
+                头还没发的返回写好的那条回复，照平常的样子发。"""
+                if scripted["headers"]:
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.send_header("transfer-encoding", "chunked")
+                    self.end_headers()
+                    self.wfile.flush()
+                if not api.hold.wait(self.connection):
+                    self.close_connection = True
+                    return None
+                if not scripted["headers"]:
+                    return scripted["then"]
+                for line in [*(f"data: {json.dumps(chunk)}\n\n" for chunk in _chunks(scripted["then"])), "data: [DONE]\n\n"]:
+                    data = line.encode()
+                    self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+                self.wfile.write(b"0\r\n\r\n")
+                return None
 
             def log_message(self, *args: object) -> None:
                 pass
@@ -204,5 +236,6 @@ class FakeOpenAI:
         return ""
 
     def stop(self) -> None:
+        self.hold.close()  # 还压着的请求放走，不然它们的线程一直等着
         self.server.shutdown()
         self.server.server_close()

@@ -97,8 +97,10 @@ What doesn't work yet or hasn't been tested with real keys, what may come next, 
   installed in your home folder need their folder added as an extra path, `~` is the run's own empty home folder,
   `sudo` and `ps` don't run on macOS, and localhost counts as network. It doesn't limit CPU, memory or disk, and it
   can't protect the working folder itself or what you later run from it.
-- **Stop** in the web UI takes effect the next time the model produces output: during the few seconds when the model is
-  still thinking and has produced nothing, it won't stop immediately.
+- A model request you stop isn't in the spending ledger. The APIs report what a reply used only at its end, which a
+  stopped reply never reaches, so the tokens the model had read and written up to that moment (which the provider may
+  still bill) aren't counted. Stop itself takes effect at once, also while the model is thinking or hasn't started
+  answering; on Linux and Windows that has been checked only in CI.
 - Three Claude features use beta API features: automatic retry with another model after a refusal, automatic history
   compaction, and dropping mismatched thinking when you continue an old conversation. The third is included in every
   Claude request. If every request fails with a 400 error, you can turn them off in [harness/config.py](../../harness/config.py)

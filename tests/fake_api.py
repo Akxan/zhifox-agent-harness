@@ -7,6 +7,10 @@
 几段对话同时进行时（你的对话和几个定时任务一起跑），"按顺序"就说不清是谁先谁后了。这时用 routes：
 {"某句话": [回复, ...]}，请求里第一条消息含有这句话的，从它自己的那一串里按顺序取；别的照旧从 replies 里取。
 每次运行的第一条消息就是任务的指令，所以用指令里的一句话就能把每个任务的回复分开。
+
+测"停止"：held.held(回复) 是一条先压着不回答的回复（发了头、一个事件都不发，或者连头都不发），api.hold.release() 放行，
+压着的时候智狐把连接断开了记在 api.hold.hangups（见 held.py）。keep_alive=True 时按 HTTP/1.1 回答、连接留着给下一个请求用
+（真的 API 就是这样；默认是 HTTP/1.0，每回答完一个就关）。
 """
 
 from __future__ import annotations
@@ -14,6 +18,8 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from held import Hold
 
 
 def text(value: str, citations: list[dict] | None = None) -> dict:
@@ -130,12 +136,19 @@ def _events(scripted: dict) -> list[dict]:
     return events
 
 
+def _sse(event: dict) -> bytes:
+    return f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode()
+
+
 class FakeAPI:
-    def __init__(self, replies: list[dict], routes: dict[str, list[dict]] | None = None):
+    def __init__(self, replies: list[dict], routes: dict[str, list[dict]] | None = None, keep_alive: bool = False):
         self.replies = list(replies)
+        self.keep_alive = keep_alive
+        self.hold = Hold()  # 压着不回答的那几条回复（见文件开头和 held.py）
         self.routes = {marker: list(items) for marker, items in (routes or {}).items()}
         self.requests: list[dict] = []  # 收到的请求体
         self.headers: list[dict] = []  # 收到的请求头（键全部小写）
+        self.peers: list[tuple] = []  # 每个请求是从哪个地址、端口来的：一样的就是复用了同一条连接（keep_alive）
         self.models = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-3-old"]  # 假装服务器上有这些模型
         self._lock = threading.Lock()  # 几个请求同时到时，"看看还有没有、有就取一条"要一口气做完
 
@@ -150,14 +163,21 @@ class FakeAPI:
         api = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1" if api.keep_alive else "HTTP/1.0"
+
             def do_POST(self) -> None:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 api.requests.append(body)
                 api.headers.append({key.lower(): value for key, value in self.headers.items()})
+                api.peers.append(self.client_address)
                 scripted = api.next_reply(body)
                 if scripted is None:
                     self.send_error(500, "no scripted reply left")
                     return
+                if scripted.get("held"):
+                    scripted = self._held(scripted)
+                    if scripted is None:
+                        return
                 if scripted.get("status"):
                     payload = json.dumps(scripted["error"]).encode()
                     self.send_response(scripted["status"])
@@ -198,6 +218,26 @@ class FakeAPI:
                 self.end_headers()
                 self.wfile.write(payload)
 
+            def _held(self, scripted: dict) -> dict | None:
+                """先压着（见 held.py）。对方断开了返回 None；放行了的话，头已经发了的把事件接着发完、返回 None，
+                头还没发的返回写好的那条回复，照平常的样子发。"""
+                if scripted["headers"]:
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.send_header("transfer-encoding", "chunked")
+                    self.end_headers()
+                    self.wfile.flush()
+                if not api.hold.wait(self.connection):
+                    self.close_connection = True
+                    return None
+                if not scripted["headers"]:
+                    return scripted["then"]
+                for event in _events(scripted["then"]):
+                    data = _sse(event)
+                    self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+                self.wfile.write(b"0\r\n\r\n")
+                return None
+
             def do_GET(self) -> None:  # 模型列表（"同步模型"用）
                 api.headers.append({key.lower(): value for key, value in self.headers.items()})
                 models = [{"type": "model", "id": name, "display_name": name, "created_at": "2026-01-01T00:00:00Z"}
@@ -218,5 +258,6 @@ class FakeAPI:
         return self
 
     def stop(self) -> None:
+        self.hold.close()  # 还压着的请求放走，不然它们的线程一直等着
         self.server.shutdown()
         self.server.server_close()

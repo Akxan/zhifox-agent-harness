@@ -16,7 +16,8 @@ What the program does to keep cost under control:
   price at that moment (DeepSeek's peak or off-peak rate included), so today's and this month's totals survive
   restarts. Changing a price later doesn't rewrite old entries; calls to a model without a price keep their tokens and
   count as $0 until it has one. Each call is appended as one line, so a crash can at most leave half a line, which is
-  skipped when reading.
+  skipped when reading. A call you stop is not written: the API reports its usage only at the end of the reply, so
+  whatever the model had read and written before Stop isn't counted (see [Limitations](limitations.md)).
 - **Monthly budget.** Optional, in Settings. Passing it shows one reminder and never stops anything, including
   scheduled tasks.
 - **Search caps.** For each message you send, Claude can search the web at most 5 times and fetch at most 5 pages; past

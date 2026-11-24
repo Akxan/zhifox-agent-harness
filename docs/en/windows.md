@@ -66,3 +66,7 @@ Not supported on Windows yet:
   and Ctrl+Break in the terminal, and `uv run harness service stop`, all stop it cleanly. Closing the terminal window
   ends it without that.
 - The background service stops when you sign out (it runs as you, with no stored password).
+
+In the terminal, Ctrl-C (and Ctrl+Break) stops a reply at once, even while the model is silent. Windows can't break
+into a program waiting on the network the way macOS and Linux do, so ZhiFox registers a console handler that cuts the
+connection to the model the moment you press it (`console.on_ctrl_c`, checked only in CI so far).

@@ -21,7 +21,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit import prompt as ask
 from prompt_toolkit.history import FileHistory
 
-from . import citations
+from . import citations, console
 from .attachments import Attachment
 from .config import APP_NAME
 from .display import describe_call, short
@@ -317,5 +317,8 @@ class TerminalUI:
         pass  # 终端里的"停止"是 Ctrl-C：它直接打断正在运行的代码，不用这里去看
 
     def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]:
-        # 同样的原因：Ctrl-C 会让子 Agent 正在运行的命令一起收到信号（它们在同一个进程组里），不用另外登记
-        return lambda: None
+        # macOS、Linux 上不用登记：Ctrl-C 是一个信号，当场打断主线程正在等的东西（等模型回答的网络、等命令），
+        # 子 Agent 正在运行的命令也一起收到它（它们在同一个进程组里）。
+        # Windows 上 Ctrl-C 打断不了正在等网络的主线程（模型在想、什么都没发的时候要等它再开口），所以真的登记：
+        # 按下的那一刻在另一个线程里调用它（见 console.on_ctrl_c）。循环在每次请求模型时登记的是"断开这次请求"
+        return console.on_ctrl_c(callback)
