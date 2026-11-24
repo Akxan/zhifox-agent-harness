@@ -290,14 +290,19 @@ with `harness commands add "npm test"` / `list` / `remove`. An entry matches by 
 `npm test -- --watch` but not `npm testing`, so only add commands you're happy to run with anything after them. Entries
 go through the same word splitting (no `;`, `|`, `$(`…), programs that can run anything (`bash`, `sudo`, `env`, `xargs`,
 an interpreter without a script) can't be added, an entry never counts inside a pipe (`cat x | python …` would run
-whatever comes through the pipe), and the path checks still apply. The list lives in `data/commands.json` (mode 600),
+whatever comes through the pipe), it only counts when the command runs in the working folder itself (after a `cd`
+elsewhere, `npm test` would run that folder's script, see [Commands remember their folder](#commands-remember-their-folder)),
+and the path checks still apply. The list lives in `data/commands.json` (mode 600),
 which the file tools can neither read nor change, like `.env` and `mcp.json`; the model has no tool that edits it.
 ZhiFox rereads the file when it changes, so `harness commands add` works while the server is running.
 
 Tunables are in `config.py`: `READONLY_MAX_CHARS` (2,000; longer commands always ask), `READONLY_SCAN_ENTRIES` (3,000),
 `MAX_ALLOWED_COMMANDS` (100), `MAX_ALLOWED_COMMAND_CHARS` (200) and `ALLOWED_COMMANDS_DEFAULT` (empty).
 Limits worth knowing: the secret-name list is a guess, so it only ever adds questions; a hard link to a file in `data/`
-made outside ZhiFox isn't recognised (one to a key file is); and this mode does let the model read files outside the
+made outside ZhiFox isn't recognised (one to a key file is). Another spelling of the data folder or a key folder is
+recognised by what it is rather than how it's written (macOS's `/System/Volumes/Data/…`, a Linux bind mount), and the
+macOS prefixes `/.vol`, `/.nofollow` and `/.resolve` always ask (`/.vol/<device>/<number>` opens a file by number, so
+even its name is hidden). And this mode does let the model read files outside the
 working directory, which Ask every time and Allow file edits don't.
 
 ## Build your own tool

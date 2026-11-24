@@ -226,14 +226,17 @@ MCP 的调用也会停下来等你批准。
 **设置 → 不用问的命令** 里加（"要不要先问你"的窗口里也有入口），或者用 `harness commands add "npm test"` / `list` / `remove`。
 按开头的几个词比：`npm test` 包括 `npm test -- --watch`，不包括 `npm testing`，所以只加你放心它后面跟着任何东西的命令。
 加进来的命令照样经过拆词（不能有 `;`、`|`、`$(`……）；能运行任何东西的程序（`bash`、`sudo`、`env`、`xargs`、不写脚本的解释器）加不进来；
-在管道里一律不算（`cat x | python …` 会运行管道送进来的任何东西）；路径的检查照旧。清单存在 `data/commands.json` 里（权限 600），
+在管道里一律不算（`cat x | python …` 会运行管道送进来的任何东西）；只在命令就在工作目录里运行时才算（`cd` 到别处以后，
+`npm test` 跑的就是那里的脚本，见[命令记得自己在哪个目录](#命令记得自己在哪个目录)）；路径的检查照旧。清单存在 `data/commands.json` 里（权限 600），
 和 `.env`、`mcp.json` 一样，文件工具既读不了也改不了它，模型也没有任何能改它的工具。
 文件变了智狐会重新读，所以服务开着的时候也能用 `harness commands add`。
 
 能调的数在 `config.py` 里：`READONLY_MAX_CHARS`（2000，再长的一律问）、`READONLY_SCAN_ENTRIES`（3000）、
 `MAX_ALLOWED_COMMANDS`（100）、`MAX_ALLOWED_COMMAND_CHARS`（200）、`ALLOWED_COMMANDS_DEFAULT`（空的）。
 要知道的局限：像密钥的名字是猜的，所以它只会让命令多问，从不放行；在智狐之外建的、指向 `data/` 里文件的硬链接认不出来
-（指向密钥文件的认得出）；这一档会让模型读到工作目录之外的文件，"每次确认"和"自动允许改文件"不会。
+（指向密钥文件的认得出）。数据目录、放密钥的文件夹换一种写法（macOS 的 `/System/Volumes/Data/…`、Linux 的 bind mount）
+按"它是谁"认得出来，macOS 的 `/.vol`、`/.nofollow`、`/.resolve` 这几个前缀一律问（`/.vol/设备号/编号` 按编号打开文件，连名字都看不见）。
+这一档会让模型读到工作目录之外的文件，"每次确认"和"自动允许改文件"不会。
 
 ## 动手试试：加一个自己的工具
 
