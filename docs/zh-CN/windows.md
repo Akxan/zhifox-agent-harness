@@ -61,3 +61,6 @@ Windows 上暂时还不支持的：
 - 注销、关机时好好地收尾：Windows 会直接结束进程，正在进行的那一轮可能存不上。在终端里按 Ctrl-C、Ctrl+Break，
   以及 `uv run harness service stop`，都会好好地停下；直接关掉终端窗口不会。
 - 后台服务在你注销时会停下（它以你的身份运行，不保存密码）。
+
+在终端里按 Ctrl-C（还有 Ctrl+Break）马上停下回复，模型一个字都没发的时候也一样。Windows 不像 macOS、Linux 那样能打断
+一个正在等网络的程序，所以智狐登记了一个控制台的处理函数，按下的那一刻就断开和模型的连接（`console.on_ctrl_c`，目前只在 CI 上验证过）。

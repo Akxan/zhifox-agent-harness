@@ -20,6 +20,7 @@ from typing import Any
 
 import openai
 
+from ..providers import inflight
 from .spec import Endpoint
 
 NO_KEY = "no-key"  # 不用密钥的服务器：Authorization 里放这个占位的（Ollama 的文档也是这么写的）
@@ -27,7 +28,8 @@ NO_KEY = "no-key"  # 不用密钥的服务器：Authorization 里放这个占位
 
 def make(endpoint: Endpoint, *, timeout: float | None = None, max_retries: int = 2) -> Any:
     """连这个接口的客户端。timeout 不给就用 SDK 默认的（本地的大模型第一次加载可能要好几分钟，聊天时不能催它）。"""
-    options: dict[str, Any] = {"follow_redirects": False, "trust_env": not endpoint.local}
+    # 钩子："停止"时连回答的头还没到的请求也能马上断开（本地的大模型第一次加载时可能好几分钟才回答，见 providers/inflight.py）
+    options: dict[str, Any] = {"follow_redirects": False, "trust_env": not endpoint.local, "event_hooks": inflight.event_hooks()}
     if timeout is not None:
         options["timeout"] = timeout
     client = openai.OpenAI(

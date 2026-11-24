@@ -47,7 +47,9 @@ Allow? y to allow, Enter to deny, or type a reason to deny >
 | `/doctor` | Run the self-check: Python, folder permissions, which providers have keys, the browser, the sandbox, the background service… what's OK, what's a problem and how to fix it (the same as `uv run harness doctor`, see [Troubleshooting](configuration.md#troubleshooting-harness-doctor)) |
 | `/exit` | Quit (`/quit` and Ctrl-D also work) |
 
-Press Ctrl-C while the model is replying to interrupt it.
+Press Ctrl-C to interrupt the reply in progress. It takes effect at once, also while the model is still thinking and
+has written nothing. (On Windows, where Ctrl-C can't break into a wait on the network, ZhiFox cuts the connection to
+the model itself the moment you press it.)
 
 **Conversations are saved.** Every turn is saved to `data/conversations/` the way the web UI saves it (an interrupted
 turn too), so the web UI's sidebar lists terminal conversations, search finds them, and the page can open, continue,

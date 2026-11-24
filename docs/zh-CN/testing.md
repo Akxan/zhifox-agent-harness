@@ -27,7 +27,8 @@ mypy 要在项目自己的环境里跑（所以是 `uv run --with`，不是 `uvx
 测试进程里的 socketserver 服务器（假服务器、测试里起的网页服务器）每 0.02 秒看一次"该停了没有"，而不是默认的 0.5 秒
 （[tests/conftest.py](../../tests/conftest.py) 开头）：每个测试收尾时要停好几个服务器，按默认值加起来要白等七百多秒。[tests/fake_api.py](../../tests/fake_api.py) 和 [tests/fake_openai.py](../../tests/fake_openai.py)
 是两个本地的假服务器，分别按 Claude 和 OpenAI 的格式回放事先写好的回复，这样就能让真正的 SDK 把整个循环跑一遍，
-并检查发出去的请求是否正确。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
+并检查发出去的请求是否正确。它们还能收下一个请求以后先压着不回答（发了头就不出声，或者连头都不发，见 [tests/held.py](../../tests/held.py)），
+并看得出智狐有没有把连接断开：[tests/test_stop_now.py](../../tests/test_stop_now.py) 靠它查"停止"从每一个能停下的地方都马上生效。想知道循环在各种情况下的行为（工具出错、用户拒绝、被打断、模型拒绝回答），
 可以读 [tests/test_agent.py](../../tests/test_agent.py)。网页界面的测试在 [tests/test_webui.py](../../tests/test_webui.py)，由测试代码扮演浏览器；
 应用图标的清单和几张 PNG 在 [tests/test_web_manifest.py](../../tests/test_web_manifest.py)（口令、Host 和 Origin，名字只认固定的名单、碰不到别的文件，
 响应头，安全策略，maskable 的狐狸整个在安全区里）；会话的保存和搜索分别在 [tests/test_conversations.py](../../tests/test_conversations.py) 和 [tests/test_search.py](../../tests/test_search.py)，按拼音找在 [tests/test_search_pinyin.py](../../tests/test_search_pinyin.py)（全拼、多音字、排序、2000 段会话上的快慢，以及拼音表的生成脚本：用一小段 Unihan 的样本测，不下载）；GPT、Gemini、DeepSeek 的压缩历史在 [tests/test_compaction.py](../../tests/test_compaction.py)；

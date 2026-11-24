@@ -71,20 +71,19 @@ from .store import AgentError, AgentInvalid, AgentStore, CustomAgent
 
 
 class ParentUI(UI, Protocol):
-    """叫子 Agent 的那一方的界面，除了 agent.py 里的那几样，还要能做这三件事。
+    """叫子 Agent 的那一方的界面，除了 agent.py 里的那几样（on_stop 也在那里），还要能做这两件事。
 
     终端界面（../ui.py）、网页界面（webui/ui.py，定时任务的 RunUI 也是它）和 SubUI 自己都有。
     """
 
     def subagent(self, step: str, **data: Any) -> None: ...  # 子 Agent 的一步进展：start、activity、tool_call、tool_result、auto、note、done
     def check_stop(self) -> None: ...  # 用户点了"停止"的话抛出 KeyboardInterrupt
-    def on_stop(self, callback: Callable[[], None]) -> Callable[[], None]: ...  # 点"停止"时也调用它；返回的函数用来取消登记
 
 
 def _caller_ui(parent: Agent) -> ParentUI:
     """叫子 Agent 的那一方（parent）的界面。Agent 身上只写着它是一个 UI（agent.py 的循环只用得到那几样）；
-    能叫子 Agent 的界面都还有上面这三样，只是类型检查从 Agent 身上看不出来。"""
-    return parent.ui  # type: ignore[return-value]  # 见上面：终端、网页、RunUI、SubUI、评测的记录员都有这三样
+    能叫子 Agent 的界面都还有上面这两样，只是类型检查从 Agent 身上看不出来。"""
+    return parent.ui  # type: ignore[return-value]  # 见上面：终端、网页、RunUI、SubUI、评测的记录员都有这两样
 
 
 class Bookkeeper(Protocol):

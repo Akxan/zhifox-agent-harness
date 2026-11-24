@@ -33,6 +33,9 @@ servers (the fakes, and web servers started by tests) check every 0.02 seconds w
 waits added up to more than seven hundred seconds. [tests/fake_api.py](../../tests/fake_api.py) and
 [tests/fake_openai.py](../../tests/fake_openai.py) are two local fake servers that replay prepared replies in Claude's and
 OpenAI's formats. That lets the real SDKs run the whole loop, and the tests check that the requests sent out are correct.
+Either can also hold a request without answering (headers sent and then silence, or not even headers, see
+[tests/held.py](../../tests/held.py)) and notice when ZhiFox hangs up: [tests/test_stop_now.py](../../tests/test_stop_now.py)
+uses that to check that Stop takes effect at once from every place it exists.
 To see how the loop behaves in different situations (a tool fails, you deny a step, you interrupt, the model refuses),
 read [tests/test_agent.py](../../tests/test_agent.py). The web UI tests are in [tests/test_webui.py](../../tests/test_webui.py),
 where the test code plays the browser; the app icon's manifest and PNGs in
