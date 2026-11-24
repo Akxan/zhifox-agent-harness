@@ -52,6 +52,13 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Changed
 
+- Tool results speak your language: the sentences ZhiFox's own tools write (errors and short notes such as "There's no
+  to-do #9", "(no output)", from to-dos, tasks, files, commands, skills, agents, `send_file`, `web_fetch`, the browser,
+  computer use and MCP) now appear in English or Spanish on the tool card and in the terminal, and switch in place when
+  you change language. The model still receives exactly the same Chinese text, so history and prompt caching are
+  unchanged. Command output, file contents, web pages and MCP results are never translated.
+- Chat-channel approval messages are written in the interface language at the moment they're sent, and a waiting
+  approval on the web page follows a language switch.
 - "Allow read-only commands" also accepts read-only commands joined with `;`, `&&` or `||` (each part judged on its
   own, as with pipes) and output thrown away or merged (`2>/dev/null`, `>/dev/null`, `&>/dev/null`, `>>/dev/null`,
   `2>&1`, `>&2`). The first real eval runs showed all three models writing such commands and being asked every time.
