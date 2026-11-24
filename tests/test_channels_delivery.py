@@ -19,7 +19,16 @@ import pytest
 from fake_api import reply, text
 from fake_telegram import TOKEN, FakeTelegram
 from sample_files import PDF_BYTES
-from test_channels import BOT, OWNER, OWNER_NAME, rigs, run, stop_later, until, visible_end
+from test_channels import (
+    BOT,
+    OWNER,
+    OWNER_NAME,
+    rigs,
+    run,
+    stop_later,
+    until,
+    visible_end,
+)
 from test_send_file import outgoing, result_of, send
 
 from harness import config
