@@ -48,6 +48,9 @@ def _git(args: list[str], context: Context) -> None:
         if rest:
             raise Unclear("git version 后面不许跟别的")
         return
+    # cd 到了别的仓库（下载回来的项目、工作目录里另一个仓库）再运行，和 -C 一样用的是那里的设置（见 paths.same_repository）
+    if not context.places.same_repository():
+        raise Unclear("git 在别的仓库里运行：那里的设置（core.fsmonitor、gpg.program……）能运行任何命令")
     # git show HEAD:.env、git log -- .env：HEAD: 后面的部分也当路径检查（见 paths._candidates）
     parsed = parse(rest, optional=names("-u -O -U -M -C -B -S -G -L -n"))
     deny(parsed, GIT_DENY)

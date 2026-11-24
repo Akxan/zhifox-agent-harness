@@ -545,6 +545,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   不带路径的 `ls` 看的就是它）、沙箱的 `--chdir`、真正运行，一律用 `Shell.where()`：记着的目录不在了、沙箱里看不到（`Sandbox.reaches`）
   就当场回到工作目录、结果里说一声；问过你以后才变了的不执行（`CurrentDir.gone`）。以后新加"照着命令在哪儿运行来判断"的地方也用 `where()`，
   不要拿 `workspace`。只给了名字、认不出是哪个 Shell 的按工作目录算（真正执行的 Agent 一定会把工具交过来）。
+  做什么要看所在文件夹里的设置的命令只在工作目录里才不问（2026-11-24 安全复查：答应一条 cd 以后，它们就能在别人的项目里不问就运行那里的代码）：
+  你加的命令和查版本（`VERSIONS`）看 `Places.at_workspace`，git 看 `Places.same_repository`（和 `-C` 不许是同一个道理）；
+  `Places.workspace` 由 `Permissions.places` 填。以后再加这类程序（会读所在文件夹里的设置、设置里能运行命令的），也这样办。
   回到工作目录的地方：新对话第一条消息之前（`App._fresh_start`，各个"新对话"的入口不用各写一遍）、重新打开和分叉（`App._continue`，
   历史里执行过命令的第一条命令后面说一声"之前 cd 到的不再算数"）、聊天通道接着一段旧会话（`channels/session.py`）；子 Agent 自己的 Shell
   从工作目录开始。每一轮开始 `start_turn`（网页 `_run_turn`、终端 `ask_turn`），倒回最后一轮 `rewind_turn`（`rewind_api.rewind`、`cli.rewind_last`）。

@@ -88,6 +88,8 @@ class Places:
     private: list[Path] = field(default_factory=list)  # 智狐的数据目录
     home: Path = field(default_factory=lambda: Path(os.path.expanduser("~")))
     windows: bool = pathnames.WINDOWS  # 按不按 Windows 的规矩看（测试里可以在别的系统上打开）
+    # 工作目录（None：就是 cwd）。有几样命令做什么要看它所在的文件夹里的设置，只在工作目录里才不问（见 at_workspace）
+    workspace: Path | None = None
 
     def __post_init__(self) -> None:
         self._protected = [self._folded(path.resolve()) for path in self.protected]
@@ -107,6 +109,29 @@ class Places:
         self._secret_ids = _identities(secret_dirs)
         self._around_watched = _identities(place for path in (*self.private, *secret_dirs) for place in _upwards(path))
         self._around_protected = _identities(place for path in self.protected for place in _upwards(path))
+
+    # ---- 命令在哪儿运行 --------------------------------------------------------
+
+    def at_workspace(self) -> bool:
+        """命令是不是就在工作目录里运行。
+
+        为什么要问：有几样命令做什么，要看它所在的那个文件夹里的设置。你加的"不用问的命令"（npm test 跑的是那里 package.json
+        里的脚本，./scripts/x.sh 是那里的脚本）、查版本（yarn 照着那里 .yarnrc 的 yarn-path 运行一个 js 文件，rustup、asdf、
+        pyenv 这类照着那里的设置换一个程序）。以前每条命令都在工作目录里运行；记着目录以后（见 tools/cwd.py），
+        你答应过一条看起来什么都不做的 cd，它们就在别人的项目里不问就运行了。所以它们只在工作目录里才不问。"""
+        if self.workspace is None:
+            return True
+        return self._folded(_settled(self.cwd)) == self._folded(_settled(self.workspace))
+
+    def same_repository(self) -> bool:
+        """git 在这里运行时，用的是不是和在工作目录里同一个仓库。别的仓库的 .git/config 里 core.fsmonitor、gpg.program 这类
+        能运行任何命令（git -C 就是因为这个不许的，见 rules_subcommands.py），cd 过去再运行也一样。"""
+        if self.workspace is None:
+            return True
+        here, there = _repository(self.cwd), _repository(self.workspace)
+        if here is None or there is None:
+            return here is None and there is None
+        return self._folded(here) == self._folded(there)
 
     # ---- 一个路径 ------------------------------------------------------------
 
@@ -280,13 +305,33 @@ def _identities(paths: Iterable[str | Path]) -> set[tuple[int, int]]:
     return {found for found in map(_identity, paths) if found is not None}
 
 
+def _settled(path: Path) -> Path:
+    """顺着符号链接走完的样子；走不了（绕成圈、名字太长）就原样。"""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return path
+
+
 def _upwards(path: Path) -> list[Path]:
     """path（顺着符号链接走完）和它上面的每一层。"""
-    try:
-        path = path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        pass
+    path = _settled(path)
     return [path, *path.parents]
+
+
+def _repository(path: Path) -> Path | None:
+    """git 在 path 里运行时用的是哪个仓库：照 git 自己找的办法，从这里往上，第一个有 .git（文件夹或者文件）的地方，
+    或者第一个本身就像一个仓库（裸仓库：有 HEAD，还有 objects 或 refs）的地方。一个都没有是 None。
+    只用来比"是不是同一个"：认错了（多认出一个仓库）只会多问一次。"""
+    for place in _upwards(path):
+        try:
+            if os.path.lexists(place / ".git"):
+                return place
+            if os.path.lexists(place / "HEAD") and (os.path.lexists(place / "objects") or os.path.lexists(place / "refs")):
+                return place
+        except (OSError, ValueError):
+            return place  # 看不清：当作这里就是另一个仓库
+    return None
 
 
 def _secret_dirs(windows: bool) -> tuple[tuple[str, ...], ...]:

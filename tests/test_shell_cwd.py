@@ -35,8 +35,8 @@ from test_hooks import add, calls_of, script
 from test_webui import act, open_conversation, say, serve, set_approval  # noqa: F401  serve 是 fixture
 
 from harness import i18n
-from harness.hooks import HookConfig, Hooks
 from harness.commands.allowlist import CommandList
+from harness.hooks import HookConfig, Hooks
 from harness.permissions import WHY_LISTED, WHY_READONLY, Permissions
 from harness.sandbox import linux
 from harness.sandbox.policy import build, real

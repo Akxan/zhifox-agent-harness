@@ -93,7 +93,13 @@ the folder where it was, because where it stopped is anyone's guess.
 **Approvals follow the folder.** Whenever a command won't run in the working folder, its approval card adds a line
 "Runs in this folder: …" (web UI, terminal and chat channels). **Allow read-only commands** judges relative paths
 from that folder, and checks the folder itself too: after `cd data`, a plain `ls` lists ZhiFox's data folder, so it
-asks. The card, the read-only check and the run all use the same folder; if it disappears after you were asked, the
+asks. A few commands do whatever the folder they run in says, so they only skip the question in the working folder
+itself: your own [no-ask commands](#read-only-commands-and-why-the-check-is-conservative) (`npm test` runs that folder's
+`package.json` script, `./scripts/x.sh` is that folder's script) and version checks (`yarn --version` follows that
+folder's `.yarnrc`, and toolchain managers such as rustup or asdf pick a program from its settings). `git` skips it
+only while it uses the same repository as in the working folder: another repository's `.git/config` can run any
+command (`core.fsmonitor`, `gpg.program`), which is why `git -C` always asks. Otherwise approving a harmless-looking
+`cd` would let them run code from someone else's project without asking. The card, the read-only check and the run all use the same folder; if it disappears after you were asked, the
 command doesn't quietly run somewhere else: it isn't run, and the model is told to run it again (it will be reviewed in
 the working folder). [Hooks](sandbox-and-hooks.md#hooks-your-own-scripts-at-fixed-moments) get the folder as `command_cwd`; `cwd` stays the
 working folder, where the hook itself runs. With the [sandbox](sandbox-and-hooks.md#sandbox-for-commands-what-a-command-can-reach) on, a

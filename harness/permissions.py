@@ -220,7 +220,7 @@ class Permissions:
     def places(self, cwd: Path | None = None) -> Places:
         """命令在哪个目录里运行（不给是工作目录）、哪些地方不能不问就读（给 commands.classify 用）。"""
         protected = [*self.editor.protected, *([self.commands.path] if self.commands is not None else [])]
-        return Places(cwd or self.editor.workspace, protected=protected, private=self.private)
+        return Places(cwd or self.editor.workspace, protected=protected, private=self.private, workspace=self.editor.workspace)
 
     def _reads_only(self, tool_name: str, tool_input: object, tool: object = None) -> str | None:
         """readonly 那一档：这一步是不是只是看。只读的命令、你自己加的命令、读工作目录之外的文件算；
