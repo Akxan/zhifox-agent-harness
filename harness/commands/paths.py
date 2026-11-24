@@ -13,6 +13,9 @@ r"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问�
 少当成一个就可能漏掉一个，所以宁多勿少。macOS 的文件名不分大小写（.ENV 就是 .env），也不分 Unicode 的
 两种写法（é 可以是一个字符，也可以是 e 加一个音调），所以比较之前两样都先统一。
 同一个文件的另一个名字（硬链接）按"是不是同一个文件"（inode）比，只对密钥文件做（数据目录里的文件太多）。
+同一个文件夹的另一种写法也有：macOS 的 /Users、/private 在 /System/Volumes/Data/… 下面还有一个名字（固定链接 firmlink，
+不是符号链接，resolve 换不回来），Linux 上有 bind mount。所以数据目录、存着密钥的文件夹另外按"是谁"（设备号加编号）比：
+路径上的每一层都看一眼，有一层就是它们，就不行；走遍文件夹时，文件夹本身"是"它们上面的某一层（换了写法的工作目录），也不行。
 
 会把整个文件夹读一遍的命令（grep -r、rg、diff 两个文件夹），文件夹里面包含上面这些地方也不行，
 还要先看一遍里面有没有像密钥的文件、指到别的文件夹去的符号链接，看不完（太大）也不行。
@@ -32,6 +35,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -58,8 +62,10 @@ WINDOWS_SECRET_DIRS = (
     ("microsoft", "credentials"), ("microsoft", "protect"), ("microsoft", "vault"), ("psreadline",),
 )
 # 一碰就有事的地方：/dev 下是设备；/net、/Network 是 macOS 的自动挂载（ls /net/某个域名 会去连那台主机）。
-# Windows 上的见 _untouchable
-UNTOUCHABLE = ("/dev", "/net", "/network")
+# 还有 macOS 的内核认的三个前缀，后面的部分是整块磁盘上的另一种写法，顺着符号链接找（resolve）也换不回原来的路径：
+# /.vol/设备号/编号 按编号打开文件（ls -i、stat 就看得到编号；路径里连名字都没有，像密钥的名字认不出来），
+# /.nofollow/…、/.resolve/数字/… 是同一个文件换个写法。命令没有理由这样写，一律问。Windows 上的见 _untouchable
+UNTOUCHABLE = ("/dev", "/net", "/network", "/.vol", "/.nofollow", "/.resolve")
 PROC_SECRETS = ("environ", "mem", "kmem", "kcore", "pagemap")
 
 
@@ -95,6 +101,12 @@ class Places:
             except OSError:
                 continue
             self._inodes.add((info.st_dev, info.st_ino))
+        # 换了写法也认得出来（见文件开头）：数据目录、存着密钥的文件夹"是谁"；它们和保存密钥的文件上面的每一层"是谁"（走遍文件夹时用）
+        secret_dirs = [home.joinpath(*parts) for parts in _secret_dirs(self.windows)]
+        self._private_ids = _identities(self.private)
+        self._secret_ids = _identities(secret_dirs)
+        self._around_watched = _identities(place for path in (*self.private, *secret_dirs) for place in _upwards(path))
+        self._around_protected = _identities(place for path in self.protected for place in _upwards(path))
 
     # ---- 一个路径 ------------------------------------------------------------
 
@@ -150,6 +162,7 @@ class Places:
         if folded.startswith("/proc/") and path.name.casefold() in PROC_SECRETS:
             raise Unclear(f"{raw} 是进程的内存或环境变量")
         _secret_name(str(path), self.windows)
+        self._same_place(path, raw)
         # 像短名字（ENV~1）、磁盘上又真有这个名字的：它可能是别的什么文件的另一个名字，只看字符串认不出是谁的。
         # 磁盘上没有的（HEAD~1 这种 git 的写法）什么都读不到，不用问
         if pathnames.short_name(raw, self.windows) and os.path.lexists(path):
@@ -163,6 +176,19 @@ class Places:
     def _same_file(self, info: os.stat_result, raw: str) -> None:
         if (info.st_dev, info.st_ino) in self._inodes:
             raise Unclear(f"{raw} 就是保存密钥的文件（另一个名字）")
+
+    def _same_place(self, path: Path, raw: str) -> None:
+        """path（顺着符号链接走完的）和它上面的每一层，有一层"就是"数据目录、存着密钥的文件夹（换了写法，见文件开头），就抛出 Unclear。"""
+        if not self._private_ids and not self._secret_ids:
+            return
+        for place in (path, *path.parents):
+            found = _identity(place)
+            if found is None:
+                continue
+            if found in self._private_ids:
+                raise Unclear(f"{raw} 在智狐自己的数据目录里（换了一种写法）")
+            if found in self._secret_ids:
+                raise Unclear(f"{raw} 在存着密钥的文件夹里（换了一种写法）")
 
     # ---- 一个文件夹 ----------------------------------------------------------
 
@@ -184,6 +210,10 @@ class Places:
         watched = [*self._private, *self._secret_dirs, *(self._protected if contents else [])]
         if any(pathnames.inside(item, folded) for item in watched):
             raise Unclear(f"{raw} 里面有不该不问就读的地方")
+        # 换了写法的工作目录（/System/Volumes/Data/…）：按路径比看不出它包含数据目录，按"是谁"比看得出（见文件开头）
+        around = self._around_watched | (self._around_protected if contents else set())
+        if _identity(path) in around:
+            raise Unclear(f"{raw} 里面有不该不问就读的地方（换了一种写法）")
         if contents or follow:
             self._scan(path, raw)
 
@@ -213,6 +243,9 @@ class Places:
                             raise Unclear(f"{raw} 里面有指向别的文件夹的符号链接")
                         self._check_one(str(target))
                     elif entry.is_dir(follow_symlinks=False):
+                        info = pathnames.entry_info(entry, self.windows)
+                        if info.st_ino and (info.st_dev, info.st_ino) in self._private_ids | self._secret_ids:
+                            raise Unclear(f"{raw} 里面有不该不问就读的地方（换了一种写法）")
                         pending.append(Path(entry.path))
                     else:
                         self._same_file(pathnames.entry_info(entry, self.windows), entry.path)
@@ -231,6 +264,29 @@ def _candidates(raw: str) -> list[str]:
             found.extend(text[at + 1 :] for at, char in enumerate(text) if char == separator)
     found.extend(text[1:] for text in list(found) if text.startswith("@"))
     return [item for item in dict.fromkeys(found) if item and item != "-"]
+
+
+def _identity(path: str | Path) -> tuple[int, int] | None:
+    """一个文件或文件夹"是谁"：（设备号，编号）。同一个东西换了写法（见文件开头），路径对不上，这两个数照样一样。
+    不存在、看不了的，和不给编号的文件系统（编号是 0）上的，是 None：只用它多拦，认不出就不拦。"""
+    try:
+        info = os.stat(path)
+    except (OSError, ValueError):
+        return None
+    return (info.st_dev, info.st_ino) if info.st_ino else None
+
+
+def _identities(paths: Iterable[str | Path]) -> set[tuple[int, int]]:
+    return {found for found in map(_identity, paths) if found is not None}
+
+
+def _upwards(path: Path) -> list[Path]:
+    """path（顺着符号链接走完）和它上面的每一层。"""
+    try:
+        path = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return [path, *path.parents]
 
 
 def _secret_dirs(windows: bool) -> tuple[tuple[str, ...], ...]:
