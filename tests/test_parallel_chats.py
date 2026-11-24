@@ -892,5 +892,7 @@ def test_a_switch_that_is_still_finishing_is_waited_for_instead_of_refused(start
     finishing(5)
     began = time.monotonic()
     assert s.web.new_conversation() == s.web._busy()  # 一直拿不到：等够了上限照旧说忙
-    assert time.monotonic() - began >= 0.2
+    # 等过了，不是马上就回答：Windows 上锁的超时和 time.monotonic 都按大约 15.6 毫秒一格走，0.2 秒的等待量出来可能只有 0.187
+    # （2026-11-24 GitHub 的 windows-latest 上真的这样），所以只要求明显地等过，不要求一毫秒不差
+    assert time.monotonic() - began >= 0.15
     done.set()
