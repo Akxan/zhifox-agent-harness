@@ -1086,6 +1086,18 @@ def test_an_old_card_left_with_its_buttons_cannot_answer_a_new_request_after_a_r
     again.idle()
 
 
+def test_each_start_numbers_the_confirmations_from_somewhere_else():
+    # 上面那个测试的两次"启动"在同一个进程里，靠的是几个聊天共用一个编号。真的重启是一个新的进程：起点每次随机，
+    # 不会又从 1 数起（页面上的 JavaScript 要能精确表示它：不超过 2^53）
+    import subprocess
+    import sys
+
+    script = "from harness.channels.ui import CONFIRM_IDS; print(CONFIRM_IDS.peek())"
+    starts = [int(subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True).stdout) for _ in range(2)]
+    assert starts[0] != starts[1]
+    assert all(2**40 <= start < 2**41 for start in starts)
+
+
 def test_the_allow_and_deny_words_do_not_overlap():
     assert not ALLOW_WORDS & DENY_WORDS
     assert {"允许", "yes", "ok", "sí", "vale"} <= ALLOW_WORDS and {"拒绝", "no", "deny", "denegar"} <= DENY_WORDS

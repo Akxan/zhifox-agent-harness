@@ -19,13 +19,22 @@ agent 循环只认那几个方法（thinking、text、tool_call、confirm……�
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Callable
 from typing import Any
 
 from .. import citations
 from ..display import short
 from ..i18n import t
-from ..webui.ui import WebUI
+from ..webui.ui import EventIds, WebUI
+
+# 聊天里的确认卡片，按钮上带着确认的编号（ok:编号），点了就答复这个编号的确认（router._press）。编号就是事件的编号，
+# 所以要保证一个编号不会落到两张卡片上：卡片的按钮不一定去得掉（程序被强行结束、改那条消息失败了；Telegram、Discord、
+# Slack、飞书改卡片要靠通道对象里记着的样子，重启以后根本不认得以前的卡片），旧卡片上的"允许"撞上了新请求的编号，
+# 批准的就是另一条命令。以前每个聊天的 ChannelUI 各自从 1 数起：重启以后、Session 重建以后，同样走法的一轮编号一模一样。
+# 现在这个进程里所有聊天共用一个，从一个随机的数起（每次启动都不一样）：同一次运行里不会重复，和以前几次运行撞上的机会
+# 也小到可以不计（一次运行用掉的编号远远不到 2^40 分之一）。不超过 2^41：页面上的 JavaScript 照样能精确表示它
+CONFIRM_IDS = EventIds(start=secrets.randbelow(2**40) + 2**40)
 
 
 class ChannelUI(WebUI):
@@ -38,7 +47,7 @@ class ChannelUI(WebUI):
         on_auto: Callable[[str, str], None],
     ):
         """on_confirm 收到（确认的编号，要做的事，哪个子 Agent 在问——主助手自己问时是空的）。"""
-        super().__init__()
+        super().__init__(CONFIRM_IDS)
         self._on_text = on_text
         self._on_notice = on_notice
         self._on_confirm = on_confirm

@@ -66,11 +66,12 @@ PARAGRAPH = frozenset({"text", "cite", "block_end", "state"})
 
 
 class EventIds:
-    """事件的编号：递增，同一个 EventIds 发出去的编号不会重复。一个 WebUI 自己用一个；网页上同时进行的几段对话共用一个（见上面）。"""
+    """事件的编号：递增，同一个 EventIds 发出去的编号不会重复。一个 WebUI 自己用一个；网页上同时进行的几段对话共用一个（见上面）。
+    start：第一个编号（聊天通道的几段对话共用一个从随机的数起的，见 ../channels/ui.py 的 CONFIRM_IDS）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, start: int = 1) -> None:
         self._lock = threading.Lock()
-        self._next = 1
+        self._next = start
 
     def take(self) -> int:
         with self._lock:
