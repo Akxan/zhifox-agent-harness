@@ -73,6 +73,12 @@ Before 1.0.0, a minor version may include breaking changes.
 
 ### Fixed
 
+- **Stop takes effect at once**, also while the model is still thinking, writing a long tool call, or hasn't started
+  answering yet: Stop now cuts the request's connection from the thread that pressed it, so the provider stops
+  generating too. This covers the web UI's Stop, Ctrl-C in the terminal (on Windows through a console handler), a
+  scheduled task's Stop, `/stop` in a chat channel, subagents and shutdown. A stopped request is never retried and never
+  moves on to a backup model. As before, a stopped step isn't in the spending ledger: the API reports usage only at the
+  end of a reply.
 - Chat channels no longer lose a reply when the platform can't be reached. Failed sends are sorted in one place (no
   answer, 5xx, 429 or the platform's own "too fast" are retried up to 4 times, 1-2-4-8 s apart, honouring Retry-After
   up to 30 s; other 4xx and bad tokens are not). Replies, approval requests and approval edits that still fail are kept
