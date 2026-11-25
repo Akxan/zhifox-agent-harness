@@ -385,4 +385,7 @@ def test_after_navigate_a_click_on_a_link_to_another_site_still_works(manager, h
     clicked = session.run("click", target=Target(ref=ref_of(page, "去另一个网站")))
     assert "页面跳转了" in clicked.text and clicked.state["tabs"][0]["url"] == hops.other + "/landing?clicked"
     assert hops.other not in session.allowed_sites  # 点过去不算允许过
+    # 停在那个网站上也不算：接着 navigate 一个编出来的网址要问（不然点一下、再 navigate 一次，两步就带出去了）
+    made_up = session.facts("navigate", url=hops.other + "/?data=secret")
+    assert made_up.new_site is True and review_browser(made_up)
     session.close()

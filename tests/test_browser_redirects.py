@@ -57,7 +57,7 @@ def guard(*sites: str) -> Guard:
 # ---- Guard：放不放 ------------------------------------------------------------
 
 
-def test_the_site_being_opened_allowed_sites_and_the_current_page_pass():
+def test_the_site_being_opened_and_allowed_sites_pass():
     keeper = Guard(MAIN, TAB, {"https://a.example", "https://b.example", ""})
     assert keeper.allows(*paused("https://a.example/x", redirected="job-0"))
     assert keeper.allows(*paused("https://www.a.example/y", redirected="job-0"))  # www. 算同一个网站
@@ -225,7 +225,7 @@ def test_a_redirect_to_a_site_never_allowed_is_not_followed_or_remembered(browse
     session = rig.manager.session("对话")
     outcome = session.run("navigate", url="https://a.example/go")
     assert "网站想跳到 https://evil.example/?data=secret，没有跟过去" in outcome.text
-    assert "这段对话里还没去过 https://evil.example" in outcome.text
+    assert "这段对话里还没允许过 https://evil.example" in outcome.text
     assert outcome.state["tabs"][0]["url"] == "about:blank"  # 标签页留在原来那一页，没有一张写着那个网址的错误页
     assert session.allowed_sites == {"https://a.example"}
     assert [message["params"]["errorReason"] for message in calls(rig, "Fetch.failRequest")] == ["Aborted"]
@@ -259,14 +259,18 @@ def test_redirects_within_the_site_or_to_an_allowed_site_are_followed(browser):
     assert len(calls(rig, "Fetch.enable")) == len(calls(rig, "Fetch.disable")) == 2
 
 
-def test_a_redirect_back_to_the_site_of_the_current_page_is_followed(browser):
-    """直接 navigate 过去也不用问的网站（现在这一页的，见 session_facts.py 的 new_site），跳过去也照常跟。"""
+def test_the_site_of_the_current_page_is_still_new_unless_it_was_allowed(browser):
+    """点链接到了 c.example（不问，也没记进允许过的网站）：接着 navigate 到 c.example 带参数的地址要问，
+    别的网站跳到 c.example 也不跟。不然两步（点链接，再 navigate 一个编出来的网址）就能把东西带出去。"""
     rig = browser(redirects={"https://a.example/back": "https://c.example/page"})
     session = rig.manager.session("对话")
     session.run("navigate", url="https://c.example/")
     session.allowed_sites.clear()  # 假装是点链接到的 c.example（没记进允许过的网站）
     session.allowed_sites.add("https://a.example")
-    assert session.run("navigate", url="https://a.example/back").text == "已打开 https://c.example/page"
+    assert session.facts("navigate", url="https://c.example/?data=mail").new_site is True
+    outcome = session.run("navigate", url="https://a.example/back")
+    assert "网站想跳到 https://c.example/page，没有跟过去" in outcome.text
+    assert outcome.state["tabs"][0]["url"] == "https://c.example/"
 
 
 def test_a_page_sending_itself_to_another_site_while_loading_is_stopped(browser):

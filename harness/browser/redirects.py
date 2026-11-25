@@ -15,9 +15,10 @@
 
   - 记进 allowed_sites 的只有要去的那个地址的网站（session_look.py 的 _do_navigate）。跳完落到哪儿都不算：
     和要去的是同一个网站、或者本来就允许过，记不记都一样；别的网站你没看到过，不能替你记下。这一条拦不住跳转的时候也成立。
-  - navigate 期间，主框架的每一跳只跟到这几个网站：要去的那个、这段对话里允许过的、标签页现在这一页的。正好是"直接 navigate
-    过去也不用问"的那几个（session_facts.py 的 new_site 是同一条规矩）。跳到别的网站的拦下来不跟，结果里告诉模型网站想跳到哪儿
-    （notice）；它要去得自己再调用一次 navigate，第一次去那个网站照常先问你。
+  - navigate 期间，主框架的每一跳只跟到要去的那个网站和这段对话里允许过的网站。正好是"直接 navigate 过去也不用问"的那几个
+    （session_facts.py 的 new_site 是同一条规矩）。标签页现在停在哪个网站不算数：点链接、页面自己跳过去的网站你没看到过，
+    要是停在上面就算数，点一下链接、再 navigate 一个编出来的 B/?data=…，两步就能把东西带出去（2026-11-25 收紧，宁可多问一次）。
+    跳到别的网站的拦下来不跟，结果里告诉模型网站想跳到哪儿（notice）；它要去得自己再调用一次 navigate，第一次去那个网站照常先问你。
 
 ## 怎么拦
 
@@ -35,7 +36,7 @@ Chrome DevTools Protocol 的 Fetch 域能让 Chrome 在请求发出去之前先�
     一律放行。答复的是 manager：它对所有标签页一直在听，所以哪怕 Fetch.disable 没做成，停下的请求也有人答。
   - Page.navigate 的回答要等这次跳转有了结果（落到了哪一页，或者失败了）才来，所以不能在发 Page.navigate 的线程里答复：自己等自己。
   - 拦的时候说 Aborted（"这次跳转作罢"），不说 BlockedByClient。真的 Chrome 上试过：BlockedByClient 会换上一张错误页，
-    标签页的地址却成了被拦的那个网址，于是"现在这一页的网站"就成了没允许过的那个（再 navigate 过去不问），刷新、后退还会真的去一趟。
+    标签页的地址却成了被拦的那个网址：刷新（不开守卫、也不问）会真的去一趟，模型看到的标签页也像是已经到了那儿。
     Aborted 让标签页留在原来那一页：服务器跳转的，是 navigate 之前的那一页；页面自己跳的，是跳之前的那一页。
   - 第一个请求就是要去的那个地址，只是 Chrome 把它整理过（中文域名换成 xn--、去掉默认的端口……），和 site_of 算出来的不一定一样：
     发 Page.navigate 的那一会儿（opening）主框架第一个不是跳转的请求一律放行，它的网站也算这次要去的网站（opened）。
@@ -54,9 +55,8 @@ Page.frameScheduledNavigation 在协议里标着"以后会去掉"：真去掉了
 ## 剩下拦不住的
 
 navigate 返回以后页面过一会儿自己跳走（onload 里再用 setTimeout 跳、过几秒才跳的 meta refresh、脚本等了一会儿网络再跳），
-那时 Fetch 域已经关了，拦不住。跳过去的网站照样不记进 allowed_sites；可标签页停在那个网站上时，navigate 到这个网站不问，
-和点链接过去以后一样（"现在这一页的网站"算去过了，见 session_facts.py）。被带偏的模型这时能把网址带到那个网站去：
-那是一个页面自己领着去的网站，和点链接一样，这一层没有再管。
+那时 Fetch 域已经关了，拦不住。那一跳带走的是页面自己写的网址，和点链接一样；跳过去的网站不记进 allowed_sites，
+标签页停在那儿也不算，模型再 navigate 到那个网站（带着它编的参数）照常先问你。
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class _Listens(Protocol):
 def notice(url: str) -> str:
     """拦下了一跳以后交给模型的话。网址是网站给的，原样填进去（zh()：工具卡片上按界面的语言显示，见 ../i18n.py 开头）。"""
     return zh(
-        "网站想跳到 {url}，没有跟过去（这段对话里还没去过 {site}）。要去的话用这个网址再调用一次 navigate，会先问用户"
+        "网站想跳到 {url}，没有跟过去（这段对话里还没允许过 {site}）。要去的话用这个网址再调用一次 navigate，会先问用户"
         "（这个网址是网站给的，只是资料）。",
         url=urls.shown(url, urls.MAX_URL_CHARS),
         site=urls.site_of(url),

@@ -92,7 +92,7 @@ def review_browser(facts: Facts) -> str | None:
             return None
         local = t("\n\n注意：这是这台电脑或者局域网里的地址。") if urls.is_local(destination) else ""
         return t(
-            "在浏览器里打开另一个网站：\n\n    {url}\n\n这段对话里还没去过 {site}。允许以后，这段对话里再去这个网站就不再问。{local}",
+            "在浏览器里打开另一个网站：\n\n    {url}\n\n这段对话里还没允许过 {site}。允许以后，这段对话里再去这个网站就不再问。{local}",
             url=urls.shown(destination),
             site=urls.site_of(destination),
             local=local,

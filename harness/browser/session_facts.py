@@ -26,7 +26,7 @@ class Facts:
     idle: bool = False  # 浏览器没开，或者这次运行还没有标签页：点、输入都无从做起（工具会直接报错）
     page: str = ""  # 现在这一页的地址
     destination: str = ""  # navigate：要去的地址（整理过的）
-    new_site: bool = False  # navigate：这段对话里还没去过这个网站
+    new_site: bool = False  # navigate：这段对话里还没允许过这个网站（标签页停在上面不算）
     found: bool = False  # 找到了要操作的元素
     stale: bool = False  # 给的编号已经作废了（这个动作会直接失败，不用问）
     role: str = ""
@@ -61,7 +61,9 @@ class SessionFacts(SessionPart):
         if action == "navigate":
             destination = urls.normalize(args.get("url"))
             site = urls.site_of(destination)
-            new_site = bool(site) and site not in self.allowed_sites and site != urls.site_of(page)
+            # 只看这段对话里允许过的网站。标签页现在停在哪个网站不算数：点链接、页面自己跳过去的网站你没看到过，
+            # 要是"停在上面就不用问"，点一下链接、再 navigate 一个编出来的 B/?data=…，两步就能把东西带出去
+            new_site = bool(site) and site not in self.allowed_sites
             return Facts(action, reachable=live is not None, page=page, destination=destination, new_site=new_site)
         if action not in ("click", "type", "key", "form"):
             return Facts(action, reachable=live is not None, page=page)

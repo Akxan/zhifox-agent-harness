@@ -104,8 +104,7 @@ class SessionLook(SessionPart):
     def _guard_on(self, connection: Connection, tab: Tab, target: str) -> Guard | None:
         """navigate 之前在这个标签页上装好守卫、打开 Fetch 域（见 redirects.py）。这个 Chrome 不认 Fetch 域（或者出了错），
         返回 None：照常去，跳转拦不住；allowed_sites 照样只记要去的那个网站。"""
-        here = urls.site_of(self._location(connection, tab))
-        guard = Guard(tab.session, tab.target, {urls.site_of(target), here, *self.allowed_sites})
+        guard = Guard(tab.session, tab.target, {urls.site_of(target), *self.allowed_sites})
         with self._inbox_lock:
             self._guard = guard  # 先装上再打开：打开以后停下的第一个请求，读线程就要来问它
         guard.listen(connection)
