@@ -5,7 +5,8 @@ r"""一条只读的命令会碰到哪些路径，碰到的是不是不该不问�
   1. 智狐自己的密钥文件（.env、mcp.json、channels.json）和"不用问的命令"清单（commands.json）。
      文件工具根本读不了它们；命令也一样，不能因为是 cat 就放过去。
   2. 智狐的数据目录（data/：以前的会话、记忆、设置）。和文件工具一样：除了"全部自动允许"，读它一律先问。
-  3. 看起来存着密钥的地方：~/.ssh、~/.aws 这类文件夹，.env、私钥、凭据、shell 的历史记录这类文件。
+  3. 看起来存着密钥的地方：~/.ssh、~/.aws、~/.gitconfig 这类家目录里的地方，.env、私钥、凭据、shell 的历史记录这类文件。
+     名单在 secret_places.py，和命令的沙箱共用一份：沙箱挡的那些地方，这里一样认；这里还多认"名字像"的（沙箱只认确切的路径）。
      这一条是猜的（按名字），猜不全，所以只用来多拦一些，从不用来放行。
 
 怎么判断"碰到"：命令里的每一个词都当作可能的路径（选项的值、git 的 HEAD:路径、@文件 也算），
@@ -39,28 +40,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from .. import pathnames
+from .. import pathnames, secret_places
 from ..config import READONLY_SCAN_ENTRIES
 from .words import Unclear
 
-# 看起来存着密钥的文件（比较文件名，不分大小写）
-SECRET_FILES = (
-    ".env", ".env.*", "*.env", ".envrc", ".netrc", "_netrc", ".pgpass", ".my.cnf", ".npmrc", ".pypirc", ".git-credentials",
-    ".dockercfg", ".vault-token", ".htpasswd", "*credential*", "*secret*", "*.pem", "*.key", "*.p12", "*.pfx", "*.keystore",
-    "*.jks", "*.kdbx", "*.gpg", "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*", "shadow", "gshadow", "master.passwd",
-    "sudoers", "environ", "*_history", ".lesshst", "cookies", "cookies.sqlite", "login data", "wp-config.php",
-)
-# 看起来存着密钥的文件夹：路径里连着出现这几段就算（不分大小写）
-SECRET_DIRS = (
-    (".ssh",), (".gnupg",), (".aws",), (".azure",), (".kube",), (".docker",), (".password-store",), ("keychains",),
-    ("keyrings",), (".config", "gcloud"), (".config", "gh"), (".config", "hub"), (".terraform.d",),
-)
-# Windows 上另外几处：gcloud、gpg、GitHub CLI 放在 AppData 里；Windows 自己的凭据管理器、DPAPI 的主密钥、
-# Vault；PowerShell 的命令历史（PSReadLine）
-WINDOWS_SECRET_DIRS = (
-    ("appdata", "roaming", "gcloud"), ("appdata", "roaming", "gnupg"), ("appdata", "roaming", "github cli"),
-    ("microsoft", "credentials"), ("microsoft", "protect"), ("microsoft", "vault"), ("psreadline",),
-)
 # 一碰就有事的地方：/dev 下是设备；/net、/Network 是 macOS 的自动挂载（ls /net/某个域名 会去连那台主机）。
 # 还有 macOS 的内核认的三个前缀，后面的部分是整块磁盘上的另一种写法，顺着符号链接找（resolve）也换不回原来的路径：
 # /.vol/设备号/编号 按编号打开文件（ls -i、stat 就看得到编号；路径里连名字都没有，像密钥的名字认不出来），
@@ -95,7 +78,9 @@ class Places:
         self._protected = [self._folded(path.resolve()) for path in self.protected]
         self._private = [self._folded(path.resolve()) for path in self.private]
         home = self.home.resolve()
-        self._secret_dirs = [self._folded(home.joinpath(*parts)) for parts in _secret_dirs(self.windows)]
+        # 家目录里存着密钥的每一处（secret_places.home：沙箱挡的就是这些）。文件夹和文件都在里面，下面统称"存着密钥的地方"
+        secrets = [home.joinpath(*place.split("/")) for place in secret_places.home(self.windows)]
+        self._secrets = [self._folded(path) for path in secrets]
         self._inodes = set()
         for path in self.protected:
             try:
@@ -103,12 +88,11 @@ class Places:
             except OSError:
                 continue
             self._inodes.add((info.st_dev, info.st_ino))
-        # 换了写法也认得出来（见文件开头）：数据目录、存着密钥的文件夹"是谁"；它们和保存密钥的文件上面的每一层"是谁"（走遍文件夹时用）
-        secret_dirs = [home.joinpath(*parts) for parts in _secret_dirs(self.windows)]
+        # 换了写法也认得出来（见文件开头）：数据目录、存着密钥的地方"是谁"；它们和保存密钥的文件上面的每一层"是谁"（走遍文件夹时用）
         self._private_ids = _identities(self.private)
-        self._secret_ids = _identities(secret_dirs)
-        self._around_watched = _identities(place for path in (*self.private, *secret_dirs) for place in _upwards(path))
-        self._around_protected = _identities(place for path in self.protected for place in _upwards(path))
+        self._secret_ids = _identities(secrets)
+        self._around_watched = _around((*self.private, *secrets))
+        self._around_protected = _around(self.protected)
 
     # ---- 命令在哪儿运行 --------------------------------------------------------
 
@@ -180,8 +164,8 @@ class Places:
             raise Unclear(f"{raw} 是保存密钥的文件")
         if any(pathnames.inside(folded, item) for item in self._private):
             raise Unclear(f"{raw} 在智狐自己的数据目录里")
-        if any(pathnames.inside(folded, item) for item in self._secret_dirs):
-            raise Unclear(f"{raw} 在存着密钥的文件夹里")
+        if any(pathnames.inside(folded, item) for item in self._secrets):
+            raise Unclear(f"{raw} 在家目录里存着密钥的地方")
         if _untouchable(folded, self.windows):
             raise Unclear(f"{raw} 是设备或者网络上的位置")
         if folded.startswith("/proc/") and path.name.casefold() in PROC_SECRETS:
@@ -203,7 +187,7 @@ class Places:
             raise Unclear(f"{raw} 就是保存密钥的文件（另一个名字）")
 
     def _same_place(self, path: Path, raw: str) -> None:
-        """path（顺着符号链接走完的）和它上面的每一层，有一层"就是"数据目录、存着密钥的文件夹（换了写法，见文件开头），就抛出 Unclear。"""
+        """path（顺着符号链接走完的）和它上面的每一层，有一层"就是"数据目录、存着密钥的地方（换了写法，见文件开头），就抛出 Unclear。"""
         if not self._private_ids and not self._secret_ids:
             return
         for place in (path, *path.parents):
@@ -213,7 +197,7 @@ class Places:
             if found in self._private_ids:
                 raise Unclear(f"{raw} 在智狐自己的数据目录里（换了一种写法）")
             if found in self._secret_ids:
-                raise Unclear(f"{raw} 在存着密钥的文件夹里（换了一种写法）")
+                raise Unclear(f"{raw} 在存着密钥的地方（换了一种写法）")
 
     # ---- 一个文件夹 ----------------------------------------------------------
 
@@ -221,7 +205,7 @@ class Places:
         """一个会被整个走一遍的文件夹（grep -r、find……）。contents：会不会读里面每个文件的内容（grep -r 会，find 不会）；
         follow：会不会跟着符号链接走进别的文件夹（ls -RL、find -L）。
 
-        里面包含数据目录、存着密钥的文件夹，就不行；会读内容的、会跟着链接走的，还要先看一遍里面
+        里面包含数据目录、存着密钥的地方，就不行；会读内容的、会跟着链接走的，还要先看一遍里面
         （像密钥的名字、指向文件夹的符号链接、密钥文件的另一个名字），看不完（太大）也不行。
         """
         self.check(raw)
@@ -232,7 +216,7 @@ class Places:
         except OSError as exc:
             raise Unclear(f"看不清 {raw} 是什么") from exc
         folded = self._folded(path)
-        watched = [*self._private, *self._secret_dirs, *(self._protected if contents else [])]
+        watched = [*self._private, *self._secrets, *(self._protected if contents else [])]
         if any(pathnames.inside(item, folded) for item in watched):
             raise Unclear(f"{raw} 里面有不该不问就读的地方")
         # 换了写法的工作目录（/System/Volumes/Data/…）：按路径比看不出它包含数据目录，按"是谁"比看得出（见文件开头）
@@ -302,7 +286,8 @@ def _identity(path: str | Path) -> tuple[int, int] | None:
 
 
 def _identities(paths: Iterable[str | Path]) -> set[tuple[int, int]]:
-    return {found for found in map(_identity, paths) if found is not None}
+    """每个路径"是谁"。同一个路径只看一次：存着密钥的几十处都在家目录下，往上的每一层大多是同几个文件夹。"""
+    return {found for found in map(_identity, dict.fromkeys(paths)) if found is not None}
 
 
 def _settled(path: Path) -> Path:
@@ -317,6 +302,21 @@ def _upwards(path: Path) -> list[Path]:
     """path（顺着符号链接走完）和它上面的每一层。"""
     path = _settled(path)
     return [path, *path.parents]
+
+
+def _around(paths: Iterable[Path]) -> set[tuple[int, int]]:
+    """paths 里每一个和它上面的每一层"是谁"（走遍文件夹时用，见 check_tree）。
+
+    和把每一个都 _upwards 一遍是一回事，只是快：不存在的那一个自己"不是谁"，从它的上一层算起，同一层的只算一次
+    （存着密钥的几十处，大多在家目录、~/.config 这几个文件夹下面，而且大多不存在；Places 每条命令都要建一次）。"""
+    places: dict[Path, None] = {}
+    started: set[Path] = set()
+    for path in paths:
+        start = path if os.path.lexists(path) else path.parent
+        if start not in started:
+            started.add(start)
+            places.update(dict.fromkeys(_upwards(start)))
+    return _identities(places)
 
 
 def _repository(path: Path) -> Path | None:
@@ -334,23 +334,20 @@ def _repository(path: Path) -> Path | None:
     return None
 
 
-def _secret_dirs(windows: bool) -> tuple[tuple[str, ...], ...]:
-    return SECRET_DIRS + WINDOWS_SECRET_DIRS if windows else SECRET_DIRS
-
-
 def _secret_name(raw: str, windows: bool | None = None) -> None:
-    """路径里有一段的名字像是存着密钥的（.env、id_rsa、.ssh……），就抛出 Unclear。
+    """路径里有一段的名字像是存着密钥的（.env、id_rsa、auth.json），或者连着几段像（.ssh、.config/gh、.m2/settings.xml），
+    就抛出 Unclear。名单见 secret_places.py（NAMES、FOLDERS、HOME，Windows 上再加两种）。
     Windows 上每一段先换成它真正指的名字（.env::$DATA、.env. 都是 .env，见 pathnames.names）。"""
     windows = pathnames.WINDOWS if windows is None else windows
     split = pathnames.names(raw, windows=True) if windows else PurePosixPath(raw).parts
     parts = [unicodedata.normalize("NFC", part).casefold() for part in split]
     for part in parts:
-        if any(fnmatch.fnmatchcase(part, pattern) for pattern in SECRET_FILES):
+        if any(fnmatch.fnmatchcase(part, pattern) for pattern in secret_places.NAMES):
             raise Unclear(f"{raw} 看起来存着密钥")
-    for pattern in _secret_dirs(windows):
-        size = len(pattern)
-        if any(tuple(parts[index : index + size]) == pattern for index in range(len(parts) - size + 1)):
-            raise Unclear(f"{raw} 在存着密钥的文件夹里")
+    for run in secret_places.runs(windows):
+        size = len(run)
+        if any(tuple(parts[index : index + size]) == run for index in range(len(parts) - size + 1)):
+            raise Unclear(f"{raw} 看起来是存着密钥的地方")
     # .git 下面的 config（.git/config、.git/modules/x/config、.git/worktrees/x/config）：远程仓库的地址里常常带着 token
     if ".git" in parts[:-1] and parts[-1:] == ["config"]:
         raise Unclear(f"{raw} 是 git 的设置（远程地址里可能带着 token）")

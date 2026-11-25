@@ -269,10 +269,16 @@ How ZhiFox decides ([harness/commands/](../../harness/commands/)), step by step:
 3. **Paths** ([paths.py](../../harness/commands/paths.py)). Every word is treated as a possible path (an option's value, the
    part after `HEAD:` in `git show HEAD:.env` too), resolved through symlinks and compared case-insensitively, because
    macOS treats `.ENV` as `.env`. Reading ZhiFox's key files, `data/`, or a place that looks like it holds secrets
-   (`~/.ssh`, `~/.aws`, `.env*`, `*.pem`, `id_rsa*`, `*credential*`, shell history, `.git/config`, `/proc/*/environ`, `/dev`)
-   asks, even with a plain `cat`. A command that reads a whole folder (`grep -r`, `rg`, `diff` of two folders) also asks
-   if the folder contains any of these, or a symlink to another folder, or is too big to look through
-   (`READONLY_SCAN_ENTRIES`); one that only lists names (`find`, `ls -R`, `du`, `tree`) asks if the folder contains `data/`.
+   (`~/.ssh`, `~/.aws`, `~/.gitconfig`, `~/.m2/settings.xml`, `.env*`, `*.pem`, `id_rsa*`, `*credential*`, `auth.json`,
+   `pip.conf`, shell history, `.git/config`, `/proc/*/environ`, `/dev`) asks, even with a plain `cat`. The list of those
+   places lives in [harness/secret_places.py](../../harness/secret_places.py), shared with the
+   [sandbox](sandbox-and-hooks.md#sandbox-for-commands-what-a-command-can-reach): every home-folder place the sandbox
+   blocks counts here too, and this check also goes by names (any file called `id_rsa`), which the sandbox can't. Names
+   too common to mean anything on their own (`token`, `config.yml`, `settings.xml`) count only at their place in your
+   home folder, so `cat settings.xml` in a project still just looks. A command that reads a whole folder (`grep -r`,
+   `rg`, `diff` of two folders) also asks if the folder contains any of these, or a symlink to another folder, or is too
+   big to look through (`READONLY_SCAN_ENTRIES`); one that only lists names (`find`, `ls -R`, `du`, `tree`) asks if the
+   folder contains `data/` or one of those home-folder places (`du -sh ~/.cache` holds the Hugging Face token).
 4. **Pipes and chains.** `ps aux | grep nginx` and `ls src; git status && git diff` count only when every stage is
    read-only on its own, so `ls; rm -rf ~` still asks. `cd` isn't on the list, so a chain that changes folder asks too:
    the later commands would run somewhere other than where their paths were checked.

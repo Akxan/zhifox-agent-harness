@@ -16,7 +16,8 @@ Linux 内核有"命名空间"（namespace）：一个进程可以有自己的一
   --bind 工作目录          能读写的；--ro-bind-try 你加的只读的路径（不存在的跳过）
   --ro-bind 同一个路径      在能读写的地方里也只能读的（智狐自己的程序……）：同一个地方再挂一次，只读的盖在上面
   --tmpfs / /dev/null 盖住  永远碰不到的（data/、.env、~/.ssh）：文件夹盖上一个空的、只读的，文件换成 /dev/null。
-                          后挂的盖住先挂的，所以这几条写在最后
+                          后挂的盖住先挂的，所以这几条写在最后。一个在另一个里面的已经由 policy.build 去掉了
+                          （只读的 tmpfs 里建不了挂载点）；不存在的只盖 policy.guard 里的那几个（见下面 arguments）
 
 在沙箱里，看不到的地方是"不存在"（No such file or directory），能读不能写的地方是"Read-only file system"。
 
@@ -90,10 +91,20 @@ def arguments(policy: Policy) -> list[str]:
             continue  # 本来就看不到
         if path.is_dir():
             args += ["--tmpfs", str(path), "--remount-ro", str(path)]
-        elif path.exists() or inside(path.parent, writable):
-            # 文件换成 /dev/null。不存在、却在能写的地方（比如还没有 .env）：照样盖上，不然命令可以新建一个 .env，
-            # 智狐下次启动时会读它。bwrap 会在那个位置留下一个空文件当挂载点，空的 .env 和没有 .env 是一回事
+        elif path.exists():
             args += ["--ro-bind", "/dev/null", str(path)]
+        elif path in policy.guard and inside(path.parent, writable):
+            # 不存在、却在能写的地方（比如还没有 .env）：照样盖上，不然命令可以新建一个 .env，智狐下次启动时会读它。
+            # bwrap 会在那个位置留下一个空的挂载点：文件夹（数据目录、~/.ssh）留一个空文件夹，别的留一个空文件
+            # （空的 .env 和没有 .env 是一回事）。拿文件占文件夹的位置的话，以后就建不了那个文件夹了。
+            # 只有 policy.guard 里的这样做：家目录里别的放密钥的地方不存在时不盖，里面本来就没有东西可读，
+            # 盖上会在你真正的家目录里留下一个只读的空文件（以后 npm login 写不了 .npmrc，空的 settings.xml 让 Maven 报错，
+            # 见 secret_places.py 开头）。代价：家目录整个能写时，命令能新建它们（和上面 policy.readonly 里开终端时运行的文件一样：
+            # 不存在的也不盖）
+            if path in policy.folders:
+                args += ["--tmpfs", str(path), "--remount-ro", str(path)]
+            else:
+                args += ["--ro-bind", "/dev/null", str(path)]
     # 从哪个目录开始：上一条命令 cd 到的地方（见 tools/cwd.py）。沙箱里看不到的目录到不了这里（Sandbox.reaches 先挡下了），
     # 不然 bwrap 进不去它，命令一条都运行不了
     args += ["--chdir", str(policy.start)]

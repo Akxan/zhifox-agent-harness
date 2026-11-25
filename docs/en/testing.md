@@ -195,7 +195,8 @@ arguments (odd file names passed through untouched, `data/` and `.env` always de
 ever written without a path), the approval card, the escape asking in every mode and refused in a task or channel set
 to Allow everything, refusing rather than running unsandboxed, per-task and per-channel levels, and the settings
 endpoints. Then the real thing: on a Mac, `sandbox-exec` runs commands in a temporary working folder and checks that
-writing inside works, writing outside fails, reading a stand-in for `~/.ssh` fails, and `curl` reaches a local
+writing inside works, writing outside fails, reading a stand-in for `~/.ssh` fails, a `~/.gitconfig` with a token
+stays unreadable even with the whole home folder writable while git inside keeps working, and `curl` reaches a local
 `http.server` on 127.0.0.1 only at Working folder + network; on Linux the same checks run against bubblewrap, and are
 skipped where `bwrap` isn't installed or can't create a sandbox. The page parts (the Settings section, the paths
 dialog, the task and channel selectors) are in the page tests below.
