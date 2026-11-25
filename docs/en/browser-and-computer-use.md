@@ -22,7 +22,10 @@ model has to know the address (one you gave it, or a link on a page it has read)
 | [guard.py](../../harness/fetch/guard.py) | Which addresses it never goes to, and what a URL means (only `http`/`https`; a user name or password in the address, or an odd numeric host like `2130706433` or `0x7f.1`, is refused) |
 | [client.py](../../harness/fetch/client.py) | The request: resolve the name once, check every address, connect to the one it checked, follow redirects itself and check each hop again; limits on time, size and redirects |
 | [charset.py](../../harness/fetch/charset.py) | Bytes into text: the BOM, the `Content-Type` header, the page's own `<meta charset>`, then UTF-8 or windows-1252, with the browser's aliases (gb2312 read as gb18030…) |
-| [readable.py](../../harness/fetch/readable.py) | HTML into readable text with the standard library's `html.parser`: title and description first, then headings, paragraphs, lists, tables and `<pre>`, a capped number of links as "text (url)"; scripts, styles, navigation, footers and hidden elements are dropped (hidden text is a favourite hiding place for instructions aimed at the model), and a run of `FETCH_LINK_RUN` (10) or more list items that are nothing but a link becomes one line saying it was skipped: on real Wikipedia pages the language menu sits inside `<main>`, hidden only by CSS, and used to fill the start of the text and the link quota |
+| [readable.py](../../harness/fetch/readable.py) | HTML into readable text with the standard library's `html.parser`: title and description first, then headings, paragraphs, lists, tables and `<pre>`, a capped number of links as "text (url)"; scripts, styles, navigation, footers and hidden elements are dropped (see [Hidden text](#hidden-text) below), and a run of `FETCH_LINK_RUN` (10) or more list items that are nothing but a link becomes one line saying it was skipped: on real Wikipedia pages the language menu sits inside `<main>`, hidden only by CSS, and used to fill the start of the text and the link quota |
+| [css.py](../../harness/fetch/css.py) | Reads CSS the way a browser does, as far as hiding needs: comments, escapes (`\6e one` is `none`), `!important`, declarations, style sheets with their `@media` and `@layer`, and the last part of each selector |
+| [cascade.py](../../harness/fetch/cascade.py) | Which declarations end up applying to an element: its `style` attribute plus the page's `<style>` blocks, in the browser's order of precedence; rules it can't be sure apply can only make an element visible again |
+| [hidden.py](../../harness/fetch/hidden.py) | The one place that decides what counts as invisible (`look`), why `opacity: 0` doesn't, and where this filter stops |
 | [content.py](../../harness/fetch/content.py) | Picks a reader by type: web pages, plain text and JSON, Word / Excel / PowerPoint (the same reader as attachments). PDFs, images and other files are refused with a reason |
 | [session.py](../../harness/fetch/session.py) | One run's state: the sites allowed in this conversation and how many pages this message has read |
 | [tools/fetch.py](../../harness/tools/fetch.py) | What the model sees: a fixed description, one `url` parameter, and a result that starts by saying the page is third-party material, not instructions |
@@ -65,6 +68,37 @@ could carry an address the model made up to a site that never appeared on a card
 read-only commands and Allow file edits still ask, because this sends something out rather than reading your computer. Scheduled tasks and chat channels follow their own approval mode.
 Text in the page that looks like a key is masked like any other tool result, and rewinding a turn counts a fetch as
 "only looked".
+
+<a name="hidden-text"></a>**Hidden text.** Text you can't see on the page is a favourite place for instructions aimed at
+the model ("ignore your previous instructions and…"), so `web_fetch` leaves it out. It reads the CSS in `style`
+attributes and in the page's own `<style>` blocks (wherever they sit on the page) the way a browser does, so comments,
+escapes, `!important` and letter case don't change the meaning, and one function in
+[hidden.py](../../harness/fetch/hidden.py) decides what counts as invisible:
+
+- the `hidden` attribute (including `hidden="until-found"`) and `aria-hidden="true"`;
+- `display: none`, `visibility: hidden` or `collapse`, `content-visibility: hidden`;
+- a font size of 1 px or less (`font-size: 0`, `font: 0/0 a`), and transparent text (`color: transparent`,
+  `rgba(…, 0)`, `-webkit-text-fill-color: transparent`) unless something else draws it: a gradient heading with
+  `background-clip: text`, an outline or a shadow;
+- a box of zero (or 1 px) width or height that clips what doesn't fit (`height: 0; overflow: hidden`, the usual
+  "screen reader only" classes), `clip: rect(0 0 0 0)`, `clip-path: inset(50%)`, `transform: scale(0)`;
+- text moved off the screen: `position: absolute; left: -9999px`, `text-indent: -9999px`, a translate that far.
+
+Font size, colour and visibility are inherited, and a child that sets its own is visible again (the old trick of
+`font-size: 0` on a grid of inline blocks). In `<style>` blocks only simple selectors can hide something (`.a`, `#b`,
+`div.a`, and lists of them), with the browser's order of precedence. Rules ZhiFox can't be sure apply (inside `@media`,
+`@supports` or `@container`, or with a longer selector such as `.open .panel`, `:hover` or `:not(.show)`) can only make
+an element visible again, so Tailwind's and Bootstrap's "hidden on small screens, shown on wide ones" and tabs switched
+by a class on an outer element stay readable. CSS never hides the whole page (`<html>`, `<body>`): that is almost
+always a page waiting for its scripts.
+
+`opacity: 0` deliberately doesn't count. Site builders such as Webflow and Framer, and many scroll-reveal scripts, send
+visible body text as `opacity: 0` and fade it in as soon as their script runs. `web_fetch` doesn't run scripts, so it
+can't tell "about to fade in" from "never shown", and counting it would drop most of the text on those sites. This is a
+filter for the common tricks, not a guarantee: external stylesheets aren't downloaded, nothing a script changes is
+seen, white text on a white background isn't recognised, and the text in a collapsed `<details>` is kept (one click
+shows it). The real safeguards are the note that the page is
+material, not instructions, and asking you before the first fetch from a site.
 
 ## Browser use
 

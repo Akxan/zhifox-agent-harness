@@ -299,6 +299,16 @@ FETCH_MAX_LINKS = 60
 # 连着这么多个只是一个链接的列表项（导航、语言列表），收成一句"略过了一串 N 个链接"（fetch/readable.py）。
 # 2026-11-23 读真的维基百科时，正文前面先是一百多个语言链接；正文里带说明的列表、短的几个链接不受影响
 FETCH_LINK_RUN = 10
+# 藏起来的字（fetch/hidden.py）：字号、框的宽高不超过这么多像素算看不见（font-size:0，1 像素宽高加 overflow:hidden 的 sr-only）
+FETCH_TINY_PX = 1
+# left、top、text-indent、平移往外挪了至少这么多像素，算挪出了屏幕。藏字最常写 -9999px、-999px、-999em；
+# 版面上正常的挪动（悬挂缩进 -1em、往左挪 20 像素）远到不了这里
+FETCH_OFFSCREEN_PX = 999
+# 网页里 <style> 块的 CSS 最多读这么多个字（fetch/cascade.py），再多的规则不看：多半只是少认出一些藏起来的字
+FETCH_MAX_STYLE_CHARS = 2_000_000
+# 读一个网页时，拿元素去对 <style> 块里的规则一共最多对这么多次（fetch/cascade.py），用完了剩下的元素只看行内的 style。
+# 普通的网页（Tailwind 的页面也算上）远到不了；故意写几万条规则、几万个各不相同的元素的网页，不能让读网页的那一步卡上几分钟
+FETCH_MAX_STYLE_CHECKS = 2_000_000
 
 # 操作整台电脑（"computer use"，见 desktop/）：进阶选项，默认关着。助手看到的是整个屏幕，能点、能打字的是你电脑上的任何程序。
 # 截图缩到多大再交给模型。屏幕的长边、总像素数都不超过这两个数（文档的例子用的就是它们，四家模型都收得下）：
