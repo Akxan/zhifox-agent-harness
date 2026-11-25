@@ -23,7 +23,7 @@ def add_parser(commands: argparse._SubParsersAction) -> None:
     parser = commands.add_parser("commands", help=t("你自己加的“不用问的命令”（在“只读的命令不用问”那一档里算）：列出、添加、删除"))
     actions = parser.add_subparsers(dest="commands_action", required=True, metavar="ACTION")
     actions.add_parser("list", help=t("列出来"))
-    add = actions.add_parser("add", help=t("加一条：以这几个词开头的命令不再问（后面跟什么参数都算）"))
+    add = actions.add_parser("add", help=t("加一条：以这几个词开头的命令不再问（后面跟着参数也算；参数指到工作目录之外、能让它运行别的命令时除外）"))
     # 参数名不能叫 command：harness 自己的子命令（serve、channels、commands）已经叫这个名字了
     add.add_argument("entry", metavar="COMMAND", help=t("一条命令，比如 \"npm test\"（要用引号括起来）"))
     remove = actions.add_parser("remove", help=t("删一条"))
@@ -47,7 +47,7 @@ def run(args: argparse.Namespace, config: Config, out: IO[str] | None = None) ->
             return 0
         if action == "add":
             entry = store.add(args.entry)
-            print(t("加好了：以“{entry}”开头的命令，在“只读的命令不用问”那一档里不再问。后面跟什么参数都算，碰到 .env、助手自己的数据照样要问。", entry=entry), file=out)
+            print(t("加好了：以“{entry}”开头的命令，在“只读的命令不用问”那一档里不再问。后面跟着参数也算；碰到 .env、助手自己的数据，参数指到工作目录之外已有的地方，或者能让它运行别的命令（git pull --upload-pack、make --eval）时，照样要问。", entry=entry), file=out)
             return 0
         if action == "remove":
             store.remove(args.entry)

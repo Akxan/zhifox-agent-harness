@@ -225,10 +225,39 @@ MCP 的调用也会停下来等你批准。
 **你自己加的"不用问的命令"。** 你信得过、但不是只读的命令（`npm test`、`make check`、`./scripts/status.sh`），可以在
 **设置 → 不用问的命令** 里加（"要不要先问你"的窗口里也有入口），或者用 `harness commands add "npm test"` / `list` / `remove`。
 按开头的几个词比：`npm test` 包括 `npm test -- --watch`，不包括 `npm testing`，所以只加你放心它后面跟着任何东西的命令。
-加进来的命令照样经过拆词（不能有 `;`、`|`、`$(`……）；能运行任何东西的程序（`bash`、`sudo`、`env`、`xargs`、不写脚本的解释器）加不进来；
-在管道里一律不算（`cat x | python …` 会运行管道送进来的任何东西）；只在命令就在工作目录里运行时才算（`cd` 到别处以后，
-`npm test` 跑的就是那里的脚本，见[命令记得自己在哪个目录](#命令记得自己在哪个目录)）；路径的检查照旧。清单存在 `data/commands.json` 里（权限 600），
-和 `.env`、`mcp.json` 一样，文件工具既读不了也改不了它，模型也没有任何能改它的工具。
+加进来的命令照样经过拆词（不能有 `;`、`|`、`$(`……）；在管道里一律不算（`cat x | python …` 会运行管道送进来的任何东西）；
+只在命令就在工作目录里运行时才算（`cd` 到别处以后，`npm test` 跑的就是那里的脚本，见[命令记得自己在哪个目录](#命令记得自己在哪个目录)）；
+路径的检查照旧。
+
+后面跟什么都算，口子也就在这里：后面多出来的参数是模型写的。所以有几样加不进来，有几样参数让这一次不算
+（[allowlist_guard.py](../../harness/commands/allowlist_guard.py)，每一组照各自的官方文档写；
+测试在 [test_allowlist_guard.py](../../tests/test_allowlist_guard.py)）：
+
+- **能运行任何东西的程序**加不进来：`bash`、`sudo`、`env`、`xargs`、`caffeinate`、`sandbox-exec`……
+- **运行器要写明运行哪一个。** `npx eslint`、`uv run pytest`、`python manage.py check`、`python -m pytest`、`go run .` 可以；
+  光写 `npx`、`uv run`、`python`、`go run`，或者运行器后面先跟一个选项（`npx --package=…`、`uv run --with …`、`python -c`：
+  选项能决定运行什么），不行。写死的那个名字本身也照样检查（`uv run python` 就是光写的 `python`）。
+  有几样写什么都不行：`npm exec`（npm 在后面任何位置都认它自己的 `--package`、`--call`；改用 `npx 名字`）、`npm init` / `npm create`、
+  `yarn exec`、`deno eval`、`git config`、`git submodule foreach`、`git bisect run`、`docker exec`、`kubectl exec`。
+  有这些子命令的程序光写名字（`uv`、`npm`、`git`），或者子命令前面先写选项（`git -c …`、`npm --prefix …`），也不行。
+- **只读用法已经内置的程序**加不进来（`find`、`sed`、`grep`、`ls`、`cat`……：`rules.py` 里的，git、systemctl、docker、kubectl
+  和只许查版本的除外）。加了只会多放开内置规则不放的用法：`find -exec`、`sed -i` 会运行命令、改文件；`grep -r` 走遍文件夹时，
+  内置的规则会先看里面有没有 `.env`、`data/`，你加的命令不会。
+- **能让它运行别的命令的选项**，条目里不能有；对上以后后面有，这一次不算：git 的 `--upload-pack`、`--receive-pack`、`--exec`
+  （`clone`、`ls-remote` 的 `-u`）、`clone -c`、`rebase -x`、`grep -O`、`difftool -x`、`filter-branch` 的几种 filter；
+  `make --eval` 和命令行上的变量（`make check CC=…`）；`go test -exec`、`-toolexec`、`-vettool`、`-ldflags`；`cargo --config`；
+  `npm --node-options`、`--script-shell`；`tar --to-command`、`--use-compress-program`、`--checkpoint-action` 和 `主机:文件`；
+  `rsync -e`；`scp -o`。长选项连缩写一起算（`--upload-p`）。
+- **后面的参数指到工作目录之外已经有的地方**，这一次不算：`npm test --prefix ../别的项目`、`make check -C ../x`、
+  `make check -f ../x/Makefile`、`cargo test --manifest-path ../x/Cargo.toml`。每个词、`--opt=值` 里 `=` 后面的值、
+  `-C../x` 这样紧贴着写的值都看，算法和上面的路径检查一样（相对命令运行的目录、展开 `~`、顺着符号链接）；
+  不存在的词（`--grep foo` 的 `foo`）不管，条目里你自己写的路径（`make -C ../shared check`）也不管。
+
+这一次不算，就照内置的规则判断（多半是问你），和没加过一样。清单文件里原来就有、现在不许加的条目不会用上，
+设置里那个窗口和 `harness commands list` 会写出是哪几条。认不出的运行器、没列进来的选项照样加得进来，
+所以还是那句：只加你放心它后面跟着任何东西的命令。
+
+清单存在 `data/commands.json` 里（权限 600），和 `.env`、`mcp.json` 一样，文件工具既读不了也改不了它，模型也没有任何能改它的工具。
 文件变了智狐会重新读，所以服务开着的时候也能用 `harness commands add`。
 
 能调的数在 `config.py` 里：`READONLY_MAX_CHARS`（2000，再长的一律问）、`READONLY_SCAN_ENTRIES`（3000）、

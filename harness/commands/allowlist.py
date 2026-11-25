@@ -5,13 +5,17 @@
 以这几个词开头的命令也不用问。
 
 怎么比：命令和清单里的每一条都用同一个办法拆成词（words.py），命令开头的几个词和某一条一模一样就算，
-后面跟什么参数都行（加了 git status，git status --short 也算；加了 npm test，npm testing 不算）。
+后面跟什么参数都行（加了 npm test，npm test --watch 也算；npm testing 不算）。
 拆词时的规矩照旧：有 ; && | > $( 这类东西的命令根本拆不出来，也就不会和任何一条对上；
 就算对上了，碰到 .env、数据目录、~/.ssh 这些地方照样要问（见 paths.py）。
 只在单独一条命令时算，不在管道里算：cat 脚本 | python 你允许过的东西，python 就会运行管道送进来的任何代码。
+只在工作目录里算（见 paths.at_workspace）：npm test 跑的是这里的 package.json。
 
 所以加进来之前想一想：这几个词开头、后面跟着任何参数的命令，你是不是都放心它不问就运行。
-能运行任何命令的程序（bash、sudo、env、xargs……）根本加不进来：加了就等于"全部自动允许"。
+有几样根本加不进来，对上以后有几样参数这一次不算，都在 allowlist_guard.py（为什么、哪些，见那里开头）：
+能运行任何命令的程序（bash、sudo、env、xargs……）、不写运行哪一个的运行器（npx、uv run、python）、
+内置已经放开了只读用法的程序（find、sed、grep……）加不进来；后面的参数能让它运行别的命令（git pull --upload-pack、
+make check --eval=…），或者指到工作目录之外已有的地方（npm test --prefix ../别的项目）时，这一次不算，照常问。
 
 模型改不了这个清单：它在文件工具的 protected 名单里（和 .env、mcp.json 一样），也没有任何工具能改它。
 只有你能在网页上（设置 → 不用问的命令）或者命令行里（harness commands …）改。
@@ -32,19 +36,8 @@ from ..config import (
 )
 from ..i18n import k, t
 from ..safe import clean_text, private_dir, to_json, write_file
+from .allowlist_guard import refusal
 from .words import Glob, Unclear, stages
-
-# 能运行任何命令的程序：加进清单就等于全部自动允许，不许加
-RUNNERS = {
-    "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "busybox", "sudo", "doas", "su", "pkexec", "runuser", "env",
-    "xargs", "nohup", "timeout", "nice", "ionice", "exec", "eval", "source", ".", "command", "builtin", "time", "watch",
-    "strace", "ltrace", "script", "expect", "chroot", "unshare", "nsenter", "setsid", "stdbuf", "flock", "parallel", "ssh",
-}
-# 解释器：后面要写明运行哪个脚本（python manage.py check、python -m pytest），光写它或者用 -c、-e 就能运行任何代码
-INTERPRETERS = {
-    "python", "python2", "python3", "node", "nodejs", "ruby", "perl", "php", "lua", "luajit", "deno", "bun", "osascript",
-    "rscript", "julia", "tclsh", "wish", "pwsh", "powershell", "irb", "jshell", "ghci", "scala", "groovy", "awk", "gawk", "mawk", "nawk",
-}
 
 UNCLEAR = k("这一条看不懂：只能是一个程序加上几个参数，不能有 | ; & > < $ ` 这类符号和通配符（* ?），引号也要配对。")
 
@@ -69,11 +62,9 @@ def check_entry(text: object) -> list[str]:
     words = found[0]
     if any(isinstance(word, Glob) for word in words):  # 清单里是一条写死的命令：通配符展开成什么要看那一刻的文件夹，不认
         raise CommandListError(t(UNCLEAR))
-    program = os.path.basename(words[0]).casefold()
-    if program in RUNNERS:
-        raise CommandListError(t("“{program}”能运行任何命令，加进来就等于全部自动允许。真要这样，请选“全部自动允许”那一档。", program=words[0]))
-    if program in INTERPRETERS and (len(words) < 2 or (words[1].startswith("-") and not (words[1] == "-m" and len(words) >= 3))):
-        raise CommandListError(t("“{program}”后面要写明运行哪个脚本（比如 python manage.py check）：光写它，或者用 -c、-e，就能运行任何代码。", program=words[0]))
+    reason = refusal(words)  # 运行器、内置已经放开的程序、能运行别的命令的选项（见 allowlist_guard.py）
+    if reason:
+        raise CommandListError(reason)
     return words
 
 
