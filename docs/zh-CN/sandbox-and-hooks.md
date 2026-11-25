@@ -58,10 +58,21 @@
   `/private/etc`、`/opt/homebrew`……，Linux 上是 `/usr`、`/etc`、`/opt`、`/nix`……），以及你加的"只读"的路径。
 - **永远碰不到，在工作目录里面也一样：** 智狐自己的数据目录（`data/`：以前的会话、设置、记忆、机器人的 token）、
   存着各家 API key 的 `.env`，以及文件工具保护的那几个文件（`mcp.json`、`channels.json`、`commands.json`）。
-  还有家目录里放密钥的地方：`~/.ssh`、`~/.gnupg`、`~/.aws`、`~/.azure`、`~/.kube`、`~/.docker`、`~/.netrc`、
-  `~/.git-credentials`、`~/.npmrc`、`~/.pypirc`、`~/.config/gh`、`~/.config/gcloud`、`~/.password-store`、钥匙串和钥匙圈。
-  后面这些，除非你把这个地方本身（或者它里面的东西）单独加进"额外允许的路径"，否则照样挡着。为什么要单独列：
+  还有家目录里放密钥的地方：私钥和密码库（`~/.ssh`、`~/.gnupg`、`~/.password-store`、钥匙串和钥匙圈），
+  云和容器的工具（`~/.aws`、`~/.azure`、`~/.config/gcloud`、`~/.kube`、`~/.docker`、`~/.oci`、doctl、`~/.boto`、`~/.s3cfg`、
+  Cloudflare 的 `~/.cloudflared` 和 wrangler 的登录、ngrok、`~/.fly`、MinIO 的 `~/.mc`、Terraform 的 `~/.terraform.d` 和 `~/.terraformrc`、
+  `~/.vault-token`），git 和代码托管（`~/.gitconfig`、`~/.config/git`、`~/.git-credentials`、`~/.config/gh`、hub、GitHub Copilot、
+  `~/.netrc`），包管理（`~/.npmrc`、`~/.yarnrc.yml`、`~/.pypirc`、pip 的 `pip.conf`、`~/.m2/settings.xml` 和 `settings-security.xml`、
+  `~/.gradle/gradle.properties`、Composer、`~/.cargo/credentials.toml`、`~/.gem/credentials`），还有几样（`~/.pgpass`、`~/.my.cnf`、
+  1Password CLI、rclone、Kaggle、Hugging Face 的 token、Codex 的 `~/.codex`）。完整的名单和每一项的出处在
+  [harness/secret_places.py](../../harness/secret_places.py)，[只读命令的判断](tools-and-permissions.md#只读的命令以及为什么判断得这么保守)用的是同一份。
+  家目录里的这些，除非你把这个地方本身（或者它里面的东西）单独加进"额外允许的路径"，否则照样挡着。为什么要单独列：
   工作目录可能就是家目录（在服务器上 `harness serve --workspace ~`），或者你把整个家目录加了进来；`~/.ssh` 照样挡着。
+  是链接的（比如用 stow 管 dotfiles），连它真正指向的地方一起挡。挡住它们不会弄坏沙箱里的程序：程序找的是 `$HOME` 下面的
+  （git 读 `$HOME/.gitconfig`），HOME 是这次运行自己的那个（见下面）。在 Linux 上，还不存在的那些不盖：里面没有东西可读，
+  盖上的话会在你真正的家目录里留下一个只读的空文件当占位（以后 `npm login` 写不了 `~/.npmrc`，Maven 读到空的 `settings.xml` 会报错）。
+  代价是整个家目录能写时，命令能新建它们，和下面开终端时运行的文件一样。只有 `~/.ssh` 例外，不存在也盖上一个空的文件夹：
+  有人在那里放一个 `authorized_keys`，就能登进这台电脑。
 - **能写的地方里，也只能读：** 智狐自己的程序（`harness/`、`.venv`、`pyproject.toml`、`uv.lock`、`.git`、`.python-version`，
   以及它正在用的 Python 环境），和开终端、登录时会自动运行的文件（`~/.bashrc`、`~/.zshrc`、`~/.profile` 这一类，
   `~/.config/fish`、`~/.config/systemd`、`~/.config/autostart`、`~/Library/LaunchAgents`）。默认情况下工作目录就是项目目录，

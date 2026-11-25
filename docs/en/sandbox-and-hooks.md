@@ -69,12 +69,26 @@ In detail, at either level:
   the paths you added as read-only.
 - **Never, not even inside the working folder:** ZhiFox's data folder (`data/`: past conversations, settings, memory,
   bot tokens), `.env` with your API keys, and the other files the file tool protects (`mcp.json`, `channels.json`,
-  `commands.json`). Also the places in your home folder that hold secrets: `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`,
-  `~/.kube`, `~/.docker`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.config/gh`, `~/.config/gcloud`,
-  `~/.password-store`, the keyrings and keychains. Those last ones stay blocked unless you add that exact place (or
-  something inside it) as an extra path. Why list them separately: the working folder may *be* your home folder
-  (`harness serve --workspace ~` on a server), or you may add your whole home folder as an extra path; `~/.ssh` stays
-  blocked anyway.
+  `commands.json`). Also the places in your home folder that hold secrets: keys and password stores (`~/.ssh`,
+  `~/.gnupg`, `~/.password-store`, the keyrings and keychains), cloud and container tools (`~/.aws`, `~/.azure`,
+  `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.oci`, doctl, `~/.boto`, `~/.s3cfg`, Cloudflare's `~/.cloudflared` and
+  wrangler login, ngrok, `~/.fly`, MinIO's `~/.mc`, Terraform's `~/.terraform.d` and `~/.terraformrc`, `~/.vault-token`),
+  git and code hosting (`~/.gitconfig`, `~/.config/git`, `~/.git-credentials`, `~/.config/gh`, hub, GitHub Copilot,
+  `~/.netrc`), package managers (`~/.npmrc`, `~/.yarnrc.yml`, `~/.pypirc`, pip's `pip.conf`, `~/.m2/settings.xml` and
+  `settings-security.xml`, `~/.gradle/gradle.properties`, Composer, `~/.cargo/credentials.toml`, `~/.gem/credentials`),
+  and a few more (`~/.pgpass`, `~/.my.cnf`, 1Password CLI, rclone, Kaggle, the Hugging Face token, Codex's `~/.codex`).
+  The full list, with where each one is documented, is in [harness/secret_places.py](../../harness/secret_places.py);
+  the [read-only command check](tools-and-permissions.md#read-only-commands-and-why-the-check-is-conservative) uses the
+  same list. Those home-folder places stay blocked unless you add that exact place (or something inside it) as an extra
+  path. Why list them separately: the working folder may *be* your home folder (`harness serve --workspace ~` on a
+  server), or you may add your whole home folder as an extra path; `~/.ssh` stays blocked anyway. A place that is a
+  symlink (dotfiles managed with stow, say) is blocked where it really points too. Blocking them doesn't break programs
+  inside the sandbox: they look under `$HOME` (git reads `$HOME/.gitconfig`), and HOME is the run's own folder (below).
+  On Linux, one that doesn't exist yet is left alone rather than covered: there's nothing in it to read, and covering it
+  would leave an empty read-only placeholder in your real home folder (after which `npm login` can't write `~/.npmrc` and
+  Maven chokes on an empty `settings.xml`). The price is that when your whole home folder is writable, a command can
+  create one of them, as with the startup files below. `~/.ssh` is the exception, covered with an empty folder even
+  when it's missing: an `authorized_keys` planted there would let someone log in.
 - **Read only, even where writing is allowed:** ZhiFox's own program (`harness/`, `.venv`, `pyproject.toml`,
   `uv.lock`, `.git`, `.python-version`, and the Python environment it runs from), and the files that run when you open a
   terminal or log in (`~/.bashrc`, `~/.zshrc`, `~/.profile` and friends, `~/.config/fish`, `~/.config/systemd`,

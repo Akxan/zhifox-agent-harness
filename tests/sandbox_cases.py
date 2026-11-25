@@ -43,6 +43,7 @@ def lab(tmp_path, monkeypatch):
     workspace = tmp_path / 'work "q" (x) 中文'
     (workspace / "data").mkdir(parents=True)
     (workspace / "data" / "settings.json").write_text("{}")
+    (workspace / "data" / "mcp.json").write_text('{"env": {"TOKEN": "sk-fake"}}')
     (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-fake\n")
     (workspace / "prog").mkdir()
     (workspace / "prog" / "main.py").write_text("print(1)\n")
@@ -55,8 +56,9 @@ def lab(tmp_path, monkeypatch):
     (outside / "o.txt").write_text("外面\n")
     level = {"value": "workspace"}
     extra: list[dict] = []
+    # 和真的一样：保护的文件有的就在数据目录里（mcp.json、channels.json……，见 config.protected_files）
     layout = Layout(
-        workspace=workspace, private=(workspace / "data",), protected=(workspace / ".env",),
+        workspace=workspace, private=(workspace / "data",), protected=(workspace / ".env", workspace / "data" / "mcp.json"),
         extra=lambda: extra, default=lambda: level["value"], home=lambda: home,
     )
     # 智狐自己的程序：拿工作目录里的 prog/ 代替（真的那个在项目里，测试不碰它）
@@ -93,7 +95,7 @@ def check_reading_private_places_fails(lab):
 
 
 def check_data_and_keys_are_untouchable(lab):
-    for command in ("cat .env", "cat data/settings.json", "echo x >> .env", "echo x > data/new.json", "rm .env"):
+    for command in ("cat .env", "cat data/settings.json", "cat data/mcp.json", "echo x >> .env", "echo x > data/new.json", "rm .env"):
         out = lab.shell.run(command)
         assert failed(out) and "sk-fake" not in out, (command, out)
     # 列数据目录：macOS 上是"Operation not permitted"，Linux 上盖着一个空的、只读的文件夹。两边都看不到里面有什么
@@ -106,6 +108,26 @@ def check_a_missing_key_file_cannot_be_planted(lab):
     lab.shell.run("echo ANTHROPIC_BASE_URL=http://evil > .env")
     planted = lab.workspace / ".env"
     assert not planted.exists() or "evil" not in planted.read_text()
+
+
+def check_secret_places_in_a_home_it_may_write(lab):
+    # 整个家目录加成可读写的（和 harness serve --workspace ~ 一样）：~/.gitconfig 这类存着密钥的地方照样读不到、改不了（见 secret_places.py）
+    token = "ghp_fake_token_in_gitconfig"
+    gitconfig = lab.home / ".gitconfig"
+    gitconfig.write_text(f'[url "https://{token}@github.com/"]\n\tinsteadOf = https://github.com/\n')
+    lab.extra.append({"path": str(lab.home), "write": True})
+    out = lab.shell.run(f"cat '{gitconfig}'")
+    assert failed(out) and token not in out, out
+    assert failed(lab.shell.run(f"echo x >> '{gitconfig}'")) and gitconfig.read_text().count("\n") == 2
+    assert not failed(lab.shell.run(f"touch '{lab.home / 'made.txt'}'"))  # 家目录里别的地方照样能写
+    # 沙箱里的 git 照常能用：它读写的是 $HOME/.gitconfig，HOME 是这次运行自己的那个，根本不碰你真正的那一份
+    if shutil.which("git") is not None:
+        assert lab.shell.run("git config --global user.name sandbox && git config --global user.name") == "sandbox"
+        assert "sandbox" not in gitconfig.read_text()
+    # 不存在的那些不在你的家目录里留下空的占位（Linux 的 bwrap 会这样，见 linux.py）
+    for place in (".npmrc", ".netrc", ".aws", ".m2", ".kaggle"):
+        assert not (lab.home / place).exists(), place
+    assert (lab.home / ".ssh" / "id_rsa").is_file()
 
 
 def check_zhifox_program_is_read_only(lab):
