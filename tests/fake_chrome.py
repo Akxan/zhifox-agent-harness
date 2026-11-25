@@ -31,6 +31,9 @@ cmd.exe 把能继承的句柄原样传给 python，句柄的数值也不变。la
                                                测"关掉的时候整个进程组都没了"
     ignore_close  true                         收到 Browser.close 照样回答，但不退出（像一个卡住的 Chrome）
     ignore_term   true                         不理 SIGTERM（只有 SIGKILL 才能结束它）
+    redirects     {网址: 网址}                  服务器的跳转（302）：去前一个，服务器让它去后一个
+    page_redirects {网址: 网址}                 页面自己的跳转（像 <meta http-equiv="refresh" content="0;url=…">）：
+                                               这一页"加载完"以后，页面自己去后一个
 
 ## 内置的回答（让 BrowserManager、BrowserSession 能走完常见的流程）
 
@@ -41,7 +44,14 @@ cmd.exe 把能继承的句柄原样传给 python，句柄的数值也不变。la
     Target.attachToTarget   {"sessionId": "S-<targetId>"}；没有这个标签页时回答错误
     Target.closeTarget      关掉它：先回答，再发 Target.targetDestroyed（真的 Chrome 关标签页是异步的，也是先回答）
     Target.getTargetInfo    那个标签页的情况
-    Page.navigate           改掉标签页的地址，回答 loaderId，再发这个标签页的 frameStartedLoading、frameStoppedLoading
+    Page.navigate           改掉标签页的地址，回答 loaderId，再发这个标签页的 frameStartedLoading、frameStoppedLoading。
+                            剧本里有跳转的，跟着跳完（没开 Fetch 时谁也拦不住，和真的 Chrome 一样）
+    Fetch.enable / disable  这个标签页的文档请求要不要先停下来问（Fetch.requestPaused）。开着的时候 Page.navigate 先不回答，
+                            照真的 Chrome 的顺序来（见 harness/browser/redirects.py 开头）：每一跳先停下来，等
+                            Fetch.continueRequest（下一跳或者落地，这时才回答 Page.navigate）或 Fetch.failRequest
+                            （Aborted：标签页留在原来那一页；别的原因：换上错误页，地址是被拦的网址），回答 errorText。
+                            页面自己的跳转在"加载完"之前先发 Page.frameScheduledNavigation，"加载完"以后才去。
+                            Fetch.disable 放行还停着的请求
     Page.captureScreenshot  几个字节的"JPEG"（base64）
     Page.getLayoutMetrics   {"cssVisualViewport": {"pageX": 0, "pageY": 0, ...}}
     别的方法                {}
@@ -75,6 +85,7 @@ HERE = Path(__file__).resolve()
 SCRIPT_FLAG = "--fake-script="
 JPEG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"  # 截图的"内容"：harness 不解码它，只存、只转 base64
 _counter = itertools.count(1)
+LATER = object()  # builtin() 交回它：这个命令现在先不回答（Fetch 开着时的 Page.navigate，等跳转有了结果再回答）
 
 
 # ---- 给测试用的小工具 ----------------------------------------------------------
@@ -136,6 +147,9 @@ class Logic:
         self.created = 0
         self.loads = 0
         self.done = False  # 该退出了（收到 Browser.close、Fake.exit）
+        self.fetching: set[str] = set()  # 开了 Fetch 的标签页会话
+        self.paused: dict[str, dict] = {}  # 停下来等答复的请求：requestId → {session, target, url, navigation}
+        self.jobs = 0
 
     def note(self, message: dict) -> None:
         record = self.script.get("record")
@@ -164,14 +178,17 @@ class Logic:
         elif method in results:
             reply = {"id": id, "result": results[method]}
         else:
-            outcome = self.builtin(method, params, session, before, after)
+            outcome = self.builtin(method, params, session, before, after, id)
+            if outcome is LATER:
+                return [*before, *after]
             reply = {"id": id, "error": outcome[1]} if isinstance(outcome, tuple) else {"id": id, "result": outcome}
         if session:
             reply["sessionId"] = session
         return [*before, reply, *after, *self.script.get("events", {}).get(method, [])]
 
-    def builtin(self, method: str, params: dict, session: str, before: list, after: list) -> dict | tuple:
-        """内置的回答。返回结果（字典），或者 (None, 错误) 表示回答一个错误。before / after 里放要在回答前后发的事件。"""
+    def builtin(self, method: str, params: dict, session: str, before: list, after: list, id: object = None) -> object:
+        """内置的回答。返回结果（字典），或者 (None, 错误) 表示回答一个错误，或者 LATER（先不回答）。
+        before / after 里放要在回答前后发的事件。"""
         if method == "Browser.getVersion":
             return {"protocolVersion": "1.3", "product": "FakeChrome/1.0", "userAgent": "FakeChrome", "jsVersion": "0"}
         if method == "Browser.close":
@@ -200,12 +217,41 @@ class Logic:
             return {}
         if method == "Page.navigate":
             target = session.removeprefix("S-")
-            if target in self.targets:
-                self.targets[target]["url"] = str(params.get("url", ""))
+            url = str(params.get("url", ""))
             self.loads += 1
-            for name in ("Page.frameStartedLoading", "Page.frameStoppedLoading"):
-                after.append({"method": name, "params": {"frameId": target}, "sessionId": session})
-            return {"frameId": target, "loaderId": f"L{self.loads}"}
+            loader = f"L{self.loads}"
+            after.append(_frame_event("Page.frameStartedLoading", session, target))
+            if session in self.fetching:
+                self._pause(after, session, target, url, navigation={"id": id, "loader": loader})
+                return LATER
+            hops = 0
+            while hops < 20 and (url in self.script.get("redirects", {}) or url in self.script.get("page_redirects", {})):
+                url = self.script.get("redirects", {}).get(url) or self.script["page_redirects"][url]
+                hops += 1
+            if target in self.targets:
+                self.targets[target]["url"] = url
+            after.append(_frame_event("Page.frameStoppedLoading", session, target))
+            return {"frameId": target, "loaderId": loader}
+        if method == "Fetch.enable":
+            self.fetching.add(session)
+            return {}
+        if method == "Fetch.disable":
+            self.fetching.discard(session)
+            for request, item in list(self.paused.items()):
+                if item["session"] == session:
+                    del self.paused[request]
+                    self._go_on(after, request, item)  # 停用时还停着的请求放行（和真的 Chrome 一样）
+            return {}
+        if method in ("Fetch.continueRequest", "Fetch.failRequest"):
+            request = str(params.get("requestId", ""))
+            item = self.paused.pop(request, None)
+            if item is None:
+                return None, {"code": -32602, "message": "Invalid InterceptionId."}
+            if method == "Fetch.continueRequest":
+                self._go_on(after, request, item)
+            else:
+                self._refuse(after, item, str(params.get("errorReason", "")))
+            return {}
         if method == "Page.captureScreenshot":
             return {"data": base64.b64encode(JPEG).decode()}
         if method == "Page.getLayoutMetrics":
@@ -220,6 +266,59 @@ class Logic:
             before.extend(params.get("events", []))
             return {}
         return {}
+
+    # ---- Fetch 域：停下来的请求（顺序照着真的 Chrome，见 harness/browser/redirects.py 开头） ----------
+
+    def _pause(self, after: list, session: str, target: str, url: str, navigation: dict | None, redirected: str = "") -> None:
+        """主框架要去 url：Fetch 开着就停下来问（Fetch.requestPaused），关着就直接去。
+        navigation 是还没回答的那个 Page.navigate（页面自己的跳转没有）；redirected 是引起这一跳的那个请求。"""
+        self.jobs += 1
+        request = f"job-{self.jobs}"
+        item = {"session": session, "target": target, "url": url, "navigation": navigation}
+        if session not in self.fetching:
+            self._go_on(after, request, item)
+            return
+        self.paused[request] = item
+        params = {"requestId": request, "request": {"url": url, "method": "GET", "headers": {}}, "frameId": target, "resourceType": "Document"}
+        if redirected:
+            params["redirectedRequestId"] = redirected
+        after.append({"method": "Fetch.requestPaused", "params": params, "sessionId": session})
+
+    def _go_on(self, after: list, request: str, item: dict) -> None:
+        """放行：服务器让它跳的，去下一跳；不然这一页落地了（这时才回答 Page.navigate），页面自己要跳的再去跳。"""
+        session, target, url, navigation = item["session"], item["target"], item["url"], item["navigation"]
+        following = self.script.get("redirects", {}).get(url)
+        if following:
+            self._pause(after, session, target, following, navigation, redirected=request)
+            return
+        if target in self.targets:
+            self.targets[target]["url"] = url
+        if navigation is not None:
+            after.append({"id": navigation["id"], "result": {"frameId": target, "loaderId": navigation["loader"]}, "sessionId": session})
+        later = self.script.get("page_redirects", {}).get(url)
+        if not later:
+            after.append(_frame_event("Page.frameStoppedLoading", session, target))
+            return
+        # 像 meta refresh：加载完之前先说"排好了一次跳转"，说完"加载完了"才去跳
+        after.append(_frame_event("Page.frameScheduledNavigation", session, target, delay=0, reason="metaTagRefresh", url=later))
+        after.append(_frame_event("Page.frameStoppedLoading", session, target))
+        after.append(_frame_event("Page.frameRequestedNavigation", session, target, reason="metaTagRefresh", url=later, disposition="currentTab"))
+        after.append(_frame_event("Page.frameStartedLoading", session, target))
+        self._pause(after, session, target, later, navigation=None)
+
+    def _refuse(self, after: list, item: dict, reason: str) -> None:
+        """Fetch.failRequest：Aborted 是这次跳转作罢，标签页留在原来那一页；别的原因 Chrome 换上一张错误页，地址是被拦的网址。"""
+        session, target, navigation = item["session"], item["target"], item["navigation"]
+        if reason != "Aborted" and target in self.targets:
+            self.targets[target]["url"] = item["url"]
+        if navigation is not None:
+            error = "net::ERR_ABORTED" if reason == "Aborted" else "net::ERR_BLOCKED_BY_CLIENT"
+            after.append({"id": navigation["id"], "result": {"frameId": target, "loaderId": navigation["loader"], "errorText": error}, "sessionId": session})
+        after.append(_frame_event("Page.frameStoppedLoading", session, target))
+
+
+def _frame_event(method: str, session: str, target: str, **params: object) -> dict:
+    return {"method": method, "params": {"frameId": target, **params}, "sessionId": session}
 
 
 def _info(target: str, url: str) -> dict:

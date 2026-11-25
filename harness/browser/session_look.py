@@ -1,20 +1,23 @@
 """去哪一页、看这一页（BrowserSession 的一组方法，见 session.py 开头）：navigate、screenshot、zoom、wait、wait_for、
 read_page、find、get_page_text。
 
-navigate 去过的网站记进这段对话允许过的网站（allowed_sites），再去不用再问。读出来的文字和截图里的字都来自第三方网站，
-交给模型的结果里写明"只是资料"（THIRD_PARTY）。元素编号（ref）由 page.js 发，规矩见 session.py 开头。
+navigate 要去的那个网站记进这段对话允许过的网站（allowed_sites），再去不用再问；跳完落到的别的网站不记。
+navigate 期间网站要跳到哪儿、跟不跟，由守卫（redirects.py 的 Guard）来管：_guard_on、_guard_off 装上、撤掉它。
+读出来的文字和截图里的字都来自第三方网站，交给模型的结果里写明"只是资料"（THIRD_PARTY）。元素编号（ref）由 page.js 发，规矩见 session.py 开头。
 """
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 from ..config import BROWSER_MAX_PAGE_CHARS, BROWSER_NAV_TIMEOUT, BROWSER_VIEWPORT
 from ..i18n import zh
 from ..tools.base import ToolError
-from . import urls
-from .cdp import Cancelled, Connection
-from .session_page import Outcome
+from . import redirects, urls
+from .cdp import Cancelled, CDPError, Connection
+from .redirects import Guard
+from .session_page import Outcome, lines
 from .session_tabs import Tab, _clean_title
 from .session_types import SessionPart
 
@@ -36,9 +39,15 @@ class SessionLook(SessionPart):
             raise ToolError(problem)
         connection = self._connection()
         tab = self._tab(connection, tab_id)
+        deadline = time.monotonic() + BROWSER_NAV_TIMEOUT
         # 等的是"主框架停止加载"：从缓存里直接恢复的后退、前进（back/forward cache）不会再有 load 事件，但这个一定有
         loaded = connection.expect("Page.frameStoppedLoading", self._main_frame(tab), owner=self)
+        guard: Guard | None = None
+        failed = False  # Page.navigate 说这次没打开（errorText）
         try:
+            if target not in urls.HISTORY:
+                # 去一个地址（后退、前进、刷新不算）：跳转只跟到直接去也不用问的网站（见 redirects.py）。装不上守卫就照常去
+                guard = self._guard_on(connection, tab, target)
             if target == "reload":
                 connection.call("Page.reload", {}, session=tab.session, owner=self)
                 waiting = True
@@ -51,24 +60,36 @@ class SessionLook(SessionPart):
                 connection.call("Page.navigateToHistoryEntry", {"entryId": entries[index]["id"]}, session=tab.session, owner=self)
                 waiting = True
             else:
-                reply = connection.call("Page.navigate", {"url": target}, session=tab.session, owner=self)
-                if reply.get("errorText"):
+                with guard.opening() if guard is not None else contextlib.nullcontext():
+                    reply = connection.call("Page.navigate", {"url": target}, session=tab.session, owner=self)
+                failed = bool(reply.get("errorText"))
+                if failed and not (guard is not None and guard.refused):
                     raise ToolError(zh("没能打开 {url}：{error}。检查一下地址，或者这个网站现在打不开。", url=urls.shown(target), error=reply["errorText"]))
-                waiting = bool(reply.get("loaderId"))  # 同一页里的跳转（只改了 # 后面的部分）不会重新加载
+                # 同一页里的跳转（只改了 # 后面的部分）不会重新加载；跳转被拦下来、作罢了的，什么都没加载
+                waiting = bool(reply.get("loaderId")) and not failed
             tab.world = 0
             finished = loaded.wait(BROWSER_NAV_TIMEOUT) is not None if waiting else True
+            if finished and guard is not None:
+                finished = guard.settle(deadline, self._halt)  # 页面在加载完之前排好的跳转（meta refresh）：等它走完
         finally:
             loaded.cancel()
+            if guard is not None:
+                self._guard_off(connection, tab, guard)
         if self._halt.is_set():
             raise Cancelled()
         here = self._location(connection, tab)
-        for address in (here, target):
-            site = urls.site_of(address)
-            if site:
-                self.allowed_sites.add(site)  # 去过了（问过你、你允许了，或者本来就不用问）：这段对话里再来不用再问
+        # 只记要去的那个网站（问过你、你允许了，或者本来就不用问）：这段对话里再来不用再问。跳完落到的网站不记（见 redirects.py）。
+        # guard.opened 是同一个地址在 Chrome 那里的写法（中文域名换成 xn--……）
+        self.allowed_sites.update(site for site in (urls.site_of(target), guard.opened if guard is not None else "") if site)
+        refused = guard.refused if guard is not None else ""
         slow = "" if finished else zh("（等了 {seconds} 秒还没完全加载完，先看看现在的样子）", seconds=BROWSER_NAV_TIMEOUT)
+        opened: str  # zh() 的 Message，或者 lines() 接起来的几段（每一段照样记着原文）
         if target in urls.HISTORY:
             opened = zh("{went} {url}{slow}", went=_WENT[target], url=urls.shown(here), slow=slow)
+        elif refused and failed:  # 第一页就跳走了（服务器的 302）：什么都没打开，标签页留在原来那一页
+            opened = lines(redirects.notice(refused), zh("标签页还在 {url}。", url=urls.shown(here)))
+        elif refused:  # 打开了，页面自己又要跳走
+            opened = lines(zh("已打开 {url}{slow}", url=urls.shown(here), slow=slow), redirects.notice(refused))
         else:
             opened = zh("已打开 {url}{slow}", url=urls.shown(here), slow=slow)
         outcome = self._finish(connection, tab, opened)
@@ -79,6 +100,37 @@ class SessionLook(SessionPart):
     def _location(self, connection: Connection, tab: Tab) -> str:
         info = connection.call("Target.getTargetInfo", {"targetId": tab.target}, owner=self).get("targetInfo", {})
         return str(info.get("url", ""))
+
+    def _guard_on(self, connection: Connection, tab: Tab, target: str) -> Guard | None:
+        """navigate 之前在这个标签页上装好守卫、打开 Fetch 域（见 redirects.py）。这个 Chrome 不认 Fetch 域（或者出了错），
+        返回 None：照常去，跳转拦不住；allowed_sites 照样只记要去的那个网站。"""
+        guard = Guard(tab.session, tab.target, {urls.site_of(target), *self.allowed_sites})
+        with self._inbox_lock:
+            self._guard = guard  # 先装上再打开：打开以后停下的第一个请求，读线程就要来问它
+        guard.listen(connection)
+        try:
+            connection.call("Fetch.enable", redirects.PATTERNS, session=tab.session, owner=self)
+        except CDPError:
+            # 不认 Fetch 域，或者没回答（那就不知道开没开）：关一下、撤掉守卫，照常去
+            self._guard_off(connection, tab, guard)
+            return None
+        except BaseException:  # 用户点了停止：一样撤掉守卫再停
+            self._guard_off(connection, tab, guard)
+            raise
+        return guard
+
+    def _guard_off(self, connection: Connection, tab: Tab, guard: Guard) -> None:
+        """navigate 结束（做完了、出错了、被停下了都算）：关掉 Fetch 域（还停着的请求 Chrome 会放行），撤掉守卫。
+        先关再撤：关掉之前停下的请求，照样由守卫来判断。"""
+        try:
+            # 不记在这个 session 名下（owner）：停止的时候也要关掉，不能被一起取消
+            connection.call("Fetch.disable", session=tab.session, timeout=5)
+        except CDPError:
+            pass  # Chrome 没了、不认 Fetch 域、没回答：之后停下的请求照样有 manager 答复（守卫撤了，一律放行）
+        guard.unlisten()
+        with self._inbox_lock:
+            if self._guard is guard:
+                self._guard = None
 
     def _do_screenshot(self, tab_id: str | None = None) -> Outcome:
         connection = self._connection()

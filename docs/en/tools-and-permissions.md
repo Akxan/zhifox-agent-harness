@@ -130,8 +130,9 @@ folder it originally started in, so the rerun matches the history that's left.
 | Reading a web page: a site not yet read in this conversation | Asks you first, and shows the full address (it is sent to that site). Once allowed, that site doesn't ask again in this conversation. Allow read-only commands and Allow file edits still ask; Allow everything doesn't. Addresses on this computer or your network are refused without asking (see [Reading a web page](browser-and-computer-use.md#reading-a-web-page-without-a-browser-web_fetch)) |
 | Calling an MCP server's tool | Asks you first, and shows the arguments that will be sent, unless you set that tool (or the whole server) to don't ask |
 | Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
-| Browser: opening a site already visited in this conversation; back, forward, reload | Runs directly |
-| Browser: opening a site not yet visited in this conversation | Asks you first. Once allowed, that site doesn't ask again in this conversation |
+| Browser: opening a site already allowed in this conversation; back, forward, reload | Runs directly. A site reached only by clicking a link or by a redirect doesn't count as allowed |
+| Browser: opening a site not yet allowed in this conversation | Asks you first, even if the tab is already on that site (it got there by a link). Once allowed, that site doesn't ask again in this conversation |
+| Browser: a site redirecting while it opens | Followed only within the same site and to sites allowed in this conversation; any other redirect isn't followed and the model is told (going there asks as usual). See [Browser use](browser-and-computer-use.md#browser-use-a-chrome-of-its-own) |
 | Browser: clicking a plain link or button | Runs directly |
 | Browser: clicking something that submits a form, a button or link named like buy, pay, send, delete, confirm… (in English, Chinese and Spanish), or anything inside a frame from another site | Asks you first, and shows the button and the page |
 | Browser: typing or filling in text (and key presses that type) | Asks you first, and shows the page, the field and the text |

@@ -10,12 +10,14 @@
   - 下载一律拒绝（Browser.setDownloadBehavior: deny）。网页让浏览器下载的文件，可能是任何东西；
     助手要的是网页上的内容，不需要把文件存到你的电脑上。被拒绝的下载会告诉模型一声。
   - 网页弹出的对话框（alert、confirm、prompt）自动取消，不然页面会一直卡在那里等人点。也告诉模型一声。
+  - navigate 时 Chrome 停下来问"这一跳跟不跟"的请求（Fetch.requestPaused），每一个都在这里答复（规矩在 redirects.py）。
 """
 
 from __future__ import annotations
 
 import atexit
 import contextlib
+import functools
 import shutil
 import threading
 import time
@@ -32,7 +34,7 @@ from ..config import (
 )
 from ..i18n import t, zh
 from ..tools.base import ToolError
-from . import chrome
+from . import chrome, redirects
 from .cdp import CDPError, Connection
 from .session import BrowserSession
 from .shots import ShotStore
@@ -158,6 +160,8 @@ class BrowserManager:
         connection.on("Target.targetDestroyed", self._target_destroyed)
         connection.on("Browser.downloadWillBegin", self._download)
         connection.on("Page.javascriptDialogOpening", self._dialog)
+        # 连接直接交过去：读线程里不拿 self._lock（connection_if_running 要拿它，而 connect() 拿着它在等 Chrome 的回答）
+        connection.on("Fetch.requestPaused", functools.partial(self._request_paused, connection))
         if self._idle_thread is None or not self._idle_thread.is_alive():
             self._idle_thread = threading.Thread(target=self._watch_idle, daemon=True, name="browser-idle")
             self._idle_thread.start()
@@ -337,3 +341,26 @@ class BrowserManager:
                 connection.call("Page.handleJavaScriptDialog", {"accept": accept}, session=cdp_session, timeout=5)
 
         threading.Thread(target=answer, daemon=True).start()  # 读线程里不能等 Chrome 的回答（见 Connection.on）
+
+    def _request_paused(self, connection: Connection, params: dict, cdp_session: str) -> None:
+        """navigate 时 Chrome 停下了一个请求（Fetch.requestPaused，见 redirects.py）：问这个标签页所属的 session 放不放，
+        在另一个线程里答复。每一个都要答复，不然那一页一直挂着：找不到是谁的、那个 session 没在 navigate 的，一律放行；
+        判断的时候出了错的，不放（宁可这一页打不开，也不把模型编的网址带到没允许过的网站去）。"""
+        request = params.get("requestId")
+        if not isinstance(request, str) or not request:
+            return
+        try:
+            owner = next((session for session in list(self._sessions) if session.owns_session(cdp_session)), None)
+            allowed = owner is None or owner.lets_through(params, cdp_session)
+        except Exception:  # noqa: BLE001 —— 故意接住所有异常：判断出了错也得答复这个请求（不放），读线程不能带着异常走
+            allowed = False
+        if allowed:
+            method, answer = "Fetch.continueRequest", {"requestId": request}
+        else:
+            method, answer = "Fetch.failRequest", {"requestId": request, "errorReason": redirects.REFUSE}
+
+        def send() -> None:
+            with contextlib.suppress(CDPError):  # 不记在谁的名下：停止的时候也要答复
+                connection.call(method, answer, session=cdp_session, timeout=5)
+
+        threading.Thread(target=send, daemon=True, name="browser-paused").start()  # 读线程里不能等 Chrome 的回答

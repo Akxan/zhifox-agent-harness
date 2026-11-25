@@ -7,7 +7,7 @@
   - file:（你电脑上的文件）、chrome: 和 devtools:（浏览器自己的设置页和调试工具，能改浏览器的行为）、
     javascript:（在页面里执行一段代码）、view-source: 这几种一律不打开，不问你。
   - 别的非 http(s) 地址（about:、data:……）每次都问。
-  - http(s) 的地址按"网站"算：去一个这段对话里还没去过的网站，要问你。
+  - http(s) 的地址按"网站"算：去一个这段对话里还没允许过的网站，要问你（点链接到过的不算允许过）。
 """
 
 from __future__ import annotations

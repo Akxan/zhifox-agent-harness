@@ -114,6 +114,7 @@ is in [harness/browser/](../../harness/browser/), one file per concern:
 | [session_look.py](../../harness/browser/session_look.py), [session_input.py](../../harness/browser/session_input.py), [session_facts.py](../../harness/browser/session_facts.py) | Going to a page and reading it (navigate, screenshot, zoom, read_page, find, wait…); mouse and keyboard (click, drag, scroll, type, key, form_input); the look before acting that permissions.py decides on |
 | [page.js](../../harness/browser/page.js) | The script put into each page: it turns what's on screen into numbered lines the model can read |
 | [urls.py](../../harness/browser/urls.py), [keys.py](../../harness/browser/keys.py), [shots.py](../../harness/browser/shots.py) | Which addresses may be opened and what counts as one site; key names into keyboard events; screenshots on disk |
+| [redirects.py](../../harness/browser/redirects.py) | Whether `navigate` follows a site's redirect: only to the site it was asked to open and sites already allowed, using Chrome's Fetch domain |
 | [tools/browser.py](../../harness/tools/browser.py) | What the model sees: Anthropic's browser use toolset for Claude, twelve hand-written tools for the others |
 | [webui/browser_api.py](../../harness/webui/browser_api.py) | **Settings → Browser**, the header indicator's Stop, the profile folder and the full-size screenshots |
 
@@ -218,12 +219,30 @@ intercepted, so a page can't open a file picker and ZhiFox never uploads your fi
 tool result as material from a third-party site, not instructions. Chrome's environment has the model API keys removed,
 like a shell command's.
 
+**Redirects don't carry an address past the approval.** Opening a new site asks you because the address itself can
+carry data out (`evil.example/?data=<your mail>`). A site can redirect, though, and many have an open redirect
+(`/redirect?to=…`): once you've allowed a site, the model could open its redirect without asking and let Chrome follow
+it anywhere. So only the site `navigate` was asked to open is remembered as allowed, never the site a redirect lands
+on, and the site the tab happens to be on doesn't count either: a click on a link doesn't ask, so if being on a site
+were enough, clicking through to it and then opening a made-up `B/?data=…` would carry data out in two steps. (The
+cost: after clicking through to a site, the first `navigate` straight to it asks once.) And while `navigate` runs, ZhiFox turns on Chrome's Fetch domain for that tab (documents only, before the request
+goes out): every hop of the main frame, whether a server's 3xx or the page sending itself elsewhere while it loads
+(a script setting `location`, a `<meta http-equiv="refresh">` due within `BROWSER_REDIRECT_WAIT` seconds), is followed
+only to a site that wouldn't have asked: the one it was opening or a site allowed in this conversation. Any other hop
+is aborted, the tab stays on the page it was on, and the model is told where the
+site wanted to go; going there takes another `navigate`, which asks you the first time. Every paused request gets an
+answer, and the Fetch domain is turned off as soon as `navigate` returns; back, forward and reload aren't guarded, and
+clicking a link still doesn't ask (the page put it there). What this can't stop: a page that navigates itself later,
+after `navigate` has returned (a timer in `onload`, a refresh due in a few seconds). That hop carries only the address
+the page itself wrote, like a link; the site isn't remembered as allowed, and opening it with `navigate` asks you as usual.
+
 Computer use of the whole desktop (screenshots of and control over your entire screen, not just one browser) is a
 separate, advanced option with much stricter rules; see the next section.
 
 The tunables are in [harness/config.py](../../harness/config.py): `BROWSER_VIEWPORT` (1280×800, also the screenshot size),
 `BROWSER_SHOT_QUALITY` (JPEG, 60), `BROWSER_IDLE_MINUTES` (10), `BROWSER_SHOT_DAYS` (30), `BROWSER_CALL_TIMEOUT`,
-`BROWSER_NAV_TIMEOUT`, `BROWSER_MAX_PAGE_CHARS` (50,000 characters per read) and `BROWSER_TOOLSET_MODELS`.
+`BROWSER_NAV_TIMEOUT`, `BROWSER_REDIRECT_WAIT` (2) and `BROWSER_REDIRECT_HOPS` (3), `BROWSER_MAX_PAGE_CHARS`
+(50,000 characters per read) and `BROWSER_TOOLSET_MODELS`.
 
 ## Computer use
 

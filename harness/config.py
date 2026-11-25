@@ -260,6 +260,11 @@ BROWSER_CALL_TIMEOUT = 20
 BROWSER_NAV_TIMEOUT = 30
 # 点击、按键之后等页面"安静下来"最多这么久（秒）：点了一个链接，要等新页面开始加载
 BROWSER_SETTLE_SECONDS = 3
+# navigate 时，页面在加载完之前排好的跳转（<meta http-equiv="refresh">）：这么多秒以内要开始的，navigate 等它走完，
+# 跳到哪儿照样经过检查（没允许过的网站不跟，见 browser/redirects.py）；排好了、到点以后又过了这么久还没开始的，不再等
+BROWSER_REDIRECT_WAIT = 2
+# 同一次 navigate 最多这样等几次（一直自己刷新自己的页面，不会让 navigate 一直等到 BROWSER_NAV_TIMEOUT）
+BROWSER_REDIRECT_HOPS = 3
 # 读页面（read_page、get_page_text）一次最多交给模型这么多字。再多就告诉它"截断了，请缩小范围"
 BROWSER_MAX_PAGE_CHARS = 50_000
 # 支持 Anthropic 的"浏览器工具包"（browser_toolset_20260801）的 Claude 模型。用它们时，浏览器的工具按这个工具包发
