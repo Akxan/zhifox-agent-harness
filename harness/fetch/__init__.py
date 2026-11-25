@@ -11,6 +11,9 @@ Claude 联网靠 Anthropic 服务器上的两个工具（联网搜索、读网�
                有时间、大小、跳转次数的上限
   charset.py   字节 → 文字：按回答的头、BOM、网页里的 <meta charset> 认编码
   readable.py  HTML → 能读的文字：去掉脚本、样式、导航这些，留下标题、段落、列表、表格，链接少量写上网址
+  css.py       照浏览器的读法读 CSS：注释、转义、!important、声明、样式表、选择器的最后一段
+  cascade.py   一个元素身上最后算数的是哪几条声明：行内的 style 加上 <style> 块，按浏览器的先后
+  hidden.py    哪些 CSS 算"你看不见"（藏起来的字常常是冲着模型写的指示），以及为什么 opacity:0 不算
   content.py   按类型交给上面哪一个：网页、纯文本、JSON，Word / Excel / PowerPoint（documents.py）；PDF、图片不读
   session.py   每次运行（一段对话、一次定时任务、一个聊天）自己的一份：允许过哪些网站、这条消息里读了几次
 
