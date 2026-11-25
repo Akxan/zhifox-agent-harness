@@ -87,6 +87,7 @@ Claude 联网靠 Anthropic 服务器上的两个工具：联网搜索和读网�
 | [session_look.py](../../harness/browser/session_look.py)、[session_input.py](../../harness/browser/session_input.py)、[session_facts.py](../../harness/browser/session_facts.py) | 去哪一页、看这一页（打开、截图、放大、读页面、找元素、等）；鼠标和键盘（点击、拖动、滚动、输入、按键、填表单）；动作之前先看一眼，交给 permissions.py 决定问不问 |
 | [page.js](../../harness/browser/page.js) | 放进每个网页的一小段脚本：把屏幕上的东西整理成带编号的一行一行，给模型读 |
 | [urls.py](../../harness/browser/urls.py)、[keys.py](../../harness/browser/keys.py)、[shots.py](../../harness/browser/shots.py) | 哪些地址能打开、两个地址算不算同一个网站；按键的名字换成键盘事件；截图存在磁盘上 |
+| [redirects.py](../../harness/browser/redirects.py) | `navigate` 时网站要跳到哪儿、跟不跟：只跟到要去的那个网站和允许过的网站，用的是 Chrome 的 Fetch 域 |
 | [tools/browser.py](../../harness/tools/browser.py) | 模型看到的工具：给 Claude 的是 Anthropic 的浏览器工具包，给别家的是 12 个手写的工具 |
 | [webui/browser_api.py](../../harness/webui/browser_api.py) | "设置 → 浏览器"、顶栏提示上的"停止"、配置文件夹、截图的大图 |
 
@@ -167,11 +168,21 @@ Telegram 里的 `/stop`，都只停下自己那一次运行正在做的浏览器
 "选择文件"的窗口被拦下，网页弹不出来，智狐也从不替网页上传你的文件。读到的每一页，在工具结果里都标明是第三方网站的内容、只是资料，
 不是指示。Chrome 的环境变量里去掉了各家模型的密钥，和 shell 命令一样。
 
+**跳转带不走没经过你同意的网址。** 打开一个新的网站要问你，因为网址本身就能把东西带出去（`evil.example/?data=你的邮件`）。
+可网站会跳，很多网站还有"开放跳转"（`/redirect?to=…`）：你允许过一个网站以后，模型不用问就能打开它的跳转地址，让 Chrome 跟着跳到任何地方。
+所以记成"允许过"的只有 `navigate` 要去的那个网站，跳完落到的网站从不算。`navigate` 进行的时候，智狐在这个标签页上打开 Chrome 的
+Fetch 域（只拦文档，在请求发出去之前）：主框架的每一跳，不管是服务器的 3xx，还是页面在加载的时候自己要走（脚本改 `location`、
+`BROWSER_REDIRECT_WAIT` 秒以内的 `<meta http-equiv="refresh">`），都只跟到直接去也不用问的网站：要去的那个、这段对话里允许过的、
+标签页现在这一页的。别的跳转作罢，标签页留在原来那一页，告诉模型网站想跳到哪儿；要去得再 `navigate` 一次，第一次去照常先问你。
+每一个停下的请求都有答复，`navigate` 一返回就关掉 Fetch 域；后退、前进、刷新不拦，点链接照旧不问（链接是页面自己放的）。
+拦不住的是 `navigate` 返回以后页面过一会儿才自己跳走（`onload` 里的定时器、过几秒才跳的 refresh）：那个网站照样不记成允许过，
+可标签页停在那个网站上时，再去那个网站不问，和点链接过去以后一样。
+
 操作整个桌面的 computer use（对你的整个屏幕截图、点击，而不只是一个浏览器）是另一个单独的进阶选项，规矩严得多，见下一节。
 
 能调的数都在 [harness/config.py](../../harness/config.py) 里：`BROWSER_VIEWPORT`（1280×800，也是截图的大小）、`BROWSER_SHOT_QUALITY`
 （JPEG，60）、`BROWSER_IDLE_MINUTES`（10）、`BROWSER_SHOT_DAYS`（30）、`BROWSER_CALL_TIMEOUT`、`BROWSER_NAV_TIMEOUT`、
-`BROWSER_MAX_PAGE_CHARS`（每次最多读 5 万个字）、`BROWSER_TOOLSET_MODELS`。
+`BROWSER_REDIRECT_WAIT`（2）和 `BROWSER_REDIRECT_HOPS`（3）、`BROWSER_MAX_PAGE_CHARS`（每次最多读 5 万个字）、`BROWSER_TOOLSET_MODELS`。
 
 ## 操作整台电脑
 

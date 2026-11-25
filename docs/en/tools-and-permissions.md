@@ -132,6 +132,7 @@ folder it originally started in, so the rerun matches the history that's left.
 | Browser: reading a page, taking a screenshot, scrolling, switching tabs | Runs directly (in ZhiFox's own browser, which holds none of your logins) |
 | Browser: opening a site already visited in this conversation; back, forward, reload | Runs directly |
 | Browser: opening a site not yet visited in this conversation | Asks you first. Once allowed, that site doesn't ask again in this conversation |
+| Browser: a site redirecting while it opens | Followed only within the same site and to sites allowed in this conversation; any other redirect isn't followed and the model is told (going there asks as usual). See [Browser use](browser-and-computer-use.md#browser-use-a-chrome-of-its-own) |
 | Browser: clicking a plain link or button | Runs directly |
 | Browser: clicking something that submits a form, a button or link named like buy, pay, send, delete, confirm… (in English, Chinese and Spanish), or anything inside a frame from another site | Asks you first, and shows the button and the page |
 | Browser: typing or filling in text (and key presses that type) | Asks you first, and shows the page, the field and the text |

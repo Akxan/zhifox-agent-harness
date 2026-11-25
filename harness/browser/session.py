@@ -34,6 +34,9 @@ stop() 让正在进行的那个动作马上结束：还在等 Chrome 回答的�
   session_facts.py  SessionFacts：动作之前先看一眼，给 permissions.py。Facts 也在那里
   session_types.py  SessionPart：混进来的几组方法要用的、别的文件里的东西，只写给类型检查（mypy）看
 
+navigate 时的跳转守卫（Guard：网站要跳到哪儿、跟不跟）不是混进来的一组方法，是 redirects.py 里单独的一个类：
+session_look.py 装上、撤掉它，读线程经过这里的 lets_through 问它。
+
 run(action) 照旧按名字找 _do_<action>，不管它写在哪个文件里；别处照旧 from .session import BrowserSession、Facts、Outcome、Target。
 混进来的类只有方法，状态只在 __init__ 里。会把 _notes、_changes 整个换掉的 _state、_finish、_tabs_result 也留在这里，
 和往里放东西的收件箱（_drain）挨着：一样东西从哪儿来、到哪儿去，在一个文件里看得全（另一个原因见 session_types.py 开头）。
@@ -49,6 +52,7 @@ from ..i18n import zh
 from ..tools.base import ToolError
 from . import urls
 from .cdp import Cancelled, CDPClosed, CDPError, CDPTimeout, Connection
+from .redirects import Guard
 from .session_facts import Facts, SessionFacts
 from .session_input import SessionInput, Target
 from .session_look import SessionLook
@@ -87,6 +91,8 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
         self._inbox: list[tuple[str, str]] = []
         self._targets: set[str] = set()
         self._cdp_sessions: set[str] = set()
+        # 正在进行的那次 navigate 的守卫（跟不跟跳转，见 redirects.py）。读线程要问它（lets_through），所以也在这把小锁后面
+        self._guard: Guard | None = None
 
     # ---- 对外 ---------------------------------------------------------------
 
@@ -130,6 +136,10 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
         connection = self.manager.connection_if_running()
         if connection is not None:
             connection.cancel(self)
+        with self._inbox_lock:
+            guard = self._guard
+        if guard is not None:
+            guard.wake()  # 正在等页面自己排好的跳转（redirects.py 的 settle）：马上醒来
 
     def close(self) -> None:
         """这次运行结束了：关掉它自己的标签页。"""
@@ -166,6 +176,13 @@ class BrowserSession(SessionTabs, SessionPage, SessionLook, SessionInput, Sessio
                 return
             self._targets.discard(target)
             self._inbox.append(("lost", target))
+
+    def lets_through(self, params: dict, cdp_session: str) -> bool:
+        """Chrome 在这个 session 的标签页上停下了一个请求（Fetch.requestPaused，见 redirects.py）：放不放。
+        正在 navigate 的话问它的守卫；别的时候（navigate 刚结束、关不掉 Fetch 域）一律放行。"""
+        with self._inbox_lock:
+            guard = self._guard
+        return guard is None or guard.allows(params, cdp_session)
 
     def note(self, text: str) -> None:
         self._post("note", text)

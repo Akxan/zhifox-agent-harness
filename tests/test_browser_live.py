@@ -11,8 +11,13 @@ import os
 import re
 import threading
 import time
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import (
+    BaseHTTPRequestHandler,
+    SimpleHTTPRequestHandler,
+    ThreadingHTTPServer,
+)
 from types import SimpleNamespace
+from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
 
@@ -48,6 +53,51 @@ PAGES = {
     "slow.html": "<title>慢</title><script>setTimeout(()=>{document.body.insertAdjacentHTML('beforeend','<p>终于出来了</p>')}, 600)</script><body></body>",
     "dialog.html": "<title>弹窗</title><button id='b' onclick=\"confirm('真的吗？')\">弹</button>",
 }
+
+
+class Hops(BaseHTTPRequestHandler):
+    """跳转用的小网站：/go?to=网址 是服务器的 302，/meta?to=、/js?to= 是页面自己跳（meta refresh、脚本改 location），
+    /links 上有一个指向 to 的链接，别的地址回答一页标题就是地址的网页。到过的每一个请求记在 server.seen 里（主机名、路径）。"""
+
+    def log_message(self, *args) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        self.server.seen.append((self.headers.get("Host", ""), self.path))
+        parts = urlsplit(self.path)
+        to = parse_qs(parts.query).get("to", [""])[0]
+        if parts.path == "/go":
+            self.send_response(302)
+            self.send_header("Location", to)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if parts.path == "/meta":
+            body = f'<meta http-equiv="refresh" content="0;url={to}"><title>meta</title><p>马上跳走</p>'
+        elif parts.path == "/js":
+            body = f"<title>js</title><script>location.href = {to!r}</script>"
+        elif parts.path == "/links":
+            body = f'<title>links</title><a href="{to}">去另一个网站</a>'
+        else:
+            body = f"<title>{self.path}</title><p>到了 {self.path}</p>"
+        data = ('<meta charset="utf-8">' + body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+@pytest.fixture(scope="module")
+def hops():
+    """127.0.0.1 和 localhost 是同一个服务器，却是两个网站（urls.site_of 按主机名分）：一个当"允许过的"，一个当"没去过的"。"""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Hops)
+    server.seen = []
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    yield SimpleNamespace(here=f"http://127.0.0.1:{port}", other=f"http://localhost:{port}", seen=server.seen)
+    server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture(scope="module")
@@ -271,3 +321,68 @@ def test_closing_ends_the_whole_chrome(tmp_path, site):
     again = session.run("navigate", url=site + "/other.html")
     assert again.state["tabs"][0]["title"] == "别的页面"
     browser.close()
+
+
+# ---- 跳转：只跟到要去的那个网站和允许过的网站（harness/browser/redirects.py） ----------------------------------------
+
+
+def via(hops, kind: str, to: str) -> str:
+    return f"{hops.here}/{kind}?to={quote(to, safe='')}"
+
+
+def reached(hops, host: str, path: str) -> bool:
+    return any(seen_host == host and seen_path.startswith(path) for seen_host, seen_path in hops.seen)
+
+
+def test_a_302_to_a_site_never_allowed_is_not_followed_and_nothing_reaches_it(manager, hops):
+    session = manager.session("对话")
+    session.run("navigate", url=hops.here + "/start")
+    bad = hops.other + "/landing?data=secret"
+    outcome = session.run("navigate", url=via(hops, "go", bad))
+    assert f"网站想跳到 {bad}，没有跟过去" in outcome.text
+    assert outcome.state["tabs"][0]["url"] == hops.here + "/start"  # 留在原来那一页，不是一张写着那个网址的错误页
+    assert not reached(hops, urlsplit(hops.other).netloc, "/landing")  # 请求根本没发出去
+    assert session.allowed_sites == {hops.here}
+    assert session.facts("navigate", url=bad).new_site is True  # 模型自己再去：照常问
+    session.close()
+
+
+def test_a_302_within_the_site_or_to_an_allowed_site_is_followed(manager, hops):
+    session = manager.session("对话")
+    same = session.run("navigate", url=via(hops, "go", hops.here + "/landing?same"))
+    assert same.text == f"已打开 {hops.here}/landing?same" and same.state["tabs"][0]["title"] == "/landing?same"
+    session.allowed_sites.add(hops.other)  # 这段对话里早先允许过
+    allowed = session.run("navigate", url=via(hops, "go", hops.other + "/landing?allowed"))
+    assert allowed.text == f"已打开 {hops.other}/landing?allowed"
+    assert session.allowed_sites == {hops.here, hops.other}
+    session.close()
+
+
+@pytest.mark.parametrize("kind", ["meta", "js"])
+def test_a_page_sending_itself_to_another_site_while_loading_is_stopped(manager, hops, kind):
+    session = manager.session("对话")
+    bad = hops.other + f"/landing?{kind}=secret"
+    outcome = session.run("navigate", url=via(hops, kind, bad))
+    assert outcome.text.splitlines()[0] == f"已打开 {via(hops, kind, bad)}"
+    assert f"网站想跳到 {bad}，没有跟过去" in outcome.text
+    assert outcome.state["tabs"][0]["url"] == via(hops, kind, bad)
+    assert not reached(hops, urlsplit(hops.other).netloc, f"/landing?{kind}")
+    session.close()
+
+
+def test_a_meta_refresh_within_the_site_is_followed_to_where_it_lands(manager, hops):
+    session = manager.session("对话")
+    outcome = session.run("navigate", url=via(hops, "meta", hops.here + "/landing?refreshed"))
+    assert outcome.text == f"已打开 {hops.here}/landing?refreshed"
+    session.close()
+
+
+def test_after_navigate_a_click_on_a_link_to_another_site_still_works(manager, hops):
+    """点链接照旧不问、不拦（链接是页面自己的）：navigate 结束时 Fetch 域关掉了，守卫也撤了。"""
+    session = manager.session("对话")
+    session.run("navigate", url=via(hops, "links", hops.other + "/landing?clicked"))
+    page = session.run("read_page", filter="interactive").text
+    clicked = session.run("click", target=Target(ref=ref_of(page, "去另一个网站")))
+    assert "页面跳转了" in clicked.text and clicked.state["tabs"][0]["url"] == hops.other + "/landing?clicked"
+    assert hops.other not in session.allowed_sites  # 点过去不算允许过
+    session.close()
