@@ -289,13 +289,50 @@ found while building it.
 `./scripts/status.sh`) can be added in **Settings → Commands that don't ask** (also linked from the approval dialog) or
 with `harness commands add "npm test"` / `list` / `remove`. An entry matches by its first words: `npm test` covers
 `npm test -- --watch` but not `npm testing`, so only add commands you're happy to run with anything after them. Entries
-go through the same word splitting (no `;`, `|`, `$(`…), programs that can run anything (`bash`, `sudo`, `env`, `xargs`,
-an interpreter without a script) can't be added, an entry never counts inside a pipe (`cat x | python …` would run
-whatever comes through the pipe), it only counts when the command runs in the working folder itself (after a `cd`
+go through the same word splitting (no `;`, `|`, `$(`…), an entry never counts inside a pipe (`cat x | python …` would
+run whatever comes through the pipe), it only counts when the command runs in the working folder itself (after a `cd`
 elsewhere, `npm test` would run that folder's script, see [Commands remember their folder](#commands-remember-their-folder)),
-and the path checks still apply. The list lives in `data/commands.json` (mode 600),
-which the file tools can neither read nor change, like `.env` and `mcp.json`; the model has no tool that edits it.
-ZhiFox rereads the file when it changes, so `harness commands add` works while the server is running.
+and the path checks still apply.
+
+Anything may follow, and that is also the weak spot: the extra arguments are written by the model. So some entries
+can't be added, and some arguments make a command not count that time
+([allowlist_guard.py](../../harness/commands/allowlist_guard.py), each group written from that tool's official docs;
+tests in [test_allowlist_guard.py](../../tests/test_allowlist_guard.py)):
+
+- **Programs that can run anything** can't be added: `bash`, `sudo`, `env`, `xargs`, `caffeinate`, `sandbox-exec`…
+- **Runners must say what they run.** `npx eslint`, `uv run pytest`, `python manage.py check`, `python -m pytest` and
+  `go run .` are fine; `npx`, `uv run`, `python` or `go run` on their own aren't, and neither is a runner followed first by
+  an option (`npx --package=…`, `uv run --with …`, `python -c`: an option can decide what runs). The name after the runner
+  is checked as a command too (`uv run python` is a bare `python`). A few can't be added whatever follows: `npm exec`
+  (npm reads its own `--package` and `--call` anywhere later on; use `npx <name>` instead), `npm init` / `npm create`,
+  `yarn exec`, `deno eval`, `git config`, `git submodule foreach`, `git bisect run`, `docker exec` and `kubectl exec`.
+  A program with such subcommands on its own (`uv`, `npm`, `git`), or with an option before the subcommand
+  (`git -c …`, `npm --prefix …`), can't be added either.
+- **Programs whose read-only uses are built in** can't be added (`find`, `sed`, `grep`, `ls`, `cat`…: the ones in
+  `rules.py`, except git, systemctl, docker, kubectl and the version-only ones). Adding one would only open up what the
+  built-in rules hold back: `find -exec` and `sed -i` run commands and change files, and `grep -r` would walk a folder
+  without the built-in check for `.env` or `data/` inside it.
+- **Options that can make it run other commands** can't be in an entry, and after a match they make it not count that
+  time: git's `--upload-pack`, `--receive-pack` and `--exec` (`-u` for `clone` and `ls-remote`), `clone -c`, `rebase -x`,
+  `grep -O`, `difftool -x` and the `filter-branch` filters; `make --eval` and variables on the command line
+  (`make check CC=…`); `go test -exec`, `-toolexec`, `-vettool` and `-ldflags`; `cargo --config`; `npm --node-options`
+  and `--script-shell`; `tar --to-command`, `--use-compress-program`, `--checkpoint-action` and `host:file`; `rsync -e`;
+  `scp -o`. Long options count with their abbreviations (`--upload-p`).
+- **Arguments that point to an existing place outside the working folder** make it not count that time:
+  `npm test --prefix ../other-project`, `make check -C ../x`, `make check -f ../x/Makefile`,
+  `cargo test --manifest-path ../x/Cargo.toml`. Every word is looked at, along with the value after `=` in `--opt=value`
+  and values written straight after a short option like `-C../x`, the same way as the path checks above (relative to the
+  folder the command runs in, `~` expanded, symlinks followed). Words that don't exist (the `foo` in `--grep foo`) don't
+  matter, and neither do paths you wrote in the entry yourself (`make -C ../shared check`).
+
+A command that doesn't count that time is judged by the built-in rules (usually that means it asks), as if you'd never
+added it. Entries already in the file that can no longer be added aren't used, and the window in Settings and
+`harness commands list` say which ones. A runner or an option that isn't on these lists can still be added, so the advice
+stands: only add commands you're happy to run with anything after them.
+
+The list lives in `data/commands.json` (mode 600), which the file tools can neither read nor change, like `.env` and
+`mcp.json`; the model has no tool that edits it. ZhiFox rereads the file when it changes, so `harness commands add` works
+while the server is running.
 
 Tunables are in `config.py`: `READONLY_MAX_CHARS` (2,000; longer commands always ask), `READONLY_SCAN_ENTRIES` (3,000),
 `MAX_ALLOWED_COMMANDS` (100), `MAX_ALLOWED_COMMAND_CHARS` (200) and `ALLOWED_COMMANDS_DEFAULT` (empty).

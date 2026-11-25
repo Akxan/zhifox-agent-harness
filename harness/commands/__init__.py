@@ -13,7 +13,8 @@
      哪怕它看起来无害；在名单里的，用了不认识的选项也不算。
   3. 看路径（paths.py）：就算是 cat，读 .env、智狐的数据目录、~/.ssh 这类地方也照常问。
   4. 管道（a | b）只在每一段都是只读的时候才算。你自己加的命令（allowlist.py）只在单独一条时才算，不能出现在管道里：
-     cat 脚本 | python 你允许过的东西，python 就会运行管道送进来的任何代码。
+     cat 脚本 | python 你允许过的东西，python 就会运行管道送进来的任何代码。它后面多出来的参数能让它运行别的命令、
+     指到工作目录之外时，这一次也不算（allowlist_guard.py 的 spoiled）。
 
 这里说"算只读"，只是说不问你就可以运行；它照样经过确认之外的所有规矩（命令看不到 API 密钥，见 tools/shell.py），
 对话里也照样标着"自动允许（只读）"，你看得到它做了什么。
@@ -30,6 +31,7 @@ import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from .allowlist_guard import refusal, spoiled
 from .globs import expand
 from .paths import Places
 from .rules import RULES, Context
@@ -59,7 +61,13 @@ def classify(command: object, places: Places, listed: Iterable[Sequence[str]] = 
             words = found[0]
             for entry in listed:
                 if entry and words[: len(entry)] == list(entry):
+                    if refusal(entry) is not None:  # 不许加的（别的程序写进清单文件的、以前的版本加进来的）：不认（见 allowlist_guard.py）
+                        continue
                     Context(places).paths(words[1:])  # 你允许的是这条命令，不是让它去读 .env
+                    # 后面多出来的参数能让它运行别的命令（make check --eval=…），或者指到工作目录之外（npm test --prefix ../x）：
+                    # 这一次不算，照内置的规则判断，和没加过一样
+                    if spoiled(entry, words, places):
+                        continue
                     return Verdict(True, source="listed")
         context = Context(places)
         context.stage = lambda words: _stage(words, context)

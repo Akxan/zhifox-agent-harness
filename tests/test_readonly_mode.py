@@ -212,7 +212,8 @@ def test_the_list_is_added_to_changed_and_removed(tmp_path):
         ("python", "后面要写明运行哪个脚本"),
         ("python -c 'print(1)'", "后面要写明运行哪个脚本"),
         ("node -e x", "后面要写明运行哪个脚本"),
-        ("awk", "后面要写明运行哪个脚本"),
+        ("awk", "已经内置"),  # 只读的 awk 内置的规则已经放开了，加进来只会多放开 system()（见 test_allowlist_guard.py）
+        ("uv run", "后面要紧跟着写明运行哪一个"),
     ],
 )
 def test_entries_that_would_open_everything_are_refused(entry, says):

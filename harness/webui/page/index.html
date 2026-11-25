@@ -906,7 +906,7 @@ __STYLES__
       <input id="commands-new" class="field" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="200" placeholder="比如 npm test、make check" aria-label="要加的命令" data-i18n-placeholder data-i18n-aria-label>
       <button id="commands-add" class="button" type="button" data-i18n>添加</button>
     </div>
-    <p class="hint" data-i18n>按开头的几个词比：加了 git status，git status --short 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。bash、sudo、env 这类能运行任何命令的程序加不进来；在管道（|）里的不算。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
+    <p class="hint" data-i18n>按开头的几个词比：加了 npm test，npm test --watch 也算。后面跟什么参数都算，所以只加你放心它后面跟着任何东西的命令。加不进来的：bash、sudo、env 这类能运行任何命令的程序；光写 npx、uv run、python，不写运行哪一个的；find、sed、grep 这类只是看的用法已经内置了的。在管道（|）里的不算；后面的参数指到工作目录之外已有的地方（npm test --prefix ../别的项目），或者能让它运行别的命令（git pull --upload-pack）时，这一次也不算，照常问。清单存在数据目录的 commands.json 里，助手自己读不到、也改不了。</p>
   </div>
   <div class="memory-foot"><p id="commands-message" class="memory-message" role="status"></p><button id="commands-done" class="button primary" type="button" data-i18n>完成</button></div>
 </dialog>
