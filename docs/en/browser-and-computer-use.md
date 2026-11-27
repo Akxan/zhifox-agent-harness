@@ -206,8 +206,12 @@ heading "Folding umbrella" [ref_6]
 The model answers with something like `left_click {"target": {"type": "ref", "ref": "ref_4"}}`. ZhiFox finds that
 element, measures where its centre is and sends real mouse events there (`Input.dispatchMouseEvent`), so the page sees
 an ordinary click. Viewport coordinates work too, for what the text can't show (a canvas, a frame from another site).
-Three details matter. Text that isn't displayed (`display: none`, `visibility: hidden`, `aria-hidden`) is skipped, so a
-page can't hide instructions for the model in places you'd never see. The numbers keep counting up per tab instead of
+Three details matter. Text you can't see is skipped, so a page can't hide instructions for the model in places you'd
+never see. The browser knows the page's real look, so ZhiFox asks it instead of working out the CSS itself, with the
+same rules and thresholds as [`web_fetch`](#hidden-text): `display: none`, `visibility: hidden`, `aria-hidden`, a zero
+font size, transparent text, boxes clipped to nothing, text moved off the screen, and the inside of a collapsed
+`<details>`. `get_page_text` still breaks lines and paragraphs the way `innerText` does. `opacity: 0` is read here too:
+the scripts have run, but text that fades in as you scroll is still at zero further down the page. The numbers keep counting up per tab instead of
 starting over on each page, so after a navigation an old `ref_4` fails with "read the page again" instead of quietly
 pointing at a different element of the new page. And a password field is listed without its value. (The element names
 come from the page; the few words ZhiFox adds, such as "(password field)", are in Chinese, like everything written for

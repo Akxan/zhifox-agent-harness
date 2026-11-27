@@ -664,6 +664,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   停下的请求由 manager 在读线程里问 `lets_through`、在另一个线程里答复，每一个都要答（`Page.navigate` 要等它们有了结果才回答）；
   navigate 一结束（包括出错、被停下）就 `Fetch.disable`。后退、前进、刷新、点链接不拦；navigate 返回以后页面自己再跳走的拦不住（写明了）。
   改这里先跑 `tests/test_browser_redirects.py` 和 `tests/test_browser_live.py`。
+  读页面的字（`page.js` 的 `looker`、`shownText`）照浏览器算好的样子去掉看不见的字，规矩和阈值和 `fetch/hidden.py` 一样：两个数（`FETCH_TINY_PX`、
+  `FETCH_OFFSCREEN_PX`）由 `session_page.INSTALL` 从 config 交给 page.js，JS 里不另写一份；`opacity:0` 不算（滚到那里才淡入的字在页面下面还是 0）；
+  `get_page_text` 分行、分段照 `innerText` 的规矩（`test_browser_live.py` 拿普通的页面和 innerText 一字一字地对）。
 - **读网页（`web_fetch`，`harness/fetch/`）的安全边界是硬规矩，没有开关**（要看本机、局域网的网页用浏览器）：
   - 只认 http、https；网址里带用户名密码的、古怪的数字主机名（`2130706433`、`0x7f.1`，在 idna 换成 ASCII 以后再查）不读。
   - 地址的规矩只在 `fetch/guard.py` 的 `refusal`：自己列的表（IPv4 列不能去的，IPv6 只认 2000::/3 再去掉几段），**不用** `ipaddress` 的

@@ -19,6 +19,8 @@ from ..config import (
     BROWSER_SHOT_QUALITY,
     BROWSER_THUMB_WIDTH,
     BROWSER_VIEWPORT,
+    FETCH_OFFSCREEN_PX,
+    FETCH_TINY_PX,
 )
 from ..i18n import joined, zh
 from ..tools.base import ToolError
@@ -29,6 +31,9 @@ if TYPE_CHECKING:
     from .session_tabs import Tab
 
 PAGE_SCRIPT = (Path(__file__).parent / "page.js").read_text(encoding="utf-8")
+# page.js 是一个函数：装进去时把"看不见"的两个数交给它（字号、框不超过几像素，挪出页面至少几像素）。
+# 和读网页（fetch/hidden.py）用的是同一组，两边认藏起来的字是一个规矩
+INSTALL = f"{PAGE_SCRIPT.rstrip()}({json.dumps({'tiny': FETCH_TINY_PX, 'offscreen': FETCH_OFFSCREEN_PX})})"
 WORLD = "zhifox"  # 隔离世界的名字（见 page.js 开头）
 
 
@@ -59,7 +64,7 @@ class SessionPage(SessionPart):
                 tab.world = connection.call(
                     "Page.createIsolatedWorld", {"frameId": tab.target, "worldName": WORLD}, session=tab.session, owner=self
                 )["executionContextId"]
-                self._evaluate(connection, tab, PAGE_SCRIPT)
+                self._evaluate(connection, tab, INSTALL)
             try:
                 return self._evaluate(connection, tab, f"globalThis.__zhifox.{function}({json.dumps(options)})")
             except CDPError as exc:
