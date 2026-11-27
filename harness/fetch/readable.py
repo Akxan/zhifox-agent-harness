@@ -125,6 +125,11 @@ class _Tokens(HTMLParser):
 
     def close(self) -> None:
         super().close()
+        # 停在没关上的 <style>（或 <script>）里时，老一些的补丁版本（3.11.9 这类，CI 上的 macOS、Windows 用的就是它）收尾时
+        # 把里面的字留在 rawdata 里不交出来，新一些的交给 handle_data。两种都按"交出来"算，在哪个 Python 上读出来都一样
+        if self.cdata_elem and self.rawdata:
+            self.handle_data(self.rawdata)
+            self.rawdata = ""
         self._closed("style")  # 到最后都没关上的 <style>：浏览器照样用它
 
     def _opened(self, tag: str, attrs: _Attributes) -> None:

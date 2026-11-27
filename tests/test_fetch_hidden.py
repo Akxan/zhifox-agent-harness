@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -225,8 +226,17 @@ def test_style_block_after_the_element_counts():
     assert text == "正文"
 
 
-def test_unclosed_style_block_at_the_end_counts():
-    # 到最后都没关上的 <style>，浏览器照样用它
+def _old_close(self) -> None:
+    """老一些的补丁版本（3.11.9 这类）的 HTMLParser.close：停在 <style>、<script> 里时，剩下的字留着不交出来。"""
+    if not self.cdata_elem:
+        self.goahead(1)
+
+
+@pytest.mark.parametrize("close", ["this-python", "old-python"])
+def test_unclosed_style_block_at_the_end_counts(monkeypatch, close):
+    # 到最后都没关上的 <style>，浏览器照样用它；在收尾时不交出里面的字的老 Python 上也一样（CI 的 macOS、Windows 撞上过）
+    if close == "old-python":
+        monkeypatch.setattr(HTMLParser, "close", _old_close)
     assert text_of(f'<p class="late">{SECRET}</p><p>正文</p><style>.late{{display:none}}') == "正文"
 
 

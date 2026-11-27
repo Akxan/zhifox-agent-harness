@@ -29,6 +29,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,11 @@ class Shell:
         self._running: subprocess.Popen | None = None
         self._job: winjob.Job | None = None  # Windows：正在运行的命令所在的作业
         self._stopped = False  # 正在运行的命令是不是被 kill_running 结束的
+        # 停止可能恰好落在"子进程已经起来了、还没记进 _running"的那一下（Popen 返回之前子进程就在跑了）：那时 kill_running 找不到它，
+        # 命令就一直跑下去。所以启动的那一段记着 _starting，那时来的停止先记在 _stop_pending，一记下进程就马上结束它。两样都在 _lock 里改
+        self._lock = threading.Lock()
+        self._starting = False
+        self._stop_pending = False
 
     def where(self, unsandboxed: bool = False) -> Path:
         """下一条命令真正从哪个目录开始（记着的目录不在了、沙箱里看不到，就回到工作目录，见 cwd.py 的 where）。
@@ -155,6 +161,15 @@ class Shell:
         return self.current.where(reaches)
 
     def run(self, command: str, timeout_seconds: int = DEFAULT_TIMEOUT, unsandboxed: bool = False) -> str:
+        with self._lock:
+            self._starting, self._stop_pending = True, False
+        try:
+            return self._run(command, timeout_seconds, unsandboxed)
+        finally:
+            with self._lock:
+                self._starting = False
+
+    def _run(self, command: str, timeout_seconds: int, unsandboxed: bool) -> str:
         timeout = max(1, min(timeout_seconds, MAX_TIMEOUT))
         before = self.current.path
         here = self.where(unsandboxed)
@@ -190,8 +205,12 @@ class Shell:
         # 命令正常结束以后，它故意留在后台的程序（Start-Process）照样留着，和 macOS、Linux 上一样
         job = winjob.Job()
         job.add(process)
-        self._running, self._job = process, job
-        self._stopped = False
+        with self._lock:
+            self._running, self._job = process, job
+            self._stopped = pending = self._stop_pending
+            self._starting = False
+        if pending:
+            _kill(process, job)  # 启动的那一下来的停止（见 __init__）
         try:
             output, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -204,7 +223,8 @@ class Shell:
             _kill(process, job)
             raise
         finally:
-            self._running, self._job = None, None
+            with self._lock:
+                self._running, self._job = None, None
             job.close()
         output, place = take(output, mark)
         if self._stopped:
@@ -237,10 +257,13 @@ class Shell:
 
     def kill_running(self) -> None:
         """结束正在运行的命令（如果有）。网页界面的"停止"按钮会调用它。"""
-        process, job = self._running, self._job
-        if process is not None:
+        with self._lock:
+            process, job = self._running, self._job
+            if process is None:
+                self._stop_pending = self._starting  # 正在启动：一记下进程就结束它（见 __init__）
+                return
             self._stopped = True
-            _kill(process, job)
+        _kill(process, job)
 
 
 def describe() -> tuple[str, str]:

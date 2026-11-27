@@ -105,6 +105,10 @@ Before 1.0.0, a minor version may include breaking changes.
 - **Extensions → Channels**: clicking a channel just as its state changed (connecting, a message arriving) could be
   lost, because the whole page was redrawn between the press and the release. Redraws now wait until the mouse is
   released, as the model switcher and the hooks page already did.
+- Stop ends a command that had only just started: if it landed between the command starting and ZhiFox noting it,
+  the command used to run to its end (a chat's `/stop` waited out a 30-second `sleep`).
+- Chat channels: a channel that fails right after starting (a reset secret, Discord's daily login limit) shows the
+  error on the page; it could stay at "off", because the page looked for the channel before it was registered.
 - Linux command sandbox: commands no longer fail to start when a protected file (such as `data/mcp.json`) sits
   inside the data folder, and missing secret places no longer leave empty placeholder files in your home folder
   (`~/.ssh` used to become a file).

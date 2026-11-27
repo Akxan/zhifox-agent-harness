@@ -136,9 +136,9 @@ def test_the_file_tool_asks_in_the_readonly_mode(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     (home / ".m2").mkdir(parents=True)
-    (home / ".m2" / "settings.xml").write_text("<settings><servers><server><password>x</password></server></servers></settings>\n")
-    (home / ".gitconfig").write_text("[http]\n\textraHeader = Authorization: Bearer x\n")
-    (home / "notes.txt").write_text("普通的文件\n")
+    (home / ".m2" / "settings.xml").write_text("<settings><servers><server><password>x</password></server></servers></settings>\n", encoding="utf-8")
+    (home / ".gitconfig").write_text("[http]\n\textraHeader = Authorization: Bearer x\n", encoding="utf-8")
+    (home / "notes.txt").write_text("普通的文件\n", encoding="utf-8")
     workspace = tmp_path / "work"
     (workspace / "data").mkdir(parents=True)
     editor = FileEditor(workspace, workspace / "data" / "backups", protected=[workspace / ".env"])

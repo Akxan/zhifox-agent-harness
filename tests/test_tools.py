@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import anthropic.lib.tools._beta_builtin_memory_tool as sdk_memory
 import pytest
+from oscmd import mark_then_sleep
 
 from harness.config import load_env_file
 from harness.permissions import MODES, Permissions
@@ -437,6 +438,26 @@ def test_shell_timeout_kills_the_command(tmp_path):
     assert "started" in result and "finished" not in result
     assert "超过 1 秒" in result
 
+
+
+def test_a_stop_while_the_command_is_starting_still_ends_it(tmp_path, monkeypatch):
+    # "停止"恰好落在 Popen 返回、还没记下这个进程的那一下：子进程已经在跑了（记号都写出来了），停止却找不到它，
+    # 命令就一直睡下去（CI 的 macOS 上撞上过：聊天里的 /stop 等了 30 秒也没停下）
+    shell = Shell(tmp_path)
+    real = shell_module.subprocess.Popen
+
+    def popen(*args, **kwargs):
+        process = real(*args, **kwargs)
+        shell.kill_running()  # 这时还没记下 process
+        return process
+
+    monkeypatch.setattr(shell_module.subprocess, "Popen", popen)
+    began = time.monotonic()
+    with pytest.raises(ToolError, match="被用户停止了"):
+        shell.run(mark_then_sleep("started", 20))
+    assert time.monotonic() - began < 10
+    monkeypatch.undo()
+    assert shell.run("echo next") == "next"  # 停止只算那一条：下一条照常运行
 
 @needs_bash
 def test_shell_clips_long_output(tmp_path):

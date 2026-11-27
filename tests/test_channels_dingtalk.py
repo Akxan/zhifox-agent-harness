@@ -147,6 +147,22 @@ def test_a_secret_reset_on_dingtalk_shows_an_error_instead_of_retrying_silently(
     assert set(s.fake.requests) == {"POST /v1.0/oauth2/accessToken"}
 
 
+
+def test_a_channel_that_fails_before_the_hub_has_it_still_shows_the_error(bot):
+    # 收消息的线程可能抢在 hub 记下这个通道之前就出了错（机器忙的时候新线程先跑：CI 的 macOS 上撞上过）。
+    # 那一下通知页面刷新时 hub 里还找不到它，读到的是"关着"；之后再试还是同一个错，状态不再变，页面就一直停在"关着"
+    made = bot.fake.factory
+
+    def failing_at_once(config, store):
+        channel = made(config, store)
+        channel.start = lambda deliver: channel._set_status("error", "马上就出错了")  # 在 hub 的 apply 里、start 返回之前
+        return channel
+
+    bot.fake.factory = failing_at_once
+    s = bot(online=False)
+    until(lambda: s.platform()["status"]["state"] == "error", timeout=10, what="页面上的错误")
+
+
 # ---- 配对、陌生人、群聊、重复推送 ---------------------------------------------------------
 
 

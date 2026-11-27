@@ -158,9 +158,11 @@ class ChannelHub:
                     channel = self.factories[platform](self.config, self.store)
                     channel.on_status = self._status_of(platform)
                     self.router.attach(platform, channel)
+                    # 先记下再启动：收消息的线程可能马上就出错、通知页面刷新，那时 snapshot 要找得到它。反过来的话页面读到的是"关着"，
+                    # 之后再试还是同一个错、状态不再变，页面就一直停在"关着"（CI 的 macOS 上撞上过）
+                    self._running[platform] = (channel, entry["credentials"])
                     channel.start(self.router.deliver)
                     self.router.set_commands(platform)
-                    self._running[platform] = (channel, entry["credentials"])
 
     def _status_of(self, platform: str) -> Callable[[], None]:
         """一个通道的状态变了要做的事：告诉 router（重新连上了的话，没发出去的马上补发，见 outbox.py），再刷新页面。"""
