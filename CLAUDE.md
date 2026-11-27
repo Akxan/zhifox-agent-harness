@@ -226,7 +226,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/tools/send.py`、`harness/channels/outbound.py` | 把文件发回聊天里：工具（看一眼、问不问、发之前再读一遍）、平台收什么（`plan`）和发到哪个聊天（`Outlet`） |
 | `harness/serve.py`、`harness/log.py`、`harness/webui/lifecycle.py` | 无界面模式 `harness serve`（服务器上用，跑定时任务和聊天通道）、适合 journald 的日志、调度器和通道统一的启动和停止 |
 | `harness/service/`、`harness/instance.py` | 后台服务：plan（服务怎么运行）、launchd（plist + launchctl）、systemd（用户 unit + systemctl）、windows（任务计划程序）和 supervise（自己的看护进程：任务计划程序失败重启时不看退出码）、logs、cli（`harness service …`）；数据目录的锁和"是谁占着" |
-| `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`）。规则的写法（`Context`、`Program`）和总表 `RULES` 在 `rules.py`，各类程序自己看一遍的函数按种类在 `rules_system`、`rules_files`、`rules_search`、`rules_text`、`rules_subcommands`、`rules_wrappers` |
+| `harness/commands/` | "只读的命令不用问"：手写的命令行切词（不用 shlex）、选项、路径检查、每个程序的规则、你自己加的命令（`data/commands.json`；哪些加不进、对上以后哪些不算在 `allowlist_guard.py`）。规则的写法（`Context`、`Program`）和总表 `RULES` 在 `rules.py`，各类程序自己看一遍的函数按种类在 `rules_system`、`rules_files`、`rules_search`、`rules_text`、`rules_subcommands`、`rules_wrappers` |
 | `harness/capabilities.py`、`harness/capabilities_*.py`、`harness/webui/capabilities_api.py` | 信息栏"智狐能做的事"和终端 `/tools` 的功能清单：工具对应到功能、状态和原因、问不问你、在哪儿执行、怎么打开。`capabilities.py` 是入口（`overview`），`capabilities_kinds`（格式、`KINDS`、`group_of`、`label_of`）、`capabilities_approval`（问不问你）、`capabilities_context`（`_Context`）、`capabilities_builtin` / `capabilities_switched` / `capabilities_mcp`（每一种功能的状态） |
 | `harness/webui/manifest.py`、`harness/webui/icons/`、`tests/make_icons.py` | 网页应用的清单和图标；PNG 由 `make_icons.py` 用无界面的 Chrome 从 `docs/assets/logo.svg` 画一次再提交（改了标志就重画） |
 | `harness/model_catalog.py`、`harness/webui/models_api.py` | 模型目录：每一家有没有密钥、能选的模型、能做什么、价格、换过去会怎样（continue / fresh / leave）；网页的换模型面板（`/api/model/catalog`）和终端的 `/model` 都只照着画 |
@@ -238,12 +238,13 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
 | `harness/fork.py`、`harness/webui/fork_api.py` | 从某一轮分叉成一段新对话：截到哪、复制什么、什么不跟过来（fork.py，不碰网页）；`/api/fork` 和状态里的 `fork`（fork_api.py）；页面在 `page/scripts/fork.js` |
 | `harness/sandbox/`、`harness/webui/sandbox_api.py` | 命令的沙箱（可选，默认关）：policy（三档、哪些路径）、session、macos（sandbox-exec）、linux（bwrap）、windows（为什么没有）、backend（唯一看系统的地方）、cli（`harness sandbox`） |
 | `harness/hooks/`、`harness/webui/hooks_api.py` | 你的钩子：config（`data/hooks.json`）、runner（启动、沙箱、超时）、protocol（退出码和 JSON）、engine（每次运行的 HookRun）、cli（`harness hooks`） |
+| `harness/secret_places.py` | 存着密钥的地方，只有这一份：文件名模式、家目录下的位置、连着的几段、Windows 的、不存在也要挡的，每一项写着出处；只读判断（`commands/paths.py`）和命令的沙箱（`sandbox/policy.py`）都从它来 |
 | `harness/redact.py` | 遮住工具结果里像密钥的东西：各家密钥的格式（`KEY_SHAPES`，导出和 MCP 设置页也用它）、已知的值、`password=` 后面的长串；页面在 `page/scripts/redact.js` |
 | `harness/fallback.py`、`harness/webui/fallback_api.py` | 备用模型：模型暂时用不了时，这一轮接下来改用同一家的哪个（`candidates`、`usable`、`use`）；页面在 `page/scripts/fallback.js` |
 | `harness/voice/`、`harness/webui/voice_api.py` | 语音转文字：设置（settings）、选哪一种服务和发出去（transcribe）、聊天通道收到语音时（listen）；页面在 `page/scripts/voice.js` |
 | `harness/claims.py` | 一段会话同一时间只让一边写：聊天通道正在用的会话，网页上不能发消息、打开、改名、删除 |
-| `harness/fetch/`、`harness/tools/fetch.py` | 读网页（`web_fetch`）：给自己不能联网的模型的只读小工具。guard（哪些地址不去、网址怎么理解）、client（解析、检查、连到查过的地址、自己跟跳转、上限）、charset、readable（HTML → 文字）、content（按类型挑读法）、session（允许过的网站、每条消息几次） |
-| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图。一次运行的 `BrowserSession` 在 `session.py`（状态、run / facts / stop / close、收件箱、和 Chrome 的连接、每个动作的收尾），动作按小节以基类混进来：`session_tabs`（标签页）、`session_page`（调用 page.js、等待、截图）、`session_look`（打开、读页面）、`session_input`（鼠标、键盘）、`session_facts`（动作之前先看一眼），类型见 `session_types.py` 的 `SessionPart`；别处照旧 `from .session import BrowserSession, Facts, Outcome, Target` |
+| `harness/fetch/`、`harness/tools/fetch.py` | 读网页（`web_fetch`）：给自己不能联网的模型的只读小工具。guard（哪些地址不去、网址怎么理解）、client（解析、检查、连到查过的地址、自己跟跳转、上限）、charset、readable（HTML → 文字）、css / cascade / hidden（哪些字藏起来了：解析行内 style 和 `<style>` 块、照浏览器的先后算、哪几种算看不见）、content（按类型挑读法）、session（允许过的网站、每条消息几次） |
+| `harness/browser/`、`harness/tools/browser.py`、`harness/webui/browser_api.py` | 浏览器：智狐自己启动的 Chrome（`data/browser/profile`），只走 `--remote-debugging-pipe`，不开端口；手写的 CDP 客户端、读页面、截图。一次运行的 `BrowserSession` 在 `session.py`（状态、run / facts / stop / close、收件箱、和 Chrome 的连接、每个动作的收尾），动作按小节以基类混进来：`session_tabs`（标签页）、`session_page`（调用 page.js、等待、截图）、`session_look`（打开、读页面）、`session_input`（鼠标、键盘）、`session_facts`（动作之前先看一眼），类型见 `session_types.py` 的 `SessionPart`；别处照旧 `from .session import BrowserSession, Facts, Outcome, Target`；navigate 期间拦跳转的在 `redirects.py` |
 | `harness/desktop/`、`harness/tools/computer.py`、`harness/webui/computer_api.py` | 操作整台电脑（进阶选项，默认关着）：截图和缩放、macOS（screencapture + CoreGraphics）和 X11（xdotool）的后端、每次运行的会话、屏幕同一时间只给一个运行 |
 | `harness/doctor/` | 自检（`harness doctor [--json]`、终端 `/doctor`）：report（三种状态和 JSON 的格式）、fixes（按 zsh / bash / PowerShell 写的修法）、environment（环境、目录的权限、占用）、keys（密钥、只看设置的网络）、features（浏览器、沙箱、操作整台电脑、后台服务）、extensions（MCP、通道、钩子、定时任务）、text（表格）、cli。只看不改、不联网、不写出密钥（连最后几位也不写），判断照着各自原来的那一处；Windows 的 ACL 用 `winacl.others`（`icacls /save` 读 SDDL）|
 | `harness/filelock.py`、`pathnames.py`、`winacl.py`、`winjob.py`、`console.py`、`exits.py`、`machine.py` | 系统之间的差别（见第 9 条）：文件锁、路径花招、Windows 的 ACL 和作业对象、输出编码和 Windows 的 Ctrl-C、退出信号、这是哪个系统 |
@@ -374,6 +375,11 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `commands/words.py` 认的写法只多了两样（2026-11-23，真跑评测时三家模型都撞上的）：`;`、`&&`、`||` 连起来的几段（和管道一样每段各自判断，`cd` 不在名单里所以换目录的一串照样问），和只写到 `/dev/null`、只并到另一路的重定向（`2>/dev/null`、`&>/dev/null`、`2>&1`、`>&2`）。之后又加了通配符（同一次评测里三家都写 `du -sk */`）：`words.py` 只把没加引号的 `*`、`?`、`[ab]`、`[!.]` 记成 `Glob`，`commands/globs.py` 照 bash 在命令运行的目录里展开，展开出来的每一个路径照原来的规则查（对不上的原样、`.*` 补上 `.` 和 `..`、超过 `READONLY_GLOB_MAX` 就问；区间、`[^…]`、字符类、命令名里的通配符、你加的命令里的通配符都不认）。写文件的重定向、单独的 `&` 照旧不认，再放宽要有同样的证据。
   `auto_allowed(why)` 带着为什么（readonly / listed / mode）。几档的名字和说明只写在 `page/scripts/approval-modes.js`，
   对话、任务、通道三处都照它画。`data/commands.json` 在文件工具的 protected 名单里，模型没有任何能改它的工具。
+  **你加的命令哪些加不进来、对上以后哪些不算，只在 `commands/allowlist_guard.py`**（2026-11-25 安全复查）：运行器（`RUNS`）后面要紧跟一个写死的名字，
+  `NEVER` 里的后面写什么都不收；内置已经放开只读用法的程序（`RULES` 里的，除了 git、systemctl、docker、kubectl 和 `VERSIONS`）不收；
+  `SPOILERS` 里的选项在条目里不许有、在后面出现时这一次不算；后面的词指到工作目录之外已经存在的地方，这一次也不算。`check_entry` 和 `classify`
+  都经过它，清单里以前加的、现在不收的条目不再算数（页面上说明为什么）。新发现能"运行后面那个"的程序或选项，先在 `tests/test_allowlist_guard.py`
+  加一行会失败的测试，再照官方文档加进表里、注明出处。
 - **你的几段对话、定时任务、聊天通道同时进行**（`harness/webui/sessions.py`、`sessions_api.py`）。
   - 网页上一段"活着的"对话是一个 `Session`：`chat`（`app_chat.py` 的 `Chat`：Agent 和适配层、会话、自己的 `Shell`、浏览器和电脑的 session、
     MCP 的快照和调用记在谁名下 `owner`）、它自己的事件日志 `ui`（WebUI）、一把锁 `lock`、`running`、存盘失败的原因 `unsaved`。
@@ -578,6 +584,9 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   绝不悄悄在沙箱之外运行。`unsandboxed: true` 在任何模式下都问；没人看着的运行（任务、通道）模式是 all 时直接拒绝。说明书里一直带着
   `unsandboxed`，不随设置变。测试默认用 `tests/fake_sandbox.py`；真的沙箱只在 `test_sandbox_macos.py`、`test_sandbox_linux.py`。
   `/api/sandbox/reveal` 只认设置里"额外允许的路径"列表里已有的一条。
+  存着密钥的地方只有一份名单 `harness/secret_places.py`（NAMES、HOME、HOME_ONLY、FOLDERS、WINDOWS_*、GUARDED，每一项写着出处）：只读判断（`commands/paths.py`）
+  和沙箱（`policy.HOME_SECRETS`）都从它来，别处不再写一份；太普通的名字放进 HOME_ONLY，`tests/test_secret_places.py` 查两边都认。
+  Linux 上不存在的只盖 GUARDED（`~/.ssh`）和数据目录、`.env`，别的不在家目录里占位（`sandbox/linux.py`）。
 - **写测试别赌时机**：GitHub 的 macOS、Windows 机器比本机慢得多。等条件成立（`until`、`page.wait`）不写固定的 sleep；不要"赶在 0.3 秒的动画里
   去看它在不在播"，而是记下调用过没有；换外观以后等过渡播完再量颜色；量耗时的测试连着几次超了才算。推送以后一定看 CI 的结果，红了马上修。
 - **你的钩子只能更严，不能放宽。** agent.py 在记录点旁边各一行（UserPromptSubmit 在 `_submit`、PreToolUse 在确认之后、PostToolUse 在
@@ -649,12 +658,21 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   一个 `BrowserSession`，停止接到 `ui.on_stop` 或 `run.stop`；CDP 的读线程不拿 session 的锁，`manager` 通知页面时不拿着自己的锁。
   问不问写在 `permissions.review_browser`（`permissions_browser.py`）：密码、银行卡、跨站嵌入的框、不是网页的地址在任何模式下都问；
   `file:` `chrome:` `devtools:` `javascript:` `view-source:` 根本不打开；下载一律拒绝；允许过的网站只记在这段对话的 `allowed_sites` 里。
+  **navigate 的跳转（`browser/redirects.py`，2026-11-25）**：`allowed_sites` 只记 navigate 要去的那个网站，跳完落到的、标签页现在停着的都不算
+  （点链接不问；停在哪儿就算的话，点一下、再 navigate 一个编出来的网址就能带出去）。navigate 期间在这个标签页上开 Fetch 域，主框架的每一跳
+  只跟到要去的和允许过的网站，别的用 `Fetch.failRequest`（`Aborted`；`BlockedByClient` 会让标签页的地址变成被拦的网址）作罢、告诉模型。
+  停下的请求由 manager 在读线程里问 `lets_through`、在另一个线程里答复，每一个都要答（`Page.navigate` 要等它们有了结果才回答）；
+  navigate 一结束（包括出错、被停下）就 `Fetch.disable`。后退、前进、刷新、点链接不拦；navigate 返回以后页面自己再跳走的拦不住（写明了）。
+  改这里先跑 `tests/test_browser_redirects.py` 和 `tests/test_browser_live.py`。
 - **读网页（`web_fetch`，`harness/fetch/`）的安全边界是硬规矩，没有开关**（要看本机、局域网的网页用浏览器）：
   - 只认 http、https；网址里带用户名密码的、古怪的数字主机名（`2130706433`、`0x7f.1`，在 idna 换成 ASCII 以后再查）不读。
   - 地址的规矩只在 `fetch/guard.py` 的 `refusal`：自己列的表（IPv4 列不能去的，IPv6 只认 2000::/3 再去掉几段），**不用** `ipaddress` 的
     `is_private` / `is_global`（3.11 和 3.13 的说法不一样）；藏在 IPv6 里的 IPv4 按里面那个判断；一个名字解析出的地址有一个不能去就整个不读。
   - 域名只解析一次、连的就是查过的那个地址（`client.Fetcher._connect`，防 DNS 重绑定），TLS 按域名验证、Host 头写域名；跳转自己跟、每一跳从头再查；
     不走代理（走代理时是代理去解析和连接）。时间靠"看门的"（`_Watchdog`）到点掐断，掐断以后读到的只是一截，一律当超时。
+  - 藏起来的字不交给模型（2026-11-25）：`fetch/hidden.py` 判断哪几种算看不见，`css.py` 解析，`cascade.py` 照浏览器的先后算。只认行内 style 和页面自己的
+    `<style>` 块；`@media` 里的规则和复杂的选择器只能让东西重新看得见、不能藏（Tailwind 的 `hidden md:block`）；`opacity:0` 有意不算（建站工具拿它当淡入之前的样子）。
+    外部样式表、脚本改出来的样子看不到：这只是挡掉常见的写法，真正的防线是"资料不是指示"和按网站问你。
   - 上限都在 `config.FETCH_*`；每条消息几次和 Claude 的联网搜索共用 `HARNESS_MAX_SEARCHES`，"哪一轮"看 `Agent.turns`。
   - 问不问写在 `permissions.review_fetch`（`permissions_fetch.py`）：这段对话里第一次读一个网站之前问，卡片上是完整的网址；只有 all 放开（readonly、edits 照样问）；
     允许过的网站记在每次运行自己的 `FetchSession`（不进会话文件，换一段对话从头再问），跳到别的主机不算允许了那个主机；
@@ -729,7 +747,7 @@ DeepSeek。它同时是教学项目，所以没有用任何 agent 框架，每�
   `tests/test_browser_live.py`（本机没有 Chrome 时跳过）。
 - 用户喜欢在演示页面上跟着点来点去、边看边提意见。自动操作要另开一个实例（另一个端口、另一个临时数据目录），
   不要和用户正在看的那个标签页共用，否则两边的操作会互相打乱。做完之后把演示用的服务器都停掉。
-- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；发不出去时的重试和补发只对着假 Telegram（不回答就关掉连接、500、429、403）和假通道测过，没在真的断网、真的平台故障里试过；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
+- 汇报时把"验证过的"和"没验证过的"分开说清楚。目前没有用真实密钥实测过的部分：GPT 和 Gemini 的对话和附件，GPT、Gemini 的压缩历史（DeepSeek 的 2026-11-23 实测过：门槛调低，连着压缩两次，第四轮照样答出第一轮说的代号，约 0.0014 美元）；MCP 只对着 `tests/fake_mcp.py` 测过，没有接过真实的第三方服务器。自定义 Agent 的委派和角色对话只对着假服务器测过（包括子 Agent 用另一家模型）。聊天通道（Telegram、Discord、Slack、飞书、钉钉、QQ）只对着本地的假服务器测过（装了 SDK 时，飞书的事件分发器和真的钉钉 Stream 客户端也对着假服务器跑过），没有接过真的机器人；发不出去时的重试和补发只对着假 Telegram（不回答就关掉连接、500、429、403）和假通道测过，没在真的断网、真的平台故障里试过；journald 和 systemd 只是模拟过。真的 Chrome 只在 macOS 上测过。后台服务只对着假的 launchctl / systemctl 测过，没在真机上装过（macOS 的隐私拦截、登录自启、崩溃后重启，Linux 的用户服务和 linger 都没实测）。沙箱：macOS 的 sandbox-exec 在本机实测过；Linux 的 bwrap 只在 CI 的 ubuntu 上测过；Windows 没有沙箱（有意的）。命令记着当前目录：bash 的那一层和 sandbox-exec 里的在本机实测过，PowerShell 的那一层在本机用 pwsh 7.4（macOS）跑过，Windows PowerShell 5.1 和 bwrap 的 --chdir 只在 CI 上验证。操作整台电脑只对着假电脑和 Xvfb 测过，macOS 的截图、输入、窗口列表都没在真机上跑过。评测 2026-11-23 真跑过一遍（Sonnet 5.5 21/22、0.57 美元；Opus 5.5 20/22、1.18 美元；DeepSeek flash 17/21、0.02 美元；结果在 data/evals/）：估算原来高了 3 到 9 倍，config 的 EVAL_ASSUMED_* 已经按实际的调过，跑过一次以后估算照上一次实际花的算；GPT、Gemini 没跑过。发文件（send_file）在各个平台上都只对着假服务器测过；钉钉的 photoURL 填 media_id、QQ 只收公网网址都是照文档推断的。备用模型只对着假服务器测过（真的 Claude 换模型时怎么处理思考块是照文档写的）；语音转文字只对着假的转写接口和假的 Telegram 测过（OpenAI 收不收 Telegram 的 OGG/Opus 不知道）；遮密钥的误判率只用测试表检验过。读网页（`web_fetch`）只对着本地的假网站测过（明文 HTTP），没有读过真的网站，真的 TLS 握手和证书验证、真的 DNS、HTML 的读法在真实网页上好不好都没核对过。认藏起来的字只用本机的 4022 个 HTML 文件（Homebrew 的文档）和测试页面检验过。浏览器拦跳转在本机 macOS 的真 Chrome 上测过（127.0.0.1 和 localhost 当两个网站），没在公网网站、HTTPS、Service Worker 接管导航的页面上试过，Windows、Linux 的真 Chrome 只在 CI 上。你加的命令那几张表（`allowlist_guard.py`）和存密钥的位置（`secret_places.py`）是照记忆里的官方文档写的，没有联网逐条核对（写错了只会多问，不会多放行）；Linux 沙箱不在家目录里占位那一处只在 CI 的 ubuntu 上验证。终端存会话、`/history`、`/open` 只对着假服务器测过（在同一个进程里，和在 macOS、Linux 上开一个真的 `python -m harness` 发 SIGTERM）；Windows 上真的终端窗口里按 Ctrl+Break 会不会马上收尾没有试过（读管道的 `input()` 收不到，那个测试在 Windows 上跳过）。按拼音搜索准不准（英文词被当成拼音、首字母对上不相干的标题）只用测试里的小例子和合成的 2000 段会话检验过，没在真实的会话库上看过。网页上几段对话同时进行只对着假服务器和无界面的 Chrome 测过（两三段同时跑、换着看、后台确认、停一段、退出），没有真的几段一起调用真模型跑长任务，
 几段同时操作电脑也只对着假电脑测过。"停止"马上断开模型请求（inflight.py）只对着本地的假服务器测过（明文 HTTP、本机）：
 socket.shutdown 叫醒正在等的线程在本机 macOS 上实测过，Linux、Windows（再加 closesocket）只在 CI 上验证；真的 TLS 连接、走代理时断开、
 真的 Anthropic / OpenAI 服务器看到断开以后马上不再计费，都是照文档和协议推断的；Windows 终端里真的按 Ctrl-C（控制台处理函数）没有试过，CI 上只测了处理函数本身和登记、取消。从某一轮分叉只对着假服务器测过（真的 Claude 认不认切开以后的历史和思考签名，是照倒回最后一轮同一个道理推断的；倒回本身用真密钥测过）。从备份恢复只在本机（macOS）和 CI 上测过，备份都是几十 KB 的：几个 GB 的备份（上传的进度、解开要多久、磁盘空间的估算）没有试过，Windows 上换文件夹时撞上被别的程序（杀毒软件、索引）打开的文件会怎样，只是照着"出错就换回原样"写的，没有在真机上试过。Windows 上的一切（PowerShell 执行命令、ACL、作业对象、真的 Chrome 走管道、Ctrl 和"文件资源管理器"的写法）只在 GitHub 的 windows-latest 上验证过，没在真的 Windows 10、11 桌面上手动用过；任务计划程序只对着假的 schtasks 测过，没有真装过。装成工具（`uv tool install`）在本机 macOS 上真装过：本地的 wheel 和 zip（2026-11-22），发布页上 0.2.0 的 wheel 地址和 `git+https://…@v0.2.0`（2026-11-23，发布以后，临时的工具目录）；GitHub 的三个系统上每次推送由 tests.yml 的 package 在干净的环境里装 wheel 和源码包（`uv run --with`，不是 `uv tool install`）。真的 Linux、Windows 桌面上用 `uv tool install` 装、`uv tool upgrade` 从 GitHub 拉新版本，都没实测；PyPI 还没发。检查新版本只对着本地的假 GitHub（`tests/fake_github.py`）测过，没有真的问过 api.github.com（不花钱，但按规矩不在测试里连外网）；看 `direct_url.json` 认装法只用编出来的文件测过，没有拿各种真装出来的对过。

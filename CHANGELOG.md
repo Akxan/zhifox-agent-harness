@@ -105,6 +105,9 @@ Before 1.0.0, a minor version may include breaking changes.
 - **Extensions → Channels**: clicking a channel just as its state changed (connecting, a message arriving) could be
   lost, because the whole page was redrawn between the press and the release. Redraws now wait until the mouse is
   released, as the model switcher and the hooks page already did.
+- Linux command sandbox: commands no longer fail to start when a protected file (such as `data/mcp.json`) sits
+  inside the data folder, and missing secret places no longer leave empty placeholder files in your home folder
+  (`~/.ssh` used to become a file).
 
 ### Security
 
@@ -129,6 +132,25 @@ Found by an adversarial review of the recent changes; each was reproduced by a f
   chats), so a leftover card's Allow button can't approve a new request after a restart.
 - Chat channels: kept undelivered messages are dropped, and the old chat's running turn stopped, when a channel's
   owner changes or goes away.
+- Your own no-ask commands (`data/commands.json`) can no longer open up everything: runners and interpreters must
+  name what they run (`npx eslint`, `uv run pytest`); programs whose read-only uses are built in (`find`, `sed`,
+  `grep`…) and `git config`, `git submodule foreach`, `git bisect run` can't be added; and a match doesn't count
+  when the extra arguments carry an option that runs commands (`git pull --upload-pack`, `make --eval`,
+  `tar --to-command`…) or point to an existing place outside the working folder (`npm test --prefix ../other`).
+  Entries already in the list that are now refused stop counting, and the list says why.
+- The places that hold secrets are one list (`harness/secret_places.py`) shared by read-only mode and the command
+  sandbox, and it covers many more of them: `~/.gitconfig` and `~/.config/git`, Yarn, pip, Maven, Gradle, Cargo and
+  RubyGems credentials, boto and s3cmd, Terraform, rclone, the 1Password CLI, OCI, doctl, Composer and Codex
+  `auth.json`, Kaggle, Hugging Face, GitHub Copilot, ngrok, fly.io, cloudflared, wrangler and MinIO. The sandbox also
+  blocks a secret place where a symlink really points.
+- Browser: `navigate` no longer follows a redirect (a server's 3xx, or the page's own meta refresh or script while it
+  loads) to a site that wasn't allowed in the conversation, and only the site it was asked to open counts as allowed.
+  The site the tab is on no longer counts either, so after clicking a link to a site, opening a made-up address there
+  asks first. Previously an open redirect on an allowed site could carry a model-made address anywhere without asking.
+- `web_fetch` recognises text hidden by CSS the way a browser does, in inline styles and the page's own `<style>`
+  blocks, through comments, escapes and `!important`: `visibility: collapse`, a zero font size, zero-size clipped
+  boxes, `clip` and `clip-path`, `scale(0)`, off-screen positioning and transparent text are no longer handed to the
+  model. `opacity: 0` is still read on purpose: site builders use it for text that fades in.
 
 ### Documentation
 
