@@ -773,7 +773,10 @@ def test_deleting_a_key(serve):
 
     assert "DEEPSEEK_API_KEY" not in s.config.env_file.read_text(encoding="utf-8")
     assert not os.environ.get("DEEPSEEK_API_KEY")
-    time.sleep(0.2)
+    # 等删掉以后发的那个状态到了浏览器（以前固定等 0.2 秒，CI 的机器慢时读到的还是删之前的那一个）
+    deadline = time.monotonic() + EVENT_WAIT
+    while provider_state(s.browser, "deepseek")["has_key"] and time.monotonic() < deadline:
+        time.sleep(0.02)
     deepseek = provider_state(s.browser, "deepseek")
     assert deepseek["has_key"] is False and deepseek["models"] == []
 
