@@ -48,7 +48,20 @@ from . import cascade, hidden
 # 整段跳过的标签（里面的东西都不要）
 SKIP = {
     "script", "style", "noscript", "template", "svg", "math", "iframe", "object", "canvas", "audio", "video",
-    "nav", "aside", "footer", "button", "select", "datalist", "dialog", "map",
+    "nav", "aside", "footer", "button", "select", "datalist", "dialog", "map", "noembed", "noframes",
+}  # fmt: skip
+# 格式标签（HTML 标准的 formatting elements）和"特殊"的元素（special）：跳过的那一段里有特殊的元素（div、p、section……）时，
+# 外面的格式标签的结束标签（<b><div hidden>…</b>…）关不掉它。浏览器照"领养"算法（adoption agency）重排，</b> 后面的字
+# 还在那个藏起来的元素里；只有行内的（span）时 </b> 真的把它们一起关上。见 _Reader.handle_endtag
+FORMATTING = {"a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"}
+SPECIAL = {
+    "address", "applet", "area", "article", "aside", "base", "basefont", "bgsound", "blockquote", "body", "br", "button",
+    "caption", "center", "col", "colgroup", "dd", "details", "dir", "div", "dl", "dt", "embed", "fieldset", "figcaption",
+    "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr",
+    "html", "iframe", "img", "input", "keygen", "li", "link", "listing", "main", "marquee", "menu", "meta", "nav", "noembed",
+    "noframes", "noscript", "object", "ol", "p", "param", "plaintext", "pre", "script", "search", "section", "select",
+    "source", "style", "summary", "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead", "title", "tr",
+    "track", "ul", "wbr", "xmp", "mi", "mo", "mn", "ms", "mtext", "annotation-xml", "foreignobject", "desc",
 }  # fmt: skip
 # 没有结束标签的
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
@@ -69,7 +82,7 @@ _LINK_OPEN, _LINK_CLOSE = "\ue010", "\ue011"
 _LINK_MARK = re.compile(f"{_LINK_OPEN}([^{_LINK_CLOSE}]*){_LINK_CLOSE}")
 _ITEM_PREFIX = re.compile(r"\s*(?:-|\d+\.) $")
 # 里面的 <style> 不生效的：<template> 的内容不显示；<noscript> 在开着脚本的浏览器里只是一段文字
-_INERT = {"template", "noscript"}
+_INERT = {"template", "noscript", "noembed", "noframes"}
 # CSS 藏不掉的：整页都藏起来的，多半是等脚本跑完再显示（防闪烁），你看到的是脚本跑完以后的整页
 _WHOLE_PAGE = {"html", "body"}
 _Attributes = list[tuple[str, str | None]]
@@ -183,6 +196,10 @@ class _Stack:
         self.tags.clear()
         self.count.clear()
 
+    def holds_any(self, tags: set[str]) -> bool:
+        """开着的里面有没有 tags 里的哪一种（按种类数过的，不用从头找一遍）。"""
+        return any(self.count.get(tag, 0) > 0 for tag in tags)
+
 
 class _Reader:
     """第二遍：按第一遍记下的顺序，一个标签一个标签、一段字一段字地写出能读的文字（方法名照 HTMLParser 的叫法）。"""
@@ -285,6 +302,8 @@ class _Reader:
                 return
             if tag not in self.open:
                 return
+            if tag in FORMATTING and self.skipping.holds_any(SPECIAL):
+                return  # <b><div hidden>…</b>…：浏览器照领养算法重排，后面的字还在藏起来的那个元素里（见 FORMATTING）
             # 跳过的那一段没关上，它外面的标签先关了（<div><aside>…</div>）：和浏览器一样，跳过的那一段也到此为止
             self.skipping.clear()
         if tag == "title":

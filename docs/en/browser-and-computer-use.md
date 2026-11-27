@@ -78,6 +78,8 @@ escapes, `!important` and letter case don't change the meaning, and one function
 [hidden.py](../../harness/fetch/hidden.py) decides what counts as invisible:
 
 - the `hidden` attribute (including `hidden="until-found"`) and `aria-hidden="true"`;
+- `<noembed>` and `<noframes>`, which browsers never show, and text that a misplaced `</b>` seems to release from a
+  hidden block (browsers rebuild the tree so it stays inside);
 - `display: none`, `visibility: hidden` or `collapse`, `content-visibility: hidden`;
 - a font size of 1 px or less (`font-size: 0`, `font: 0/0 a`), and transparent text (`color: transparent`,
   `rgba(…, 0)`, `-webkit-text-fill-color: transparent`) unless something else draws it: a gradient heading with

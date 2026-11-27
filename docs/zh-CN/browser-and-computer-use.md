@@ -58,6 +58,7 @@ Claude 联网靠 Anthropic 服务器上的两个工具：联网搜索和读网�
 哪些算看不见，由 [hidden.py](../../harness/fetch/hidden.py) 里的一个函数判断：
 
 - `hidden` 属性（包括 `hidden="until-found"`）和 `aria-hidden="true"`；
+- 浏览器根本不显示的 `<noembed>`、`<noframes>`，以及看起来被一个放错地方的 `</b>` 放出来、其实浏览器重排以后还留在藏起来的块里的字；
 - `display: none`，`visibility: hidden` 或 `collapse`，`content-visibility: hidden`；
 - 字号不超过 1 像素（`font-size: 0`、`font: 0/0 a`），以及透明的字（`color: transparent`、`rgba(…, 0)`、
   `-webkit-text-fill-color: transparent`），除非字由别的画了出来：用 `background-clip: text` 的渐变色标题、描边、阴影；

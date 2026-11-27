@@ -154,7 +154,9 @@ Found by an adversarial review of the recent changes; each was reproduced by a f
 - `web_fetch` recognises text hidden by CSS the way a browser does, in inline styles and the page's own `<style>`
   blocks, through comments, escapes and `!important`: `visibility: collapse`, a zero font size, zero-size clipped
   boxes, `clip` and `clip-path`, `scale(0)`, off-screen positioning and transparent text are no longer handed to the
-  model. `opacity: 0` is still read on purpose: site builders use it for text that fades in. The browser's
+  model, and so is the content of `<noembed>` and `<noframes>`, or text a misplaced `</b>` seems to release from a
+  hidden block (browsers keep it inside). `opacity: 0` is still read on purpose: site builders use it for text
+  that fades in. The browser's
   `get_page_text` and `read_page` now skip the same hidden text, judged from the page's real look; before,
   `get_page_text` used `innerText`, which keeps `aria-hidden`, zero-size, transparent and off-screen text.
 - `web_fetch` reads a page in time proportional to its size: a page nested tens of thousands of levels deep, a table
