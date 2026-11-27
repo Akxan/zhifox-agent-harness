@@ -28,6 +28,10 @@
 正文里的列表多半每一项带着说明，短的几个链接也留着。
 
 写坏了的 HTML（没关上的 <p>、<li>）很常见：要跳过的那一段用一个栈记着里面开过哪些标签，碰到外层的结束标签就把里面没关的一起关上。
+
+读一页的时间要和网页的大小成正比（网页最多 FETCH_MAX_BYTES，这一步却没有别的时间上限，卡住的是整个智狐）：
+每做一步都把开着的标签、这一行的字从头看一遍的写法，碰上故意写了几万层、几万格的网页，要跑上几十分钟、吃掉几个 GB 的内存。
+所以开着的标签另外数着每种几个（_Stack），这一行有没有字记在一个标记上（filled），列表的缩进最多 INDENT_MAX 层。
 """
 
 from __future__ import annotations
@@ -56,6 +60,8 @@ BLOCK = {
 }  # fmt: skip
 HEADINGS = {f"h{level}": level for level in range(1, 7)}
 MAIN_MIN_CHARS = 200  # <main>、<article> 里至少有这么多字才只留它们（太少的多半是一个小卡片，正文在别处）
+# 嵌套的列表最多缩进这么多层，再深的和这一层对齐：每一层多两格，几万层的列表（故意写的）会让交出来的字按层数的平方变多
+INDENT_MAX = 8
 _SPACES = re.compile(r"\s+")
 # 链接的网址在读的时候先记成 记号开始 + 网址 + 记号结束（私用区的两个字符），整页读完才按名额换成" (网址)"或者去掉。
 # 网页里自己写的这两个字符先去掉（_unmarked：正文在 handle_data 里，图片的 alt 在 handle_starttag 里），冒充不了一个链接
@@ -147,6 +153,37 @@ class _Tokens(HTMLParser):
             self._style = None
 
 
+class _Stack:
+    """开着的一串标签，另外数着每种标签开着几个：结束标签"对不对得上"一下就知道，不用从头找一遍。
+    一个故意写了几万层、后面跟着几万个对不上的结束标签的网页，从头找会让读一页花掉按层数平方的时间。"""
+
+    def __init__(self) -> None:
+        self.tags: list[str] = []
+        self.count: dict[str, int] = {}
+
+    def __len__(self) -> int:
+        return len(self.tags)
+
+    def __contains__(self, tag: object) -> bool:
+        return isinstance(tag, str) and self.count.get(tag, 0) > 0
+
+    def push(self, tag: str) -> None:
+        self.tags.append(tag)
+        self.count[tag] = self.count.get(tag, 0) + 1
+
+    def close(self, tag: str) -> None:
+        """关上最里面的那个 tag，它里面没关上的一起关上（tag 要是开着的）。"""
+        while self.tags:
+            last = self.tags.pop()
+            self.count[last] -= 1
+            if last == tag:
+                return
+
+    def clear(self) -> None:
+        self.tags.clear()
+        self.count.clear()
+
+
 class _Reader:
     """第二遍：按第一遍记下的顺序，一个标签一个标签、一段字一段字地写出能读的文字（方法名照 HTMLParser 的叫法）。"""
 
@@ -156,14 +193,15 @@ class _Reader:
         self.title: list[str] = []
         self.in_title = False
         self.description = ""
-        self.skipping: list[str] = []  # 正在跳过的那一段里开着的标签（空的就是没在跳过）
-        self.open: list[str] = []  # 开着的标签（不算跳过的那一段）：结束标签对上的是哪一个，没关上的一起关上
+        self.skipping = _Stack()  # 正在跳过的那一段里开着的标签（空的就是没在跳过）
+        self.open = _Stack()  # 开着的标签（不算跳过的那一段）：结束标签对上的是哪一个，没关上的一起关上
         self.inks: list[hidden.Ink] = []  # 和 open 一一对应：每一层传下来的字号、颜色、visibility（见 hidden.py）
         self.mains: list[int] = []  # 开着的 main、article（以及 role="main" 的那个标签）在 open 里的位置
         self.lines: list[tuple[str, bool, bool]] = []  # （一行字，是不是在正文里，是不是只是一个链接的列表项）
         self.line_chars = 0  # 这一行里的字有多少（不算空白），其中多少在链接里：看它是不是"只是一个链接"
         self.line_link_chars = 0
-        self.buffer: list[str] = []  # 这一行还没写完的几段
+        self.buffer: list[str] = []  # 这一行还没写完的几段（只用 _put 往里加）
+        self.filled = False  # buffer 里有没有不是空白的字：表格的一格前面要不要加 " | "（不用每一格都把整行拼一遍）
         self.prefix = ""  # 这一行前面要加的："## "、"- "、"1. "
         self.pre = 0  # 在几层 <pre> 里面
         self.lists: list[list] = []  # 开着的列表：["ul" 或 "ol"，已经数到第几项]
@@ -182,7 +220,7 @@ class _Reader:
             values.setdefault(name.lower(), value or "")  # 同一个属性写了两遍，浏览器只认第一个（后面再写一个 style 盖不掉前面的）
         if self.skipping:
             if tag not in VOID:
-                self.skipping.append(tag)
+                self.skipping.push(tag)
             return
         if tag == "title":
             self.in_title = True
@@ -198,20 +236,20 @@ class _Reader:
             return
         if tag in SKIP or _hidden(values):
             if tag not in VOID:
-                self.skipping.append(tag)
+                self.skipping.push(tag)
             return
         ink = self.ink
         if tag not in _WHOLE_PAGE and (tag not in VOID or tag == "img"):
             seen = self.styles.look(tag, values, ink)  # CSS 把它藏起来了吗（行内的 style 和 <style> 块，见 cascade.py）
             if seen.gone:
                 if tag not in VOID:
-                    self.skipping.append(tag)
+                    self.skipping.push(tag)
                 return
             ink = seen.ink
         if tag not in VOID:
             if tag in ("main", "article") or values.get("role") == "main":
                 self.mains.append(len(self.open))
-            self.open.append(tag)
+            self.open.push(tag)
             self.inks.append(ink)
         if tag in BLOCK:
             self._flush()
@@ -224,15 +262,15 @@ class _Reader:
         elif tag == "pre":
             self.pre += 1
         elif tag in ("td", "th"):
-            if "".join(self.buffer).strip():
-                self.buffer.append(" | ")
+            if self.filled:
+                self._put(" | ")
         elif tag == "a":
             self._close_link()
             self.link = (self._href(values.get("href", "")), len(self.buffer))
         elif tag == "img":
             alt = _SPACES.sub(" ", _unmarked(values.get("alt", ""))).strip()
             if alt and not ink.hidden:  # 字号是零、字是透明的，图片照样看得见；visibility:hidden 连图片一起藏
-                self.buffer.append(f"[图片：{alt[:200]}]")
+                self._put(f"[图片：{alt[:200]}]")
 
     def handle_startendtag(self, tag: str, attrs: _Attributes) -> None:
         # <br/>、<img/> 这样写的。不是空元素却写成了 <div/> 的，浏览器当作只开不关：这里当作开了又关上
@@ -243,13 +281,12 @@ class _Reader:
     def handle_endtag(self, tag: str) -> None:
         if self.skipping:
             if tag in self.skipping:
-                while self.skipping and self.skipping.pop() != tag:
-                    pass  # 里面没关上的标签一起关上
+                self.skipping.close(tag)  # 里面没关上的标签一起关上
                 return
             if tag not in self.open:
                 return
             # 跳过的那一段没关上，它外面的标签先关了（<div><aside>…</div>）：和浏览器一样，跳过的那一段也到此为止
-            self.skipping = []
+            self.skipping.clear()
         if tag == "title":
             self.in_title = False
             return
@@ -265,8 +302,7 @@ class _Reader:
         if tag in HEADINGS or tag == "li":
             self.prefix = ""  # 空的标题、空的列表项：前缀不能留给下一行
         if tag in self.open:
-            while self.open.pop() != tag:
-                pass  # 里面没关上的标签一起关上
+            self.open.close(tag)  # 里面没关上的标签一起关上
             del self.inks[len(self.open) :]
             while self.mains and self.mains[-1] >= len(self.open):
                 self.mains.pop()
@@ -284,7 +320,7 @@ class _Reader:
         self.line_chars += size
         if self.link is not None:
             self.line_link_chars += size
-        self.buffer.append(data if self.pre else _SPACES.sub(" ", data))
+        self._put(data if self.pre else _SPACES.sub(" ", data))
 
     # ---- 帮手 ----------------------------------------------------------------
 
@@ -294,7 +330,7 @@ class _Reader:
             self.description = _SPACES.sub(" ", values.get("content", "")).strip()[:500]
 
     def _item(self) -> None:
-        depth = max(len(self.lists), 1)
+        depth = min(max(len(self.lists), 1), INDENT_MAX)
         if self.lists and self.lists[-1][0] == "ol":
             self.lists[-1][1] += 1
             mark = f"{self.lists[-1][1]}. "
@@ -314,6 +350,10 @@ class _Reader:
             return ""
         return full if scheme in ("http", "https") else ""
 
+    def _put(self, text: str) -> None:
+        self.buffer.append(text)
+        self.filled = self.filled or bool(text.strip())
+
     def _close_link(self) -> None:
         if self.link is None:
             return
@@ -321,12 +361,13 @@ class _Reader:
         self.link = None
         text = "".join(self.buffer[start:]).strip()
         if href and text and href.rstrip("/") != text.rstrip("/"):
-            self.buffer.append(f"{_LINK_OPEN}{urls.shown(href)}{_LINK_CLOSE}")  # 名额整页读完才分（见 page）
+            self._put(f"{_LINK_OPEN}{urls.shown(href)}{_LINK_CLOSE}")  # 名额整页读完才分（见 page）
 
     def _flush(self) -> None:
         self._close_link()  # 一行要结束了，链接还没关上（写坏了的 HTML）：先把它的网址写上，不然会跟到下一行去
         raw = "".join(self.buffer)
         self.buffer = []
+        self.filled = False
         in_main = bool(self.mains)
         # 只是一个链接的列表项："- 语言 (网址)" 这样，几乎所有的字都在链接里（见 page 里收起来的那一步）
         only_link = bool(_ITEM_PREFIX.match(self.prefix)) and self.line_chars > 0 and self.line_link_chars >= 0.9 * self.line_chars

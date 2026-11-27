@@ -300,6 +300,46 @@ def test_stray_end_tags_are_ignored():
     assert text_of("</div></li><p>正文</p></span>") == "正文"
 
 
+# ---- readable：故意写成很深的网页，不能把智狐拖死 --------------------------------------------
+# 网页最多 5 MB（FETCH_MAX_BYTES），读的这一步却没有时间上限：以前每个结束标签都要在"开着的标签"里从头找一遍，
+# 嵌套的列表每一项前面的缩进跟着层数变长。一个写着几万层 <div>、<ul> 的网页，能让这一步跑上几个小时、吃掉几个 GB 的内存，
+# 整个智狐（网页界面的服务器也在这个进程里）跟着卡死、被系统杀掉
+
+
+def _quick(html: str, seconds: float = 5.0) -> readable.Page:
+    """读完要快：机器忙的时候慢一次不算，连着三次都超了才算失败（见 CLAUDE.md 的"写测试别赌时机"）。"""
+    import time
+
+    for _ in range(3):
+        started = time.perf_counter()
+        page = readable.read(html, PAGE)
+        if time.perf_counter() - started < seconds:
+            return page
+    raise AssertionError(f"连着三次都超过了 {seconds} 秒")
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<div>" * 30000 + "</span>" * 30000,  # 开着很多层，后面每一个结束标签都对不上
+        "<aside>" + "<b>" * 30000 + "</i>" * 30000,  # 跳过的那一段里也一样
+        "<div>" * 30000 + "<aside>" + "<b>" * 30000 + "</i>" * 30000,
+        "<table><tr>" + "<td>格" * 30000,  # 一行里几万格：每一格前面要不要加 " | "，以前要把整行拼一遍才知道
+    ],
+    ids=["open", "skipping", "both", "cells"],
+)
+def test_deep_nesting_is_read_in_linear_time(html: str):
+    _quick(html)
+
+
+def test_deeply_nested_lists_do_not_blow_up_the_text():
+    # 每一层多缩进两格：三千层的列表，交出来的字有九百万个（输入只有 27 KB），五 MB 的网页能变成几千亿个字
+    html = "<ul><li>项" * 3000
+    text = _quick(html).text
+    assert len(text) < 100 * 3000
+    assert text.startswith("- 项\n  - 项\n    - 项")  # 浅的几层照样缩进
+
+
 # ---- charset.decode -----------------------------------------------------------------
 
 

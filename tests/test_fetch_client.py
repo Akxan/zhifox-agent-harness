@@ -265,3 +265,22 @@ def test_https_always_does_tls(site):
     site.routes["/"] = page("<p>明文</p>")
     with pytest.raises(FetchError):
         fetcher("site.test").get(f"https://site.test:{site.port}/")
+
+
+
+def test_never_hands_a_name_to_the_socket(monkeypatch):
+    # 查过的必须就是连上的：交给 socket 的只能是查过的 IP 地址本身。交给它一个名字，它会再去解析一遍，
+    # 那一次解析出来的地址谁也没查过（1.1.1.1%.localhost 曾经被当成 1.1.1.1 放行，系统把整串解析到 ::1）
+    connected: list[tuple] = []
+
+    def recording(address, *args, **kwargs):
+        connected.append(address)
+        raise OSError("测试里不连")
+
+    monkeypatch.setattr(client.socket, "create_connection", recording)
+    with pytest.raises(guard.Refused):
+        Fetcher().get("http://1.1.1.1%.localhost/")
+    # 一个"解析"出了名字而不是地址的 resolve（假的 DNS 写错了、将来换了实现）：照样不交给 socket
+    with pytest.raises((guard.Refused, FetchError)):
+        Fetcher(resolve=lambda host, port: ["localhost"], policy=lambda address: None).get("http://site.test/")
+    assert connected == []

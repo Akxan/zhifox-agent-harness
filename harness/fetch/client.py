@@ -196,6 +196,10 @@ class Fetcher:
         """连到查过的地址上（一个连不上换下一个），https 的再按域名握手、验证证书。"""
         problem: OSError | None = None
         for address in addresses:
+            if not guard.is_ip(address):
+                # 交给 socket 的必须是查过的那个地址本身：给它一个名字（或者带着网卡名的写法），它会自己再解析一遍，
+                # 那一次的答案谁也没查过。系统的解析函数交回的都是地址；这里防的是将来换了实现、写错了的假 DNS
+                raise guard.Refused(f"没有读：{target.host} 解析出来的“{address}”不是一个 IP 地址。")
             left = deadline - self.clock()
             if left <= 0:
                 break

@@ -177,7 +177,7 @@ def parse(url: str) -> Target:
         # 别的写法更不能放过："8.8.8.8%x.attacker.test" 看着像公网的 8.8.8.8，连的时候系统却把整串当成域名再解析一遍，
         # 对方的 DNS 答 127.0.0.1 就连到这台电脑上了（查的和连的不是同一个）
         raise Refused(f"网站的名字“{host}”里有 %，没有读。")
-    literal = _is_ip(host)
+    literal = is_ip(host)
     if not literal:
         shown = host
         try:
@@ -186,7 +186,7 @@ def parse(url: str) -> Target:
             host = host.encode("idna").decode("ascii").rstrip(".")
         except UnicodeError:
             raise Refused(f"网站的名字“{shown}”看不懂，没有读。") from None
-        literal = _is_ip(host)
+        literal = is_ip(host)
         if not literal and _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
             raise Refused(f"“{shown}”是 IP 地址的一种不常见的写法，没有读。请写成 1.2.3.4 这样的标准写法。")
         if not literal and not _HOST.fullmatch(host):
@@ -205,7 +205,8 @@ def parse(url: str) -> Target:
     )
 
 
-def _is_ip(host: str) -> bool:
+def is_ip(host: str) -> bool:
+    """host 是不是一个照标准写法写的 IP 地址。client.py 只把这样的交给 socket：别的写法 socket 会自己再解析一遍。"""
     try:
         ipaddress.ip_address(host)
     except ValueError:

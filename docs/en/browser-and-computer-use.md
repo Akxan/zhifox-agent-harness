@@ -47,7 +47,9 @@ tool stays and answers that it's off, and a conversation that used it gets it ba
   own, not Python's `is_private`, whose answers changed between Python versions.
 - The address that was checked is the address it connects to: the name is resolved once, so a second DNS answer
   (DNS rebinding) can't swap in 127.0.0.1. TLS still checks the certificate against the name, and the `Host` header
-  carries the name.
+  carries the name. Only a plain IP address is ever handed to the socket, and a host with a `%` in it (an IPv6 zone
+  like `fe80::1%en0`) is refused: `1.1.1.1%.localhost` used to pass as the public 1.1.1.1 while the system resolved the
+  whole string to this computer.
 - ZhiFox follows redirects itself, at most 5, and checks every hop from scratch: a public site can't bounce the request
   to `http://169.254.169.254/`.
 - It doesn't go through `HTTP(S)_PROXY`: behind a proxy, the proxy resolves and connects, and the check would mean
